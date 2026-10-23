@@ -13,6 +13,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
@@ -210,5 +211,47 @@ suite("decision-performance dashboard (real Postgres)", () => {
     expect(d.totals.ever30).toMatchObject({ n: 1, yes: 0, no: 0, unobservable: 1, ratePct: null, coveragePct: 0 })
     // 3M does not measure 90+ DPD (DESIGN.md §3): not a gap, no row expected.
     expect(d.totals.ever90).toBeNull()
+  })
+
+  it("reads a bounded slice: decisions older than the lookback are not on the page", async () => {
+    const [a] = lenders
+    const at = (month: string) => loadDecisionPerformance(db as unknown as DashboardDb, a.tenantId, new Date(`${month}-15T10:00:00+02:00`), "12M")
+    // A's decline is dated 2 Oct 2026; its approval and offer are dated the day the fixture was built.
+    const built = (await db.creditDecisionRecord.findFirstOrThrow({ where: { tenantId: a.tenantId, kind: "OFFER" }, select: { decidedAt: true } })).decidedAt
+    const [y, m] = sastCalendarDate(built).slice(0, 7).split("-").map(Number)
+    const month = (offset: number) => new Date(Date.UTC(y, m - 1 + offset, 1)).toISOString().slice(0, 7)
+    expect(await at(month(24))).toMatchObject({ since: month(0), approvals: 1, takeUp: [{ offers: 1 }] })
+    expect(await at(month(25))).toMatchObject({ since: month(1), approvals: 0, takeUp: [] })
+    expect(await at("2028-10")).toMatchObject({ since: "2026-10", declines: { total: 1 } })
+    expect(await at("2028-11")).toMatchObject({ since: "2026-11", declines: { total: 0 } })
+  })
+
+  it("reads the arrears days of a loan that was past due, and of no other loan", async () => {
+    const tenant = await createChargesTenant(db, false)
+    const late = await createChargesLoan(db, tenant)
+    const healthy = await createChargesLoan(db, tenant)
+    const snapshot = (loanId: string, snapshotDate: Date, daysInArrears: number) => ({
+      tenantId: tenant.tenantId, loanId, snapshotDate, status: "ACTIVE" as const, ncaRegime: "NCA" as const, collectionsStage: "SOFT_REMINDER" as const,
+      daysInArrears, arrearsCents: daysInArrears > 0 ? 216_900 : 0, outstandingPrincipalCents: 200_000, chargesOutstandingCents: 0, chargesLive: false,
+    })
+    await db.loanArrearsSnapshot.createMany({ data: [
+      ...days("2026-06-01", 5).map((d, i) => snapshot(late.loanId, d, i < 2 ? 0 : 5)),
+      ...days("2026-06-01", 5).map((d) => snapshot(healthy.loanId, d, 0)),
+    ] })
+    const read: string[] = []
+    const spy = new Proxy(db, {
+      get(target, prop, receiver) {
+        const model = Reflect.get(target, prop, receiver)
+        if (prop !== "loanArrearsSnapshot") return model
+        return new Proxy(model, { get: (m, op) => (op !== "findMany" ? m[op] : async (args: never) => {
+          const rows = await m.findMany(args) as Array<{ loanId: string }>
+          read.push(...rows.map((r) => r.loanId))
+          return rows
+        }) })
+      },
+    }) as unknown as DashboardDb
+    const d = await loadDecisionPerformance(spy, tenant.tenantId, NOW, "12M")
+    expect(new Set(read)).toEqual(new Set([late.loanId]))
+    expect(d.stages).toMatchObject([{ stage: "SOFT_REMINDER", episodes: 1, loans: 1 }])
   })
 })

@@ -9,7 +9,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import type { prisma } from "@/lib/prisma"
 import { getBookArrears, type BookArrears } from "@/lib/reports/book-arrears"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { addDays } from "../outcomes/definition"
+import { addDays, addMonths, dayInstant } from "../outcomes/definition"
 import {
   approvalCohorts, cohortTotals, NO_SCORE_BAND, overrideComparison,
   type ApprovalInput, type CohortCell, type CohortMetrics, type CohortWindow, type OverrideCell,
@@ -30,6 +30,8 @@ export interface DecisionPerformance {
    */
   demoData: boolean
   window: CohortWindow
+  /** SAST `yyyy-mm` of the first month read: decisions older than DECISION_LOOKBACK_MONTHS are not on the page. */
+  since: string
   approvals: number
   totals: CohortMetrics
   cohorts: CohortCell[]
@@ -48,6 +50,14 @@ export interface DecisionPerformance {
  */
 const HISTORY_DAYS = 401
 
+/**
+ * How far back the page reads decisions (by decision date), counted in whole
+ * SAST months before this one: a request reads a bounded slice, not the
+ * lender's whole log. 24 months holds every cohort a 12-month window has
+ * matured for, plus a year of them.
+ */
+export const DECISION_LOOKBACK_MONTHS = 24
+
 const month = (d: Date) => sastCalendarDate(d).slice(0, 7)
 const OUTCOME_SELECT = { outcomeKind: true, window: true, state: true, value: true, reasonCode: true } as const
 
@@ -65,25 +75,32 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
     const today = sastCalendarDate(asOf)
     // Outcome rows are read only where demoData matches the lender: never demo and real in one figure.
     const demoData = (await db.tenantConfig.findUnique({ where: { tenantId }, select: { isDemoLender: true } }))?.isDemoLender === true
+    const sinceDay = addMonths(`${today.slice(0, 7)}-01`, -DECISION_LOOKBACK_MONTHS)
+    const decidedSince = { gte: dayInstant(sinceDay) }
+    const historyFrom = new Date(`${addDays(today, -HISTORY_DAYS)}T00:00:00.000Z`)
+    // Only a loan that was past due in the history can start an episode: the days of any other are not read.
+    const lateLoanIds = (await db.loanArrearsSnapshot.groupBy({
+      by: ["loanId"], where: { tenantId, snapshotDate: { gte: historyFrom }, daysInArrears: { gt: 0 } },
+    })).map((g) => g.loanId)
     const [approvalRows, offerRows, declineRows, snapshots, arrangements, book] = await Promise.all([
       // Final approvals the outcome job attached loan outcomes to (an approval undone by a return gets none).
       db.creditDecisionRecord.findMany({
-        where: { tenantId, kind: "CREDIT_DECISION", decision: "APPROVE", outcomes: { some: { demoData } } },
+        where: { tenantId, kind: "CREDIT_DECISION", decision: "APPROVE", decidedAt: decidedSince, outcomes: { some: { demoData } } },
         select: {
           id: true, applicationId: true, decidedAt: true, ruleVersion: true, policyHash: true, overridden: true, inputsSnapshot: true,
           outcomes: { where: { window, demoData }, select: OUTCOME_SELECT },
         },
       }),
       db.creditDecisionRecord.findMany({
-        where: { tenantId, kind: "OFFER" },
+        where: { tenantId, kind: "OFFER", decidedAt: decidedSince },
         select: { decision: true, decidedAt: true, outcomes: { where: { outcomeKind: "TAKEN_UP", demoData }, select: OUTCOME_SELECT } },
       }),
       db.creditDecisionRecord.findMany({
-        where: { tenantId, kind: "CREDIT_DECISION", decision: "DECLINE" },
+        where: { tenantId, kind: "CREDIT_DECISION", decision: "DECLINE", decidedAt: decidedSince },
         select: { decidedAt: true, actorType: true, s71ReviewRequired: true, inputsSnapshot: true },
       }),
       db.loanArrearsSnapshot.findMany({
-        where: { tenantId, snapshotDate: { gte: new Date(`${addDays(today, -HISTORY_DAYS)}T00:00:00.000Z`) } },
+        where: { tenantId, loanId: { in: lateLoanIds }, snapshotDate: { gte: historyFrom } },
         select: { loanId: true, snapshotDate: true, daysInArrears: true, collectionsStage: true },
       }),
       db.paymentArrangement.groupBy({ by: ["status"], where: { tenantId }, _count: { _all: true } }),
@@ -136,6 +153,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
     return {
       demoData,
       window,
+      since: sinceDay.slice(0, 7),
       approvals: approvals.length,
       totals: cohortTotals(approvals, window),
       cohorts: approvalCohorts(approvals, window),

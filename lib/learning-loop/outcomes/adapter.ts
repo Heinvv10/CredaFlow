@@ -29,6 +29,11 @@ export interface AdapterResult {
   decisionRecordIds: string[]
   /** Loans whose derivation threw: counted in the job's body, never written; their decision's existing rows are kept. */
   failures: Array<{ ref: string; decisionRecordId: string; error: string }>
+  /**
+   * Decisions whose rows are final and current: not read or derived this run,
+   * so they are in neither list above; their existing rows are kept as they are.
+   */
+  skippedDecisionRecordIds?: string[]
 }
 
 export interface OutcomeSourceAdapter {

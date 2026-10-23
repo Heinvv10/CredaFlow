@@ -35,7 +35,7 @@ const approvals = Array.from({ length: 3 }, (_, i) => ({
   scoreBand: "630-679", overridden: false, product: "MICRO", outcomes: row(i === 0),
 }))
 const data = (demoData = false): DecisionPerformance => ({
-  demoData, window: "12M", approvals: approvals.length, totals: cohortTotals(approvals, "12M"),
+  demoData, window: "12M", since: "2024-10", approvals: approvals.length, totals: cohortTotals(approvals, "12M"),
   cohorts: approvalCohorts(approvals, "12M"), overrides: overrideComparison(approvals, "12M"),
   takeUp: [{ month: "2026-03", decision: "APPROVED_TERMS", offers: 3, small: true, takeUp: tally([[], [], []], "TAKEN_UP", "OFFER") }],
   declines: declineVolume([
@@ -111,7 +111,11 @@ describe("Decision performance page", () => {
     // 3 loans < 20: greyed, counts still shown.
     expect(html).toContain('data-small="true"')
     expect(t).toContain("(few loans)")
-    expect(t).toContain("Not yet computed")
+    // The cohort table's own column header, not any mention in the panel text.
+    expect(html).toMatch(/<th[^>]*>Not yet computed<\/th>/)
+    // The arrangements line carries the marker like the tables do.
+    expect(html).toMatch(/<p[^>]*data-small="true"[^>]*>1 arrangements:[^]*\(few loans\)<\/span><\/p>/)
+    expect(t).toContain("Decisions from Oct 2024 on.")
     expect(t).toContain("33.3% 1/3")
   })
 

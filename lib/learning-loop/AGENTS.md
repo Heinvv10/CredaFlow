@@ -48,6 +48,11 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   CHECK). CURED needs the loan open; settling is SETTLED_AFTER_DELINQUENCY.
   Simulated rows count only for an `isDemoLender` tenant, written `demoData`;
   never mix demo and real rows in one figure. No learning claims.
+- **Bounded reads.** The job skips a loan that has ended and whose rows are all final,
+  current-version and complete (`outcomes/finalized.ts`); a version bump derives everything
+  again. The dashboard reads decisions from the last `DECISION_LOOKBACK_MONTHS` and arrears
+  days only of loans that were past due. Don't add an all-time read to either; measure with
+  `scripts/bench-learning-loop-reads.ts`.
 - **Dashboard** (`lib/learning-loop/dashboard/`): rates divide OBSERVED rows
   only; PENDING/UNOBSERVABLE/missing sit beside them; < 20 loans greyed, not
   hidden; collections "Descriptive, not causal"; no "learning"/"AI" on screen.
@@ -65,6 +70,7 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
 | `lib/learning-loop/submission-refusal.ts` | automated refusals; IT in `app/api/portal/applications/` |
 | `lib/learning-loop/decision-log.integration.test.ts` | `RUN_DECISION_LOG_IT`: trigger, CHECKs, RLS |
 | `lib/learning-loop/outcomes/job.ts` | nightly outcome job (`/api/cron/decision-outcomes`) |
+| `lib/learning-loop/outcomes/finalized.ts` | which loans the job need not derive again; IT `skip.integration.test.ts` |
 | `lib/learning-loop/outcomes/outcomes.integration.test.ts` | `RUN_DECISION_OUTCOMES_IT`: idempotency, key, RLS |
 | `lib/learning-loop/dashboard/loader.ts` | one lender's dashboard (pure aggregation beside it) |
 | `lib/learning-loop/dashboard/dashboard.integration.test.ts` | `RUN_DECISION_DASHBOARD_IT`: aggregates, two-tenant isolation, RLS |

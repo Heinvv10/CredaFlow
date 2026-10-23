@@ -14,7 +14,7 @@ import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { getTenantConfig } from "@/lib/tenant"
 import { cn } from "@/lib/utils"
-import { ArrangementLine, AutomatedRefusalList, CohortTable, DeclineTable, OverrideTable, percent, Rate, StageTable, TakeUpTable } from "./tables"
+import { ArrangementLine, AutomatedRefusalList, CohortTable, DeclineTable, monthLabel, OverrideTable, percent, Rate, StageTable, TakeUpTable } from "./tables"
 
 type Props = { searchParams: Promise<{ window?: string }> }
 
@@ -41,7 +41,7 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
         <h1 className="mt-2 text-2xl font-semibold text-[var(--cf-text)]">Decision Performance</h1>
         <p className="mt-1 max-w-3xl text-sm text-[var(--cf-text-muted)]">
           What happened after each approval, by disbursal month, rule version, policy thresholds, bureau score band, override and product.
-          Months on book count from the first instalment due date.
+          Months on book count from the first instalment due date. Decisions from {monthLabel(data.since)} on.
         </p>
       </div>
 
