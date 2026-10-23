@@ -5,7 +5,7 @@
  * are updated, rows whose key the definitions no longer produce are deleted,
  * and unchanged rows are left alone. Rows of a decision the adapter no longer
  * attributes anything to (neither evaluated nor failed this run) are deleted
- * too. Running it twice on the same facts writes nothing the second time.
+ * too, unless the run attributed nothing at all. Running it twice on the same facts writes nothing the second time.
  */
 import type { DecisionOutcome } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
@@ -99,6 +99,10 @@ export async function syncOutcomes(
   }
 
   const attributed = new Set([...decisionIds, ...(args.keepDecisionRecordIds ?? [])])
+  // Decision records are append-only, so a run that attributes nothing is an
+  // empty read (wrong tenant frame, a source with no extract), not a reason to
+  // wipe the source's rows.
+  if (attributed.size === 0) return counts
   const orphaned = (await db.decisionOutcome.findMany({
     where: { tenantId, sourceSystem }, select: { decisionRecordId: true }, distinct: ["decisionRecordId"],
   })).map((r) => r.decisionRecordId).filter((id) => !attributed.has(id)).sort()
