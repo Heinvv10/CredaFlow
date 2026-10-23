@@ -99,6 +99,8 @@ describe("parseValuation", () => {
     [{ valuedOn: "2026-10-14" }, "valuedOn"],
     [{ valuedOn: "2026-02-30" }, "valuedOn"],
     [{ source: "NEIGHBOUR" }, "source"],
+    // A guide value is read from a published guide (lib/valuation-guides/lookup.ts), never typed in.
+    [{ source: "GUIDE" }, "source"],
     [{ amountCents: 0 }, "amountCents"],
     [{ valuerName: "" }, "valuerName"],
   ])("rejects %j on %s", (override, field) => {

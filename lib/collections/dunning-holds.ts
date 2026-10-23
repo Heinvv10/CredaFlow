@@ -1,10 +1,10 @@
-import type { CollectionsStage, Prisma } from "@prisma/client"
+import type { CollectionsStage, LoanStatus, Prisma } from "@prisma/client"
 
 /**
  * The one rule for "may an AUTOMATED reminder go to this loan's borrower".
  *
- * Every automated dunning path takes its loans from here: the two reminder
- * crons (lib/collections/reminders.ts, app/api/cron/payment-reminders) through
+ * Every automated dunning path takes its loans from here: the reminder
+ * cron (lib/collections/reminders.ts) through
  * `remindableLoanWhere()`, and the escalation cron's borrower notification
  * through `notHeldLoanWhere()` (lib/collections/client-holds.ts). A loan is held
  * if ANY of these is true:
@@ -57,7 +57,17 @@ export function notHeldLoanWhere(): Prisma.LoanWhereInput {
   }
 }
 
+/** The only status an automated reminder reaches. */
+export const REMINDABLE_LOAN_STATUS = "ACTIVE" as const
+
+/**
+ * The statuses a borrower NOTICE reaches: the escalation cron flips a loan to
+ * DEFAULTED at 60 DPD and then sends the notice of it, so a retry of that notice
+ * must still reach a DEFAULTED loan.
+ */
+export const NOTICE_LOAN_STATUSES: readonly LoanStatus[] = [REMINDABLE_LOAN_STATUS, "DEFAULTED"]
+
 /** ACTIVE and not held: the loans an automated reminder may reach. */
 export function remindableLoanWhere(): Prisma.LoanWhereInput {
-  return { status: "ACTIVE", ...notHeldLoanWhere() }
+  return { status: REMINDABLE_LOAN_STATUS, ...notHeldLoanWhere() }
 }

@@ -7,7 +7,8 @@ import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { isPortalForgotNewSendEnabled } from "@/lib/messaging/flags"
-import { lookupContactByChannelValue, normaliseEmail } from "@/lib/contact/identity"
+import { normaliseEmail } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { generateOtp } from "@/lib/otp"
 import { findLenderIdentity } from "@/lib/config/identity"
 import { demoCodeReveal } from "@/lib/config/demo-mode"
@@ -125,18 +126,26 @@ export async function POST(req: NextRequest) {
 
     if (newSend || !legacyIdentity) {
       // New path: sendMessage() via the Phase 9 S2 pipeline.
-      const contact = await lookupContactByChannelValue(prisma, {
+      // The client's OWN Contact (lib/contact/recipient.ts): a code is never filed
+      // under, or gated by the consent of, someone else's Contact.
+      const recipient = await lookupRecipientContact(prisma, {
         tenantId,
         channel: "EMAIL",
         value: normalised,
+        ownerClientId: client.id,
       })
-      if (!contact) {
-        // Data drift: Client exists but no Contact row. Preserves the
-        // enumeration-protection behaviour by 200ing without surfacing the
-        // gap to the caller. Observability: a warning log so the gap is
-        // visible in error tracking + we can backfill the missing
-        // ContactIdentity row out-of-band.
-        console.warn("[portal-forgot] Client without Contact:", { clientId: client.id, tenantId })
+      if (!recipient.ok) {
+        // Data drift: Client exists but no Contact row, or the address resolves to
+        // someone else's Contact. Preserves the enumeration-protection behaviour by
+        // 200ing without surfacing the gap to the caller. Observability: a warning
+        // log (ids only, never the address) so the gap is visible in error tracking
+        // and the ContactIdentity can be repaired out-of-band.
+        console.warn(
+          recipient.reason === "NO_CONTACT"
+            ? "[portal-forgot] Client without Contact:"
+            : "[portal-forgot] Client's email resolves to a Contact owned by someone else:",
+          { clientId: client.id, tenantId },
+        )
         return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
       }
       const template = await prisma.messageTemplate.findFirst({
@@ -154,7 +163,7 @@ export async function POST(req: NextRequest) {
       // the Message row for ops. Not awaited, so the provider round-trip does
       // not tell a matched email from an unknown one by response time.
       void sendMessage({
-        contactId: contact.id,
+        contactId: recipient.contact.id,
         channel: "EMAIL",
         template,
         vars: { firstName: client.firstName, otp },

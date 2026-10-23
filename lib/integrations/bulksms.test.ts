@@ -180,8 +180,8 @@ describe("sendSms — transport backstop when the SMS channel is off", () => {
 
 // BulkSMS WhatsApp is a live channel, switched by WA_ENABLED and the tenant's
 // whatsappEnabled (not by BULKSMS_DRY_RUN, which only simulates). The guard
-// sits in the transport so every caller is covered: the send-link routes and
-// the legacy collections leg.
+// sits in the transport so every caller is covered, the send-link routes
+// among them.
 describe("sendWhatsApp — WhatsApp kill switches at the transport", () => {
   const send = () => sendWhatsApp({ tenantId: "tn1", to: "27821234567", message: "test" })
 

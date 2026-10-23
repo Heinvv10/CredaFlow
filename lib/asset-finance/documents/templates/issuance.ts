@@ -223,12 +223,12 @@ export async function supersedeIssuances(tx: Tx, tenantId: string, dealId: strin
   return rows.flatMap((r) => [r.inputStoragePath, r.pdfStoragePath]).filter((p): p is string => p !== null)
 }
 
-/** The wording and identity an issued document was rendered with, for a re-render check. Null for a pre-template row. */
+/** The wording, lender identity and introducer an issued document was rendered with, for a re-render check. Null for a pre-template row. */
 export async function pinnedIssuance(
   db: Pick<typeof prisma, "assetDocumentIssuance" | "documentTemplateVersion">,
   tenantId: string,
   issuanceId: string | null,
-): Promise<{ wording: AppliedWording; lender: AnyDealDocumentData["lender"] } | null> {
+): Promise<{ wording: AppliedWording; lender: AnyDealDocumentData["lender"]; dealer: AnyDealDocumentData["dealer"] } | null> {
   if (!issuanceId) return null
   const issuance = await db.assetDocumentIssuance.findFirst({ where: { id: issuanceId, tenantId } })
   if (!issuance) return null
@@ -240,15 +240,25 @@ export async function pinnedIssuance(
   // rule change must not stop a signer signing what they were shown.
   const content = parseContent(version.content)
   if (!content) throw new DealDocumentError("The issued template version is not readable")
+  // The introducer is pinned like the lender: from the input retained when the document was issued, never the dealer as it is now
+  // (a rename, or a name written before the shape rule, must not change what a signer was shown). An input retained before the
+  // disclosure existed has no dealer: the document was issued without it and reproduces without it.
+  if (!issuance.inputStoragePath) throw new DealDocumentError("The issued document's render input is no longer retained")
+  const input = await readIssuanceInput(issuance.inputStoragePath, issuance.inputSha256)
   return {
     wording: issuedWording({ templateKey: issuance.templateKey, content, approvalBasis: issuance.approvalBasis }),
     lender: issuance.lenderIdentity as unknown as AnyDealDocumentData["lender"],
+    dealer: input.kind === "deal" ? input.data.dealer ?? null : null,
   }
 }
 
 /** Read a retained input snapshot back (evidence and reproduction). */
 export async function readIssuanceInput(storagePath: string, expectedSha256: string): Promise<RenderInput> {
-  const bytes = await readFile(storagePath)
+  const bytes = await readFile(storagePath).catch((error: unknown) => {
+    // A retained file that has gone is a refusal the route can answer, not a raw ENOENT.
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") throw new DealDocumentError("The issued document's render input is no longer retained")
+    throw error
+  })
   if (sha256DocumentBytes(bytes) !== expectedSha256) throw new DealDocumentError("The retained render input failed its integrity check")
   return deserializeRenderInput(bytes)
 }

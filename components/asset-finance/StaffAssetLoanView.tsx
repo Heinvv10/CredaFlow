@@ -75,7 +75,7 @@ const row = (label: string, value: React.ReactNode) => (
   </div>
 )
 
-export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canCapturePayment, canAuthoriseBackdate, canManageCharges, canManageDebtReview = false }: {
+export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canCapturePayment, canAuthoriseBackdate, canManageCharges, canManageDebtReview = false, role }: {
   loan: StaffAssetLoan
   tenantId: string
   userId: string
@@ -88,6 +88,8 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
   canManageCharges: boolean
   /** act_on_collections: record/clear a debt-review notice on a consumer lease. The route re-checks. */
   canManageDebtReview?: boolean
+  /** The viewer's role: the tracker panel and the logged last-known-position button (AssetLoanRecoveryPanels). */
+  role?: string | null
 }) {
   const [figures, invoice, clientHold] = await Promise.all([
     staffLoanFigures(prisma, { ...loan, tenantId }, new Date()),
@@ -258,7 +260,7 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
 
       {/* Court action and recovery need an asset on the loan; any contract type. */}
       {loan.asset && (
-        <AssetLoanRecoveryPanels tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} canRecordPayment={canRecordPayment} />
+        <AssetLoanRecoveryPanels tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} canRecordPayment={canRecordPayment} role={role} />
       )}
 
       <DataPanel title="Contact history & notes" variant="default" density="loose">

@@ -2,7 +2,7 @@
  * Slice 4a remarketing sale rules (migration 20261015400000), each proved as in the lease
  * suites: the attack is refused, and goes through with that one statement, clause, CHECK or
  * index taken out, inside a rolled-back transaction. A sale is recorded on a LISTED recovery against a current
- * independent (not internal) valuation of the asset; the trigger recomputes
+ * independent valuation (not internal, not a guide value) of the asset; the trigger recomputes
  * belowValuation against the highest such valuation; a buyer carrying the
  * borrower's or a related client's ID is forced to relatedPartyMatch (its own
  * suite); a sale below valuation or to a related party completes only with a second approver;
@@ -113,10 +113,10 @@ suite("slice 4a remarketing sale database rules", () => {
     const stale = async (tx: Tx) => (await tx.assetValuation.create({ data: { tenantId: fx.tenantId, assetId: R.non.loan.assetId, valuedOn: dbDate(day(-40)), source: "ASSESSOR", valuerName: "TEST", amountCents: 100_000_000 } })).id
     const internal = async (tx: Tx) => (await tx.assetValuation.create({ data: { tenantId: fx.tenantId, assetId: R.non.loan.assetId, valuedOn: dbDate(today()), source: "INTERNAL", valuerName: "TEST", amountCents: 100_000_000 } })).id
     const foreign = async (tx: Tx) => (await tx.assetValuation.create({ data: { tenantId: fx.tenantId, assetId: R.nca.loan.assetId, valuedOn: dbDate(today()), source: "ASSESSOR", valuerName: "TEST", amountCents: 100_000_000 } })).id
-    const message = /relies on an independent \(not internal\) valuation of this asset dated within 30 days/
+    const message = /relies on an independent valuation \(not internal, not a guide value\) of this asset dated within 30 days/
 
     it("is independent: an internal valuation will not do", async () => {
-      await refuses(clauseOff(G, `AND v."source" <> 'INTERNAL' AND v."valuedOn" >= today - max_age) THEN`, `AND v."valuedOn" >= today - max_age) THEN`), message,
+      await refuses(clauseOff(G, `AND v."source" NOT IN ('INTERNAL', 'GUIDE') AND v."valuedOn" >= today - max_age) THEN`, `AND v."valuedOn" >= today - max_age) THEN`), message,
         async (tx) => saleIn(tx, R.non, { valuationId: await internal(tx) }))
     })
 

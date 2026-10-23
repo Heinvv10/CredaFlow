@@ -28,6 +28,10 @@ export function documentTermProblem(
     : approvedTermProblem(termDays, approvedTermDays)
 }
 
+export function decimalString(value: Prisma.Decimal | null): string | null {
+  return value === null ? null : value.toString()
+}
+
 export function snapshotArrearsMargin(margin: Prisma.Decimal | null): string | null {
   return margin?.toString() ?? null
 }

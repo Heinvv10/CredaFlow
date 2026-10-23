@@ -1,6 +1,6 @@
 import { formatDatePdf, formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "../pdf-layout"
-import { rateDescription } from "../document-parts"
+import { introducerSection, rateDescription } from "../document-parts"
 import { ncaQuoteClauses } from "../wording/nca-quote"
 import type { NcaAssetDocumentData } from "./types"
 
@@ -42,6 +42,7 @@ export async function renderNcaAssetQuote(data: NcaAssetDocumentData): Promise<B
     String(r.installmentNo), formatIsoDatePdf(r.dueDate), formatZarPdf(r.principalCents),
     formatZarPdf(r.interestCents), formatZarPdf(r.feesCents), formatZarPdf(r.totalCents),
   ]))
+  if (data.dealer) introducerSection(w, data.dealer, "NCA_QUOTATION")
   w.section("ACKNOWLEDGEMENT")
   ncaQuoteClauses(data).forEach((c, i) => w.clause(String(i + 1), c.heading, c.text))
   w.signatures([{ caption: "Consumer acknowledgement", name: data.borrower.name, detail: "Acknowledges receipt; this is not acceptance of the agreement" }])

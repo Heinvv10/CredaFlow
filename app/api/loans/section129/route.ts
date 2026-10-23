@@ -7,7 +7,8 @@ import { sendMessage } from "@/lib/messaging/send"
 import { providerFailureOutcome } from "@/lib/messaging/providers"
 import { readKnownAcceptedDispatchEvidence } from "@/lib/messaging/known-dispatch-evidence"
 import { isSection129NewSendEnabled } from "@/lib/messaging/flags"
-import { lookupContactByChannelValue, normaliseEmail } from "@/lib/contact/identity"
+import { normaliseEmail } from "@/lib/contact/identity"
+import { CONTACT_NOT_RECIPIENTS, lookupRecipientContact } from "@/lib/contact/recipient"
 import { section129Html, section129Text } from "@/lib/email/templates/section129"
 import { buildSection129Attachments } from "@/lib/email/section129-attachments"
 import { loanSettlementFigures, section129NoticeAmounts } from "@/lib/loan/charges-summary"
@@ -201,16 +202,21 @@ export async function POST(req: NextRequest) {
     if (newSend && template) {
       // New path: sendMessage() via the Phase 9 S2 pipeline.
       const emailNormalised = normaliseEmail(addressee.email)
-      const contact = await lookupContactByChannelValue(prisma, {
+      // The addressee's OWN Contact (lib/contact/recipient.ts): eligibility is
+      // checked on, and the notice filed under, that Contact.
+      const recipient = await lookupRecipientContact(prisma, {
         tenantId: tenant.id,
         channel: "EMAIL",
         value: emailNormalised,
+        ownerClientId: addressee.lockClientId,
       })
-      if (!contact) {
-        // Data drift: Client without a Contact row. Same as the bulk route —
-        // don't silently drop a statutory obligation, surface the gap.
-        result = { ok: false, error: `no Contact row for ${addressee.email}` }
+      if (!recipient.ok) {
+        // Data drift: no Contact row, or the address resolves to someone else's.
+        // Same as the bulk route — don't silently drop a statutory obligation,
+        // surface the gap.
+        result = { ok: false, error: recipient.reason === "NO_CONTACT" ? `no Contact row for ${addressee.email}` : CONTACT_NOT_RECIPIENTS }
       } else {
+        const contact = recipient.contact
         try {
           const dispatch = await dispatchSection129UnderEligibilityLock({
             reservation,

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
 
-const mocks = vi.hoisted(() => ({ data: vi.fn(), costForm: vi.fn(), valuations: vi.fn() }))
+const mocks = vi.hoisted(() => ({ data: vi.fn(), costForm: vi.fn(), valuations: vi.fn(), guideReference: vi.fn() }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
-vi.mock("./recovery-panel-data", () => ({ loadRecoveryPanelData: mocks.data, loadCostFormData: mocks.costForm, loadSaleValuations: mocks.valuations }))
+vi.mock("./recovery-panel-data", () => ({ loadRecoveryPanelData: mocks.data, loadCostFormData: mocks.costForm, loadSaleValuations: mocks.valuations, loadGuideReference: mocks.guideReference }))
 
 import { RecoveryPanel } from "./RecoveryPanel"
 
@@ -22,6 +22,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.costForm.mockResolvedValue({ lists: { ncaDeductible: [], nonNcaChargeable: ["TOWING"] }, suppliers: [], legalSteps: [] })
   mocks.valuations.mockResolvedValue([])
+  mocks.guideReference.mockResolvedValue(null)
 })
 
 describe("RecoveryPanel", () => {
@@ -71,6 +72,16 @@ describe("RecoveryPanel", () => {
     expect(out).toContain("Deducted from the proceeds")
     expect(out).toContain("INV-1")
     expect(out).toContain("Withdraw recovery")
+  })
+
+  it("shows the asset's guide value beside the valuation, as a reference only", async () => {
+    mocks.data.mockResolvedValue({ kind: "recovery", view: view(), regime: "NON_NCA", lease: false, surrender: null })
+    expect(await html({ canManage: true, canDecide: false })).not.toContain("Guide reference")
+    mocks.guideReference.mockResolvedValue("R 1 300 000,00 trade, R 1 500 000,00 retail · TEST Plant Guide, effective 1 Feb 2026, read 21 Oct 2026")
+    const out = await html({ canManage: true, canDecide: false })
+    expect(out).toContain("Guide reference (not an independent valuation)")
+    expect(out).toContain("TEST Plant Guide, effective 1 Feb 2026")
+    expect(mocks.guideReference).toHaveBeenLastCalledWith("t-1", "a-1")
   })
 
   it("shows an NCA recovery's notice steps", async () => {

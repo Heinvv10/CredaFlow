@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 describe("sendWhatsAppForTenant", () => {
-  // Two callers (the payment-reminders cron and the
+  // Two callers (the payment-reminders cron, since retired, and the
   // section129_sent courtesy notification) must not call the Baileys bridge directly,
   // with no reference to CommsSettings.waProvider. Under WA_CLOUD
   // that is a transport nothing routes through — the bridge has no numbers
@@ -106,8 +106,9 @@ describe("sendWhatsAppForTenant", () => {
   })
 })
 
-// F4: the s129 courtesy notification and payment-reminders both land here. The
-// tenant's own WhatsApp switch must stop them on either provider.
+// F4: the s129 courtesy notification (and the retired payment-reminders cron,
+// which was the other caller) lands here. The tenant's own WhatsApp switch must
+// stop it on either provider.
 describe("sendWhatsAppForTenant kill switches", () => {
   it("refuses both providers when the tenant has whatsappEnabled=false", async () => {
     for (const waProvider of ["WA_CLOUD", "WA_UNOFFICIAL"]) {

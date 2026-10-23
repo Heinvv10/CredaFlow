@@ -10,6 +10,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { resolveRate } from "./deal-structure"
 import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
 import type { NcaAssetDocumentData } from "./documents/nca/types"
+import { dealerPrintRefusal, documentDealer } from "./documents/wording/dealer-name"
 import {
   issuedWording, lockSelectedTemplate, ncaQuoteMarkProblem, ncaTemplateKey, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, TemplateNotIssuableError,
   type SelectedTemplate,
@@ -36,6 +37,7 @@ const SELECT = {
   } },
   client: { select: { id: true, firstName: true, lastName: true, idNumber: true, addressLine1: true, city: true, province: true, postalCode: true } },
   asset: { select: { make: true, model: true, year: true, serialNumber: true, vin: true, cashPriceExclVatCents: true, vatCents: true } },
+  dealer: { select: { name: true, kind: true } },
 } as const
 
 export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: string; userEmail?: string }, dealId: string): Promise<AgreementResult> {
@@ -45,6 +47,8 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
   if (deal.status !== "APPROVED" || app.status !== "APPROVED" || !deal.client || !deal.clientId) return { kind: "not_ready", reason: "Only an approved natural-person NCA deal can issue this agreement" }
   if (deal.contractType !== "INSTALMENT_SALE" && deal.contractType !== "FINANCE_LEASE") return { kind: "not_ready", reason: "This agreement type has no NCA asset document" }
   if (app.agreementDocumentId) return { kind: "not_ready", reason: "The agreement was already issued" }
+  const dealerRefusal = deal.dealer && dealerPrintRefusal(deal.dealer.name)
+  if (dealerRefusal) return { kind: "not_ready", reason: dealerRefusal }
   if (!app.pasqDocumentSha256 || app.pasqAcknowledgedSha256 !== app.pasqDocumentSha256) return { kind: "not_ready", reason: "The client must review and acknowledge the current quotation first" }
   if (!pasqEvidenceIsIntact(app.pasqEvidence)) return { kind: "not_ready", reason: "The quotation evidence is incomplete" }
   const evidence = app.pasqEvidence
@@ -73,6 +77,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     borrower: { name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber, addressLines: [deal.client.addressLine1, deal.client.city, deal.client.province, deal.client.postalCode].filter((v): v is string => !!v) },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
+    dealer: documentDealer(deal.dealer),
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: deal.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,

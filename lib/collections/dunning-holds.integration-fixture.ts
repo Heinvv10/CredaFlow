@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto"
+import { randomInt, randomUUID } from "node:crypto"
 import type { CollectionsStage, LoanStatus, PrismaClient } from "@prisma/client"
 import { SCHEDULE_TOTAL, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { normalisePhone, toWaJid } from "@/lib/contact/identity"
 
 // Shared real-Postgres fixture for the dunning-hold integration suites.
 // Synthetic data only: every address is `.invalid` and every number is made up.
@@ -42,17 +43,7 @@ export const HOLD_CASES: HoldCase[] = [
   { name: "RESTRUCTURED", status: "RESTRUCTURED", held: true },
 ]
 
-export interface SeededHoldLoan extends HoldCase { loanId: string; clientId: string; email: string; phone: string; whatsapp: string }
-
-let counter = 0
-
-/** Tenants other than `keep` that are ACTIVE, so a cron that takes "the first ACTIVE tenant" takes ours. */
-export async function parkOtherTenants(db: PrismaClient, keep: string): Promise<() => Promise<void>> {
-  const parked = (await db.tenant.findMany({ where: { id: { not: keep }, status: "ACTIVE" }, select: { id: true } })).map((t) => t.id)
-  await db.tenant.updateMany({ where: { id: { in: parked } }, data: { status: "SUSPENDED" } })
-  // Restores exactly the tenants this call suspended.
-  return async () => { await db.tenant.updateMany({ where: { id: { in: parked } }, data: { status: "ACTIVE" } }) }
-}
+export interface SeededHoldLoan extends HoldCase { loanId: string; clientId: string; contactId: string; email: string; phone: string; whatsapp: string }
 
 export async function createSecondProduct(db: PrismaClient, tenantId: string): Promise<string> {
   const product = await db.loanProduct.create({
@@ -77,7 +68,7 @@ async function createLoan(db: PrismaClient, tenant: ChargesTenant, clientId: str
       tenantId: tenant.tenantId, reference: `LN-${id}`, applicationId: app.id, clientId, productId: o.productId,
       principal: 200_000, totalInterest: 10_000, initiationFee: 0, totalRepayable: SCHEDULE_TOTAL, outstandingPrincipal: 200_000,
       startDate: new Date(due.getTime() - 31 * 86_400_000), maturityDate: due,
-      // Path A's 7-day reminder fires on nextPaymentDate; path B's 3-day one on the schedule row below.
+      // The 7-day reminder fires on nextPaymentDate.
       nextPaymentDate: new Date(sastStartOfDay(new Date()).getTime() + 7 * 86_400_000),
       interestRatePm: 0.05, interestModel: "FLAT", monthlyServiceFee: 6_900,
       // CANCELLED is created ACTIVE and forced below: the guardLoanCancellation trigger refuses it without a reversal.
@@ -86,8 +77,12 @@ async function createLoan(db: PrismaClient, tenant: ChargesTenant, clientId: str
       ...(o.inArrears ? { daysInArrears: 65, arrearsAmount: 100_000 } : {}),
     },
   })
+  // In arrears: the instalment fell due 65 days ago, so the nightly DPD pass
+  // (which escalations and reminders run first when it has not) reproduces the
+  // 65 DPD the loan row carries, instead of resetting it to 0.
+  const scheduleDue = o.inArrears ? new Date(sastStartOfDay(new Date()).getTime() - 65 * 86_400_000) : due
   await db.repaymentSchedule.create({
-    data: { tenantId: tenant.tenantId, loanId: loan.id, installmentNo: 1, dueDate: due, principalDue: 200_000, interestDue: 10_000, feesDue: 6_900, totalDue: SCHEDULE_TOTAL },
+    data: { tenantId: tenant.tenantId, loanId: loan.id, installmentNo: 1, dueDate: scheduleDue, principalDue: 200_000, interestDue: 10_000, feesDue: 6_900, totalDue: SCHEDULE_TOTAL },
   })
   if (o.status === "CANCELLED") {
     await db.$transaction(async (tx) => {
@@ -102,22 +97,34 @@ async function createLoan(db: PrismaClient, tenant: ChargesTenant, clientId: str
 export async function seedHoldLoan(
   db: PrismaClient, tenant: ChargesTenant, secondProductId: string, c: HoldCase, opts: { inArrears?: boolean } = {},
 ): Promise<SeededHoldLoan> {
-  const n = ++counter
   const id = randomUUID().replaceAll("-", "").slice(0, 12)
   const email = `hold-${id}@client.invalid`
-  const phone = `+2781${String(1_000_000 + n).slice(1).padStart(7, "0")}`
-  const whatsapp = `+2783${String(1_000_000 + n).slice(1).padStart(7, "0")}`
+  // Random, not numbered: a cron now sweeps every ACTIVE tenant, so rows left by an
+  // earlier run or suite in a shared test database are reached too, and a number
+  // that repeats from one run to the next would read as that loan's reminder.
+  const digits = String(randomInt(10_000_000)).padStart(7, "0")
+  const phone = `+2781${digits}`
+  const whatsapp = `+2783${digits}`
   const client = await db.client.create({
     data: {
       tenantId: tenant.tenantId, idNumber: `91${id.slice(0, 11)}`, firstName: "Hold", lastName: c.name.slice(0, 20),
       email, phone, whatsapp, deceasedAt: c.deceased ? new Date("2026-09-01T00:00:00Z") : null, deceasedReason: c.deceased ? "synthetic" : null,
     },
   })
-  await db.contact.create({
+  const contact = await db.contact.create({
     data: {
       tenantId: tenant.tenantId, clientId: client.id, status: "CLIENT", firstSeenChannel: "MANUAL",
       primaryEmail: email, primaryPhone: phone, primaryWaJid: `${whatsapp.slice(1)}@s.whatsapp.net`,
     },
+  })
+  // The identities a reminder resolves its Contact through (lookupRecipientContact),
+  // the email one included: what sendMessage resolves an email recipient from.
+  await db.contactIdentity.createMany({
+    data: [
+      { tenantId: tenant.tenantId, contactId: contact.id, channel: "SMS", value: normalisePhone(phone), source: "MANUAL" },
+      { tenantId: tenant.tenantId, contactId: contact.id, channel: "WHATSAPP", value: toWaJid(whatsapp), source: "MANUAL" },
+      { tenantId: tenant.tenantId, contactId: contact.id, channel: "EMAIL", value: email, source: "MANUAL" },
+    ],
   })
   const loan = await createLoan(db, tenant, client.id, { productId: tenant.productId, status: c.status, stage: c.stage, debtReview: c.debtReview, inArrears: opts.inArrears })
   if (c.debtReviewOnSibling) {
@@ -136,5 +143,5 @@ export async function seedHoldLoan(
       data: { loanId: loan.id, totalArrears: 100_000, installments: 4, installmentAmt: 25_000, startDate: new Date(), createdBy: "synthetic", active: c.plan },
     })
   }
-  return { ...c, loanId: loan.id, clientId: client.id, email, phone, whatsapp }
+  return { ...c, loanId: loan.id, clientId: client.id, contactId: contact.id, email, phone, whatsapp }
 }

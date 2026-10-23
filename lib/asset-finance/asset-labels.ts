@@ -37,6 +37,7 @@ export const VALUATION_SOURCE_LABELS: Record<ValuationSource, string> = {
   AUCTIONEER: "Auctioneer",
   ASSESSOR: "Assessor",
   INTERNAL: "Internal",
+  GUIDE: "Guide value",
 }
 
 export const BANK_ACCOUNT_STATUS_LABELS: Record<SupplierBankAccountStatus, string> = {

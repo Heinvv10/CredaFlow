@@ -33,6 +33,8 @@ describe("demo simulator cron ownership", () => {
     vi.stubEnv("DEMO_MODE", demo)
     vi.stubEnv("DEMO_SIM_MANUAL_CRON", manual)
     await register()
-    expect(schedule).toHaveBeenCalledTimes(CRON_JOBS.filter(job => job.owner === "in-process").length)
+    // Each single-run job is also fired 30 and 60 minutes later.
+    const inProcess = CRON_JOBS.filter(job => job.owner === "in-process")
+    expect(schedule).toHaveBeenCalledTimes(inProcess.length + 2 * inProcess.filter(job => job.singleRun).length)
   })
 })

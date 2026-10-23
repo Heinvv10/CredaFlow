@@ -387,7 +387,7 @@ describe("planRetroAttribution", () => {
   )
 
   // NEW-4. RESTRUCTURED is eligible under the SHARED backfill rule, but no
-  // clawback path can reach it: app/api/cron/dpd-update/route.ts:88 and
+  // clawback path can reach it: lib/loan/dpd-update.ts (the 90-DPD clawback) and
   // lib/collections/escalation.ts:111 both scope to ACTIVE/DEFAULTED. Accruing
   // here would put a PENDING row in the payout queue on a loan structurally
   // unreachable by every reversal — answering a ledger-policy question that

@@ -1210,6 +1210,13 @@ describe("PUT /api/clients/[id] partial-update semantics", () => {
     expect(clientUpdateMock).not.toHaveBeenCalled()
   })
 
+  it("names the dealer draft purge when the client was erased (freezeDealerPurgedParty), not a 500", async () => {
+    clientUpdateMock.mockRejectedValueOnce(new Error("ERROR: 23514: An erased person or business is not changed"))
+    const response = await PUT(putRequest({ bankName: "FNB" }), context)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toMatch(/erased by the dealer draft purge/)
+  })
+
   it("fails the whole request when the mandatory transactional audit cannot be written", async () => {
     auditLogCreateMock.mockRejectedValueOnce(new Error("audit unavailable"))
 

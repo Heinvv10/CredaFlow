@@ -280,7 +280,7 @@ describe("processRetryBatch", () => {
       },
       data: {
         status: "expired",
-        error: "Message retry window expired after 24 hours",
+        error: "Message retry window expired",
       },
     })
     expect(r.expired).toBe(3)
@@ -362,11 +362,13 @@ describe("processRetryBatch", () => {
     ["under debt review", { kind: "DEBT_REVIEW", reason: "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)" } as const, "client hold: debt review: the client is under debt review"],
   ])("suppresses, not retries, a DUNNING message to a client who is %s, saying which hold it was", async (_n, hold, text) => {
     txMock.message.updateMany.mockResolvedValueOnce({ count: 0 } as any)
-    txMock.message.findMany.mockResolvedValue([{ ...baseMessage, dunning: true }])
+    // A fixed 11:00 SAST: dunning goes only 07:00-20:00 SAST, so the real clock would make this fail at night.
+    const midday = new Date("2026-11-03T09:00:00Z")
+    txMock.message.findMany.mockResolvedValue([{ ...baseMessage, dunning: true, createdAt: midday }])
     vi.mocked(canSendTx).mockResolvedValue({ ok: true, basis: "SERVICE_COMMS_NCA", evidence: "x" } as any)
     holds.hold = hold
     try {
-      const r = await processRetryBatch({ limit: 50, now: new Date() })
+      const r = await processRetryBatch({ limit: 50, now: midday })
 
       expect(r.suppressed).toBe(1)
       expect(r.dispatched).toBe(0)

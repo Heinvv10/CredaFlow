@@ -1,22 +1,17 @@
 /**
- * The message templates a new tenant starts with, and the function the seed
- * calls to create them.
+ * The message templates a new tenant starts with, and the function the seed calls to create them.
  *
- * These rows used to be written by data migrations, for one named tenant only,
- * so a database built from the migrations had none. They are seeded per
- * tenant instead. Wherever the copy names the lender it carries
- * SEED_BRAND_TOKEN, which the seed replaces with the tenant's brand
- * (`brandName ?? tenant.name`, as the SMS copy does): it is not a send-time
- * variable, so a stored row never contains it.
+ * These rows used to be written by data migrations, for one named tenant only, so a database built
+ * from the migrations had none. They are seeded per tenant instead. Wherever the copy names the
+ * lender it carries SEED_BRAND_TOKEN, which the seed replaces with the tenant's brand
+ * (`brandName ?? tenant.name`): it is not a send-time variable, so a stored row never contains it.
  *
- * Not seeded: `section129_email`. Its body was the forked lender's statutory
- * notice. The S129 email path (MESSAGING_NEW_SEND_S129) refuses with
- * "template not found" until a tenant creates one with its own identity.
- *
- * WhatsApp bodies come from WABA_BODY_TEMPLATES, so the stored row and the
+ * Not seeded: `section129_email`. Its body was the forked lender's statutory notice; the S129 email
+ * path (MESSAGING_NEW_SEND_S129) refuses with "template not found" until a tenant creates one with
+ * its own identity. WhatsApp bodies come from WABA_BODY_TEMPLATES, so the stored row and the
  * variables the code supplies cannot drift (template-vars-contract.test.ts).
  */
-import type { Channel, PrismaClient, TemplateCategory } from "@prisma/client"
+import type { Channel, TemplateCategory } from "@prisma/client"
 import { SEED_BRAND_TOKEN, WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
 import { OTP_MESSAGE_TEMPLATES } from "./otp-templates"
 
@@ -43,6 +38,13 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     key: "asset_finance_rate_notice_nca_email", event: "asset_finance_rate_notice_nca", channel: "EMAIL", category: "SERVICE",
     subject: "{{subject}}", body: "{{text}}", bodyTemplate: "{{html}}",
     statutoryOverride: true,
+  },
+  {
+    // The tracking-stopped notice (lib/asset-finance/tracker-closure.ts); the words are
+    // lib/asset-finance/documents/wording/tracking-stopped.ts, rendered into the vars.
+    key: "asset_finance_tracking_stopped_email", event: "tracking_stopped", channel: "EMAIL", category: "SERVICE",
+    subject: "{{subject}}", body: "{{text}}", bodyTemplate: "{{html}}",
+    statutoryOverride: false,
   },
   {
     key: "agent_reengagement_whatsapp", event: "agent_reengagement", channel: "WHATSAPP", category: "SERVICE",
@@ -181,11 +183,6 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     redactStoredBody: true,
   },
   {
-    key: "payment_due_3d_whatsapp", event: "payment_due_3d", channel: "WHATSAPP", category: "SERVICE",
-    body: WABA_BODY_TEMPLATES.payment_due_3d, bodyTemplate: WABA_BODY_TEMPLATES.payment_due_3d,
-    wabaTemplateName: "payment_due_3d",
-  },
-  {
     key: "payment_received_email", event: "payment_received", channel: "EMAIL", category: "TRANSACTIONAL",
     subject: "{{subject}}",
     body: "{{text}}",
@@ -235,6 +232,14 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     wabaTemplateName: "payment_reminder_overdue_3d",
   },
   {
+    // The pre-due reminder email (lib/collections/reminders.ts): the copy is the
+    // trigger's own, rendered into {{subject}}/{{text}}/{{html}} like loan_overdue_email.
+    key: "payment_reminder_email", event: "payment_reminder_sent", channel: "EMAIL", category: "SERVICE",
+    subject: "{{subject}}",
+    body: "{{text}}",
+    bodyTemplate: "{{html}}",
+  },
+  {
     key: "payment_reminder_sms", event: "payment_reminder_sent", channel: "SMS", category: "SERVICE",
     body: "{{body}}",
   },
@@ -265,27 +270,37 @@ export function defaultTemplateForTenant(t: DefaultMessageTemplate, lenderName: 
   return { ...t, subject: brand(t.subject), body: brand(t.body)!, bodyTemplate: brand(t.bodyTemplate) }
 }
 
+// Structural, so the tenant-scoped client the crons use fits as well as a plain PrismaClient, without a cast.
+export interface TemplateSeedDb {
+  messageTemplate: {
+    findMany(args: { where: { tenantId: string }; select: { key: true; event: true; channel: true } }): PromiseLike<Array<{ key: string | null; event: string; channel: string }>>
+    createMany(args: { data: Array<{ tenantId: string } & Omit<DefaultMessageTemplate, "bodyTemplate"> & { bodyTemplate?: string }>; skipDuplicates: true }): PromiseLike<unknown>
+  }
+}
+
 /**
- * Create every default template the tenant lacks, as the old SQL seed's
- * `ON CONFLICT DO NOTHING` did. A default is skipped when the tenant already
- * has a row with the same `key` OR the same (event, channel) — the Settings UI
- * writes key-less rows, and an operator may re-key one, and either would make
- * the create violate a unique. Existing rows are never updated.
+ * Create every default template the tenant lacks, as the old SQL seed's `ON CONFLICT DO NOTHING`
+ * did: one that has the same `key` OR the same (event, channel) is skipped (the Settings UI writes
+ * key-less rows, an operator may re-key one), and existing rows are never updated. Two queries,
+ * not one per default: the reminders cron runs it for every ACTIVE tenant each night, with
+ * `only` to seed just the rows it needs (not the OTP and portal ones).
  */
 export async function seedDefaultMessageTemplates(
-  db: Pick<PrismaClient, "messageTemplate">,
+  db: TemplateSeedDb,
   tenantId: string,
   lenderName: string,
+  options: { only?: (template: DefaultMessageTemplate) => boolean } = {},
 ): Promise<void> {
   if (!lenderName.trim() || lenderName.includes(SEED_BRAND_TOKEN)) {
     throw new Error("seedDefaultMessageTemplates: lenderName is required")
   }
-  for (const t of DEFAULT_MESSAGE_TEMPLATES) {
-    const existing = await db.messageTemplate.findFirst({
-      where: { tenantId, OR: [{ key: t.key }, { event: t.event, channel: t.channel }] },
-      select: { id: true },
-    })
-    if (existing) continue
-    await db.messageTemplate.create({ data: { tenantId, ...defaultTemplateForTenant(t, lenderName) } })
-  }
+  const existing = await db.messageTemplate.findMany({ where: { tenantId }, select: { key: true, event: true, channel: true } })
+  const keys = new Set(existing.map((e) => e.key))
+  const pairs = new Set(existing.map((e) => `${e.event}/${e.channel}`))
+  const missing = DEFAULT_MESSAGE_TEMPLATES.filter((t) => (options.only?.(t) ?? true) && !keys.has(t.key) && !pairs.has(`${t.event}/${t.channel}`))
+  if (missing.length === 0) return
+  await db.messageTemplate.createMany({
+    data: missing.map((t) => ({ tenantId, ...defaultTemplateForTenant(t, lenderName) })),
+    skipDuplicates: true,
+  })
 }

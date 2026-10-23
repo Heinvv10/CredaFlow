@@ -1,5 +1,6 @@
 import type { ReferenceRateBasis } from "@prisma/client"
 import type { NcaAssetContractType } from "../../nca-caps"
+import type { DocumentDealer } from "../wording/dealer-name"
 
 export interface NcaAssetScheduleRow {
   installmentNo: number
@@ -20,6 +21,8 @@ export interface NcaAssetDocumentData {
   lender: { legalName: string; ncrNumber: string; registeredOfficeLines: string[] }
   borrower: { name: string; identityNumber: string; addressLines: string[] }
   asset: { description: string; serialNumber: string }
+  /** The dealer that introduced the deal, or none: it only prints the commission disclosure and moves no figure. */
+  dealer?: DocumentDealer | null
   pricing: {
     cashPriceCents: number
     depositCents: number

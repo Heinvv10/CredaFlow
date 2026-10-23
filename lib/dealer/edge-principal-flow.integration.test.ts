@@ -133,7 +133,7 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     const draft = await dealerDraft(fx, sales)
     const stored = await inTenant(fx, () => uploadDealerDocument(sales, draft.dealId, pdfUpload("POPIA_CONSENT")))
     if (stored.kind !== "stored") throw new Error("upload")
-    ok(await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: stored.document.id, clientIds: [draft.directorId] })), "attested")
+    ok(await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: stored.document.id, clientIds: [draft.directorId] , signingMethod: "IN_PERSON" })), "attested")
     ok(await inTenant(fx, () => submitDealerDeal(sales, draft.dealId)), "submitted")
     expect(await inTenant(fx, () => submitDealerDeal(sales, draft.dealId))).toMatchObject({ status: 409 })
     expect(await inTenant(fx, () => submitDealerDeal(actorOf(fx, fx.salesUserA, fx.dealerA, "DEALER_ADMIN"), draft.dealId))).toMatchObject({ status: 409 })
@@ -151,7 +151,7 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     const status = sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(draft.dealId)}`)
     // F03: uploads and consent attestations AFTER hand-over / acceptance. Records the behaviour per status.
     const after = await inTenant(fx, () => uploadDealerDocument(sales, draft.dealId, pdfUpload("OTHER")))
-    const attestAfter = await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: stored.document.id, clientIds: [draft.directorId] }))
+    const attestAfter = await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: stored.document.id, clientIds: [draft.directorId] , signingMethod: "IN_PERSON" }))
     console.info(`[F03] after accept (status ${status}): upload=${after.kind === "stored" ? "stored" : JSON.stringify(after)} attest=${JSON.stringify(attestAfter).slice(0, 120)}`)
     expect(attestAfter).toMatchObject({ status: 409 })
   }, 60_000)

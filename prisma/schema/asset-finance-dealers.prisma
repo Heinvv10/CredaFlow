@@ -107,7 +107,8 @@ model DealerUser {
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   consentAttestations DealerConsentAttestation[]
   dealerUsersCreated  DealerUser[]               @relation("DealerUserCreatedByDealerUser")
-  deals               AssetFinanceDeal[]
+  deals               AssetFinanceDeal[]         @relation("AssetDealDealerUser")
+  dealsCancelled      AssetFinanceDeal[]         @relation("AssetDealCancelledByDealerUser")
 
   @@unique([tenantId, id])
   @@unique([tenantId, email])
@@ -275,6 +276,11 @@ model DealerConsentAttestation {
   dealerUser       DealerUser       @relation(fields: [tenantId, dealerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   statementVersion String
   statementText    String
+  // dealer-consent-v2 on (CHECK DealerConsentAttestation_signing_method): how
+  // the form was signed, and for REMOTE what the dealer did to check identity.
+  // Null on a dealer-consent-v1 row, which stays as it was attested.
+  signingMethod       DealerConsentSigningMethod?
+  remoteIdentityCheck String?
   attestedAt       DateTime         @default(now())
   verifiedById     String?
   verifiedBy       User?            @relation("DealerConsentVerifiedBy", fields: [tenantId, verifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -301,4 +307,51 @@ model DealerDocumentRequest {
 
   @@unique([tenantId, id])
   @@index([tenantId, dealId])
+}
+
+// How a dealer-captured person signed the POPIA consent form (dealer-consent-v2).
+enum DealerConsentSigningMethod {
+  IN_PERSON
+  REMOTE
+}
+
+enum DealerDealPurgeReason {
+  ABANDONED_DRAFT
+  CANCELLED_DRAFT
+}
+
+// The tombstone of a dealer deal whose dealer-captured people, business and
+// documents the draft purge erased (lib/dealer/draft-purge.ts). Inserted only
+// for a deal dealerDealPurgeReason names; never changed or deleted.
+model DealerDealPurge {
+  id              String                @id @default(cuid())
+  tenantId        String
+  tenant          Tenant                @relation(fields: [tenantId], references: [id])
+  dealId          String
+  deal            AssetFinanceDeal      @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reason          DealerDealPurgeReason
+  purgedAt        DateTime              @default(now())
+  clientsErased   Int
+  clientsKept     Int
+  entitiesErased  Int
+  entitiesKept    Int
+  documentsErased Int
+  documentsKept   Int
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, dealId])
+}
+
+// A purged document's stored file still to be deleted: written in the purge's
+// transaction, deleted once the file is gone (the next run drains any left
+// by a crash between the commit and the delete).
+model DealerPurgePendingFile {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  storagePath String
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
 }

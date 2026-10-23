@@ -106,8 +106,21 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
       return (value as CronJob[]).map((job) => ({ file, key: String(job?.route), value: job }))
     }),
   )
-  const allowed = { "in-process": ["route", "owner", "schedule", "method", "freshnessMinutes"], external: ["route", "owner"], unwired: ["route", "owner", "reason"] }
-  return items.map(({ file, value: job }) => {
+  const validateAfter = (jobs: CronJob[]): CronJob[] => {
+    // A single-run job's last firing is 60 minutes after its own time (lib/ops/cron-run-claim.ts).
+    const finalFiring = (j: { schedule: string }) => { const [m, h] = j.schedule.split(/\s+/).map(Number); return h * 60 + m + 60 }
+    for (const job of jobs) {
+      if (job.owner !== "in-process" || !job.after) continue
+      if (!job.singleRun) fail(`${job.route}: after "${job.after}" needs ${job.route} to be singleRun`)
+      const target = jobs.find((j) => j.route === job.after)
+      if (!target || target.owner !== "in-process" || !target.singleRun) fail(`${job.route}: after "${job.after}" must name a singleRun in-process job`)
+      // The waiting job's last chance must come after the other job's last firing is over, or it could never run.
+      if (finalFiring(target) >= finalFiring(job)) fail(`${job.route}: after "${job.after}": ${job.route}'s final firing must come after ${job.after}'s`)
+    }
+    return jobs
+  }
+  const allowed = { "in-process": ["route", "owner", "schedule", "method", "freshnessMinutes", "singleRun", "after"], external: ["route", "owner"], unwired: ["route", "owner", "reason"] }
+  return validateAfter(items.map(({ file, value: job }) => {
     const keys = allowed[job.owner as keyof typeof allowed]
     const extra = keys ? Object.keys(job).filter((k) => !keys.includes(k)) : []
     if (extra.length) fail(`${file}: ${job.route} (${job.owner}) does not take ${extra.join(", ")}`)
@@ -124,7 +137,17 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
         if (!Number.isInteger(job.freshnessMinutes) || job.freshnessMinutes <= 0) {
           fail(`${file}: ${job.route} needs a positive whole freshnessMinutes`)
         }
-        return { route: job.route, owner: job.owner, schedule: job.schedule, method, freshnessMinutes: job.freshnessMinutes }
+        if (job.singleRun !== undefined && typeof job.singleRun !== "boolean") fail(`${file}: ${job.route} singleRun must be true or false`)
+        // The claim is one row per SAST day: a job firing more often than daily would run once and be skipped the rest of the day.
+        if (job.singleRun && !/^\d+ \d+ \* \* \*$/.test(fields.join(" "))) {
+          fail(`${file}: ${job.route} singleRun needs a once-a-day schedule ("M H * * *"), not "${job.schedule}"`)
+        }
+        // The scheduler also fires a singleRun job 30 and 60 minutes later, the same day.
+        if (job.singleRun) {
+          const [minute, hour] = fields.map(Number)
+          if (hour * 60 + minute + 60 >= 24 * 60) fail(`${file}: ${job.route} singleRun needs room for a +60 minute retry before midnight`)
+        }
+        return { route: job.route, owner: job.owner, schedule: job.schedule, method, freshnessMinutes: job.freshnessMinutes, singleRun: job.singleRun === true, after: job.after ?? null }
       }
       case "external":
         return { route: job.route, owner: job.owner }
@@ -134,7 +157,7 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
       default:
         return fail(`${file}: ${(job as { route: string }).route} owner must be in-process, external or unwired`)
     }
-  })
+  }))
 }
 
 function simulatedIntegrations(entries: Entry<unknown>[]): Record<string, SimulationRule> {

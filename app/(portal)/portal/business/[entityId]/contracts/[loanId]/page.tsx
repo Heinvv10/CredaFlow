@@ -12,6 +12,7 @@ import { statusLabel } from "@/lib/asset-finance/labels"
 import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
 import { PortalRecoverySection } from "@/components/asset-finance/recovery/PortalRecoverySection"
+import { PortalTrackingStopped } from "@/components/asset-finance/telematics/PortalTrackingStopped"
 import { loadSurrenderRequestOpen } from "@/lib/asset-finance/surrender-request-gate"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
@@ -48,7 +49,10 @@ export default async function PortalContractPage({ params }: Params) {
     // A lease is rentals, not instalments: its own view, behind the lease gate (lib/asset-finance/lease-portal-route.ts).
     const lease = await loadPortalLease(tenantId, clientId, loanId)
     if (!lease) notFound()
-    return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} extra={<PortalRecoverySection tenantId={tenantId} loanId={loanId} locale="en" />} />
+    return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} extra={<>
+      <PortalTrackingStopped tenantId={tenantId} loanId={loanId} />
+      <PortalRecoverySection tenantId={tenantId} loanId={loanId} locale="en" />
+    </>} />
   }
   const asset = view.asset
   // A voluntary surrender (NCA s127) can be asked for until the lender holds the asset; an existing request still shows.
@@ -102,6 +106,7 @@ export default async function PortalContractPage({ params }: Params) {
       <DataPanel title="Repayment schedule" density="compact">
         <PortalContractSchedule rows={view.schedule} />
       </DataPanel>
+      <PortalTrackingStopped tenantId={tenantId} loanId={loanId} />
       {/* The business contract pages are not translated: the recovery card on them stays English too. */}
       <PortalRecoverySection tenantId={tenantId} loanId={loanId} locale="en" />
       {surrenderApplies && (view.surrender || canRequestSurrender) && (

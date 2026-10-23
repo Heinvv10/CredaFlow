@@ -10,7 +10,7 @@ import { WA_ENV_OFF_REASON, WA_SETTINGS_UNAVAILABLE_REASON, whatsappRefusal } fr
  *
  * `lib/messaging/providers.ts` already forks on `CommsSettings.waProvider`,
  * but two callers predate it and call the Baileys bridge directly:
- * the payment-reminders cron and the `section129_sent` courtesy notification
+ * the payment-reminders cron (since retired) and the `section129_sent` courtesy notification
  * (which is absent from `NEW_SEND_FLAGS`, so it never took the flag-gated
  * cutover the other six events did). Under WA_CLOUD
  * that is a transport nothing routes through — the bridge has no numbers

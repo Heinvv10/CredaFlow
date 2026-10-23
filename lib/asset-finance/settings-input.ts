@@ -1,7 +1,8 @@
 /**
  * Validation of the tenant-level asset-finance set-up written by ADMIN users:
  * the module switch, payout dual-approval threshold, dealer portal switch and
- * commission clawback window (PATCH /api/settings/asset-finance) and the VAT vendor details
+ * commission clawback window, the tracker position retention (PATCH
+ * /api/settings/asset-finance) and the VAT vendor details
  * (PUT /api/asset-finance/vat-config).
  *
  * TenantConfig.assetFinanceLegalWordingApproved is deliberately NOT writable:
@@ -17,6 +18,8 @@ export interface AssetFinanceSettingsInput {
   featureDealerPortal?: boolean
   /** Months after booking within which an early settlement or write-off reverses dealer commission (0 = off). */
   dealerCommissionClawbackMonths?: number
+  /** Days a tracker position is kept (SLICE5.md part B); the database's CHECK bounds it to 1..365. */
+  telematicsPositionRetentionDays?: number
 }
 
 export const MAX_CLAWBACK_MONTHS = 60
@@ -57,9 +60,14 @@ export function parseAssetFinanceSettings(body: unknown): Parsed<AssetFinanceSet
       errors.dealerCommissionClawbackMonths = `must be a whole number of months from 0 (off) to ${MAX_CLAWBACK_MONTHS}`
     }
   }
+  if ("telematicsPositionRetentionDays" in record) {
+    const days = record.telematicsPositionRetentionDays
+    if (typeof days === "number" && Number.isInteger(days) && days <= MAX_INT && days >= -MAX_INT) data.telematicsPositionRetentionDays = days
+    else errors.telematicsPositionRetentionDays = "must be a whole number of days"
+  }
   if (Object.keys(errors).length > 0) return { errors }
   if (Object.keys(data).length === 0) {
-    return { errors: { body: "send featureAssetFinance, assetPayoutDualApprovalCents, featureDealerPortal and/or dealerCommissionClawbackMonths" } }
+    return { errors: { body: "send featureAssetFinance, assetPayoutDualApprovalCents, featureDealerPortal, dealerCommissionClawbackMonths and/or telematicsPositionRetentionDays" } }
   }
   return { data }
 }

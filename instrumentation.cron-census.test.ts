@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
 import { CRON_JOBS } from "@/lib/registry/generated/cron-jobs"
+import { cronOccurrences } from "@/lib/ops/cron-run-claim"
 
 /**
  * Every `/api/cron/*` route must have an owner.
@@ -86,11 +87,24 @@ describe("cron route census", () => {
     expect(inProcessScheduled()).toContain("poll-wa-templates")
   })
 
-  it("keeps payment-reminders and poll-wa-templates out of the unwired list", () => {
-    // Both were once listed (or nearly listed) as unwired while they ran.
-    expect([...INTENTIONALLY_UNWIRED]).not.toContain("payment-reminders")
+  it("keeps poll-wa-templates out of the unwired list", () => {
+    // Once listed (or nearly listed) as unwired while it ran.
     expect([...INTENTIONALLY_UNWIRED]).not.toContain("poll-wa-templates")
-    expect(EXTERNALLY_SCHEDULED).toContain("reminders")
+  })
+
+  it("schedules the nightly dunning chain in-process, not through an external timer", () => {
+    // Regression pin: these three once needed a timer nothing in the repo
+    // installed, so a stock deploy never reminded or escalated anyone.
+    for (const route of ["dpd-update", "escalations", "reminders"]) {
+      expect(inProcessScheduled(), route).toContain(route)
+      expect([...EXTERNALLY_SCHEDULED], route).not.toContain(route)
+    }
+  })
+
+  it("has retired the payment-reminders courtesy cron: no owner, no route on disk", () => {
+    const declared = CRON_JOBS.map((j) => j.route)
+    expect(declared).not.toContain("payment-reminders")
+    expect(cronRoutes()).not.toContain("payment-reminders")
   })
 })
 
@@ -132,16 +146,27 @@ describe("scheduler cadence", () => {
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
+// The scheduler's HTTP call (lib/ops/cron-call.ts) and its claims: the behaviour of those is in
+// instrumentation.scheduler-claims.test.ts. Here only what is scheduled and what is called.
+const callCronRoute = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({ status: 200, body: null, failedTenants: 0 })))
+vi.mock("@/lib/ops/cron-call", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/ops/cron-call")>()), callCronRoute }))
+vi.mock("@/lib/ops/cron-run-claim", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/ops/cron-run-claim")>()),
+  claimCronRun: vi.fn(async () => "tok"),
+  finishCronRun: vi.fn(async () => true),
+  renewCronClaim: vi.fn(async () => true),
+  cronSettledToday: vi.fn(async () => true),
+}))
 
 describe("instrumentation register()", () => {
   const env = { ...process.env }
-  const fetchMock = vi.fn(async () => new Response(null, { status: 200 }))
   beforeAll(async () => {
     process.env.NEXT_RUNTIME = "nodejs"
     process.env.APP_MODE = "staff"
     process.env.CRON_SECRET = "test-secret"
     process.env.NEXTAUTH_URL = "http://cron.test"
-    vi.stubGlobal("fetch", fetchMock)
+    delete process.env.CRON_BASE_URL
+    delete process.env.PORT
     vi.spyOn(console, "log").mockImplementation(() => {})
     const { register } = await import("./instrumentation")
     await register()
@@ -152,31 +177,39 @@ describe("instrumentation register()", () => {
     vi.restoreAllMocks()
   })
 
-  it("schedules exactly the in-process jobs, in registry order, pinned to SAST", () => {
+  // The in-process jobs at their own time, in registry order, then the +30 and
+  // +60 minute retries of the single-run ones.
+  const occurrences = cronOccurrences(CRON_JOBS.flatMap((j) => (j.owner === "in-process" ? [j] : [])))
+
+  it("schedules exactly the in-process jobs and their single-run retries, pinned to SAST", () => {
     // The container sets no TZ (`date` reports UTC): an unpinned or wrongly
     // pinned expression fires hours away from the time its entry states.
-    const expected = CRON_JOBS.flatMap((j) => (j.owner === "in-process" ? [j.schedule] : []))
-    expect(schedule.mock.calls.map((c) => c[0])).toEqual(expected)
+    expect(schedule.mock.calls.map((c) => c[0])).toEqual(occurrences.map((o) => o.schedule))
+    const retries = occurrences.filter((o) => o.attempt > 0)
+    expect(retries.length).toBeGreaterThan(0)
+    expect(retries.every((o) => o.job.singleRun)).toBe(true)
     for (const call of schedule.mock.calls) expect(call[2]).toEqual({ timezone: "Africa/Johannesburg" })
   })
 
   it("calls each job's route with its method and the cron secret", async () => {
-    const jobs = CRON_JOBS.filter((j) => j.owner === "in-process")
     for (const [i, call] of schedule.mock.calls.entries()) {
-      fetchMock.mockClear()
+      callCronRoute.mockClear()
       await call[1]()
-      const job = jobs[i]
-      expect(fetchMock).toHaveBeenCalledWith(`http://cron.test/api/cron/${job.route}`, {
-        method: job.method,
-        headers: { "x-cron-secret": "test-secret" },
-      })
+      const job = occurrences[i].job
+      expect(callCronRoute).toHaveBeenCalledWith(`http://127.0.0.1:3300/api/cron/${job.route}`, job.method, "test-secret", { host: "cron.test" })
     }
   })
 
+  it("never calls the retired payment-reminders route", async () => {
+    callCronRoute.mockClear()
+    for (const call of schedule.mock.calls) await call[1]()
+    const urls = callCronRoute.mock.calls.map((c) => String(c[0]))
+    expect(urls.length).toBeGreaterThan(0)
+    expect(urls.filter((u) => u.includes("payment-reminders"))).toEqual([])
+  })
+
   it("never schedules an external or unwired route", () => {
-    const scheduled = new Set<string>(
-      schedule.mock.calls.map((_, i) => CRON_JOBS.filter((j) => j.owner === "in-process")[i].route),
-    )
+    const scheduled = new Set<string>(schedule.mock.calls.map((_, i) => occurrences[i].job.route))
     for (const r of [...EXTERNALLY_SCHEDULED, ...INTENTIONALLY_UNWIRED]) expect(scheduled.has(r)).toBe(false)
   })
 

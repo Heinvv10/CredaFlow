@@ -20,6 +20,7 @@ const DOTTED_NUMBER = /\d+(?:\.\d+)+/g
 // A word longer than this, or a heading longer than MAX_HEADING, would run past the page edge.
 const MAX_WORD = 30
 const MAX_HEADING = 50
+const INVISIBLE = /[\u00AD\u200B-\u200D\u2060\uFEFF]/
 // Lender text may not override, vary or waive protected content, nor create a
 // charge: those are system terms (SPEC.md §2). Matched as whole words.
 // The list catches obvious drafting, not meaning: the rest is the lender's legal approval (SPEC.md §2).
@@ -36,6 +37,8 @@ function textProblems(field: string, text: string, limits: { min: number; max: n
   if (text.length > limits.max) add(`At most ${limits.max} characters`)
   if (/[\u0000-\u0009\u000b-\u001f\u007f]/.test(text)) add("Use plain text: tabs and control characters are not allowed")
   if (text.split("\n").some((line) => winAnsiSafe(line) !== line)) add("Contains characters the document fonts cannot print")
+  // Invisible characters inside the font's range could split a word the deny-list below looks for ("commis<soft hyphen>sion").
+  if (INVISIBLE.test(text)) add("Contains an invisible character (a soft hyphen or zero-width character): remove it")
   if (MONEY.test(text)) add("Amounts of money come only from the deal's figures; remove the amount")
   if (RATE.test(text)) add("Rates and percentages come only from the deal's figures; remove the rate")
   const words = Array.from(text.matchAll(new RegExp(OVERRIDING, "gi")), (m) => m[0].replace(/\s+/g, " "))

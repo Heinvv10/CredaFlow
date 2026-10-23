@@ -2,7 +2,10 @@ import type { Channel, MessageTemplate, Provider } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 import { WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "@/lib/whatsapp/send-mode"
 import { SMS_CHANNEL_OFF_REASON } from "./sms-channel"
-import { contactDunningHold } from "@/lib/collections/client-holds"
+import { contactDunningHold, loanDunningHold } from "@/lib/collections/client-holds"
+import { NOTICE_LOAN_STATUSES, REMINDABLE_LOAN_STATUS } from "@/lib/collections/dunning-holds"
+import { automatedDunningLoan, type AutomatedDunningLoan } from "@/lib/messaging/dunning-category"
+import { dunningRetryVerdict, nextDunningWindowStart } from "@/lib/messaging/dunning-window"
 
 export type ErrorClass = "TRANSIENT" | "PERMANENT" | "CONSENT_REVOKED" | "EXPIRED"
 
@@ -307,6 +310,10 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
   checkedAt: Date
   /** Message.dunning: only a reminder or overdue notice is held for a client hold. */
   dunning: boolean
+  /** The loan an automated dunning message is about (lib/messaging/dunning-category.ts), checked inside this transaction. */
+  dunningLoan: AutomatedDunningLoan | null
+  /** When the message was queued: a pre-due reminder is judged against the day it was queued for. */
+  createdAt: Date
 }): Promise<RetryEligibilityClaim> {
   return prisma.$transaction(async (eligibilityTx) => {
     const eligibility = await canSendTx(
@@ -327,12 +334,26 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
       })
       : null
 
-    if (!eligibility.ok || hold) {
+    // The loan's status and its holds, in this same transaction: a reminder goes only to an ACTIVE loan, a
+    // notice (the 60-DPD one) also to a DEFAULTED one.
+    const loanHold = eligibility.ok && !hold && args.dunning && args.dunningLoan
+      ? await loanDunningHold(eligibilityTx as Parameters<typeof loanDunningHold>[0], {
+        tenantId: args.tenantId,
+        loanId: args.dunningLoan.loanId,
+        statuses: args.dunningLoan.notice ? NOTICE_LOAN_STATUSES : [REMINDABLE_LOAN_STATUS],
+        // A reminder (not a notice) also stops when the borrower has since paid.
+        ...(args.dunningLoan.notice ? {} : { reminder: { overdue: args.dunningLoan.overdue, asOf: new Date(), occurrence: args.dunningLoan.occurrence, createdAt: args.createdAt } }),
+      })
+      : null
+
+    if (!eligibility.ok || hold || loanHold) {
       // No MsgStatus says "held": SUPPRESSED_BY_CONSENT is the nearest terminal,
       // never-retried outcome, so the text and the audit row name the real cause.
-      const reason = eligibility.ok
-        ? `client hold: ${hold!.kind === "DECEASED" ? "deceased" : "debt review"}: ${hold!.reason}`
-        : eligibility.reason
+      const reason = !eligibility.ok
+        ? eligibility.reason
+        : hold
+          ? `client hold: ${hold.kind === "DECEASED" ? "deceased" : "debt review"}: ${hold.reason}`
+          : `loan hold: ${loanHold}`
       const errorMessage = `canSendTx rejected on retry: ${reason}`
       const transitioned = await eligibilityTx.message.updateMany({
         where: {
@@ -362,7 +383,7 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
           action: "MESSAGE_SUPPRESSED_BY_CONSENT",
           entity: "Message",
           entityId: args.id,
-          newValue: { reason, retryCount: args.retryCount, ...(hold ? { clientHold: hold.kind } : {}) },
+          newValue: { reason, retryCount: args.retryCount, ...(hold ? { clientHold: hold.kind } : {}), ...(loanHold ? { loanHold: true } : {}) },
         },
       })
       return { kind: "suppressed", reason }
@@ -428,10 +449,13 @@ async function processRetryBatchLocked(opts: {
   const { limit, now } = opts
   const ageLimit = new Date(now.getTime() - RETRY_AGE_LIMIT_MS)
 
-  // Bulk-expire — single SQL UPDATE, no per-row processing.
+  // Bulk-expire — single SQL UPDATE, no per-row processing. Not dunning: that is expired per row below,
+  // by the day it was created (lib/messaging/dunning-window.ts), because a blanket 24 hours would drop a
+  // message queued mid-morning before the next morning's window opens.
   const expiredResult = await tx.message.updateMany({
     where: {
       status: "RETRYING",
+      dunning: false,
       createdAt: { lt: ageLimit },
     },
     data: { status: "EXPIRED", errorClass: "EXPIRED" },
@@ -443,7 +467,7 @@ async function processRetryBatchLocked(opts: {
     },
     data: {
       status: "expired",
-      error: "Message retry window expired after 24 hours",
+      error: "Message retry window expired",
     },
   })
 
@@ -478,6 +502,8 @@ async function processRetryBatchLocked(opts: {
   let manualReconciliation = 0
   let rescheduled = 0
   let failedPermanent = 0
+  let expiredDunning = 0
+  const sweepStartedAt = Date.now()
 
   for (const msg of rows) {
     let claimedDispatchToken: string | null = null
@@ -528,6 +554,47 @@ async function processRetryBatchLocked(opts: {
           failedPermanent++
         }
         continue
+      }
+
+      // Dunning goes out 07:00-20:00 SAST. Outside the window it waits: rescheduled to the next 07:00 so
+      // it stops heading every batch (oldest nextRetryAt first, `take: limit`). An automated reminder not
+      // sent by the end of its day expires rather than say "due TOMORROW" a day late; a staff reminder
+      // and a 60-DPD notice do not. Judged at the moment of THIS send (the sweep's clock plus the time
+      // it has been running), not the moment the sweep started.
+      if (msg.dunning) {
+        const sendNow = new Date(now.getTime() + (Date.now() - sweepStartedAt))
+        const dunningKind = automatedDunningLoan(msg.idempotencyKey)
+        const verdict = dunningRetryVerdict(msg.createdAt, sendNow, dunningKind !== null && !dunningKind.notice)
+        if (verdict === "wait") {
+          // Guarded on status and retryCount: a concurrent change to the row is not overwritten.
+          await tx.message.updateMany({
+            where: { id: msg.id, tenantId: msg.tenantId, status: "RETRYING", retryCount: msg.retryCount },
+            data: { nextRetryAt: nextDunningWindowStart(sendNow) },
+          })
+          continue
+        }
+        if (verdict === "expire") {
+          const expiredNow = await tx.message.updateMany({
+            where: { id: msg.id, tenantId: msg.tenantId, status: "RETRYING", retryCount: msg.retryCount },
+            data: {
+              status: "EXPIRED",
+              nextRetryAt: null,
+              errorClass: "EXPIRED",
+              errorMessage: "A dunning message not sent by the end of its day is not sent: its wording is dated",
+              lastErrorAt: now,
+            },
+          })
+          if (expiredNow.count === 1) {
+            await updateLinkedNotificationProjection(tx, {
+              tenantId: msg.tenantId,
+              messageId: msg.id,
+              status: "expired",
+              error: "Dunning message not sent by the end of its day",
+            })
+            expiredDunning++
+          }
+          continue
+        }
       }
 
       if (!msg.templateId) throw new RetryTenantIntegrityError("template")
@@ -621,6 +688,11 @@ async function processRetryBatchLocked(opts: {
         text: msg.bodyText ?? "",
       }
 
+      // Dunning queued by the crons stops when its loan is no longer dunnable or went on hold
+      // since (the client holds cover a death and a debt review only); the check runs in the
+      // eligibility transaction below.
+      const dunningLoan = msg.dunning ? automatedDunningLoan(msg.idempotencyKey) : null
+
       const claim = await claimRetryDispatchIfEligible({
         id: msg.id,
         tenantId: msg.tenantId,
@@ -632,6 +704,8 @@ async function processRetryBatchLocked(opts: {
         channel: msg.channel,
         template,
         dunning: msg.dunning,
+        dunningLoan,
+        createdAt: msg.createdAt,
       })
       if (claim.kind === "suppressed") {
         suppressed++
@@ -940,7 +1014,7 @@ async function processRetryBatchLocked(opts: {
 
   return {
     scanned: rows.length,
-    expired: expiredResult.count,
+    expired: expiredResult.count + expiredDunning,
     suppressed,
     dispatched,
     simulated,
