@@ -168,7 +168,8 @@ suite("decision outcomes (real Postgres)", () => {
     // Decision 3: its own outcome beside CURED (the fixture loan is open and never back to 0 DPD).
     expect(find(a, "SETTLED_AFTER_DELINQUENCY", "TERM_30D")).toMatchObject([{ state: "OBSERVED", value: false, reasonCode: "NEVER_30_DPD" }])
     expect(find(a, "CURED", "TERM_30D")).toMatchObject([{ state: "OBSERVED", value: false, reasonCode: "NEVER_30_DPD" }])
-  })
+    // The cron sweeps every active tenant in the shared IT database, not only these three.
+  }, 120_000)
 
   it("keeps simulated results out of a real lender's outcomes, and marks a demo lender's rows demoData (decision 4)", async () => {
     const [real, , demo] = [await rowsOf(lenders[0].tenantId), null, await rowsOf(lenders[2].tenantId)]
@@ -183,7 +184,7 @@ suite("decision outcomes (real Postgres)", () => {
     const before = await Promise.all(lenders.map((l) => rowsOf(l.tenantId)))
     expect((await call(CRON_SECRET)).status).not.toBe(500)
     expect(await Promise.all(lenders.map((l) => rowsOf(l.tenantId)))).toEqual(before)
-  })
+  }, 120_000)
 
   it("refuses a second row on the same key, and rows the code never writes", async () => {
     const [row] = await rowsOf(lenders[0].tenantId)
