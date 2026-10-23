@@ -73,6 +73,10 @@ model CreditDecisionRecord {
   /// (DESIGN.md decision 5; DB CHECK: only on SYSTEM rows).
   s71ReviewRequired    Boolean                @default(false)
   decidedAt            DateTime
+  /// Set once by the retention job (pseudonymiseCreditDecisionRecords): the
+  /// subject ids, actorUserId and overrideReason were then NULLed, the only
+  /// UPDATE the append-only trigger lets through (DESIGN.md §2.7).
+  pseudonymisedAt      DateTime?
   createdAt            DateTime               @default(now())
 
   outcomes DecisionOutcome[]

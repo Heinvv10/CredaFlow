@@ -377,19 +377,63 @@ gates at decline (two reads) and record `PASS`/`BLOCK`.
 
 ### 2.7 Retention
 
-The repo has no retention rule for decision or audit data
+Built (migration `20261023200000_decision_record_retention`), **off by
+default**: `TenantConfig.decisionRecordRetentionMonths` (null = off, no
+default, CHECK 1..600) is set per lender, by a SUPER_ADMIN in a TOTP-verified
+session only (`PUT /api/settings/decision-record-retention`, card on
+Settings -> Security & KYC policy, audit `DECISION_RECORD_RETENTION_UPDATED`).
+The repo has no other retention rule for decision or audit data
 (`lib/notifications/retention.ts` says `AuditLog` is kept indefinitely;
-`lib/lender-api/retention.ts` covers API logs only). Proposal, **flagged**:
-keep a decision record as long as the application and agreement records it
-describes, which the NCA requires a credit provider to keep for a prescribed
-period (National Credit Regulations, record-keeping; my recollection is 3
-years from termination or rejection, **to verify**; FICA's 5 years may apply
-to the same client file, **to verify**). After that, pseudonymise rather
-than delete: null the subject ids and `actorUserId` and drop `overrideReason`
-in a migration-owned job that runs under a bypass of the append-only trigger,
-so aggregate history survives. Because the table is append-only, that job is
-a deliberate, audited exception and is **not built in PR A**.
-**Needs lender legal sign-off.**
+`lib/lender-api/retention.ts` covers API logs only). **The period itself needs
+lender legal sign-off**: the NCA record-keeping period (my recollection: 3
+years from termination or rejection, **to verify**) and FICA's 5 years for the
+same client file are for the lender's counsel to apply; the system sets no
+floor or default.
+
+**Pseudonymise, not delete.** The nightly job
+(`/api/cron/decision-record-retention`, `lib/learning-loop/retention/job.ts`,
+01:15 SAST, every ACTIVE tenant in its own frame) calls
+`pseudonymiseCreditDecisionRecords(tenantId, asOf)`, which for a tenant with a
+period NULLs `applicationId`, `loanId`, `clientId`, `leadId`, `actorUserId` and
+`overrideReason` on every aged record and stamps `pseudonymisedAt`. Bands,
+`recommendation`, `overridden`, `ruleVersion`, `policyHash`, hashes and the
+outcomes stay, so the dashboard and calibration keep their history. One audit
+row per tenant per run that changed anything (`DECISION_RECORDS_PSEUDONYMISED`:
+counts only). Nothing here can be undone.
+
+**The clock** (the fields that exist: `Loan.status`, `closedAt` (stamped on
+COMPLETED/CANCELLED by the receipt writers), `writeOffAt` (the write-off route
+sets this, not `closedAt`), `updatedAt`; `LoanApplication.status`). A record
+ages from:
+
+| Record | Ages from |
+|---|---|
+| its loan exists (`loanId`, else the loan booked from its `applicationId`) and is COMPLETED or CANCELLED | `COALESCE(closedAt, updatedAt)` |
+| its loan is WRITTEN_OFF | `COALESCE(writeOffAt, closedAt, updatedAt)` |
+| its loan is open (ACTIVE, DEFAULTED, PENDING_WRITE_OFF, RESTRUCTURED) | never |
+| no loan; its application is DRAFT, SUBMITTED, UNDER_REVIEW or APPROVED | never (still live) |
+| no loan otherwise (declined, cancelled, erased, or only a lead or client) | its own `decidedAt` |
+
+`updatedAt` is the fallback when a terminal loan has no end stamp: it can only
+be later than the true end, so a record is kept longer, never shorter. It also
+means a terminal loan that something keeps touching does not age. A record
+ages when its clock plus the period is not after the run time.
+
+**The database enforces the exception.** The append-only trigger
+(`guardCreditDecisionRecord`) still refuses every UPDATE, DELETE and TRUNCATE
+except one: an UPDATE issued from inside `pseudonymiseCreditDecisionRecords()`
+(the guard reads the call stack, which a plain statement cannot forge) that
+leaves every column but those seven unchanged (compared as jsonb, so a column
+added later is protected), changes the six identifying columns only to NULL,
+and only on a row not yet pseudonymised. Three CHECKs allow a pseudonymised row
+what it no longer has (override reason, STAFF actor, subject) and
+`CreditDecisionRecord_pseudonymised_shape` requires that it has none of the six.
+Limits, stated: the age test lives in the function, not the trigger, so
+anyone able to `CREATE FUNCTION` could create one of the same name and
+pseudonymise an unaged row (they could equally drop the trigger); the app role
+has no such right. A pseudonymised record's outcomes are frozen: the outcome
+writer neither recomputes (there is no subject to read the loan from) nor
+sweeps them, so a window still PENDING at that point stays PENDING.
 
 ## 3. Outcome definitions (implemented in PR B)
 
