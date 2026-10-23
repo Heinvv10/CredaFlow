@@ -974,8 +974,8 @@ DELETE FROM "CreditDecisionRecord" WHERE "tenantId" = '<tenantId>';
 --    AuditLog is kept forever. The AuditLog_nca_quote_issued_immutable trigger is off in replica mode, so this runs.
 UPDATE "AuditLog" SET "tenantId" = NULL WHERE "tenantId" = '<tenantId>';
 UPDATE "WebhookSignatureFailure" SET "tenantId" = NULL WHERE "tenantId" = '<tenantId>';
--- Staff are deactivated, not deleted: User has ~29 RESTRICT audit-pointer FKs (FAIS/POPIA operator identity),
--- so a delete would orphan them. Detached, inactive, no live session, tokens invalidated (tokenVersion).
+-- Staff are deactivated, not deleted: User is referenced by many RESTRICT FKs (87 `ADD CONSTRAINT … REFERENCES "User" … RESTRICT`
+-- across prisma/migrations; count live with the step 5 query), so a delete would orphan them. Detached, inactive, no live session, tokens invalidated (tokenVersion).
 DELETE FROM "Session" WHERE "userId" IN (SELECT "id" FROM "User" WHERE "tenantId" = '<tenantId>');
 UPDATE "User" SET "tenantId" = NULL, "active" = false, "tokenVersion" = "tokenVersion" + 1
  WHERE "tenantId" = '<tenantId>';
@@ -990,7 +990,8 @@ DELETE FROM "MessageMention" WHERE "tenantId" = '<tenantId>';
 SELECT conrelid::regclass AS tbl, conname, confdeltype FROM pg_constraint
  WHERE confrelid = '"Tenant"'::regclass AND contype = 'f' ORDER BY 1;
 DELETE FROM "Tenant" WHERE "id" = '<tenantId>';
--- 6. Orphan check over EVERY FK in the database, not only those with a tenantId column: cascades from deleted
+-- 6. Orphan check over EVERY FK (run this DO block once BEFORE step 1 as a baseline: orphans that already
+--    exist would otherwise abort the step; resolve or record them first) in the database, not only those with a tenantId column: cascades from deleted
 --    Loan/Client/... rows did not run either. Any child row whose parent is missing aborts the transaction.
 DO $$
 DECLARE fk RECORD; n bigint; cond text; nn text; total bigint := 0;
