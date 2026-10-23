@@ -1,0 +1,81 @@
+// ── Learning loop: decision log (docs/learning-loop/DESIGN.md) ───────────────
+// One append-only row per decision EVENT: a credit decision (approve, decline,
+// refer, return to review or draft, a credit-check flag cleared), an offer
+// (the approved terms, the PASQ issued at signing) or, later, a collection
+// action. It records what the gates said (recommendation), what was decided
+// and by whom, and whether the person went against a gate (overridden, with
+// the reason). Inputs are a minimised, banded snapshot built from an explicit
+// allow-list (lib/learning-loop/), plus references to the source of record and
+// a sha256 of the exact inputs. Subject ids carry no foreign key: the row
+// outlives nothing it points at, and a SET NULL would be an UPDATE the
+// append-only trigger refuses. Outcomes attach to it later (PR B).
+
+enum DecisionRecordKind {
+  CREDIT_DECISION
+  OFFER
+  COLLECTION_ACTION
+}
+
+/// What the existing gates said before the person decided. NONE: no gate was
+/// evaluated for this event (a decline, a return, a refer).
+enum DecisionRecommendation {
+  PASS
+  BLOCK
+  REFER
+  NONE
+}
+
+/// SYSTEM is an automated decision (POPIA s71); STAFF needs actorUserId.
+enum DecisionActorType {
+  STAFF
+  SYSTEM
+  CLIENT
+}
+
+model CreditDecisionRecord {
+  id                   String                 @id @default(cuid())
+  tenantId             String
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id])
+  kind                 DecisionRecordKind
+  /// APPROVE, DECLINE, REFER, RETURN_TO_REVIEW, RETURN_TO_DRAFT, CLEAR_FLAG,
+  /// APPROVED_TERMS, QUOTATION_ISSUED (lib/learning-loop/decision-log.ts).
+  decision             String
+  recommendation       DecisionRecommendation
+  /// The person decided against a gate; overrideReason says why.
+  overridden           Boolean
+  overrideReason       String?
+  actorType            DecisionActorType
+  actorUserId          String?
+  actorRole            String?
+  applicationId        String?
+  loanId               String?
+  clientId             String?
+  /// A website Lead: the only subject an identity-conflict refusal can name (no client is confirmed).
+  leadId               String?
+  /// The row of record the decision changed (LoanApplication, ApplicationCheckFlag, AssetFinanceDeal).
+  sourceEntityType     String
+  sourceEntityId       String
+  /// Code rule version, e.g. "decision-log-v1+approval-ndi-v3".
+  ruleVersion          String
+  /// sha256 of the tenant's effective decision thresholds at decision time.
+  policyHash           String                 @db.Char(64)
+  /// A scoring model's version. Null: no model decides or recommends today.
+  modelVersion         String?
+  /// 0..1. Null unless a model produced a probability; calibration reads only rows that carry one.
+  predictedProbability Decimal?               @db.Decimal(6, 5)
+  /// Minimised, banded inputs (allow-list; no identifiers, contacts, bank details or bureau payloads).
+  inputsSnapshot       Json
+  /// Ids and fingerprints of the evidence of record (bureau check, affordability snapshot, flags).
+  evidenceRefs         Json
+  /// sha256 of the canonical JSON of the exact inputs (lib/canonical-json.ts).
+  inputsHash           String                 @db.Char(64)
+  /// An automated (SYSTEM) decision awaiting the lender's POPIA s71 legal review
+  /// (DESIGN.md decision 5; DB CHECK: only on SYSTEM rows).
+  s71ReviewRequired    Boolean                @default(false)
+  decidedAt            DateTime
+  createdAt            DateTime               @default(now())
+
+  @@index([tenantId, applicationId])
+  @@index([tenantId, loanId])
+  @@index([tenantId, kind, decidedAt])
+}

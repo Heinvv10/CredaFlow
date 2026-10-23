@@ -74,7 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let result: Awaited<ReturnType<typeof decideDeal>>
     try {
       result = await prisma.$transaction((tx) =>
-        decideDeal(tx, { tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email }, id, input),
+        decideDeal(tx, { tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email, role: guard.user.role }, id, input),
       )
     } catch (error) {
       if (isScreeningRefusal(error)) {

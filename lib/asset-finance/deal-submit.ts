@@ -27,6 +27,8 @@ export interface DealActor {
   tenantId: string
   userId: string
   userEmail?: string
+  /** The staff role, recorded in the decision log (lib/learning-loop/). */
+  role?: string
 }
 
 /** The decision reason stored on a refused NCA deal's application, in plain English (the rule's label, never its id). */

@@ -45,6 +45,7 @@ function fakeTx(deal: Record<string, unknown> | null, pendingOverride = false, r
     ncaRegimeOverride: { findFirst: vi.fn(async () => (pendingOverride ? { id: "ovr-1" } : null)) },
     loanApplication: { update: vi.fn(async () => ({})) },
     auditLog: { create: vi.fn(async () => ({})) },
+    creditDecisionRecord: { create: vi.fn(async () => ({})) },
   }
   return { tx, asTx: tx as unknown as RegimeTx }
 }
@@ -158,6 +159,14 @@ describe("decideDeal", () => {
     expect(fake.tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ action: "ASSET_DEAL_DECIDED", newValue: expect.objectContaining({ reasons: REASONS, dscr: "1.8000" }) }),
     })
+    // The decision log (lib/learning-loop): the decision, then the offer of the approved terms.
+    expect(fake.tx.creditDecisionRecord.create.mock.calls.map((call) => (call as unknown as [{ data: unknown }])[0].data)).toEqual([
+      expect.objectContaining({
+        kind: "CREDIT_DECISION", decision: "APPROVE", recommendation: "PASS", overridden: false, actorUserId: "admin-a",
+        sourceEntityType: "AssetFinanceDeal", sourceEntityId: "deal-1", applicationId: "app-1",
+      }),
+      expect.objectContaining({ kind: "OFFER", decision: "APPROVED_TERMS" }),
+    ])
   })
 
   // Fair Score audit E5: a director in default with this lender is an exception the approver must answer.
@@ -200,6 +209,13 @@ describe("decideDeal", () => {
     expect(fake.tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ newValue: expect.objectContaining({ exceptions: [expect.stringContaining("LN-TEST-0009")], exceptionReason }) }),
     })
+    // Logged as an override of the exceptions' referral; the exception's loan and person are not.
+    const [logged] = fake.tx.creditDecisionRecord.create.mock.calls.map((call) => (call as unknown as [{ data: Record<string, unknown> }])[0].data)
+    expect(logged).toMatchObject({
+      recommendation: "REFER", overridden: true, overrideReason: exceptionReason,
+      inputsSnapshot: expect.objectContaining({ exceptions: { ARREARS: 1 } }), evidenceRefs: expect.objectContaining({ exceptionsFingerprint: fingerprint }),
+    })
+    expect(JSON.stringify(logged)).not.toMatch(/loan-9|LN-TEST-0009|Synthetic|c-dir/)
   })
 
   it("E5: the reason binds to the fingerprint of the exceptions shown: a changed set is refused and nothing is written", async () => {

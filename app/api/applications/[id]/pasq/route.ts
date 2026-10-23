@@ -37,6 +37,8 @@ import {
   sha256DocumentBytes,
 } from "@/lib/documents/content-integrity"
 import { AuditAction } from "@/lib/audit"
+import { recordDecisions } from "@/lib/learning-loop/decision-log"
+import { quotationIssuedRecord } from "@/lib/learning-loop/records"
 import {
   lockCurrentStatutoryProviderIdentity,
   statutoryProviderIdentityFromTenant,
@@ -1085,6 +1087,21 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
             },
           },
         })
+        await recordDecisions(tx, [quotationIssuedRecord({
+          tenantId: tenant.id,
+          applicationId: id,
+          clientId: application.clientId,
+          actor: { userId: guard.user.id, role: guard.user.role },
+          decidedAt: generatedAt,
+          documentSha256,
+          evidenceSha256: current.evidence.evidenceSha256,
+          pasqVersion: PASQ_VERSION,
+          termDays: current.evidence.termDays,
+          principalCents: current.evidence.calculator.principalCents,
+          recurringPaymentCents: current.evidence.billing.recurringPaymentCents,
+          totalCostOfCreditCents: current.evidence.totalCostOfCreditCents,
+          creditLifeElection: current.evidence.creditLife.election,
+        })])
         return document
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
       return NextResponse.json({

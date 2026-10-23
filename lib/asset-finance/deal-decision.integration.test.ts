@@ -561,6 +561,12 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     expect(row.application.approvedAt).toBeInstanceOf(Date)
     const [decided] = await audits(deals.approved, "ASSET_DEAL_DECIDED")
     expect(decided).toMatchObject({ userId: fx.adminA, newValue: { decision: "APPROVE", reasons: REASONS, applicationStatus: "APPROVED" } })
+    // The decision log (lib/learning-loop), written by the route in the decision's transaction.
+    const logged = await database().creditDecisionRecord.findMany({ where: { tenantId: fx.tenantId, sourceEntityId: deals.approved }, orderBy: { kind: "asc" } })
+    expect(logged.map((r) => [r.kind, r.decision, r.recommendation, r.actorUserId, r.actorRole, r.applicationId])).toEqual([
+      ["CREDIT_DECISION", "APPROVE", "PASS", fx.adminA, "LOAN_ADMIN", row.applicationId],
+      ["OFFER", "APPROVED_TERMS", "NONE", fx.adminA, "LOAN_ADMIN", row.applicationId],
+    ])
   })
 
   it("DECLINE needs reasons too; with them the application and deal are DECLINED and audited", async () => {
@@ -582,5 +588,7 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     expect(await audits(deals.declined, "ASSET_DEAL_DECIDED")).toEqual([
       expect.objectContaining({ newValue: expect.objectContaining({ decision: "DECLINE", reasons }) }),
     ])
+    expect(await database().creditDecisionRecord.findMany({ where: { tenantId: fx.tenantId, sourceEntityId: deals.declined }, select: { kind: true, decision: true } }))
+      .toEqual([{ kind: "CREDIT_DECISION", decision: "DECLINE" }])
   })
 })

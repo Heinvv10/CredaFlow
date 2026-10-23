@@ -52,7 +52,12 @@ import {
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
 import { auditRefusal } from "@/lib/audit-refusals"
+import { recordDecisions } from "@/lib/learning-loop/decision-log"
+import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord } from "@/lib/learning-loop/records"
 
+// The CreditDecisionRecord_override_reason CHECK (migration
+// 20261021090000_credit_decision_record) holds the same 10-code-point floor:
+// lowering this without a migration fails every such approval closed.
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
 
 export async function POST(
@@ -452,6 +457,15 @@ export async function POST(
               },
             },
           })
+          await recordDecisions(tx, [consumerReturnRecord({
+            tenantId: tenant.id,
+            applicationId: id,
+            clientId: application.clientId,
+            actor: { userId: guard.user.id, role: guard.user.role },
+            decidedAt: returnedAt,
+            to: "REVIEW",
+            priorStatus: application.status,
+          })])
           return true
         })
         if (!reopened) {
@@ -655,6 +669,15 @@ export async function POST(
               },
             },
           })
+          await recordDecisions(tx, [consumerReturnRecord({
+            tenantId: tenant.id,
+            applicationId: id,
+            clientId: application.clientId,
+            actor: { userId: guard.user.id, role: guard.user.role },
+            decidedAt: returnedAt,
+            to: "DRAFT",
+            priorStatus: application.status,
+          })])
           return true
         })
         if (!returned) {
@@ -712,7 +735,8 @@ export async function POST(
         }
         if (
           bureauOverrideReason &&
-          bureauOverrideReason.length < MIN_BUREAU_OVERRIDE_REASON_LENGTH
+          // Code points, as the database's char_length counts them: an emoji is one, not two.
+          [...bureauOverrideReason].length < MIN_BUREAU_OVERRIDE_REASON_LENGTH
         ) {
           return NextResponse.json(
             {
@@ -890,28 +914,29 @@ export async function POST(
         // never bypass affordability, and it must not erase the financial
         // calculation. Persist the exact approval inputs so the exception stays
         // reviewable and every downstream gate can detect master-data drift.
-        if (bureauCheck && !bureauOverrideReason) {
-          const bureau = evaluateBureauGate(
-            {
-              score: bureauCheck.score,
-              unscoreable: bureauCheck.unscoreable,
-              hasAdverse: bureauCheck.hasAdverse,
-              deceased: bureauCheck.deceased,
-              underDebtReview: bureauCheck.underDebtReview,
-              hasJudgement: bureauCheck.hasJudgement,
-              hasNotice: bureauCheck.hasNotice,
-              obligations: bureauCheck.obligations,
-              provider: bureauCheck.provider,
-            },
-            { bureauMinScore: tenantConfig?.bureauMinScore ?? 450, bureauBlockAdverse: tenantConfig?.bureauBlockAdverse ?? false },
-          )
-          if (bureau.blocked) {
-            return NextResponse.json(
-              { error: `Bureau risk gate: ${bureau.reason}`, requiresOverride: true, requiresCalibration: bureau.requiresCalibration ?? false },
-              { status: 422 },
+        // The verdict is evaluated even when overridden: the decision log
+        // records what the gate said (lib/learning-loop/records.ts).
+        const bureau = bureauCheck
+          ? evaluateBureauGate(
+              {
+                score: bureauCheck.score,
+                unscoreable: bureauCheck.unscoreable,
+                hasAdverse: bureauCheck.hasAdverse,
+                deceased: bureauCheck.deceased,
+                underDebtReview: bureauCheck.underDebtReview,
+                hasJudgement: bureauCheck.hasJudgement,
+                hasNotice: bureauCheck.hasNotice,
+                obligations: bureauCheck.obligations,
+                provider: bureauCheck.provider,
+              },
+              { bureauMinScore: tenantConfig?.bureauMinScore ?? 450, bureauBlockAdverse: tenantConfig?.bureauBlockAdverse ?? false },
             )
-          }
-
+          : null
+        if (bureau?.blocked && !bureauOverrideReason) {
+          return NextResponse.json(
+            { error: `Bureau risk gate: ${bureau.reason}`, requiresOverride: true, requiresCalibration: bureau.requiresCalibration ?? false },
+            { status: 422 },
+          )
         }
 
         const approvalPrincipal = application.appliedAmount
@@ -1404,6 +1429,30 @@ export async function POST(
                 },
               },
             })
+            // The decision log row commits with the approval or not at all.
+            await recordDecisions(tx, consumerApprovalRecords({
+              tenantId: tenant.id,
+              applicationId: id,
+              clientId: application.clientId,
+              actor: { userId: guard.user.id, role: guard.user.role },
+              decidedAt: decisionAt,
+              productType: application.product.productType,
+              interestRatePm: locked.application.product.interestRatePm,
+              principalCents: approvalPrincipal,
+              termDays: approvalTermDays,
+              instalmentCents: instalment,
+              creditLifePremiumCents,
+              repaymentMethod,
+              monthlyIncomeCents: application.client.monthlyIncome,
+              thresholds: { bureauMinScore, bureauBlockAdverse, ndiBufferPct, bureauMaxAgeDays: bureauMaxAgeDays(tenantConfig) },
+              bureau: bureauCheck,
+              bureauGateBlocked: bureau ? bureau.blocked : null,
+              bureauOverrideReason,
+              affordability: { ndiCents: afford.ndi, requiredNdiCents: afford.requiredNdi },
+              screeningState: screening.state.state,
+              creditCheckFlags: checks?.flags ?? [],
+              affordabilitySnapshot: approvalSnapshot,
+            }))
             // The credit-life commit invariant is deferred: run it here so a
             // refusal reaches the catch below instead of failing the commit.
             await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
@@ -1545,6 +1594,14 @@ export async function POST(
                 newValue: { status: "DECLINED", reason: clientReason, declineCategory, internalNote },
               },
             })
+            await recordDecisions(tx, [consumerDeclineRecord({
+              tenantId: tenant.id,
+              applicationId: id,
+              clientId: application.clientId,
+              actor: { userId: guard.user.id, role: guard.user.role },
+              decidedAt: decisionAt,
+              declineCategory,
+            })])
             // The credit-life commit invariant is deferred: run it here so a
             // refusal reaches the catch below instead of failing the commit.
             await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")

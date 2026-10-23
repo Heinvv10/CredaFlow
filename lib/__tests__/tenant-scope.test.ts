@@ -187,6 +187,8 @@ describe("tenant-scope — ALS primitives", () => {
       "TelematicsHeldReading",
       "TelematicsAlert",
       "TelematicsPositionAccess",
+      // Append-only decision log (lib/learning-loop) — non-null tenantId, passed explicitly.
+      "CreditDecisionRecord",
       // Valuation guides (slice 5 part C) — non-null tenantId.
       "ValuationGuide",
       "ValuationGuideRow",

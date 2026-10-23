@@ -7,6 +7,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { demoStaffWithoutTotp } from "@/lib/config/demo-mode"
 import { CLEAR_REASON_MAX_LENGTH, CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
 import { RECOMPUTE_STATUSES } from "@/lib/credit-checks/recompute"
+import { recordDecisions } from "@/lib/learning-loop/decision-log"
+import { CREDIT_CHECK_POLICY_VERSION, creditCheckClearRecord } from "@/lib/learning-loop/records"
 
 /**
  * POST /api/applications/[id]/checks/[flagId]/clear — a LOAN_ADMIN, signed in
@@ -53,8 +55,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const outcome = await prisma.$transaction(async (tx) => {
       // The application row lock a recompute and the approval also take: a
       // clearance cannot interleave with either, nor land after a decision.
-      const locked = await tx.$queryRaw<Array<{ status: AppStatus }>>`
-        SELECT status FROM "LoanApplication" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR NO KEY UPDATE`
+      const locked = await tx.$queryRaw<Array<{ status: AppStatus; clientId: string | null }>>`
+        SELECT status, "clientId" FROM "LoanApplication" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR NO KEY UPDATE`
       const flag = await tx.applicationCheckFlag.findFirst({
         where: { id: flagId, tenantId: tenant.id, applicationId: id },
         select: { id: true, check: true, code: true },
@@ -82,6 +84,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           ...(totpWaived ? { twoFactor: "waived: demo stack without TOTP" } : {}),
         },
       }, tx)
+      await recordDecisions(tx, [creditCheckClearRecord({
+        tenantId: tenant.id,
+        applicationId: id,
+        clientId: locked[0].clientId,
+        actor: { userId: guard.user.id, role: guard.user.role },
+        decidedAt: clearedAt,
+        flagId: flag.id,
+        check: flag.check,
+        code: flag.code,
+        reason,
+        policyVersion: CREDIT_CHECK_POLICY_VERSION,
+      })])
       return { status: 200 as const }
     })
 
