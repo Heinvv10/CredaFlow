@@ -17,7 +17,8 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   `lib/learning-loop/records-asset-finance.ts`) read named fields; never spread a row
   into a snapshot. No ID numbers, names, contacts, bank details, bureau
   payloads, exact amounts or decline/return reason text in a stored column:
-  amounts are bands, evidence is a reference (id or fingerprint).
+  amounts are bands, evidence is a reference (id or fingerprint). The one
+  stored free text is `overrideReason`, by design (DESIGN.md §2.3).
   `records.test.ts` salts inputs with synthetic PII and must stay green.
 - **Append-only.** The table refuses UPDATE, DELETE and TRUNCATE (migration
   `20261021090000_credit_decision_record`). Never add an update path; a
