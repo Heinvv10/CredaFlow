@@ -43,24 +43,38 @@ describe("CreditDecisionRecord hand-written objects", () => {
   })
 
   // 20261023200000_decision_record_retention: the one UPDATE the guard lets through.
-  it("lets only pseudonymiseCreditDecisionRecords() pseudonymise, once, and every other column stay as it was", () => {
+  it("lets only the owner, inside pseudonymiseCreditDecisionRecords(), pseudonymise once, and every other column stay as it was", () => {
     const flat = (name: string) => baselineFunctionSql(name).replace(/\s+/g, " ")
     const guard = flat("guardCreditDecisionRecord")
-    expect(guard).toContain(`stack LIKE '%PL/pgSQL function "pseudonymiseCreditDecisionRecords"(%'`)
+    // Not the call stack (PG_CONTEXT carries query text, so a comment forges it): the function's flag AND the table owner.
+    expect(guard).not.toContain("PG_CONTEXT")
+    expect(guard).toContain(`current_setting('cf.decision_record_pseudonymise', true) = txid_current()::text`)
+    expect(guard).toContain(`current_user = (SELECT pg_get_userbyid(c."relowner") FROM pg_class c WHERE c."oid" = TG_RELID)`)
     expect(guard).toContain(`OLD."pseudonymisedAt" IS NULL AND NEW."pseudonymisedAt" IS NOT NULL`)
+    expect(guard).toContain(`NEW."sourceEntityId" IS NULL AND NEW."inputsHash" IS NULL AND NEW."evidenceRefs" = '{}'::jsonb`)
     expect(guard).toContain(`to_jsonb(NEW) - pseudonymised = to_jsonb(OLD) - pseudonymised`)
     expect(guard).toContain("The credit decision log is append-only")
     const job = flat("pseudonymiseCreditDecisionRecords")
+    expect(job).toContain("SECURITY DEFINER SET search_path = public, pg_temp")
+    expect(job).toContain(`tenant text := public.cf_rls_tenant()`)
+    expect(job).toContain(`as_of timestamp := now() AT TIME ZONE 'UTC'`)
     expect(job).toContain(`IF months IS NULL THEN RETURN 0;`)
     expect(job).toContain(`WHEN 'WRITTEN_OFF' THEN COALESCE(loan."writeOffAt", loan."closedAt", loan."updatedAt")`)
     expect(job).toContain(`IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED') THEN NULL`)
+    expect(job).toContain(`SET "sourceRef" = o."id"`)
   })
 
-  it("allows a pseudonymised row no reason, actor or subject, and only then; and holds the period to 1..600", () => {
+  it("refuses a record born pseudonymised", () => {
+    expect(baselineTriggerSql("CreditDecisionRecord_no_insert_pseudonymised")).toMatch(/BEFORE INSERT ON "CreditDecisionRecord"/)
+    expect(baselineFunctionSql("guardCreditDecisionRecordPseudonymisedInsert")).toContain("cannot be created pseudonymised")
+  })
+
+  it("allows a pseudonymised row no reason, actor, subject, source or hash, and only then; and holds the period to 1..600", () => {
     const flat = (name: string) => baselineConstraintSql(name).replace(/\s+/g, " ")
     expect(flat("CreditDecisionRecord_override_reason")).toContain(`("overridden" AND "pseudonymisedAt" IS NOT NULL AND "overrideReason" IS NULL)`)
     expect(flat("CreditDecisionRecord_has_subject_or_lead")).toContain(`OR "pseudonymisedAt" IS NOT NULL`)
-    expect(flat("CreditDecisionRecord_pseudonymised_shape")).toContain(`"pseudonymisedAt" IS NULL OR ("applicationId" IS NULL AND "loanId" IS NULL AND "clientId" IS NULL AND "leadId" IS NULL AND "actorUserId" IS NULL AND "overrideReason" IS NULL)`)
+    expect(flat("CreditDecisionRecord_pseudonymised_shape")).toContain(`"pseudonymisedAt" IS NULL OR ("applicationId" IS NULL AND "loanId" IS NULL AND "clientId" IS NULL AND "leadId" IS NULL AND "actorUserId" IS NULL AND "overrideReason" IS NULL AND "sourceEntityId" IS NULL AND "inputsHash" IS NULL AND "evidenceRefs" = '{}'::jsonb)`)
+    expect(flat("CreditDecisionRecord_identity_present")).toContain(`"pseudonymisedAt" IS NOT NULL OR ("sourceEntityId" IS NOT NULL AND "inputsHash" IS NOT NULL)`)
     expect(flat("TenantConfig_decisionRecordRetentionMonths_range")).toContain(`"decisionRecordRetentionMonths" >= 1 AND "decisionRecordRetentionMonths" <= 600`)
   })
 })

@@ -393,13 +393,17 @@ floor or default.
 **Pseudonymise, not delete.** The nightly job
 (`/api/cron/decision-record-retention`, `lib/learning-loop/retention/job.ts`,
 01:15 SAST, every ACTIVE tenant in its own frame) calls
-`pseudonymiseCreditDecisionRecords(tenantId, asOf)`, which for a tenant with a
-period NULLs `applicationId`, `loanId`, `clientId`, `leadId`, `actorUserId` and
-`overrideReason` on every aged record and stamps `pseudonymisedAt`. Bands,
-`recommendation`, `overridden`, `ruleVersion`, `policyHash`, hashes and the
-outcomes stay, so the dashboard and calibration keep their history. One audit
-row per tenant per run that changed anything (`DECISION_RECORDS_PSEUDONYMISED`:
-counts only). Nothing here can be undone.
+`pseudonymiseCreditDecisionRecords()`, which for a tenant with a period NULLs
+`applicationId`, `loanId`, `clientId`, `leadId`, `actorUserId`, `overrideReason`,
+`sourceEntityId` (it names the application or loan) and `inputsHash` (a hash of
+low-entropy inputs plus the evidence ids, so re-identifiable), empties
+`evidenceRefs` (bureau check, flag and deal ids) and stamps `pseudonymisedAt`,
+on every aged record. The record's outcomes keep their figures but their
+`sourceRef` (the loan) becomes the outcome's own id. Bands, `recommendation`,
+`overridden`, `ruleVersion`, `policyHash`, `actorRole` and the outcome figures
+stay, so the dashboard and calibration keep their history. One audit row per
+tenant per run that changed anything (`DECISION_RECORDS_PSEUDONYMISED`: counts
+only). Nothing here can be undone.
 
 **The clock** (the fields that exist: `Loan.status`, `closedAt` (stamped on
 COMPLETED/CANCELLED by the receipt writers), `writeOffAt` (the write-off route
@@ -412,28 +416,44 @@ ages from:
 | its loan is WRITTEN_OFF | `COALESCE(writeOffAt, closedAt, updatedAt)` |
 | its loan is open (ACTIVE, DEFAULTED, PENDING_WRITE_OFF, RESTRUCTURED) | never |
 | no loan; its application is DRAFT, SUBMITTED, UNDER_REVIEW or APPROVED | never (still live) |
-| no loan otherwise (declined, cancelled, erased, or only a lead or client) | its own `decidedAt` |
+| no loan, names only a client (no application, no loan) | never while that client has an open loan or a live application; else `decidedAt` |
+| no loan otherwise (declined, cancelled, erased, or only a lead) | its own `decidedAt` |
 
 `updatedAt` is the fallback when a terminal loan has no end stamp: it can only
 be later than the true end, so a record is kept longer, never shorter. It also
 means a terminal loan that something keeps touching does not age. A record
-ages when its clock plus the period is not after the run time.
+ages when its clock plus the period is not after the database clock (`now()`,
+never a caller's argument).
 
-**The database enforces the exception.** The append-only trigger
-(`guardCreditDecisionRecord`) still refuses every UPDATE, DELETE and TRUNCATE
-except one: an UPDATE issued from inside `pseudonymiseCreditDecisionRecords()`
-(the guard reads the call stack, which a plain statement cannot forge) that
-leaves every column but those seven unchanged (compared as jsonb, so a column
-added later is protected), changes the six identifying columns only to NULL,
-and only on a row not yet pseudonymised. Three CHECKs allow a pseudonymised row
-what it no longer has (override reason, STAFF actor, subject) and
-`CreditDecisionRecord_pseudonymised_shape` requires that it has none of the six.
-Limits, stated: the age test lives in the function, not the trigger, so
-anyone able to `CREATE FUNCTION` could create one of the same name and
-pseudonymise an unaged row (they could equally drop the trigger); the app role
-has no such right. A pseudonymised record's outcomes are frozen: the outcome
-writer neither recomputes (there is no subject to read the loan from) nor
-sweeps them, so a window still PENDING at that point stays PENDING.
+**The database enforces the exception, and who may make it.** The append-only
+trigger (`guardCreditDecisionRecord`) still refuses every UPDATE, DELETE and
+TRUNCATE except one, which needs all of: (1) the session user is the table's
+owner (looked up from `pg_class.relowner`); `pseudonymiseCreditDecisionRecords()`
+is `SECURITY DEFINER`, owned by the migrating role, so inside it the user is the
+owner and no other role, whatever it sets or calls, gets through; (2) the
+function's transaction-local flag names this transaction; (3) the UPDATE
+changes only the ten pseudonymisation columns, the identifying ones to NULL (the
+refs to `{}`), on a row not yet pseudonymised, every other column unchanged
+(compared as jsonb, so a column added later is protected). The call stack is
+deliberately not the proof: `PG_CONTEXT` carries the text of the running query,
+so a comment forges it (reviewer repro, 2026-10-23). The function takes no
+argument: its tenant is the transaction's `app.tenant_id` (set by the job; it
+refuses with none) and its clock is `now()`. A record is never inserted
+pseudonymised (a BEFORE INSERT trigger), which would skip the CHECKs; three
+CHECKs allow a pseudonymised row what it no longer has, `pseudonymised_shape`
+requires it to have none of it, and `identity_present` requires the source
+entity and hash of every other row.
+
+**Limits, stated.** A session that is the table owner (a superuser or the
+migrate role) can drop the trigger or set the flag, so is not defended against.
+Today every stack connects as a superuser (`docs/ARCHITECTURE.md`, RLS
+activation checklist): until the application role is neither superuser nor the
+table owner, this keeps code paths honest and proves the rules, but does not stop
+a hostile application session. The function is executable by any role: a caller
+can only run the nightly job early for its own tenant, on records past the
+clock, when the lender has set a period. A pseudonymised record's outcomes are
+frozen: the outcome writer neither recomputes (there is no subject to read the
+loan from) nor sweeps them, so a window still PENDING at that point stays PENDING.
 
 ## 3. Outcome definitions (implemented in PR B)
 

@@ -253,7 +253,11 @@ separate workstream (W0b); in this order:
    `prisma migrate deploy`, and an application role that is neither
    superuser nor `BYPASSRLS`, with `SELECT, INSERT, UPDATE, DELETE` on the
    tables and `USAGE` on the sequences. FORCE binds an owner too, so the app
-   role may own the tables, but must not be a superuser.
+   role may own the tables, but must not be a superuser. It should NOT own
+   them: the decision-log retention exception (`guardCreditDecisionRecord`,
+   docs/learning-loop/DESIGN.md §2.7) lets only the table owner, inside
+   `pseudonymiseCreditDecisionRecords()`, change a record, so an application
+   role that owns the table could do so directly.
 2. **Handle `P2002` without `meta.target`.** Under RLS, Postgres withholds the
    key of a unique violation on a covered table and Prisma reports
    "Unique constraint failed on the (not available)". Each site that reads

@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   if (denied) return denied
 
   const asOf = new Date()
-  const result = await runDecisionRecordRetention(asOf)
+  const result = await runDecisionRecordRetention()
   const { status, partial } = sweepStatus({ tenants: result.tenants, failedTenants: result.failedTenants, otherErrors: 0 })
   return NextResponse.json(
     { ok: status === 200, partial, runAt: asOf.toISOString(), ...result },

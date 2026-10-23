@@ -66,10 +66,12 @@ export function DecisionRetentionCard({ months, canChange, lastChange = null }: 
         <CardTitle>Credit decision log retention</CardTitle>
         <CardDescription>
           Once a decision record is older than this, a nightly job removes who it was about (the application, loan,
-          client and lead, and the staff member) and any override reason from it. Its banded figures and outcomes
-          stay, so performance reporting keeps working. A declined or refused decision ages from the day it was made;
+          client and lead, and the staff member), any override reason, the references to its source and evidence,
+          and the fingerprint of its inputs. Its banded figures and outcomes stay, so performance reporting keeps
+          working. A declined or refused decision ages from the day it was made;
           a decision on an application that became a loan ages from the day the loan was settled, written off or
-          cancelled. An open loan&apos;s decisions never age. Pseudonymising cannot be undone. Confirm the period
+          cancelled. An open loan&apos;s decisions never age, nor does a client-only record while that client has an open
+          loan or live application. Pseudonymising cannot be undone. Confirm the period
           with your legal team.
         </CardDescription>
       </CardHeader>

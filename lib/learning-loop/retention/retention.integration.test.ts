@@ -3,11 +3,16 @@
  * 20261023200000_decision_record_retention): with no period nothing changes;
  * with one, an aged decline and an aged terminated-loan decision are
  * pseudonymised and an open loan's, a live application's and a young one's are
- * not; the append-only trigger still refuses every other UPDATE, the
- * identifying columns changed outside the function, a non-NULL value and a
- * second pseudonymisation; a second run is a no-op; and the outcomes of a
- * pseudonymised record survive the nightly outcome writer. Run as a role RLS
- * binds. Every person, lender and amount is synthetic.
+ * not; the append-only trigger still refuses every other UPDATE and, from the
+ * role the application uses (not the table owner), the pseudonymising UPDATE
+ * itself however it is dressed (a comment mimicking the call stack, a forged
+ * flag), a record born pseudonymised, a function call with no tenant frame or
+ * with a caller-chosen clock; from inside the function it refuses a non-NULL
+ * value, another column changed and a second pseudonymisation; what is
+ * pseudonymised includes the source entity, the evidence refs, the inputs hash
+ * and the outcomes' loan reference; a second run is a no-op; and the outcomes
+ * of a pseudonymised record survive the nightly outcome writer. Every person,
+ * lender and amount is synthetic.
  *
  *   RUN_DECISION_LOG_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/learning-loop/retention/retention.integration.test.ts
@@ -28,8 +33,8 @@ const suite = process.env.RUN_DECISION_LOG_IT === "1" ? describe.sequential : de
 const db = new PrismaClient()
 const ROLE = "cf_decision_retention_it"
 const t = randomUUID().replaceAll("-", "").slice(0, 12)
-const asOf = new Date("2027-06-01T00:00:00.000Z")
-const monthsAgo = (n: number) => new Date(Date.UTC(2027, 5 - n, 1))
+// The function reads the database clock, so the fixtures are dated from now.
+const monthsAgo = (n: number) => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - n, 15)) }
 const REASON = "Bureau flag cleared after a manual review."
 let app: ReturnType<typeof createAppPrismaClient>
 let tenant: ChargesTenant
@@ -65,9 +70,17 @@ async function loan(owner: ChargesTenant, end: { status: "COMPLETED" | "WRITTEN_
 }
 
 const rows = (owner: ChargesTenant) => db.creditDecisionRecord.findMany({ where: { tenantId: owner.tenantId }, orderBy: { id: "asc" } })
-const fn = (frame: ChargesTenant, subject: ChargesTenant) => runWithTenant(frame.tenantId, async () => (await app.$queryRaw<{ n: number }[]>`
-  SELECT public."pseudonymiseCreditDecisionRecords"(${subject.tenantId}, ${asOf.toISOString()}::timestamptz) AS n`)[0].n)
-const run = (owner: ChargesTenant, at = asOf) => runWithTenant(owner.tenantId, () => pseudonymiseTenantDecisionRecords(owner.tenantId, at, app))
+/** The database function called straight, as a session in `frame`'s tenant frame (or none). */
+const fn = (frame: ChargesTenant | null) => {
+  const call = async () => (await app.$queryRaw<{ n: number }[]>`SELECT public."pseudonymiseCreditDecisionRecords"() AS n`)[0].n
+  return frame ? runWithTenant(frame.tenantId, call) : call()
+}
+const run = (owner: ChargesTenant) => runWithTenant(owner.tenantId, () => pseudonymiseTenantDecisionRecords(owner.tenantId, app))
+const FLAG = `SELECT set_config('cf.decision_record_pseudonymise', txid_current()::text, true)`
+/** The seven identifying columns, the source entity, the hash and the refs, as the function sets them. */
+const WIPE = `"applicationId" = NULL, "loanId" = NULL, "clientId" = NULL, "leadId" = NULL, "actorUserId" = NULL, "overrideReason" = NULL,
+  "sourceEntityId" = NULL, "inputsHash" = NULL, "evidenceRefs" = '{}'::jsonb, "pseudonymisedAt" = now()`
+const WIPED = ["applicationId", "loanId", "clientId", "leadId", "actorUserId", "overrideReason", "sourceEntityId", "inputsHash", "pseudonymisedAt"] as const
 const pseudonymised = async (owner: ChargesTenant) =>
   new Set((await rows(owner)).filter((r) => r.pseudonymisedAt !== null).map((r) => Object.keys(ids).find((k) => ids[k] === r.id)))
 
@@ -112,20 +125,33 @@ suite("decision log retention (real Postgres)", () => {
 
     await record(tenant, "declineAged", { clientId: `c-declined-${t}` }, monthsAgo(24), { overridden: true, overrideReason: REASON })
     await record(tenant, "declineYoung", { clientId: `c-young-${t}` }, monthsAgo(6))
-    await record(tenant, "leadRefusalAged", { leadId: `lead-${t}` }, monthsAgo(30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
     // Nothing but a lead and no actor: the one shape a bare UPDATE of the identifying columns could take.
     await record(tenant, "leadRefusalYoung", { leadId: `lead-young-${t}` }, monthsAgo(3), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
+    await record(tenant, "leadRefusalAged", { leadId: `lead-${t}` }, monthsAgo(30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
     await record(tenant, "declinedApplicationAged", { applicationId: declined.id }, monthsAgo(24))
     // However old, a decision on an application still being worked does not age.
     await record(tenant, "liveApplication", { applicationId: live.id }, monthsAgo(60))
+    // A record naming only a client does not age while that client has an open loan or a live application.
+    await record(tenant, "clientOnlyOpenLoan", { clientId: open.clientId }, monthsAgo(60))
+    await record(tenant, "clientOnlyLiveApplication", { clientId: live.clientId! }, monthsAgo(60))
     await record(tenant, "openLoan", { applicationId: open.applicationId, loanId: open.loanId, clientId: open.clientId }, monthsAgo(60))
-    await record(tenant, "settledAged", { applicationId: settledLongAgo.applicationId, loanId: settledLongAgo.loanId, clientId: settledLongAgo.clientId }, monthsAgo(40))
+    await record(tenant, "settledAged", { applicationId: settledLongAgo.applicationId, loanId: settledLongAgo.loanId, clientId: settledLongAgo.clientId }, monthsAgo(40), {
+      evidenceRefs: { bureauCheckId: `bureau-${t}` },
+    })
     await record(tenant, "settledAgedByApplicationOnly", { applicationId: settledLongAgo.applicationId }, monthsAgo(40))
     // Decided long ago, but the loan ended only 6 months ago: the loan's end is the clock.
     await record(tenant, "settledRecently", { applicationId: settledRecently.applicationId, loanId: settledRecently.loanId }, monthsAgo(60))
     await record(tenant, "writtenOffAged", { applicationId: writtenOff.applicationId, loanId: writtenOff.loanId }, monthsAgo(40))
     await record(tenant, "cancelledAged", { applicationId: cancelled.applicationId, loanId: cancelled.loanId }, monthsAgo(40))
     await record(offTenant, "offTenantDeclineAged", { clientId: `c-off-${t}` }, monthsAgo(60))
+    // An outcome that names the loan, as the outcome job writes it.
+    await db.decisionOutcome.create({
+      data: {
+        tenantId: tenant.tenantId, decisionRecordId: ids.settledAged, outcomeKind: "EVER_90_DPD", window: "12M", state: "OBSERVED", value: false,
+        sourceSystem: "credaflow", sourceRef: settledLongAgo.loanId, definitionVersion: OUTCOME_DEFINITION_VERSION, observedAt: monthsAgo(25), computedAt: monthsAgo(25),
+      },
+    })
+    ids.settledLoan = settledLongAgo.loanId
 
     vi.stubEnv("TENANT_RLS", "on")
     app = createAppPrismaClient(roleUrl(await createAppRole()))
@@ -141,7 +167,6 @@ suite("decision log retention (real Postgres)", () => {
       db.decisionOutcome.deleteMany({ where: { tenantId: { in: owners } } }),
       db.creditDecisionRecord.deleteMany({ where: { tenantId: { in: owners } } }),
     ])
-    await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public."pseudonymiseCreditDecisionRecords"(integer)`)
     if (app) {
       await db.$executeRawUnsafe(`DROP OWNED BY ${ROLE}`)
       await db.$executeRawUnsafe(`DROP ROLE ${ROLE}`)
@@ -149,23 +174,30 @@ suite("decision log retention (real Postgres)", () => {
     await db.$disconnect()
   })
 
-  it("connects as a role RLS binds (otherwise the frame proves nothing)", async () => {
-    const [me] = await app.$queryRaw<{ su: boolean; bypass: boolean }[]>`
-      SELECT rolsuper AS su, rolbypassrls AS bypass FROM pg_roles WHERE rolname = current_user`
-    expect(me).toEqual({ su: false, bypass: false })
+  it("connects as a role RLS binds that does not own the table (otherwise the attacks prove nothing)", async () => {
+    const [me] = await app.$queryRaw<{ su: boolean; bypass: boolean; owner: boolean }[]>`
+      SELECT rolsuper AS su, rolbypassrls AS bypass,
+        rolname = (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = '"CreditDecisionRecord"'::regclass) AS owner
+      FROM pg_roles WHERE rolname = current_user`
+    expect(me).toEqual({ su: false, bypass: false, owner: false })
   })
 
   it("changes nothing for a lender with no period, however old its records are", async () => {
     expect((await db.tenantConfig.findUniqueOrThrow({ where: { tenantId: tenant.tenantId } })).decisionRecordRetentionMonths).toBeNull()
     expect(await run(tenant)).toEqual({ retentionMonths: null, pseudonymised: 0 })
-    expect(await fn(tenant, tenant)).toBe(0)
+    expect(await fn(tenant)).toBe(0)
     expect(await pseudonymised(tenant)).toEqual(new Set())
     expect(await db.auditLog.count({ where: { tenantId: tenant.tenantId, action: "DECISION_RECORDS_PSEUDONYMISED" } })).toBe(0)
   })
 
-  it("does not reach another lender's records from a lender's frame (RLS), even with a period set", async () => {
+  it("takes its tenant from the frame and its clock from the database: no frame, no argument", async () => {
     await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { decisionRecordRetentionMonths: 12 } })
-    expect(await fn(offTenant, tenant)).toBe(0)
+    await expect(fn(null)).rejects.toThrow(/needs a tenant frame/)
+    // The old signature took a tenant and an as-of; a caller can no longer choose either.
+    await expect(runWithTenant(tenant.tenantId, async () => await app.$queryRaw`SELECT public."pseudonymiseCreditDecisionRecords"(${tenant.tenantId}, '2100-01-01'::timestamptz)`))
+      .rejects.toThrow(/does not exist/)
+    // Another lender's frame, with its own period off, reaches nothing of this lender's.
+    expect(await fn(offTenant)).toBe(0)
     expect(await pseudonymised(tenant)).toEqual(new Set())
   })
 
@@ -178,6 +210,7 @@ suite("decision log retention (real Postgres)", () => {
     ]))
 
     const after = new Map((await rows(tenant)).map((r) => [r.id, r]))
+    const blank = (r: object) => ({ ...r, ...Object.fromEntries(WIPED.map((c) => [c, null])), evidenceRefs: {} })
     for (const was of before) {
       const now = after.get(was.id)!
       if (now.pseudonymisedAt === null) {
@@ -185,16 +218,23 @@ suite("decision log retention (real Postgres)", () => {
         continue
       }
       expect(now).toMatchObject({
-        applicationId: null, loanId: null, clientId: null, leadId: null, actorUserId: null, overrideReason: null, pseudonymisedAt: asOf,
+        applicationId: null, loanId: null, clientId: null, leadId: null, actorUserId: null, overrideReason: null,
+        sourceEntityId: null, inputsHash: null, evidenceRefs: {},
       })
+      expect(Math.abs(now.pseudonymisedAt.getTime() - Date.now())).toBeLessThan(60_000)
       // Everything else, the banded aggregate columns included, is as it was.
-      expect({ ...now, applicationId: null, loanId: null, clientId: null, leadId: null, actorUserId: null, overrideReason: null, pseudonymisedAt: null })
-        .toEqual({ ...was, applicationId: null, loanId: null, clientId: null, leadId: null, actorUserId: null, overrideReason: null, pseudonymisedAt: null })
+      expect(blank(now)).toEqual(blank(was))
     }
-    // An override keeps its flag and loses its reason.
+    // An override keeps its flag and loses its reason; the evidence ids are gone.
     expect(after.get(ids.declineAged)).toMatchObject({ overridden: true, overrideReason: null })
+    expect(before.find((r) => r.id === ids.settledAged)!.evidenceRefs).toEqual({ bureauCheckId: `bureau-${t}` })
+    // The outcome keeps its figures but no longer names the loan.
+    const outcome = await db.decisionOutcome.findFirstOrThrow({ where: { decisionRecordId: ids.settledAged } })
+    expect(outcome).toMatchObject({ state: "OBSERVED", value: false, outcomeKind: "EVER_90_DPD", sourceRef: outcome.id })
+    expect(outcome.sourceRef).not.toBe(ids.settledLoan)
+
     const audits = await db.auditLog.findMany({ where: { tenantId: tenant.tenantId, action: "DECISION_RECORDS_PSEUDONYMISED" } })
-    expect(audits.map((a) => a.newValue)).toEqual([{ retentionMonths: 12, pseudonymised: 7, asOf: asOf.toISOString() }])
+    expect(audits.map((a) => a.newValue)).toEqual([{ retentionMonths: 12, pseudonymised: 7 }])
 
     expect(await run(tenant)).toEqual({ retentionMonths: 12, pseudonymised: 0 })
     expect(await db.auditLog.count({ where: { tenantId: tenant.tenantId, action: "DECISION_RECORDS_PSEUDONYMISED" } })).toBe(1)
@@ -202,13 +242,13 @@ suite("decision log retention (real Postgres)", () => {
   })
 
   it("leaves a lender with no period alone when the nightly sweep runs over every tenant", async () => {
-    const result = await runDecisionRecordRetention(asOf)
+    const result = await runDecisionRecordRetention()
     expect(result.perTenant).toContainEqual({ tenantId: offTenant.tenantId, retentionMonths: null, pseudonymised: 0 })
     expect(result.perTenant).toContainEqual({ tenantId: tenant.tenantId, retentionMonths: 12, pseudonymised: 0 })
     expect((await db.creditDecisionRecord.findUniqueOrThrow({ where: { id: ids.offTenantDeclineAged } })).clientId).toBe(`c-off-${t}`)
   })
 
-  it("still refuses every other change, and the identifying columns changed outside the function", async () => {
+  it("still refuses every other change to a record, from the owner and from the application role", async () => {
     const young = ids.declineYoung
     const gone = ids.declineAged
     const refused = (sql: string, ...args: unknown[]) => expect(db.$executeRawUnsafe(sql, ...args)).rejects.toThrow(/append-only/)
@@ -216,10 +256,9 @@ suite("decision log retention (real Postgres)", () => {
     await refused(`UPDATE "CreditDecisionRecord" SET "decision" = 'APPROVE' WHERE "id" = $1`, gone)
     await refused(`UPDATE "CreditDecisionRecord" SET "decidedAt" = now() WHERE "id" = $1`, gone)
     await refused(`UPDATE "CreditDecisionRecord" SET "overridden" = false WHERE "id" = $1`, gone)
-    // The six identifying columns to NULL and the stamp, as the function does, but not from it.
-    await refused(`UPDATE "CreditDecisionRecord" SET "leadId" = NULL, "pseudonymisedAt" = now() WHERE "id" = $1`, ids.leadRefusalYoung)
+    // The whole pseudonymisation, as the function does it, but not from it: the owner too is refused without the function's flag.
+    await refused(`UPDATE "CreditDecisionRecord" SET ${WIPE} WHERE "id" = $1`, ids.leadRefusalYoung)
     await refused(`UPDATE "CreditDecisionRecord" SET "pseudonymisedAt" = now() WHERE "id" = $1`, ids.leadRefusalYoung)
-    await refused(`UPDATE "CreditDecisionRecord" SET "clientId" = NULL, "pseudonymisedAt" = now() WHERE "id" = $1`, young)
     await refused(`UPDATE "CreditDecisionRecord" SET "clientId" = 'someone-else' WHERE "id" = $1`, young)
     await expect(runWithTenant(tenant.tenantId, async () => await app.creditDecisionRecord.updateMany({ where: { id: young }, data: { clientId: null } })))
       .rejects.toThrow(/append-only/)
@@ -228,47 +267,83 @@ suite("decision log retention (real Postgres)", () => {
     expect((await db.creditDecisionRecord.findUniqueOrThrow({ where: { id: ids.leadRefusalYoung } })).pseudonymisedAt).toBeNull()
   })
 
-  // A function of the same name stands in for a call from inside the real one, so the trigger's
-  // shape checks run on the call-stack path; it needs CREATE FUNCTION, which the app role lacks.
-  it("refuses, even from inside the function, a non-NULL value, another column changed, or a second pseudonymisation", async () => {
-    const attempt = async (set: string, id: string) => {
-      await db.$executeRawUnsafe(`
-        CREATE OR REPLACE FUNCTION public."pseudonymiseCreditDecisionRecords"(p integer) RETURNS integer LANGUAGE plpgsql AS $f$
-        BEGIN UPDATE "CreditDecisionRecord" SET ${set} WHERE "id" = '${id}'; RETURN 1; END $f$`)
-      return db.$queryRawUnsafe(`SELECT public."pseudonymiseCreditDecisionRecords"(1)`)
+  // Reviewer attacks, run as the application role in the lender's frame against rows the job must NOT touch.
+  describe("as the application role", () => {
+    const victims = () => [ids.openLoan, ids.liveApplication, ids.declineYoung, ids.leadRefusalYoung].map((id) => `'${id}'`).join(", ")
+    const inFrame = <T>(fnc: () => Promise<T>) => runWithTenant(tenant.tenantId, fnc)
+    const untouched = async () => {
+      const rows = await db.creditDecisionRecord.findMany({ where: { id: { in: [ids.openLoan, ids.liveApplication, ids.declineYoung, ids.leadRefusalYoung] } } })
+      expect(rows.map((r) => r.pseudonymisedAt)).toEqual([null, null, null, null])
     }
-    const nulls = `"applicationId" = NULL, "loanId" = NULL, "clientId" = NULL, "leadId" = NULL, "actorUserId" = NULL, "overrideReason" = NULL, "pseudonymisedAt" = now()`
-    await expect(attempt(`${nulls.replace(`"clientId" = NULL`, `"clientId" = 'someone'`)}`, ids.openLoan)).rejects.toThrow(/append-only|pseudonymised_shape/)
-    await expect(attempt(`${nulls}, "decision" = 'APPROVE'`, ids.openLoan)).rejects.toThrow(/append-only/)
-    await expect(attempt(`${nulls}, "inputsHash" = '${"e".repeat(64)}'`, ids.openLoan)).rejects.toThrow(/append-only/)
-    // Already pseudonymised: a second time is refused.
-    await expect(attempt(nulls, ids.declineAged)).rejects.toThrow(/append-only/)
-    expect((await db.creditDecisionRecord.findUniqueOrThrow({ where: { id: ids.openLoan } })).pseudonymisedAt).toBeNull()
+
+    it("cannot pseudonymise by writing the function's name in a comment (the call stack is no proof)", async () => {
+      await expect(inFrame(async () => await app.$executeRawUnsafe(`DO $d$ BEGIN
+        UPDATE "CreditDecisionRecord" SET "applicationId" = NULL, "loanId" = NULL, "clientId" = NULL, "leadId" = NULL, "actorUserId" = NULL,
+          "overrideReason" = NULL, "sourceEntityId" = NULL, "inputsHash" = NULL, "evidenceRefs" = '{}'::jsonb, "pseudonymisedAt" = '1999-01-01'
+          /* PL/pgSQL function "pseudonymiseCreditDecisionRecords"( */ WHERE "id" IN (${victims()});
+        END $d$`))).rejects.toThrow(/append-only/)
+      await untouched()
+    })
+
+    it("cannot pseudonymise by setting the function's flag itself (it is not the table owner)", async () => {
+      await expect(inFrame(async () => await app.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(FLAG)
+        await tx.$executeRawUnsafe(`UPDATE "CreditDecisionRecord" SET ${WIPE} WHERE "id" IN (${victims()})`)
+      }))).rejects.toThrow(/append-only/)
+      await untouched()
+    })
+
+    it("cannot create a record already pseudonymised, which would skip the subject, actor and reason checks", async () => {
+      const born = (as: "db" | "app") => {
+        const sql = `INSERT INTO "CreditDecisionRecord" ("id","tenantId","kind","decision","recommendation","overridden","actorType","sourceEntityType","ruleVersion","policyHash",
+          "inputsSnapshot","evidenceRefs","decidedAt","pseudonymisedAt")
+          VALUES ('born-${as}-${t}', '${tenant.tenantId}', 'CREDIT_DECISION', 'DECLINE', 'NONE', true, 'STAFF', 'LoanApplication', 'v1', '${"c".repeat(64)}', '{}', '{}', now(), now())`
+        return as === "db" ? db.$executeRawUnsafe(sql) : inFrame(async () => await app.$executeRawUnsafe(sql))
+      }
+      await expect(born("db")).rejects.toThrow(/cannot be created pseudonymised/)
+      await expect(born("app")).rejects.toThrow(/cannot be created pseudonymised/)
+      expect(await db.creditDecisionRecord.count({ where: { id: { startsWith: "born-" } } })).toBe(0)
+    })
   })
 
-  it("holds a pseudonymised row to its shape, and an unpseudonymised one to its reason, actor and subject", async () => {
+  // The owner with the function's flag is the path the function takes, so the guard's own shape checks run here.
+  it("refuses, even on the function's own path, a non-NULL value, another column changed, kept evidence or a second pseudonymisation", async () => {
+    const attempt = (set: string, id: string) => db.$transaction([db.$executeRawUnsafe(FLAG), db.$executeRawUnsafe(`UPDATE "CreditDecisionRecord" SET ${set} WHERE "id" = '${id}'`)])
+    await expect(attempt(WIPE.replace(`"leadId" = NULL`, `"leadId" = 'someone'`), ids.leadRefusalYoung)).rejects.toThrow(/append-only|pseudonymised_shape/)
+    await expect(attempt(`${WIPE}, "decision" = 'APPROVE'`, ids.leadRefusalYoung)).rejects.toThrow(/append-only/)
+    await expect(attempt(`${WIPE}, "policyHash" = '${"e".repeat(64)}'`, ids.leadRefusalYoung)).rejects.toThrow(/append-only/)
+    await expect(attempt(WIPE.replace(`"evidenceRefs" = '{}'::jsonb`, `"evidenceRefs" = '{"keep":"me"}'::jsonb`), ids.leadRefusalYoung)).rejects.toThrow(/append-only|pseudonymised_shape/)
+    await expect(attempt(WIPE.replace(`"sourceEntityId" = NULL`, `"sourceEntityId" = 'kept'`), ids.leadRefusalYoung)).rejects.toThrow(/append-only|pseudonymised_shape/)
+    await expect(attempt(WIPE.replace(`"inputsHash" = NULL`, `"inputsHash" = '${"f".repeat(64)}'`), ids.leadRefusalYoung)).rejects.toThrow(/append-only|pseudonymised_shape/)
+    // Already pseudonymised: a second time is refused.
+    await expect(attempt(WIPE, ids.declineAged)).rejects.toThrow(/append-only/)
+    expect((await db.creditDecisionRecord.findUniqueOrThrow({ where: { id: ids.leadRefusalYoung } })).pseudonymisedAt).toBeNull()
+  })
+
+  it("holds a pseudonymised row to its shape, and an unpseudonymised one to its reason, actor, subject and source", async () => {
     const base = recordData(consumerDeclineRecord({
       tenantId: tenant.tenantId, applicationId: `app-shape-${t}`, clientId: null, actor: { userId: tenant.userId, role: "LOAN_ADMIN" }, decidedAt: monthsAgo(1),
       declineCategory: "OTHER",
     }))
     const create = (change: Record<string, unknown>) => db.creditDecisionRecord.create({ data: { ...base, ...change } })
-    await expect(create({ pseudonymisedAt: asOf })).rejects.toThrow("CreditDecisionRecord_pseudonymised_shape")
     await expect(create({ overridden: true, overrideReason: null })).rejects.toThrow("CreditDecisionRecord_override_reason")
     await expect(create({ actorUserId: null })).rejects.toThrow("CreditDecisionRecord_actor")
     await expect(create({ applicationId: null })).rejects.toThrow("CreditDecisionRecord_has_subject_or_lead")
+    await expect(create({ sourceEntityId: null })).rejects.toThrow("CreditDecisionRecord_identity_present")
+    await expect(create({ inputsHash: null })).rejects.toThrow("CreditDecisionRecord_identity_present")
   })
 
   it("keeps a pseudonymised record's outcomes when the outcome writer sweeps decisions it no longer attributes", async () => {
     const outcome = (decisionRecordId: string) => ({
       tenantId: tenant.tenantId, decisionRecordId, outcomeKind: "EVER_90_DPD" as const, window: "12M", state: "OBSERVED" as const, value: false,
       sourceSystem: "credaflow", sourceRef: `loan-${decisionRecordId}`, definitionVersion: OUTCOME_DEFINITION_VERSION,
-      observedAt: asOf, computedAt: asOf,
+      observedAt: monthsAgo(1), computedAt: monthsAgo(1),
     })
-    await db.decisionOutcome.createMany({ data: [outcome(ids.settledAged), outcome(ids.openLoan)] })
+    await db.decisionOutcome.create({ data: outcome(ids.openLoan) })
 
     // A run that attributes only the young decline: the other two are no longer attributed.
     // The writer is typed for the app's extended client; a plain one serves here.
-    await syncOutcomes(db as unknown as OutcomeWriterDb, { tenantId: tenant.tenantId, sourceSystem: "credaflow", decisionRecordIds: [ids.declineYoung], outcomes: [], computedAt: asOf, demoData: false })
+    await syncOutcomes(db as unknown as OutcomeWriterDb, { tenantId: tenant.tenantId, sourceSystem: "credaflow", decisionRecordIds: [ids.declineYoung], outcomes: [], computedAt: new Date(), demoData: false })
 
     const left = await db.decisionOutcome.findMany({ where: { tenantId: tenant.tenantId }, select: { decisionRecordId: true } })
     expect(left.map((o) => o.decisionRecordId)).toEqual([ids.settledAged])

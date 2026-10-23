@@ -54,7 +54,8 @@ model CreditDecisionRecord {
   leadId               String?
   /// The row of record the decision changed (LoanApplication, ApplicationCheckFlag, AssetFinanceDeal).
   sourceEntityType     String
-  sourceEntityId       String
+  /// Null only once pseudonymised (the id names the application or loan).
+  sourceEntityId       String?
   /// Code rule version, e.g. "decision-log-v1+approval-ndi-v3".
   ruleVersion          String
   /// sha256 of the tenant's effective decision thresholds at decision time.
@@ -68,14 +69,16 @@ model CreditDecisionRecord {
   /// Ids and fingerprints of the evidence of record (bureau check, affordability snapshot, flags).
   evidenceRefs         Json
   /// sha256 of the canonical JSON of the exact inputs (lib/canonical-json.ts).
-  inputsHash           String                 @db.Char(64)
+  /// Null only once pseudonymised (a hash of low-entropy inputs plus evidence ids can be re-identified).
+  inputsHash           String?                @db.Char(64)
   /// An automated (SYSTEM) decision awaiting the lender's POPIA s71 legal review
   /// (DESIGN.md decision 5; DB CHECK: only on SYSTEM rows).
   s71ReviewRequired    Boolean                @default(false)
   decidedAt            DateTime
   /// Set once by the retention job (pseudonymiseCreditDecisionRecords): the
-  /// subject ids, actorUserId and overrideReason were then NULLed, the only
-  /// UPDATE the append-only trigger lets through (DESIGN.md §2.7).
+  /// subject ids, actorUserId, overrideReason, sourceEntityId and inputsHash
+  /// were then NULLed and evidenceRefs emptied, the only UPDATE the
+  /// append-only trigger lets through (DESIGN.md §2.7).
   pseudonymisedAt      DateTime?
   createdAt            DateTime               @default(now())
 

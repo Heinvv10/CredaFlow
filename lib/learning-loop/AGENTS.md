@@ -24,8 +24,9 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   `20261021090000_credit_decision_record`). Never add an update path; a
   correction is a new row. The one exception is retention
   (`lib/learning-loop/retention/`, DESIGN.md §2.7): off by default; only
-  `pseudonymiseCreditDecisionRecords()` may NULL the subject ids, actor and
-  override reason of an aged record, once. Outcomes of such a row are frozen.
+  the table owner inside `pseudonymiseCreditDecisionRecords()` (SECURITY
+  DEFINER, no arguments) may NULL the ids, actor, reason, source and hash of an
+  aged record, once; never prove it by call stack. Its outcomes are frozen.
   Test teardown deletes under `session_replication_role = replica`.
 - **Subjects must exist.** A BEFORE INSERT trigger (`20261023190000`) refuses a
   non-null `applicationId`/`loanId`/`clientId`/`leadId` with no row of the same
