@@ -86,7 +86,7 @@ beforeEach(() => {
   })
   sendEmailMock.mockResolvedValue({ ok: true })
   sendMessageMock.mockResolvedValue({ id: "msg_a" })
-  lookupContactMock.mockResolvedValue({ id: "ct_a", tenantId: "tenant_acme" })
+  lookupContactMock.mockResolvedValue({ id: "ct_a", tenantId: "tenant_acme", clientId: "cl_a" })
   messageTemplateFindFirstMock.mockResolvedValue({
     id: "tpl_a",
     tenantId: "tenant_acme",
@@ -203,6 +203,22 @@ describe("POST /api/portal/forgot-password", () => {
       otp: expect.stringMatching(/^\d{6}$/),
     })
     expect(clientOtpCreateMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The address resolves to another person's Contact: the reset code would be filed under,
+  // and gated by the consent of, someone else. Same 200 (no enumeration), nothing sent.
+  it("FLAG ON + the address belongs to someone else's Contact: 200, no send", async () => {
+    process.env.MESSAGING_NEW_SEND_PORTAL_FORGOT = "true"
+    lookupContactMock.mockResolvedValue({ id: "ct_lead", tenantId: "tenant_acme", clientId: null })
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const res = await POST(buildReq({ email: "user@example.com" }))
+    expect(res.status).toBe(200)
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    // Says which drift it is, by id only: never the address.
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining("owned by someone else"), { clientId: "cl_a", tenantId: "tenant_acme" })
+    expect(JSON.stringify(warned.mock.calls)).not.toContain("user@example.com")
+    warned.mockRestore()
   })
 
   it("FLAG ON + sendMessage throws: 200 still returned (fire-and-forget)", async () => {

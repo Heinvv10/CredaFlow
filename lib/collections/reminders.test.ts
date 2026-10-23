@@ -7,14 +7,18 @@ const tenantConfigFindUniqueMock = vi.fn()
 const loanNoteFindFirstMock = vi.fn()
 const loanNoteCreateMock = vi.fn()
 const messageTemplateFindFirstMock = vi.fn()
-const sendSmsMock = vi.fn()
-const sendWhatsAppMock = vi.fn()
 const sendMessageMock = vi.fn()
 const lookupContactMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const loanFindUniqueMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
 
+// WhatsApp switches (WA_ENABLED, the tenant's whatsappEnabled): a refusal reason, or null when on.
+const waSwitch = vi.hoisted(() => ({ refusal: null as string | null }))
+vi.mock("@/lib/whatsapp/kill-switch", async (orig) => ({
+  ...(await orig<typeof import("@/lib/whatsapp/kill-switch")>()),
+  whatsappRefusalForTenant: async () => waSwitch.refusal,
+}))
 const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanRemindable: async () => !holds.held }))
 const ensureDpdCurrentMock = vi.fn()
@@ -50,10 +54,6 @@ vi.mock("@/lib/config/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/config/identity")>()),
   getLenderIdentity: (...args: unknown[]) => getLenderIdentityMock(...args),
 }))
-vi.mock("@/lib/integrations/bulksms", () => ({
-  sendSms: (a: unknown) => sendSmsMock(a),
-  sendWhatsApp: (a: unknown) => sendWhatsAppMock(a),
-}))
 vi.mock("@/lib/messaging/send", async (orig) => {
   const real = (await orig()) as Record<string, unknown>
   return {
@@ -61,13 +61,25 @@ vi.mock("@/lib/messaging/send", async (orig) => {
     sendMessage: (a: unknown) => sendMessageMock(a),
   }
 })
+// A stubbed Contact is the borrower's own (clientId "cl_1", every fixture's client)
+// unless the stub names another owner: the cron refuses a Contact that is not the
+// loan client's.
 vi.mock("@/lib/contact/identity", async (orig) => {
   const real = (await orig()) as Record<string, unknown>
   return {
     ...real,
-    lookupContactByChannelValue: (...args: unknown[]) => lookupContactMock(...args),
+    lookupContactByChannelValue: async (...args: unknown[]) => {
+      const contact = (await lookupContactMock(...args)) as Record<string, unknown> | null | undefined
+      return contact && !("clientId" in contact) ? { ...contact, clientId: "cl_1" } : contact
+    },
   }
 })
+// The send window is the clock's: pinned open here, closed by the tests that need it.
+const sendWindow = vi.hoisted(() => ({ outside: false }))
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => sendWindow.outside,
+}))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (a: unknown) => triggerNotificationMock(a),
 }))
@@ -81,7 +93,8 @@ import {
   overdueWhatsAppSuppressionReason,
   TRIGGERS,
 } from "./reminders"
-import { SendBlockedError } from "@/lib/messaging/send"
+import { KnownDispatchPersistenceError, MessageReconciliationRequiredError, SendBlockedError } from "@/lib/messaging/send"
+import { WA_SETTINGS_UNAVAILABLE_REASON } from "@/lib/whatsapp/kill-switch"
 import { Prisma } from "@prisma/client"
 import { WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
 import { extractPlaceholders } from "@/lib/whatsapp/template-components"
@@ -170,7 +183,7 @@ function loanOverdue3d() {
     arrearsAmount: 156_000,
     status: "ACTIVE" as const,
     client: {
-      id: "cl_9",
+      id: "cl_1",
       firstName: "Test",
       lastName: "Client",
       phone: "0821234567",
@@ -238,6 +251,8 @@ function loanDueIn(days: number) {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  waSwitch.refusal = null
+  sendWindow.outside = false
   tenantFindFirstMock.mockResolvedValue({ id: "tenant_acme", name: "Acme" })
   loanFindManyMock.mockResolvedValue([loanDueTomorrow()])
   repaymentScheduleFindFirstMock.mockResolvedValue({ totalDue: 1500_00, totalPaid: 0 })
@@ -251,14 +266,8 @@ beforeEach(() => {
   })
   loanNoteFindFirstMock.mockResolvedValue(null) // not sent today
   loanNoteCreateMock.mockResolvedValue({ id: "note_1" })
-  sendSmsMock.mockResolvedValue({ ok: true, messageId: "sms_1" })
-  sendWhatsAppMock.mockResolvedValue({ ok: true, messageId: "wa_1" })
   sendMessageMock.mockResolvedValue({ id: "msg_1", status: "SENT" })
   chargesOutstandingAtMock.mockResolvedValue(0)
-})
-
-afterEach(() => {
-  delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
 })
 
 describe("processPaymentReminders", () => {
@@ -267,6 +276,7 @@ describe("processPaymentReminders", () => {
     const { LenderIdentityError } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
     getLenderIdentityMock.mockRejectedValue(new LenderIdentityError(["collectionsPhone"]))
     loanFindManyMock.mockResolvedValue([loanDueTomorrow()])
+    stubTemplates()
     // Reported as the tenant's failure (the cron answers 503), not thrown: the
     // tenants after it still get their reminders.
     const result = await processPaymentReminders()
@@ -274,7 +284,6 @@ describe("processPaymentReminders", () => {
     expect(result.details.join("\n")).toContain("Tenant Acme (tenant_acme) failed")
     expect(result.details.join("\n"), "the cause stays in the server log").not.toContain("collectionsPhone")
     expect(result).toMatchObject({ tenants: 1, failedTenants: 1 })
-    expect(sendSmsMock).not.toHaveBeenCalled()
     expect(sendMessageMock).not.toHaveBeenCalled()
   })
 
@@ -313,6 +322,8 @@ describe("processPaymentReminders", () => {
       ["the LoanNote write", () => loanNoteCreateMock.mockRejectedValueOnce(new Error("disk full"))],
     ])("a throw from %s is counted for that loan, with the cause in the log only, and the next loan is still reminded", async (_name, arrange) => {
       const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+      stubTemplates()
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
       arrange()
       loanFindManyMock.mockResolvedValue([withWa("loan_1", "L-001"), withWa("loan_2", "L-002")])
       const r = await processPaymentReminders()
@@ -322,7 +333,7 @@ describe("processPaymentReminders", () => {
       expect(r.details).toContainEqual("Error L-001: failed; see the server log")
       expect(JSON.stringify(r.details)).not.toMatch(/deadlock|replay failed|connection reset|disk full/)
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-001"), expect.any(Error))
-      expect(sendWhatsAppMock.mock.calls.length, "L-002 is still reminded").toBeGreaterThanOrEqual(1)
+      expect(sendMessageMock.mock.calls.filter((c) => c[0].loanId === "loan_2").length, "L-002 is still reminded").toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -384,7 +395,6 @@ describe("processPaymentReminders", () => {
 
     it("on the sendMessage path fails the tenant, like any other fault, instead of one more per-loan error", async () => {
       vi.spyOn(console, "error").mockImplementation(() => undefined)
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       stubTemplates()
       lookupContactMock.mockResolvedValue({ id: "ct_1" })
       sendMessageMock.mockRejectedValue(new Prisma.PrismaClientInitializationError("can't reach", "5.22.0"))
@@ -396,7 +406,6 @@ describe("processPaymentReminders", () => {
 
     it("an ordinary send error on that path stays that loan's", async () => {
       vi.spyOn(console, "error").mockImplementation(() => undefined)
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       stubTemplates()
       lookupContactMock.mockResolvedValue({ id: "ct_1" })
       sendMessageMock.mockRejectedValueOnce(new Error("provider down")).mockResolvedValue({ id: "m", status: "SENT" })
@@ -419,7 +428,6 @@ describe("processPaymentReminders", () => {
     afterEach(() => vi.useRealTimers())
 
     async function keyAt(iso: string): Promise<string> {
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       vi.useFakeTimers()
       vi.setSystemTime(new Date(iso))
       // nextPaymentDate must track the faked clock, or the trigger no longer matches.
@@ -445,7 +453,7 @@ describe("processPaymentReminders", () => {
     })
   })
 
-  describe("the pre-due email leg (through sendMessage on every path)", () => {
+  describe("the pre-due email leg", () => {
     const withEmail = (days: number, email: string | null = "tester@client.invalid") => {
       const loan = loanDueIn(days)
       return { ...loan, client: { ...loan.client, email } }
@@ -458,7 +466,7 @@ describe("processPaymentReminders", () => {
       lookupContactMock.mockResolvedValue({ id: "ct_1" })
     })
 
-    it.each([7, 1, 0])("%i days before due: one email through sendMessage, as dunning, beside the direct WhatsApp/SMS legs (flag off)", async (days) => {
+    it.each([7, 1, 0])("%i days before due: one email through sendMessage, as dunning, beside the WhatsApp and SMS legs", async (days) => {
       loanFindManyMock.mockResolvedValue([withEmail(days)])
       const r = await processPaymentReminders()
 
@@ -469,7 +477,7 @@ describe("processPaymentReminders", () => {
       expect(call.vars.subject).toContain("R 1,500.00")
       expect(call.vars.text).toContain("L-001")
       expect(call.vars.html).toBe(`<p>${call.vars.text}</p>`)
-      expect(sendWhatsAppMock).toHaveBeenCalledTimes(1)
+      expect(sendMessageMock.mock.calls.map((c) => c[0].channel).sort()).toEqual(["EMAIL", "SMS", "WHATSAPP"])
       expect(r.errors).toBe(0)
     })
 
@@ -531,7 +539,7 @@ describe("processPaymentReminders", () => {
       expect(r.details.filter((d) => d.startsWith("Warning: email reminder leg skipped"))).toHaveLength(1)
       expect(r.details.join("\n")).toContain(reason)
       expect(warned).toHaveBeenCalledTimes(1)
-      expect(sendWhatsAppMock, "the other legs are unaffected").toHaveBeenCalledTimes(2)
+      expect(sendMessageMock.mock.calls.filter((c) => c[0].channel === "WHATSAPP"), "the other legs are unaffected").toHaveLength(2)
       warned.mockRestore()
     })
 
@@ -582,172 +590,209 @@ describe("processPaymentReminders", () => {
     })
   })
 
-  describe("FLAG OFF (legacy path)", () => {
-    it("calls sendSms + sendWhatsApp directly and writes a LoanNote", async () => {
-      const loanWithWa = loanDueTomorrow()
-      loanWithWa.client.whatsapp = "0821234567"
-      loanFindManyMock.mockResolvedValue([loanWithWa])
-
-      const r = await processPaymentReminders()
-
-      expect(r.sent).toBe(1)
-      expect(r.errors).toBe(0)
-      expect(sendSmsMock).toHaveBeenCalledTimes(1)
-      expect(sendWhatsAppMock).toHaveBeenCalledTimes(1)
-      expect(sendWhatsAppMock.mock.calls[0][0].to).toBe("0821234567")
-      expect(sendMessageMock).not.toHaveBeenCalled()
-      // Only the email leg's template: SMS and WhatsApp stay on the direct legacy sends.
-      expect(messageTemplateFindFirstMock.mock.calls.map((c) => (c[0] as { where: { key: string } }).where.key)).toEqual(["payment_reminder_email", "entity_reminder_email"])
-      expect(loanNoteCreateMock).toHaveBeenCalledTimes(1)
+  // Each leg's once-a-day reservation is sendMessage's idempotency key: a Message row committed under a
+  // database-unique key before the provider is called. An overlapping run (a takeover of a runner that only lost
+  // its heartbeat) gets that row back instead of sending again.
+  describe("send reservation (overlapping runs)", () => {
+    const withWa = () => {
+      const l = loanDueTomorrow()
+      l.client.whatsapp = "0821234567"
+      return l
+    }
+    beforeEach(() => {
+      stubTemplates()
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+      loanFindManyMock.mockResolvedValue([withWa()])
     })
 
-    // The legacy branch used to send to `client.whatsapp ?? client.phone`, so
-    // a borrower with no WhatsApp got WhatsApped on their plain phone number —
-    // a delivery failure at best. Both paths now agree: no number, no leg.
-    describe("send reservation (overlapping runs)", () => {
-      const withWa = () => {
-        const l = loanDueTomorrow()
-        l.client.whatsapp = "0821234567"
-        return l
-      }
-
-      it("reserves each direct send per loan, trigger and channel before it goes", async () => {
-        loanFindManyMock.mockResolvedValue([withWa()])
-        await processPaymentReminders()
-        expect(reserveOnceMock.mock.calls.map((c) => [c[0], c[1]])).toEqual([["tenant_acme", "send:loan_1:reminder_1d:sms"], ["tenant_acme", "send:loan_1:reminder_1d:whatsapp"]])
-      })
-
-      it("a send another run has reserved is not sent again", async () => {
-        loanFindManyMock.mockResolvedValue([withWa()])
-        reserveOnceMock.mockResolvedValue(false)
-        const r = await processPaymentReminders()
-        expect(sendSmsMock).not.toHaveBeenCalled()
-        expect(sendWhatsAppMock).not.toHaveBeenCalled()
-        expect(loanNoteCreateMock).not.toHaveBeenCalled()
-        expect(r.details.join("\n")).toContain("another run already reserved this send today")
-        expect(r.errors).toBe(0)
-      })
-
-      // BulkSMS answers AMBIGUOUS to a timeout, a 5xx or a response with no id: the message
-      // may well have been accepted, so a retry that resent it could send it twice.
-      it("a send the provider DEFINITELY rejected gives its reservation back, against the day it was taken", async () => {
-        vi.spyOn(console, "error").mockImplementation(() => undefined)
-        loanFindManyMock.mockResolvedValue([withWa()])
-        sendWhatsAppMock.mockResolvedValue({ ok: false, error: "bad request", providerOutcome: "DEFINITELY_REJECTED" })
-        const r = await processPaymentReminders()
-        expect(releaseReservationMock.mock.calls.map((c) => c[0])).toEqual(["send:loan_1:reminder_1d:whatsapp"])
-        const reservedAt = reserveOnceMock.mock.calls.find((c) => c[1] === "send:loan_1:reminder_1d:whatsapp")![2]
-        expect(releaseReservationMock.mock.calls[0][1]).toBe(reservedAt)
-        expect(r.errors).toBe(1)
-      })
-
-      it.each([
-        ["an ambiguous provider outcome (timeout, 5xx)", { ok: false, error: "timeout", providerOutcome: "AMBIGUOUS" }],
-        ["a failure that says nothing about whether it was accepted", { ok: false, error: "no id" }],
-      ])("%s keeps the reservation and is held for reconciliation, not retried or counted an error", async (_name, outcome) => {
-        vi.spyOn(console, "error").mockImplementation(() => undefined)
-        loanFindManyMock.mockResolvedValue([withWa()])
-        sendWhatsAppMock.mockResolvedValue(outcome)
-        const r = await processPaymentReminders()
-        expect(releaseReservationMock).not.toHaveBeenCalledWith("send:loan_1:reminder_1d:whatsapp", expect.anything())
-        expect(r.errors).toBe(0)
-        expect(r.reconciliationRequired).toBe(1)
-        expect(r.details.join("\n")).toContain("Held reminder_1d for L-001 via whatsapp; reconciliation required")
-        // The note is the marker that stops the next run sending it again.
-        expect(loanNoteCreateMock.mock.calls[0][0].data.note).toContain("delivery uncertain")
-      })
-
-      it("a send that threw is ambiguous too: the reservation is kept and the leg held for reconciliation", async () => {
-        vi.spyOn(console, "error").mockImplementation(() => undefined)
-        loanFindManyMock.mockResolvedValue([withWa()])
-        sendSmsMock.mockRejectedValue(new Error("socket hang up"))
-        const r = await processPaymentReminders()
-        expect(releaseReservationMock).not.toHaveBeenCalledWith("send:loan_1:reminder_1d:sms", expect.anything())
-        expect(r.failedTenants).toBe(0)
-        expect(r.reconciliationRequired).toBe(1)
-      })
-    })
-
-    it("does NOT WhatsApp the plain phone number when the client has no WhatsApp on file", async () => {
-      // Default fixture: client.whatsapp = null, client.phone = "0821234567".
-      const r = await processPaymentReminders()
-
-      expect(sendWhatsAppMock).not.toHaveBeenCalled()
-      expect(sendSmsMock).toHaveBeenCalledTimes(1)
-      expect(r.errors).toBe(0)
-      expect(r.details).toContainEqual(
-        expect.stringContaining("Skipped 1 whatsapp leg(s) this run: no WhatsApp number on file"),
-      )
-      // SMS was dispatched, so this trigger is not counted as
-      // "no leg dispatched".
-      expect(r.details.some((d) => d.includes("NO leg dispatched"))).toBe(false)
-    })
-
-    it("records legacy provider dry-runs as simulated, never sent", async () => {
-      sendSmsMock.mockResolvedValue({ ok: true, messageId: "dry-run-1", simulated: true })
-      sendWhatsAppMock.mockResolvedValue({ ok: true, messageId: "dry-run-2", simulated: true })
-
-      const r = await processPaymentReminders()
-
-      expect(r.sent).toBe(0)
-      expect(r.simulated).toBe(1)
-      expect(r.details).toContainEqual(expect.stringContaining("Simulated"))
-      expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ note: expect.stringContaining("simulated (not sent)") }),
-      }))
-    })
-
-    it("triggers loan_overdue notification with data.amount = loan.arrearsAmount for an overdue trigger (WA vars fix)", async () => {
-      loanFindManyMock.mockResolvedValue([loanOverdue3d()])
-      triggerNotificationMock.mockResolvedValue(undefined)
-
+    it("reserves each send per loan, trigger, channel and SAST day before it goes", async () => {
       await processPaymentReminders()
+      const keys = sendMessageMock.mock.calls.map((c) => (c[0] as { idempotencyKey: string }).idempotencyKey)
+      expect(keys).toEqual([
+        expect.stringMatching(/^collections:loan_1:reminder_1d:SMS:\d{4}-\d{2}-\d{2}$/),
+        expect.stringMatching(/^collections:loan_1:reminder_1d:WHATSAPP:\d{4}-\d{2}-\d{2}$/),
+      ])
+    })
 
-      expect(triggerNotificationMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          event: "loan_overdue",
-          loanId: "loan_9",
-          data: expect.objectContaining({ daysOverdue: 3, amount: 156_000 }),
-        }),
-      )
+    it("a send another run has already reserved (its message still queued) is not recorded or counted again", async () => {
+      sendMessageMock.mockResolvedValue({ id: "msg_1", status: "QUEUED" })
+      const r = await processPaymentReminders()
+      expect(loanNoteCreateMock).not.toHaveBeenCalled()
+      expect(r.details.join("\n")).toContain("Skip duplicate reminder_1d for L-001 via sms+whatsapp: durable business reservation already active")
+      expect(r).toMatchObject({ sent: 0, errors: 0 })
+    })
+
+    it("a send the provider definitely rejected is an error and writes no note, so nothing claims it went", async () => {
+      sendMessageMock.mockResolvedValue({ id: "msg_1", status: "FAILED_PERMANENT" })
+      const r = await processPaymentReminders()
+      expect(loanNoteCreateMock).not.toHaveBeenCalled()
+      expect(r.errors, "one per leg").toBe(2)
+      expect(r.reconciliationRequired).toBe(0)
+    })
+
+    // A timeout, a 5xx or a response with no id: the provider may have accepted it, so a resend could message
+    // the borrower twice. sendMessage keeps the reservation and refuses automatic replay.
+    it("an ambiguous provider outcome is held for reconciliation, not counted an error, and its note is the marker", async () => {
+      const { MessageReconciliationRequiredError } = await vi.importActual<typeof import("@/lib/messaging/send")>("@/lib/messaging/send")
+      const ambiguous = Object.assign(Object.create(MessageReconciliationRequiredError.prototype) as Error, {
+        message: "reconciliation required",
+        messageRecord: { id: "msg_amb" },
+      })
+      sendMessageMock.mockImplementation(async (a: { channel: string }) => {
+        if (a.channel === "WHATSAPP") throw ambiguous
+        return { id: "msg_1", status: "SENT" }
+      })
+      const r = await processPaymentReminders()
+      expect(r.errors).toBe(0)
+      expect(r.reconciliationRequired).toBe(1)
+      expect(r.details.join("\n")).toContain("Held reminder_1d for L-001 via whatsapp; reconciliation required")
+      expect(loanNoteCreateMock.mock.calls[0][0].data.note).toContain("delivery uncertain and held for reconciliation via whatsapp")
     })
   })
 
-  describe("FLAG ON (new path)", () => {
-    beforeEach(() => {
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
-    })
+  it("triggers loan_overdue notification with data.amount = loan.arrearsAmount for an overdue trigger (WA vars fix)", async () => {
+    loanFindManyMock.mockResolvedValue([loanOverdue3d()])
+    triggerNotificationMock.mockResolvedValue(undefined)
 
-    // A tenant-level abort is a FAILED TENANT, not a quiet `errors++`: the scheduler marks the claim FAILED and
-    // the later firings retry it (health goes red only when every tenant failed). (R4 changes these template semantics; until then
-    // they must not look green.)
-    it("fails the tenant when the SMS template is missing: counted as a failed tenant, the cause in the log", async () => {
-      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    await processPaymentReminders()
+
+    expect(triggerNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "loan_overdue",
+        loanId: "loan_9",
+        data: expect.objectContaining({ daysOverdue: 3, amount: 156_000 }),
+      }),
+    )
+  })
+
+  describe("sendMessage path", () => {
+    // A channel that is ON but has no usable template is skipped for the tenant:
+    // one warning each, logged and counted, never an abort and never an error.
+    it("a tenant with no templates is not aborted: every enabled leg is skipped with a warning, no error", async () => {
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined)
       messageTemplateFindFirstMock.mockResolvedValue(null)
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
 
       const r = await processPaymentReminders()
 
-      expect(r).toMatchObject({ failedTenants: 1, errors: 1 })
-      expect(r.details[0]).toBe("Tenant Acme (tenant_acme) failed; see the server log")
-      expect(logged).toHaveBeenCalledWith(expect.stringContaining("tenant tenant_acme failed"), expect.objectContaining({ message: expect.stringMatching(/template missing/i) }))
+      expect(loanFindManyMock).toHaveBeenCalled()
+      expect(r.errors).toBe(0)
+      // The SMS row, one WhatsApp row per trigger that has a WhatsApp leg, and the consumer and entity email rows.
+      expect(r.warnings).toBe(1 + WA_TEMPLATE_EVENTS.length + 2)
+      expect(r.details).toContainEqual(expect.stringMatching(/^Warning: sms legs skipped: payment_reminder_sms template missing\/inactive/))
+      expect(warned).toHaveBeenCalledWith(expect.stringContaining("payment_reminder_sms template missing/inactive"))
       expect(sendMessageMock).not.toHaveBeenCalled()
-      expect(sendSmsMock).not.toHaveBeenCalled()
-      // Should NOT have fetched loans (early-return)
-      expect(loanFindManyMock).not.toHaveBeenCalled()
+      warned.mockRestore()
     })
 
-    it("fails the tenant when a template has statutoryOverride=true (misconfigured)", async () => {
-      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    it("a missing SMS template skips only the SMS leg, with ONE warning; WhatsApp still sends", async () => {
+      stubTemplates({ payment_reminder_sms: null })
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+      const r = await processPaymentReminders()
+
+      expect(r.errors).toBe(0)
+      expect(r.warnings).toBe(1)
+      expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["WHATSAPP"])
+    })
+
+    it("an SMS template with statutoryOverride=true is not used: the SMS leg is skipped with a warning", async () => {
       stubTemplates({ payment_reminder_sms: { ...sampleSmsTpl, statutoryOverride: true } })
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
 
       const r = await processPaymentReminders()
 
-      expect(r).toMatchObject({ failedTenants: 1, errors: 1 })
-      expect(logged).toHaveBeenCalledWith(expect.stringContaining("tenant tenant_acme failed"), expect.objectContaining({ message: expect.stringMatching(/statutoryOverride=true/i) }))
-      expect(sendMessageMock).not.toHaveBeenCalled()
+      expect(r.errors).toBe(0)
+      expect(r.warnings).toBe(1)
+      expect(r.details).toContainEqual(expect.stringMatching(/statutoryOverride=true/))
+      expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["WHATSAPP"])
     })
 
-    it("routes through sendMessage for both channels, never calls legacy sendSms/sendWhatsApp", async () => {
+    it("SMS off (by policy): no SMS template is looked up, so its absence is no warning", async () => {
+      process.env.BULKSMS_DRY_RUN = "true"
+      stubTemplates({ payment_reminder_sms: null })
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+      const r = await processPaymentReminders()
+
+      const keys = messageTemplateFindFirstMock.mock.calls.map((c) => c[0].where.key)
+      expect(keys).not.toContain("payment_reminder_sms")
+      expect(r.warnings).toBe(0)
+      expect(r.errors).toBe(0)
+      expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["WHATSAPP"])
+    })
+
+    describe("WhatsApp off (WA_ENABLED or the tenant's switch)", () => {
+      const OFF = "WhatsApp disabled: WA_ENABLED is off"
+
+      it("the leg is skipped BEFORE sendMessage: no send, no error, counted and reported once", async () => {
+        waSwitch.refusal = OFF
+        stubTemplates()
+        loanFindManyMock.mockResolvedValue([loanDueIn(1), { ...loanDueIn(1), id: "loan_2", reference: "L-002" }])
+        lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+        const r = await processPaymentReminders()
+
+        expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["SMS", "SMS"])
+        expect(r.errors).toBe(0)
+        expect(r.whatsappChannelOff).toBe(2)
+        expect(r.details.filter((d) => d.includes("whatsapp leg(s)"))).toEqual([
+          `Skipped 2 whatsapp leg(s) this run: ${OFF} (reminder_1d x2).`,
+        ])
+        // SMS still reached the borrower, so the note names SMS only.
+        expect(loanNoteCreateMock.mock.calls[0][0].data.note).toContain("sent via sms")
+        expect(loanNoteCreateMock.mock.calls[0][0].data.note).not.toContain("whatsapp")
+      })
+
+      it("no WhatsApp template is looked up, so a tenant without those rows gets no warning", async () => {
+        waSwitch.refusal = OFF
+        stubTemplates({ payment_reminder_1d_whatsapp: null })
+        loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+        lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+        const r = await processPaymentReminders()
+
+        const keys = messageTemplateFindFirstMock.mock.calls.map((c) => c[0].where.key as string)
+        expect(keys.filter((k) => k.endsWith("_whatsapp"))).toEqual([])
+        expect(r.warnings).toBe(0)
+        expect(r.errors).toBe(0)
+      })
+
+      it("SMS and WhatsApp both off: no SMS or WhatsApp template is looked up and nothing is sent", async () => {
+        process.env.BULKSMS_DRY_RUN = "true"
+        waSwitch.refusal = OFF
+        stubTemplates()
+        loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+
+        const r = await processPaymentReminders()
+
+        const keys = messageTemplateFindFirstMock.mock.calls.map((c) => c[0].where.key as string)
+        expect(keys, "only the email leg's rows (this borrower has no email address)").toEqual(["payment_reminder_email", "entity_reminder_email"])
+        expect(sendMessageMock).not.toHaveBeenCalled()
+        expect(loanNoteCreateMock).not.toHaveBeenCalled()
+        expect(r.errors).toBe(0)
+        expect(r.warnings).toBe(0)
+        expect(r.details).toContainEqual(expect.stringContaining("1 borrower reminder(s) had NO leg dispatched this run (reminder_1d x1)"))
+      })
+
+      it("does not suppress loan_overdue's email at an overdue offset", async () => {
+        waSwitch.refusal = OFF
+        stubTemplates()
+        loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
+        triggerNotificationMock.mockResolvedValue(undefined)
+        lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+        await processPaymentReminders()
+
+        expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    it("routes through sendMessage for both channels", async () => {
       // Client has WA on file so the new path attempts both channels.
       const loanWithWa = loanDueTomorrow()
       loanWithWa.client.whatsapp = "0821234567"
@@ -759,8 +804,6 @@ describe("processPaymentReminders", () => {
 
       expect(r.sent).toBe(1)
       expect(r.errors).toBe(0)
-      expect(sendSmsMock).not.toHaveBeenCalled()
-      expect(sendWhatsAppMock).not.toHaveBeenCalled()
       expect(sendMessageMock).toHaveBeenCalledTimes(2)
 
       const smsCall = sendMessageMock.mock.calls.find((c) => c[0].channel === "SMS")
@@ -825,11 +868,11 @@ describe("processPaymentReminders", () => {
     // never be taken down by a WhatsApp-template problem — e.g. code deployed
     // before the migration that seeds these rows.
     it.each([
-      ["missing/inactive", { payment_reminder_overdue_3d_whatsapp: null }, /payment_reminder_overdue_3d_whatsapp missing\/inactive/],
+      ["missing/inactive", { payment_reminder_overdue_3d_whatsapp: null }, /Warning: whatsapp reminder_overdue_3d legs skipped: template payment_reminder_overdue_3d_whatsapp missing\/inactive/],
       [
         "statutoryOverride=true",
         { payment_reminder_overdue_3d_whatsapp: { ...waTpl("payment_reminder_overdue_3d"), statutoryOverride: true } },
-        /payment_reminder_overdue_3d_whatsapp has statutoryOverride=true/,
+        /Warning: whatsapp reminder_overdue_3d legs skipped: template payment_reminder_overdue_3d_whatsapp has statutoryOverride=true/,
       ],
     ] as const)("%s per-trigger WhatsApp row blocks only that WhatsApp leg; the SMS leg still sends", async (_label, overrides, detail) => {
       loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
@@ -843,7 +886,8 @@ describe("processPaymentReminders", () => {
       const channels = sendMessageMock.mock.calls.map((c) => c[0].channel)
       expect(channels).toEqual(["SMS"])
       expect(r.sent).toBe(1)
-      expect(r.errors).toBe(1) // visible, not silent
+      expect(r.errors).toBe(0) // a setup gap, not a send fault
+      expect(r.warnings).toBe(1) // visible, not silent: one tenant-level warning
       expect(r.details).toContainEqual(expect.stringMatching(detail))
       expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ note: expect.stringContaining("Automated reminder sent via sms") }),
@@ -1100,7 +1144,6 @@ describe("processPaymentReminders", () => {
     it("exactly ONE dunning WhatsApp per borrower per day at an overdue offset", async () => {
       // The reminder stage's own WhatsApp is the one that goes out; the
       // loan_overdue leg is the one suppressed.
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
       triggerNotificationMock.mockResolvedValue(undefined)
       stubTemplates()
@@ -1134,30 +1177,8 @@ describe("processPaymentReminders", () => {
       process.env.BULKSMS_DRY_RUN = "false"
     })
 
-    it("legacy path: no sendSms, WhatsApp leg still runs, note names WhatsApp only", async () => {
+    it("sendMessage is never called with channel SMS; WhatsApp unaffected", async () => {
       process.env.BULKSMS_DRY_RUN = "true"
-      const loanWithWa = loanDueTomorrow()
-      loanWithWa.client.whatsapp = "0821234567"
-      loanFindManyMock.mockResolvedValue([loanWithWa])
-
-      const r = await processPaymentReminders()
-
-      expect(sendSmsMock).not.toHaveBeenCalled()
-      expect(sendWhatsAppMock).toHaveBeenCalledTimes(1)
-      expect(r.sent).toBe(1)
-      expect(r.errors).toBe(0) // channel off is configuration, not a fault
-      expect(r.smsChannelOff).toBe(1)
-      expect(r.details).toContainEqual(
-        expect.stringContaining("Blocked 1 sms leg(s) this run: SMS not enabled"),
-      )
-      const note = loanNoteCreateMock.mock.calls[0][0].data.note as string
-      expect(note).toContain("sent via whatsapp")
-      expect(note).not.toContain("sms")
-    })
-
-    it("new path: sendMessage is never called with channel SMS; WhatsApp unaffected", async () => {
-      process.env.BULKSMS_DRY_RUN = "true"
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       const loanWithWa = loanDueTomorrow()
       loanWithWa.client.whatsapp = "0821234567"
       loanFindManyMock.mockResolvedValue([loanWithWa])
@@ -1176,7 +1197,6 @@ describe("processPaymentReminders", () => {
     // line. (New-send path: a client without a WhatsApp number is a real skip.)
     it("a trigger with no reachable channel writes NO LoanNote at all", async () => {
       process.env.BULKSMS_DRY_RUN = "true"
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       stubTemplates()
       const sevenDays = sastDayOffset(7)
       loanFindManyMock.mockResolvedValue([
@@ -1219,8 +1239,7 @@ describe("processPaymentReminders", () => {
       "SMS off, daysUntilDue %i (%s): the WhatsApp leg still sends and the note names WhatsApp only",
       async (days, noteType, key) => {
         process.env.BULKSMS_DRY_RUN = "true"
-        process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
-        loanFindManyMock.mockResolvedValue([loanDueIn(days)])
+          loanFindManyMock.mockResolvedValue([loanDueIn(days)])
         triggerNotificationMock.mockResolvedValue(undefined)
         stubTemplates()
         lookupContactMock.mockResolvedValue({ id: "ct_1" })
@@ -1260,7 +1279,6 @@ describe("processPaymentReminders", () => {
       [-1, "reminder_overdue_1d"],
     ] as const)("SMS on, daysUntilDue %i (%s): BOTH legs run", async (days, _noteType) => {
       process.env.BULKSMS_DRY_RUN = "false"
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       loanFindManyMock.mockResolvedValue([loanDueIn(days)])
       triggerNotificationMock.mockResolvedValue(undefined)
       stubTemplates()
@@ -1281,6 +1299,8 @@ describe("processPaymentReminders", () => {
     // every matching loan on every tick for as long as SMS stays off.
     it("reports ONE aggregate line per run, not one per loan", async () => {
       process.env.BULKSMS_DRY_RUN = "true"
+      stubTemplates()
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
       const sevenDays = sastDayOffset(7)
       loanFindManyMock.mockResolvedValue([
         { ...loanDueTomorrow(), id: "l1", reference: "L-001", nextPaymentDate: sevenDays },
@@ -1305,20 +1325,6 @@ describe("processPaymentReminders", () => {
       )
       expect(r.details.some((d) => d.includes("L-002"))).toBe(false)
     })
-
-    it("CHANNEL ON: today's behaviour is unchanged — SMS still dispatched", async () => {
-      process.env.BULKSMS_DRY_RUN = "false"
-      const loanWithWa = loanDueTomorrow()
-      loanWithWa.client.whatsapp = "0821234567"
-      loanFindManyMock.mockResolvedValue([loanWithWa])
-
-      const r = await processPaymentReminders()
-
-      expect(sendSmsMock).toHaveBeenCalledTimes(1)
-      expect(sendWhatsAppMock).toHaveBeenCalledTimes(1)
-      expect(r.sent).toBe(1)
-      expect(r.details.some((d) => d.includes("SMS not enabled"))).toBe(false)
-    })
   })
 })
 
@@ -1328,7 +1334,6 @@ describe("processPaymentReminders", () => {
 // charges are 0 and every message is byte-identical to before.
 describe("default charges in reminder amounts", () => {
   beforeEach(() => {
-    process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
     stubTemplates()
     lookupContactMock.mockResolvedValue({ id: "ct_1" })
     triggerNotificationMock.mockResolvedValue(undefined)
@@ -1428,7 +1433,6 @@ describe("reminder_0d wording", () => {
 // tenant is silently switched off the template Meta approved for it.
 describe("due-day WhatsApp template v3", () => {
   beforeEach(() => {
-    process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
     lookupContactMock.mockResolvedValue({ id: "ct_1" })
     loanFindManyMock.mockResolvedValue([loanDueIn(0)])
   })
@@ -1471,6 +1475,8 @@ describe("Kabelo-shaped schedule (every unpaid row stored PARTIAL)", () => {
     // 7 days before #4 (1 Jun 2026).
     vi.setSystemTime(new Date("2026-05-25T08:00:00.000Z"))
     answerFrom(rows)
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
     loanFindManyMock.mockResolvedValue([{
       ...loanDueTomorrow(), nextPaymentDate: rows[3].dueDate,
       client: { ...loanDueTomorrow().client, whatsapp: "0821234567" },
@@ -1478,9 +1484,9 @@ describe("Kabelo-shaped schedule (every unpaid row stored PARTIAL)", () => {
 
     await processPaymentReminders()
 
-    const sms = sendSmsMock.mock.calls[0]?.[0] as { message: string } | undefined
-    expect(sms?.message).toContain("your loan payment of R 2,253.75 is due on")
-    expect(sms?.message).not.toContain("R 0.00")
+    const sms = sendMessageMock.mock.calls.find((c) => c[0].channel === "SMS")?.[0] as { vars: { body: string } } | undefined
+    expect(sms?.vars.body).toContain("your loan payment of R 2,253.75 is due on")
+    expect(sms?.vars.body).not.toContain("R 0.00")
   })
 
   it("sends nothing when nothing is owed on the schedule", async () => {
@@ -1488,12 +1494,368 @@ describe("Kabelo-shaped schedule (every unpaid row stored PARTIAL)", () => {
     vi.setSystemTime(new Date("2026-05-25T08:00:00.000Z"))
     const paidUp = kabeloScheduleAsAudited().map((r) => ({ ...r, totalPaid: r.totalDue, status: "PAID" as const }))
     answerFrom(paidUp)
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
     loanFindManyMock.mockResolvedValue([{ ...loanDueTomorrow(), nextPaymentDate: paidUp[3].dueDate }])
 
     const r = await processPaymentReminders()
 
-    expect(sendSmsMock).not.toHaveBeenCalled()
-    expect(sendWhatsAppMock).not.toHaveBeenCalled()
+    expect(sendMessageMock).not.toHaveBeenCalled()
     expect(r.details).toContainEqual(expect.stringContaining("nothing owed"))
+  })
+})
+
+describe("reminder date in SAST", () => {
+  afterEach(() => vi.useRealTimers())
+
+  // A due date stored at SAST midnight is 22:00 UTC the day before. Formatted
+  // in the container's zone it printed a day early in every reminder.
+  it("prints a SAST-midnight due date as that SAST day, not the UTC day before", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-08-19T06:00:00.000Z"))
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    loanFindManyMock.mockResolvedValue([{ ...loanDueTomorrow(), nextPaymentDate: new Date("2026-08-19T22:00:00.000Z") }])
+
+    await processPaymentReminders()
+
+    const sms = sendMessageMock.mock.calls.find((c) => c[0].channel === "SMS")![0] as { vars: { body: string } }
+    expect(sms.vars.body).toContain("20 Aug 2026")
+    expect(sms.vars.body).not.toContain("19 Aug 2026")
+  })
+})
+
+describe("loan_overdue from an overdue reminder", () => {
+  afterEach(() => {
+    process.env.BULKSMS_DRY_RUN = "false"
+  })
+  // Every leg skipped: SMS off and no WhatsApp number, so no reminder LoanNote.
+  function noLegReaches() {
+    process.env.BULKSMS_DRY_RUN = "true"
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    loanFindManyMock.mockResolvedValue([loanOverdue3d()])
+    triggerNotificationMock.mockResolvedValue(undefined)
+  }
+  // The reservation and note stores the cron reads back, so a second run sees what the first left.
+  function stores() {
+    const reserved = new Set<string>()
+    reserveOnceMock.mockImplementation(async (_tenantId: string, key: string) => {
+      if (reserved.has(key)) return false
+      reserved.add(key)
+      return true
+    })
+    releaseReservationMock.mockImplementation(async (key: string) => {
+      reserved.delete(key)
+    })
+    const notes: Array<{ loanId: string; type: string }> = []
+    loanNoteCreateMock.mockImplementation(async (a: { data: { loanId: string; type: string } }) => {
+      notes.push({ loanId: a.data.loanId, type: a.data.type })
+      return { id: `note_${notes.length}` }
+    })
+    loanNoteFindFirstMock.mockImplementation(async (a: { where: { loanId: string; type: string } }) =>
+      notes.find((n) => n.loanId === a.where.loanId && n.type === a.where.type) ?? null)
+    return { reserved, notes }
+  }
+  const KEY = "send:loan_9:reminder_overdue_3d:loan_overdue"
+
+  it("fires once per loan per SAST day even when no reminder leg wrote a LoanNote", async () => {
+    noLegReaches()
+    const { reserved, notes } = stores()
+
+    await processPaymentReminders()
+    const second = await processPaymentReminders()
+
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    expect([...reserved]).toEqual([KEY])
+    expect(notes, "the reservation is the record, not a note").toEqual([])
+    expect(second.details).toContainEqual("Skip L-009: loan_overdue for reminder_overdue_3d already fired today")
+  })
+
+  it("reserves before it fires, and keeps the reservation when the notification went", async () => {
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
+    triggerNotificationMock.mockResolvedValue(undefined)
+    const { notes } = stores()
+
+    await processPaymentReminders()
+    await processPaymentReminders()
+
+    expect(reserveOnceMock).toHaveBeenCalledWith("tenant_acme", "send:loan_1:reminder_overdue_3d:loan_overdue", expect.any(Date))
+    expect(releaseReservationMock).not.toHaveBeenCalled()
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    expect(notes.map((n) => n.type)).toEqual(["reminder_overdue_3d"])
+  })
+
+  it("a notification that throws is logged and counted, not swallowed, gives its reservation back, and is retried next run", async () => {
+    noLegReaches()
+    const { reserved } = stores()
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    triggerNotificationMock.mockRejectedValueOnce(new Error("mail relay down"))
+
+    const first = await processPaymentReminders()
+
+    expect(first.errors).toBe(1)
+    expect(first.failedTenants).toBe(0)
+    // Generic in the body; the cause is in the log only.
+    expect(first.details).toContainEqual("Error L-009 loan_overdue: failed; see the server log")
+    expect(JSON.stringify(first.details)).not.toContain("mail relay down")
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-009 loan_overdue failed"), expect.objectContaining({ message: "mail relay down" }))
+    // Against the day it was taken: the very instant it was reserved at.
+    expect(releaseReservationMock).toHaveBeenCalledWith(KEY, reserveOnceMock.mock.calls[0][2])
+    expect([...reserved]).toEqual([])
+
+    const second = await processPaymentReminders()
+    expect(second.errors).toBe(0)
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(2)
+    expect([...reserved]).toEqual([KEY])
+    logged.mockRestore()
+  })
+
+  it("a database fault in the notification fails the tenant, so the run is retried", async () => {
+    noLegReaches()
+    stores()
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    triggerNotificationMock.mockRejectedValueOnce(new Prisma.PrismaClientInitializationError("can't reach", "5.22.0"))
+
+    const r = await processPaymentReminders()
+
+    expect(r.failedTenants).toBe(1)
+    expect(releaseReservationMock).toHaveBeenCalledWith(KEY, expect.any(Date))
+  })
+
+  it("a leg the notification reports as failed is counted, gives its reservation back, and the next run tries again", async () => {
+    noLegReaches()
+    const { reserved } = stores()
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    triggerNotificationMock.mockResolvedValueOnce({ failedLegs: ["email"] }).mockResolvedValue({ failedLegs: [] })
+
+    const first = await processPaymentReminders()
+
+    expect(first.errors).toBe(1)
+    expect(first.details).toContainEqual("Error L-009 loan_overdue: email failed; see the notification log")
+    expect([...reserved], "not left looking done").toEqual([])
+
+    const second = await processPaymentReminders()
+    expect(second.errors).toBe(0)
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(2)
+    expect([...reserved]).toEqual([KEY])
+  })
+
+  it("if giving the reservation back fails too, the notification's own failure is what is reported", async () => {
+    noLegReaches()
+    stores()
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    releaseReservationMock.mockRejectedValue(new Error("release failed"))
+    triggerNotificationMock.mockRejectedValueOnce(new Error("mail relay down"))
+
+    const r = await processPaymentReminders()
+
+    expect(r.failedTenants).toBe(0)
+    expect(r.errors).toBe(1)
+    expect(r.details).toContainEqual("Error L-009 loan_overdue: failed; see the server log")
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("could not give the reservation back"), expect.objectContaining({ message: "release failed" }))
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-009 loan_overdue failed"), expect.objectContaining({ message: "mail relay down" }))
+  })
+
+  // A debt-review notice recorded while the trigger's own legs are in flight (a slow provider)
+  // must stop the loan_overdue notice that follows them.
+  it("a hold recorded while the trigger's legs are in flight stops the loan_overdue, and gives its reservation back", async () => {
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
+    triggerNotificationMock.mockResolvedValue({ failedLegs: [] })
+    sendMessageMock.mockImplementation(async () => {
+      holds.held = true
+      return { id: "m", status: "SENT" }
+    })
+    try {
+      const r = await processPaymentReminders()
+      expect(sendMessageMock).toHaveBeenCalled()
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(releaseReservationMock).toHaveBeenCalledWith("send:loan_1:reminder_overdue_3d:loan_overdue", expect.any(Date))
+      expect(r.details).toContainEqual(expect.stringContaining("Skip L-001: loan_overdue for reminder_overdue_3d, the loan stopped being ACTIVE or was put on a dunning hold"))
+    } finally {
+      holds.held = false
+    }
+  })
+
+  // The trigger's LoanNote stops its own legs from going twice; it must not also stop a
+  // loan_overdue that failed earlier today (and gave its reservation back) from being retried.
+  describe("an overdue trigger already reminded today", () => {
+    beforeEach(() => {
+      stubTemplates()
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+      loanNoteFindFirstMock.mockResolvedValue({ id: "note_today" })
+      triggerNotificationMock.mockResolvedValue({ failedLegs: [] })
+    })
+    afterEach(() => {
+      holds.held = false
+    })
+
+    it("sends no leg again but still fires its loan_overdue, under the reservation", async () => {
+      loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
+      const r = await processPaymentReminders()
+      expect(sendMessageMock).not.toHaveBeenCalled()
+      expect(r.details).toContainEqual("Skip L-001: reminder_overdue_3d already processed today")
+      expect(reserveOnceMock).toHaveBeenCalledWith("tenant_acme", "send:loan_1:reminder_overdue_3d:loan_overdue", expect.any(Date))
+      expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("a pre-due trigger already processed does nothing more", async () => {
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      await processPaymentReminders()
+      expect(sendMessageMock).not.toHaveBeenCalled()
+      expect(reserveOnceMock).not.toHaveBeenCalled()
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+    })
+
+    it("a loan put on hold since fires nothing", async () => {
+      holds.held = true
+      loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
+      await processPaymentReminders()
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+    })
+  })
+})
+
+describe("review round 1: reminders cron", () => {
+  const legChannels = () => sendMessageMock.mock.calls.map((c) => (c[0] as { channel: string }).channel)
+  beforeEach(() => {
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+  })
+
+  // The borrower's WhatsApp number was edited to one a lead (or another client) holds: the lookup
+  // resolves THEIR Contact, whose consent is not the borrower's and who must not read this loan.
+  it("a leg whose Contact is someone else's is refused, counted, and the report names no number", async () => {
+    lookupContactMock.mockImplementation(async (_db: unknown, a: { channel: string }) =>
+      a.channel === "WHATSAPP" ? { id: "ct_lead", clientId: null } : { id: "ct_1" })
+
+    const r = await processPaymentReminders()
+
+    expect(legChannels()).toEqual(["SMS"])
+    expect(r.errors).toBe(1)
+    expect(r.details).toContainEqual("Error L-001 whatsapp: the Contact for this phone number belongs to someone else; not sent")
+    expect(JSON.stringify(r.details)).not.toMatch(/0821234567|27821234567/)
+    expect(loanNoteCreateMock.mock.calls[0][0].data.note).not.toContain("whatsapp")
+  })
+
+  it("a WhatsApp settings row that cannot be read fails the tenant, so it is retried, instead of skipping WhatsApp as off", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    waSwitch.refusal = WA_SETTINGS_UNAVAILABLE_REASON
+
+    const r = await processPaymentReminders()
+
+    expect(r).toMatchObject({ failedTenants: 1, whatsappChannelOff: 0 })
+    expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  it("a row this run created that the provider refused for now is 'retry scheduled': not a duplicate, not an error", async () => {
+    sendMessageMock.mockImplementation(async () => ({ id: "m", status: "RETRYING", createdAt: new Date() }))
+
+    const r = await processPaymentReminders()
+
+    expect(r).toMatchObject({ retryScheduled: 1, errors: 0, sent: 0 })
+    expect(r.details).toContainEqual(expect.stringContaining("Retry scheduled reminder_1d for L-001 via sms+whatsapp"))
+    expect(r.details.join("\n")).not.toContain("Skip duplicate")
+    expect(loanNoteCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("a row an earlier run created that is still queued stays a duplicate", async () => {
+    sendMessageMock.mockImplementation(async () => ({ id: "m", status: "QUEUED", createdAt: new Date(Date.now() - 60_000) }))
+
+    const r = await processPaymentReminders()
+
+    expect(r.retryScheduled).toBe(0)
+    expect(r.details).toContainEqual(expect.stringContaining("Skip duplicate reminder_1d for L-001 via sms+whatsapp"))
+  })
+
+  it("outside the send window the run refuses to start: nothing looked at or sent, and no tenant failed", async () => {
+    sendWindow.outside = true
+
+    const r = await processPaymentReminders()
+
+    expect(r).toMatchObject({ skipped: "outside send window", tenants: 0, failedTenants: 0, errors: 0 })
+    expect(r.details[0]).toMatch(/^Skipped: outside the 07:00-20:00 SAST dunning send window/)
+    expect(ensureDpdCurrentMock).not.toHaveBeenCalled()
+    expect(loanFindManyMock).not.toHaveBeenCalled()
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+  })
+
+  // A run that started at 19:59 must stop messaging at 20:00: the window is checked per loan.
+  it("the window closing mid-run stops the run: the remaining loans are deferred, not errors", async () => {
+    loanFindManyMock.mockResolvedValue([loanDueIn(1), { ...loanDueIn(1), id: "loan_2", reference: "L-002" }])
+    sendMessageMock.mockImplementation(async () => {
+      sendWindow.outside = true
+      return { id: "m", status: "SENT" }
+    })
+
+    const r = await processPaymentReminders()
+
+    expect(new Set(sendMessageMock.mock.calls.map((c) => (c[0] as { loanId: string }).loanId))).toEqual(new Set(["loan_1"]))
+    expect(r).toMatchObject({ deferred: 1, errors: 0, failedTenants: 0, sent: 1 })
+    expect(r.details).toContainEqual("Deferred 1 loan(s): the 07:00-20:00 SAST dunning send window closed during this run")
+  })
+
+  // The every-loan-failed rule counts the loans TRIED: loans left untried when the window
+  // closed must not dilute it, or a broken tenant would close DONE.
+  it("the window closing mid-run after every loan tried has failed still fails the tenant", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    loanFindManyMock.mockResolvedValue([loanDueIn(1), { ...loanDueIn(1), id: "loan_2", reference: "L-002" }])
+    loanNoteFindFirstMock.mockImplementationOnce(async () => {
+      sendWindow.outside = true
+      throw new Error("something systemic")
+    })
+
+    const r = await processPaymentReminders()
+
+    expect(r.failedTenants).toBe(1)
+    expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  // An overlapping run created the row a moment after this leg started and is still
+  // sending it: a duplicate, not this run's retry.
+  it("a still-queued row another run created after this leg started is a duplicate, not 'retry scheduled'", async () => {
+    sendMessageMock.mockImplementation(async () => ({ id: "m", status: "QUEUED", createdAt: new Date(Date.now() + 1_000) }))
+
+    const r = await processPaymentReminders()
+
+    expect(r.retryScheduled).toBe(0)
+    expect(r.details).toContainEqual(expect.stringContaining("Skip duplicate reminder_1d for L-001 via sms+whatsapp"))
+  })
+
+  it("every leg held for reconciliation writes the reconciliation-only note, and counts nothing as sent", async () => {
+    sendMessageMock.mockImplementation(async () => {
+      throw new MessageReconciliationRequiredError({ id: "msg_amb" } as never)
+    })
+
+    const r = await processPaymentReminders()
+
+    expect(r).toMatchObject({ sent: 0, simulated: 0, reconciliationRequired: 1, errors: 0 })
+    expect(loanNoteCreateMock.mock.calls[0][0].data.note).toMatch(
+      /^Automated reminder delivery uncertain via sms\+whatsapp; held for manual reconciliation and automatic replay blocked: /,
+    )
+  })
+
+  it("a known-dispatch persistence failure reports its evidence and is held, not failed", async () => {
+    sendMessageMock.mockImplementation(async (a: { channel: string }) => {
+      if (a.channel !== "WHATSAPP") return { id: "m", status: "SENT" }
+      throw new KnownDispatchPersistenceError({
+        outcome: "PROVIDER_ACCEPTED", message: { id: "msg_k" } as never, providerMessageId: "wamid-1",
+        firstWriteError: new Error("w1"), recoveryWriteError: new Error("w2"), holdWriteError: new Error("w3"),
+      })
+    })
+
+    const r = await processPaymentReminders()
+
+    expect(r.errors).toBe(0)
+    expect(r.details).toContainEqual(
+      'Reconciliation required L-001 whatsapp: message msg_k; known evidence {"outcome":"PROVIDER_ACCEPTED","providerMessageId":"wamid-1"}; automatic replay blocked',
+    )
+    expect(loanNoteCreateMock.mock.calls[0][0].data.note).toContain("delivery uncertain and held for reconciliation via whatsapp")
   })
 })

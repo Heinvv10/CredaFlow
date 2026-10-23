@@ -27,6 +27,7 @@ import type { SeedActor } from "./asset-finance-documents"
 import { dealActor, type SeedStaff } from "./asset-finance-deal"
 import { confirmChecklist, payOutAndBook, signAndContract } from "./asset-finance-execution"
 import { LEASE_PRODUCT_CODE, LEASE_SOLE_PROP, type LeaseSpec } from "./asset-finance-leases-data"
+import { ensureClientContact } from "./client-contact"
 
 /**
  * The lease product (ASSET_FINANCE): as the instalment-sale product (./asset-finance-book.ts) with a 90-day
@@ -63,7 +64,10 @@ export const leaseClientEmail = () => `zanele.baker@${demoLender().clientDomain}
 export async function ensureLeaseClient(tenantId: string): Promise<string> {
   const p = LEASE_SOLE_PROP
   const existing = await prisma.client.findFirst({ where: { tenantId, idNumber: p.idNumber }, select: { id: true } })
-  if (existing) return existing.id
+  if (existing) {
+    await ensureClientContact(tenantId, existing.id)
+    return existing.id
+  }
   const created = await prisma.client.create({
     data: {
       tenantId, reference: p.reference, idNumber: p.idNumber, firstName: p.firstName, lastName: p.lastName,
@@ -73,6 +77,7 @@ export async function ensureLeaseClient(tenantId: string): Promise<string> {
     },
     select: { id: true },
   })
+  await ensureClientContact(tenantId, created.id)
   return created.id
 }
 

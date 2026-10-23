@@ -28,16 +28,13 @@ import { DEAL_STRUCTURE_SELECT, termsFromDeal } from "../deal-terms"
 import { deriveRequiredSigners, requiredFromPrepared, type RequiredSigner } from "../signing"
 import { isLeaseContract } from "../lease-input"
 import { leaseDocumentTerms, soleProprietorOf, type LeaseDocumentTerms, type SoleProprietor } from "./lease/lease-document-data"
-import { documentTermProblem, snapshotArrearsMargin } from "./document-terms"
+import { decimalString, documentTermProblem, snapshotArrearsMargin } from "./document-terms"
+import { documentDealer, type DocumentDealer } from "./wording/dealer-name"
+import { DealDocumentError } from "./deal-document-error"
 
 export { approvedTermProblem, documentTermProblem, preparedTermProblem, snapshotArrearsMargin } from "./document-terms"
 
-export class DealDocumentError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "DealDocumentError"
-  }
-}
+export { DealDocumentError }
 
 export interface DocumentPerson {
   clientId: string
@@ -80,6 +77,8 @@ export interface DealDocumentData {
     registrationNumber: string | null
   }
   supplier: { name: string; registrationNumber: string | null; vatNumber: string | null }
+  /** The dealer or broker that introduced the deal (dealerId): it only prints the commission disclosure. Absent on a snapshot taken before it existed. */
+  dealer?: DocumentDealer | null
   pricing: {
     cashPriceExclVatCents: number
     vatCents: number
@@ -167,7 +166,7 @@ export async function loadDealDocumentData(
       },
       entity: true,
       asset: true,
-      supplier: { select: { name: true, registrationNumber: true, vatNumber: true } },
+      supplier: { select: { name: true, registrationNumber: true, vatNumber: true } }, dealer: { select: { name: true, kind: true } },
     },
   })
   if (!deal) return null
@@ -246,6 +245,7 @@ export async function loadDealDocumentData(
       registrationNumber: a.registrationNumber,
     },
     supplier: deal.supplier,
+    dealer: documentDealer(deal.dealer),
     pricing: {
       cashPriceExclVatCents: a.cashPriceExclVatCents,
       vatCents: a.vatCents,
@@ -298,8 +298,4 @@ function preparedTerms(deal: PreparedColumns): { startDate: string; arrearsMargi
     arrearsMarginRate: deal.signedArrearsMarginRate?.toString() ?? null,
     collectionFeeCents: deal.signedCollectionFeeCents,
   }
-}
-
-function decimalString(value: Prisma.Decimal | null): string | null {
-  return value === null ? null : value.toString()
 }

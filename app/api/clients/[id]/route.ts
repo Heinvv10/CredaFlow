@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
+import { isErasedRowEdit } from "@/lib/dealer/draft-purge-messages"
 import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
 import { resolveReferralCodeById } from "@/lib/referral-agents/referrals"
@@ -1175,6 +1176,10 @@ export async function PUT(
         { error: "Client financial evidence changed concurrently; refresh and try again." },
         { status: 409 },
       )
+    }
+    // freezeDealerPurgedParty: the dealer draft purge erased this person; they stay as erased.
+    if (isErasedRowEdit(error)) {
+      return NextResponse.json({ error: "This person was erased by the dealer draft purge and is not changed" }, { status: 409 })
     }
     console.error("Failed to update client:", error)
     return NextResponse.json(

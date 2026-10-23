@@ -14,6 +14,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { createChargesTenant, SCHEDULE_TOTAL, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
 import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
+import { toWaJid } from "@/lib/contact/identity"
 import {
   createSecondProduct, HOLD_CASES, seedHoldLoan, type SeededHoldLoan,
 } from "@/lib/collections/dunning-holds.integration-fixture"
@@ -27,10 +28,17 @@ const tripWire = async (to: string) => {
   if (await sends.onSend?.(to)) sends.onSend = null
 }
 
+// The transports under sendMessage (every reminder goes through it). Provider message ids are
+// unique per provider in the database, so each call gets its own.
 vi.mock("@/lib/integrations/bulksms", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/bulksms")>()),
-  sendSms: vi.fn(async (a: { to: string }) => (sends.sms.push(a.to), { ok: true })),
-  sendWhatsApp: vi.fn(async (a: { to: string }) => (sends.whatsapp.push(a.to), await tripWire(a.to), { ok: true })),
+  sendSms: vi.fn(async (a: { to: string }) => (sends.sms.push(a.to), { ok: true, messageId: `sms-${randomUUID()}` })),
+}))
+vi.mock("@/lib/whatsapp-cloud", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/whatsapp-cloud")>()),
+  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string }) => (
+    sends.whatsapp.push(a.to), await tripWire(a.to), { ok: true, messageId: `wamid-${randomUUID()}` }
+  )),
 }))
 vi.mock("@/lib/notifications", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/notifications")>()),
@@ -39,6 +47,12 @@ vi.mock("@/lib/notifications", async (importOriginal) => ({
 vi.mock("@/lib/email/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/email/service")>()),
   sendEmail: vi.fn(async (a: { to: string }) => (sends.email.push(a.to), await tripWire(a.to), { ok: true, messageId: "m" })),
+}))
+
+// Inside the dunning send window whatever the clock says (the window has its own pinned-clock test).
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => false,
 }))
 
 import { prisma } from "@/lib/prisma"
@@ -54,10 +68,12 @@ let optedOut: SeededHoldLoan
 suite.sequential("dunning holds on the real reminder queries (real Postgres)", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
-    delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
-    await db.commsSettings.upsert({ where: { tenantId: tenant.tenantId }, create: { tenantId: tenant.tenantId, whatsappEnabled: true }, update: { whatsappEnabled: true } })
-    // The email leg goes through sendMessage on every path: it needs the tenant's
-    // email provider and the seeded `payment_reminder_email` template.
+    await db.commsSettings.upsert({
+      where: { tenantId: tenant.tenantId },
+      create: { tenantId: tenant.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" },
+      update: { whatsappEnabled: true, waProvider: "WA_CLOUD" },
+    })
+    // The email leg needs the tenant's email provider and the seeded `payment_reminder_email` template.
     await db.emailConfig.create({
       data: { tenantId: tenant.tenantId, provider: "IMAP_SMTP", fromName: "Synthetic lender", fromAddress: "sender@synthetic.invalid", smtpHost: "smtp.synthetic.invalid", smtpUser: "synthetic", smtpPass: "synthetic", active: true },
     })
@@ -84,7 +100,7 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", {
 
     expect(sends.whatsapp.length, "the harness must observe the WhatsApp leg").toBeGreaterThan(0)
     for (const s of seeded) {
-      expect(sends.whatsapp.includes(s.whatsapp), `${s.name}: ${s.held ? "must be held" : "must be reminded"}`).toBe(!s.held)
+      expect(sends.whatsapp.includes(toWaJid(s.whatsapp)), `${s.name}: ${s.held ? "must be held" : "must be reminded"}`).toBe(!s.held)
     }
 
     // The 7-day email leg goes through sendMessage (consent, holds, Message.dunning): each
@@ -95,7 +111,7 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", {
     }
     expect(sends.email.filter((to) => to === optedOut.email), "an opted-out email address is not sent to").toHaveLength(0)
     // ...while that borrower's other channel is unaffected: consent is per channel.
-    expect(sends.whatsapp).toContain(optedOut.whatsapp)
+    expect(sends.whatsapp).toContain(toWaJid(optedOut.whatsapp))
 
     const messages = await db.message.findMany({ where: { tenantId: tenant.tenantId, channel: "EMAIL" }, select: { dunning: true, status: true } })
     expect(messages.length).toBeGreaterThan(0)
@@ -117,12 +133,12 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", {
     it("after the first send, the remaining loans of the run are not reminded", async () => {
       const fresh = await freshLoans()
       sends.onSend = async (to) => {
-        if (!fresh.some((f) => f.whatsapp === to)) return false
-        for (const f of fresh) if (f.whatsapp !== to) await record(f.loanId)
+        if (!fresh.some((f) => toWaJid(f.whatsapp) === to)) return false
+        for (const f of fresh) if (toWaJid(f.whatsapp) !== to) await record(f.loanId)
         return true
       }
       await processPaymentReminders()
-      expect(sends.whatsapp.filter((to) => fresh.some((f) => f.whatsapp === to))).toHaveLength(1)
+      expect(sends.whatsapp.filter((to) => fresh.some((f) => toWaJid(f.whatsapp) === to))).toHaveLength(1)
     })
   })
 
@@ -132,12 +148,12 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", {
     it("is not reminded after that: the remaining loans of the run are skipped", async () => {
       const fresh = await Promise.all([0, 1, 2].map((i) => seedHoldLoan(db, tenant, tenant.productId, { name: `status mid-run ${i}`, held: false })))
       sends.onSend = async (to) => {
-        if (!fresh.some((f) => f.whatsapp === to)) return false
-        for (const f of fresh) if (f.whatsapp !== to) await db.loan.update({ where: { id: f.loanId }, data: { status: "DEFAULTED" } })
+        if (!fresh.some((f) => toWaJid(f.whatsapp) === to)) return false
+        for (const f of fresh) if (toWaJid(f.whatsapp) !== to) await db.loan.update({ where: { id: f.loanId }, data: { status: "DEFAULTED" } })
         return true
       }
       await processPaymentReminders()
-      expect(sends.whatsapp.filter((to) => fresh.some((f) => f.whatsapp === to))).toHaveLength(1)
+      expect(sends.whatsapp.filter((to) => fresh.some((f) => toWaJid(f.whatsapp) === to))).toHaveLength(1)
     })
   })
 

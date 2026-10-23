@@ -10,10 +10,12 @@ import { CLOSED_DEAL_STATUSES } from "@/lib/asset-finance/deal-create"
 import type { DealerActor } from "./actor"
 
 const mine = (actor: Pick<DealerActor, "tenantId" | "dealerId">) => ({ tenantId: actor.tenantId, createdByDealerId: actor.dealerId })
+/** A person or business the draft purge erased is gone: never offered again (lib/dealer/draft-purge.ts). */
+const myParties = (actor: Pick<DealerActor, "tenantId" | "dealerId">) => ({ ...mine(actor), dealerPurgedAt: null })
 
 export async function listDealerEntities(actor: DealerActor) {
   const rows = await prisma.businessEntity.findMany({
-    where: mine(actor),
+    where: myParties(actor),
     select: {
       id: true, type: true, legalName: true, registrationNumber: true,
       relationships: { where: { active: true }, select: { role: true, client: { select: { id: true, firstName: true, lastName: true, createdByDealerId: true } } } },
@@ -36,7 +38,7 @@ export async function listDealerEntities(actor: DealerActor) {
 
 export async function listDealerPeople(actor: DealerActor) {
   const rows = await prisma.client.findMany({
-    where: mine(actor),
+    where: myParties(actor),
     select: { id: true, firstName: true, lastName: true },
     orderBy: { createdAt: "desc" },
     take: 200,

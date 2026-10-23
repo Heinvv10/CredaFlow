@@ -24,7 +24,7 @@ import type { AssetTemplateToken } from "./tokens"
  * a protected section's output changes, so an issuance says which system text
  * it was printed with.
  */
-export const SYSTEM_REVISION = "2026-10-19.1"
+export const SYSTEM_REVISION = "2026-10-22.1"
 
 /** The starter wording's revision, recorded in a version adopted from it. */
 export const STARTER_REVISION = "2026-10-18.1"

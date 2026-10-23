@@ -45,7 +45,7 @@ const fml = view({
     balanceCents: 30_000, riskModel: "LESSEE_SETTLED",
     claims: [{ id: "c1", submittedOn: "2027-02-10T08:00:00.000Z", provider: "TEST Workshop", description: "Synthetic brake service", amountExclVatCents: 5_000, status: "PAID" }],
   },
-  meter: { unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000 } },
+  meter: { unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000, source: "STAFF" }, voided: [] },
 })
 
 describe("PortalLeaseDetail", () => {

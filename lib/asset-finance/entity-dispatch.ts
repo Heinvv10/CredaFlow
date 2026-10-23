@@ -9,7 +9,8 @@
  * here, whatever the env says (lib/messaging/.claude.md).
  *
  * Every leg is reported, never dropped: a recipient without WhatsApp, without a
- * Contact row for the value, or blocked by consent is an outcome with a reason.
+ * Contact row for the value (or whose value resolves to another person's
+ * Contact), or blocked by consent is an outcome with a reason.
  * A missing or unusable template row fails that channel for every recipient.
  *
  * Idempotency: one key per (occurrence, recipient, channel), so two directors
@@ -17,7 +18,8 @@
  */
 import type { Channel, MessageTemplate } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { lookupContactByChannelValue, normaliseEmail, toWaJid } from "@/lib/contact/identity"
+import { normaliseEmail, toWaJid } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { messageDeliveryOutcome } from "@/lib/messaging/delivery-outcome"
 import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { getCommsSettings } from "@/lib/inbox/settings"
@@ -97,8 +99,11 @@ async function sendLeg(
   if (channel === "WHATSAPP" && !recipient.whatsapp) return { ...leg, status: "skipped", reason: "No WhatsApp on file" }
   const value = channelValue(recipient, channel)
   if (!value) return { ...leg, status: "failed", reason: `Unparseable ${channel} value` }
-  const contact = await lookupContactByChannelValue(prisma, { tenantId: request.tenantId, channel, value })
-  if (!contact) return { ...leg, status: "failed", reason: "No Contact row" }
+  // This person's OWN Contact (lib/contact/recipient.ts): one that is someone
+  // else's (a lead, another client) is refused; the reason names no value.
+  const found = await lookupRecipientContact(prisma, { tenantId: request.tenantId, channel, value, ownerClientId: recipient.clientId })
+  if (!found.ok) return { ...leg, status: "failed", reason: found.reason === "NO_CONTACT" ? "No Contact row" : "Contact belongs to someone else" }
+  const contact = found.contact
   const vars = channel === "EMAIL"
     ? entityEmailVars(request.facts, request.lender, recipient)
     : entityWhatsAppVars(request.facts, request.lender, recipient)

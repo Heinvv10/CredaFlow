@@ -196,6 +196,7 @@ async function requestActivationCode(
             channel: "EMAIL",
             value: email,
             templateKey: "portal_activation_email",
+            ownerClientId: client.id,
           })
           if (!target.ok) {
             // Data drift or a flag flipped ahead of the migration. Warn so it

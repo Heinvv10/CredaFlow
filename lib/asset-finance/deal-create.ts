@@ -59,8 +59,9 @@ export async function createDeal(
   const createdBy = dealer ? dealer.dealerUserId : params.userId
   const dealerAudit = dealer ? dealerAuditFields(dealer) : null
 
-  const entity = input.entityId === null ? null : await tx.businessEntity.findFirst({ where: { id: input.entityId, tenantId }, select: { id: true, legalName: true } })
-  const client = input.clientId === null ? null : await tx.client.findFirst({ where: { id: input.clientId, tenantId }, select: { id: true, firstName: true, lastName: true } })
+  // A person or business the dealer draft purge erased is gone (guardDealerPurgedPartyUse).
+  const entity = input.entityId === null ? null : await tx.businessEntity.findFirst({ where: { id: input.entityId, tenantId, dealerPurgedAt: null }, select: { id: true, legalName: true } })
+  const client = input.clientId === null ? null : await tx.client.findFirst({ where: { id: input.clientId, tenantId, dealerPurgedAt: null }, select: { id: true, firstName: true, lastName: true } })
   if (input.entityId !== null && !entity) return refused(422, "The entity is not on this lender's book")
   if (input.clientId !== null && !client) return refused(422, "The sole proprietor is not on this lender's client book")
   if ((entity === null) === (client === null)) return refused(422, "Choose exactly one borrower")

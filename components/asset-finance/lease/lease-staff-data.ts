@@ -48,8 +48,15 @@ export interface FundView {
   claims: ClaimRow[]
   dualApprovalCents: number
 }
-export interface ReadingRow { id: string; readingDate: string; value: number; source: string }
-export interface UsageProjection { usedUnits: number; projectedFinalReading: number; excessCents: number; allowedUnits: number }
+export interface ReadingRow {
+  id: string; readingDate: string; value: number; source: string; simulated?: boolean
+  /** Voided (four-eyes): counts for nothing. */
+  voidedOn?: string | null
+  /** A void waiting for a second person. */
+  pendingVoid?: { id: string; reason: string; requestedBy: string } | null
+}
+/** `projectedUsedUnits` is the usage the projected excess is priced on (the projected meter reading less the start reading). */
+export interface UsageProjection { usedUnits: number; projectedFinalReading: number; projectedUsedUnits: number; excessCents: number; allowedUnits: number }
 export interface EndOfTermView {
   outcome: LeaseEndOutcome
   status: LeaseEndStatus
@@ -137,7 +144,13 @@ export async function loadLeaseStaffData(tenantId: string, loanId: string): Prom
             taxInvoice: { select: { id: true, invoiceNumber: true } }, schedule: { select: { status: true } },
           },
         },
-        meterReadings: { orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { id: true, readingDate: true, value: true, source: true } },
+        meterReadings: {
+          orderBy: [{ readingDate: "desc" }, { value: "desc" }],
+          select: {
+            id: true, readingDate: true, value: true, source: true, voidedAt: true, telematicsEvent: { select: { simulated: true } },
+            voids: { where: { status: "PENDING" }, select: { id: true, reason: true, requestedBy: { select: { name: true, email: true } } } },
+          },
+        },
         maintenanceFund: {
           select: {
             riskModel: true, leaseEndDate: true, settledAt: true,
@@ -185,7 +198,14 @@ export async function loadLeaseStaffData(tenantId: string, loanId: string): Prom
   const usage = deal.usageUnit && deal.usageAllowancePerYear && deal.excessRateCents
     ? { unit: deal.usageUnit, allowancePerYear: deal.usageAllowancePerYear, excessRateCents: deal.excessRateCents }
     : null
-  const readings: ReadingRow[] = loan.meterReadings.map((r) => ({ id: r.id, readingDate: isoOfDbDate(r.readingDate), value: r.value, source: r.source }))
+  const readings: ReadingRow[] = loan.meterReadings.map((r) => {
+    const pending = r.voids[0]
+    return {
+      id: r.id, readingDate: isoOfDbDate(r.readingDate), value: r.value, source: r.source, simulated: r.telematicsEvent?.simulated ?? false,
+      voidedOn: r.voidedAt ? sastCalendarDate(r.voidedAt) : null,
+      pendingVoid: pending ? { id: pending.id, reason: pending.reason, requestedBy: pending.requestedBy.name ?? pending.requestedBy.email } : null,
+    }
+  })
   const maturityDate = sastCalendarDate(loan.maturityDate) // a timestamp at SAST midnight, not a calendar date
   const expiryDate = leaseExpiryDate(loan.maturityDate, deal.rentalTiming)
   const termMonths = loan.leaseRentals.filter((r) => !r.cancelledAt).length
@@ -201,7 +221,8 @@ export async function loadLeaseStaffData(tenantId: string, loanId: string): Prom
       vatCents: r.vatCents, totalCents: r.totalCents, cancelled: r.cancelledAt !== null, scheduleStatus: r.schedule.status, invoice: invoiceOf(r.taxInvoice),
     })),
     fund, readings,
-    usage: usage ? projectUsage(usage, readings, { startDate: sastCalendarDate(loan.startDate), endDate: expiryDate, termMonths }) : null,
+    // A voided reading counts for nothing in the projection (lib/asset-finance/meter-void.ts).
+    usage: usage ? projectUsage(usage, readings.filter((r) => !r.voidedOn), { startDate: sastCalendarDate(loan.startDate), endDate: expiryDate, termMonths }) : null,
     endOfTerm: eot && {
       outcome: eot.outcome, status: eot.status, origin: eot.origin, electedOn: sastCalendarDate(eot.electedAt), extensionNoticeOn: day(eot.extensionNoticeOn),
       extensionEndsOn: day(eot.extensionEndsOn), inspectedOn: day(eot.inspectedOn), condition: eot.inspectionCondition, finalReading: eot.finalReading?.value ?? null,
@@ -233,5 +254,8 @@ function projectUsage(
     startReading: start.value, allowancePerYear: usage.allowancePerYear, termMonths: term.termMonths, excessRateCents: usage.excessRateCents,
     startDate: term.startDate, latestReading: latest.value, latestDate: latest.readingDate, endDate: term.endDate,
   })
-  return { usedUnits: latest.value - start.value, projectedFinalReading: projected.projectedFinalReading, excessCents: projected.excessCents, allowedUnits: Math.round(projected.allowedTwelfths / 12) }
+  return {
+    usedUnits: latest.value - start.value, projectedFinalReading: projected.projectedFinalReading, projectedUsedUnits: projected.usedUnits,
+    excessCents: projected.excessCents, allowedUnits: Math.round(projected.allowedTwelfths / 12),
+  }
 }

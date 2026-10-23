@@ -36,6 +36,7 @@ const BUSINESS_DATE_COLUMNS: Readonly<Record<string, string>> = {
   "BankStatementImport.periodEnd": "the imported statement period may predate the simulation window",
   "ReferenceRate.effectiveDate": "a reference rate history predates the simulated book",
   "ContractRate.effectiveDate": "a contract rate is the date its pricing terms take effect",
+  "DealerCommissionRate.effectiveFrom": "a dealer commission rate's history predates the simulated book",
   "VatRate.effectiveDate": "the national VAT rate history predates the simulated book",
   "LeaseTerminationQuote.terminationDate": "the quoted lease termination date is forward-looking",
   "LeaseTerminationQuote.validUntil": "a settlement quote's expiry, days after it is quoted",

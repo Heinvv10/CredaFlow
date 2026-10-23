@@ -11,7 +11,7 @@ import { GET } from "./route"
 
 const req = () => new NextRequest(new URL("http://localhost/api/cron/reminders"))
 
-const emptyResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] as string[], tenants: 1, failedTenants: 0, warnings: 0 }
+const emptyResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, errors: 0, details: [] as string[], tenants: 1, failedTenants: 0, warnings: 0, retryScheduled: 0, deferred: 0 }
 
 describe("GET /api/cron/reminders", () => {
   beforeEach(() => {
@@ -46,6 +46,18 @@ describe("GET /api/cron/reminders", () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ reconciliationRequired: 1 })
+  })
+
+  // A run refused outside the dunning send window is not a failed run: 200, no failed
+  // tenant in the header, so the scheduler's claim is closed DONE, not retried as FAILED.
+  it("a run refused outside the send window is 200 with `skipped` and zero failed tenants", async () => {
+    vi.mocked(processPaymentReminders).mockResolvedValue({
+      ...emptyResult, tenants: 0, skipped: "outside send window", details: ["Skipped: outside the 07:00-20:00 SAST dunning send window; nothing was sent"],
+    })
+    const res = await GET(req())
+    expect(res.status).toBe(200)
+    expect(res.headers.get(FAILED_TENANTS_HEADER)).toBe("0")
+    expect(await res.json()).toMatchObject({ ok: true, partial: false, skipped: "outside send window" })
   })
 
   it("reports ok:true and 200 when nothing was due (empty sweep)", async () => {

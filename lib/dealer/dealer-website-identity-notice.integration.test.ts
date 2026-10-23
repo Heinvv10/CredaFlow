@@ -4,7 +4,8 @@
  * captured whose contact details staff have not verified, that address is the
  * one the dealer typed, so no notice is sent to it (the audit row is kept):
  * a borrower applying to the lender directly never makes the lender email the
- * dealer.
+ * dealer. Positive control: once staff verify the person's contact details,
+ * the notice goes to the address on file again.
  *
  *   RUN_ASSET_FINANCE_DEALER_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/dealer/dealer-website-identity-notice.integration.test.ts
@@ -35,7 +36,7 @@ import { POST as apply } from "@/app/api/website/apply/route"
 
 const RUN = process.env.RUN_ASSET_FINANCE_DEALER_IT === "1"
 // The notice builds a portal link; without this it fails before sending.
-process.env.NEXT_PUBLIC_PORTAL_URL ??= "https://portal.lender.invalid"
+process.env.NEXT_PUBLIC_PORTAL_URL ||= "https://portal.lender.invalid"
 const suite = RUN ? describe : describe.skip
 const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
@@ -68,25 +69,52 @@ suite.sequential("website identity-conflict notice to a dealer-typed email (real
     await cleanupDealerFixtureIfCreated(db, t)
   })
 
-  it("sends no identity notice to the dealer-typed address when the borrower applies with their own email", async () => {
-    const dealerInbox = `inbox-${t}@dealer.invalid`
-    const borrowerId = syntheticSaIdNumber()
-    const captured = await inTenant(fx, () => captureDealerPerson(actorOf(fx, fx.salesUserA, fx.dealerA),
-      personBody({ idNumber: borrowerId, email: dealerInbox, addressLine1: "1 Synthetic Road", city: "Johannesburg" }), null))
-    expect(captured.kind).toBe("created")
-    expect(sql(`SELECT "dealerContactVerifiedAt" IS NULL FROM "Client" WHERE "id" = ${lit((captured as { id: string }).id)}`)).toBe("t")
-
+  async function applyWithOwnEmail(borrowerIdNumber: string, label: string): Promise<{ to: string[]; audit: Record<string, unknown> }> {
+    m.sendEmail.mockClear()
+    const borrowerEmail = `borrower-${label}-${t}@client.invalid`
     const res = await apply(new NextRequest(`https://${fx.host}/api/website/apply`, {
       method: "POST", headers: { host: fx.host, "content-type": "application/json" },
       body: JSON.stringify({
-        firstName: "TEST", lastName: "Borrower", email: `borrower-${t}@client.invalid`, phone: "+27820000011", idNumber: borrowerId,
+        firstName: "TEST", lastName: "Borrower", email: borrowerEmail, phone: "+27820000011", idNumber: borrowerIdNumber,
         employmentStatus: "EMPLOYED", employerName: "Synthetic Employer", monthlyIncome: 15_000, monthlyExpenses: 5_000,
         productType: "PERSONAL", amount: 5_000, termDays: 30, purpose: "Synthetic", popiaConsent: true, turnstileToken: "x",
       }),
     }))
     expect(res.status).toBeLessThan(500)
-    const notices = (m.sendEmail.mock.calls as unknown as Array<[{ to: string; category: string }]>)
-      .map(([arg]) => arg).filter((arg) => arg.category === "portal-identity-notice")
-    expect(notices.map((n) => n.to)).toEqual([])
+    const to = (m.sendEmail.mock.calls as unknown as Array<[{ to: string; category: string }]>)
+      .map(([arg]) => arg).filter((arg) => arg.category === "portal-identity-notice").map((n) => n.to)
+    const audit = await db!.auditLog.findFirstOrThrow({
+      where: { tenantId: fx.tenantId, action: "APPLICATION_SUBMISSION_BLOCKED", userEmail: borrowerEmail },
+      select: { newValue: true },
+    })
+    return { to, audit: audit.newValue as Record<string, unknown> }
+  }
+
+  async function capturedPerson(dealerInbox: string): Promise<{ clientId: string; idNumber: string }> {
+    const idNumber = syntheticSaIdNumber()
+    const captured = await inTenant(fx, () => captureDealerPerson(actorOf(fx, fx.salesUserA, fx.dealerA),
+      personBody({ idNumber, email: dealerInbox, addressLine1: "1 Synthetic Road", city: "Johannesburg" }), null))
+    expect(captured.kind).toBe("created")
+    const clientId = (captured as { id: string }).id
+    expect(sql(`SELECT "dealerContactVerifiedAt" IS NULL FROM "Client" WHERE "id" = ${lit(clientId)}`)).toBe("t")
+    return { clientId, idNumber }
+  }
+
+  it("sends no identity notice to the dealer-typed address when the borrower applies with their own email", async () => {
+    const dealerInbox = `inbox-${t}@dealer.invalid`
+    const person = await capturedPerson(dealerInbox)
+    const { to, audit } = await applyWithOwnEmail(person.idNumber, "unverified")
+    expect(to).toEqual([])
+    expect(audit).toMatchObject({ noticeRecipientClientId: person.clientId, noticeSent: false, noticeWithheld: "dealer_contact_unverified" })
+  })
+
+  it("sends the notice to the address on file once staff verified the contact details (positive control)", async () => {
+    const onFile = `verified-${t}@client.invalid`
+    const person = await capturedPerson(onFile)
+    sql(`UPDATE "Client" SET "dealerContactVerifiedAt" = now(), "dealerContactVerifiedById" = ${lit(fx.officer)} WHERE "id" = ${lit(person.clientId)}`)
+    const { to, audit } = await applyWithOwnEmail(person.idNumber, "verified")
+    expect(to).toEqual([onFile])
+    expect(audit).toMatchObject({ noticeRecipientClientId: person.clientId, noticeSent: true })
+    expect(audit).not.toHaveProperty("noticeWithheld")
   })
 })

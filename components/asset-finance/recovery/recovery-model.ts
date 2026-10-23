@@ -28,7 +28,7 @@ export const STATUS_LABELS: Record<RecoveryStatus, string> = {
   WITHDRAWN: "Withdrawn",
 }
 
-export const VALUATION_SOURCE_LABELS = { ASSESSOR: "Assessor", DEALER: "Dealer", AUCTIONEER: "Auctioneer", INTERNAL: "Internal" } as const
+export const VALUATION_SOURCE_LABELS = { ASSESSOR: "Assessor", DEALER: "Dealer", AUCTIONEER: "Auctioneer", INTERNAL: "Internal", GUIDE: "Guide value" } as const
 
 export { isNcaRoute }
 

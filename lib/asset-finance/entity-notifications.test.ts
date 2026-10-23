@@ -50,7 +50,11 @@ beforeEach(() => {
   h.templateFindFirst.mockImplementation(async (a: { where: { key: string; channel: string } }) => ({
     id: `tpl_${a.where.key}`, key: a.where.key, channel: a.where.channel, statutoryOverride: false,
   }))
-  h.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}` }))
+  // Each person's own Contact: the email's local part, or Ann's WhatsApp number.
+  h.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({
+    id: `ct_${a.value}`,
+    clientId: a.value.endsWith("@example.test") ? a.value.split("@")[0] : "cl_a",
+  }))
   h.sendMessage.mockResolvedValue({ id: "msg", status: "SENT" })
 })
 

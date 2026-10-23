@@ -14,6 +14,9 @@ vi.mock("@/lib/audit", () => ({ AuditAction: {}, logAuditStrict: vi.fn() }))
 vi.mock("@/lib/asset-finance/lease-portal-route", () => ({ clientLeaseRefusal: vi.fn() }))
 vi.mock("@/lib/asset-finance/meter-readings", () => ({ recordMeterReading: vi.fn() }))
 // The recovery card is an async server component (it reads the DB): stubbed here, and asserted by its props.
+vi.mock("@/components/asset-finance/telematics/PortalTrackingStopped", () => ({
+  PortalTrackingStopped: ({ loanId }: { loanId: string }) => `tracking-stopped:${loanId}`,
+}))
 vi.mock("@/components/asset-finance/recovery/PortalRecoverySection", () => ({
   PortalRecoverySection: ({ tenantId, loanId }: { tenantId: string; loanId: string }) => `recovery-section:${tenantId}:${loanId}`,
 }))
@@ -55,6 +58,7 @@ describe("portal entity contract page", () => {
     expect(html).toContain("Asset finance agreement")
     expect(html).not.toContain("Repayment schedule")
     expect(html).toContain("recovery-section:t1:L1")
+    expect(html).toContain("tracking-stopped:L1")
   })
 
   it("is a 404 when the lease gate refuses", async () => {
@@ -70,6 +74,7 @@ describe("portal entity contract page", () => {
     expect(html).toContain("Contract TEST-1")
     expect(html).toContain("Repayment schedule")
     expect(html).toContain("recovery-section:t1:L1")
+    expect(html).toContain("tracking-stopped:L1")
   })
 
   describe("the voluntary surrender request of an NCA contract", () => {

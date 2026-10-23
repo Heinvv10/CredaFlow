@@ -139,7 +139,7 @@ describe("the loan-book classification", () => {
 const routeFiles = (dir: string): string[] =>
   readdirSync(path.join(__dirname, dir), { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? routeFiles(path.join(dir, e.name)) : e.name === "route.ts" ? [path.join(dir, e.name)] : [])
-const GUARDS = /requireApiRole\(|requireOwnerOrStaff\(|\b(withRecoveryStaff|recoveryWrite|leaseStaffAction|withPayoutStaff|withSigningStaff|withDealerStaff)\(/
+const GUARDS = /requireApiRole\(|requireOwnerOrStaff\(|\b(withRecoveryStaff|recoveryWrite|leaseStaffAction|withPayoutStaff|withSigningStaff|withDealerStaff|withTelematicsStaff)\(/
 // Session-checked by hand, and closed to INSURANCE_OFFICER by their own rule.
 const OWN_CHECK: Record<string, string> = {
   "app/api/applications/[id]/agreement/sign/route.ts POST": "CLIENT or CREDIT_OFFICER and above",
@@ -195,6 +195,12 @@ describe("the second layer covers every loan-book route", () => {
   it("withDealerStaff (lib/dealer/staff-route.ts) is exported and calls requireApiRole", () => {
     const source = readFileSync(path.join(__dirname, "lib/dealer/staff-route.ts"), "utf8")
     expect(source).toMatch(/export async function withDealerStaff\b/)
+    expect(source).toMatch(/requireApiRole\(/)
+  })
+
+  it("withTelematicsStaff (lib/telematics/route.ts) is exported and calls requireApiRole", () => {
+    const source = readFileSync(path.join(__dirname, "lib/telematics/route.ts"), "utf8")
+    expect(source).toMatch(/export async function withTelematicsStaff\b/)
     expect(source).toMatch(/requireApiRole\(/)
   })
 

@@ -1,0 +1,152 @@
+{
+ "af.isa.commercial": {
+  "fingerprint": "fd0b5e811624c327ee3fbd96d411f091099a2b0cbd0c1a6f73f68a5f2b0e9ec4",
+  "shapes": {
+   "prime-company": "5f4f83e864af017fb12b76c0486f5326b69478af0f731c462243dc343b5ea426",
+   "fixed-trust": "d9975c8a7b715391fa1503645412b409ea9a6bf5586d2721281e3f82e5bd5d66",
+   "zaronia-cc": "7bc44107b5c082cfb4e6f255e319a2f505b80d725dd91bb9f19448ec74a6e370",
+   "repo-partnership": "10f6cbecd0dcf5d7ecced847103f3458e19d42ec205ccf12fe3e9705b07dc262",
+   "jibar": "97cbd337052e83f0898ed4f1be0fb7434557d5bad24c4896cdb63523de50ffe5",
+   "lender-base": "d0d6da14ebff65855bfb40daa5ec3ef8b555ed0e291bd7ee56fff81b84754509",
+   "below-reference": "948478ce18a243c5efc3bd3d37a6c4ea4831caefef3f33ba32b1581355d9deb5",
+   "dealer": "76efc228a16ab08a209f8e8eaaded144e0f264352326a8fceb9429429bcbd87d",
+   "broker": "6846327b69bca7a647b9a3797ca2ff2afef6c64d6a15c1286d05becf147e1aac"
+  }
+ },
+ "af.isa.cpa": {
+  "fingerprint": "db3f181bc936a5dcf3486a60ee782cceac55c89f6508fd4bec4a7d68adf0bc92",
+  "shapes": {
+   "prime-company": "463b343c777cc009007f2b695f18034b00def5833ce2b8403894150e7254f651",
+   "fixed-trust": "249e7bd2105ecdeabb27446a41cea256a24be470538224df37e480def8fa9070",
+   "zaronia-cc": "cd1f6fc816f8b4e35dfe4f7e8730fd088cf59e4f44ea737874903919342bbf3f",
+   "repo-partnership": "44df23c4a2da10e49d472011aa1e20a243502aa8b7d0ef319849184cf1745662",
+   "jibar": "8dbb0668de1200b3f466b4d3ec73b0b7efde696899fe03eb4bdb8d5db33e869b",
+   "lender-base": "e9fc51f6920edf0064db6460632e301b8703dff2bb8fdce6297f98e132cf5477",
+   "below-reference": "0a72414ce06621f3e397916b36c0d86e221d0a9746ec94cc6f33d473bf22ee62",
+   "dealer": "c615707f14fcd8da68acf9aa6b6122e34b51734a7cb2c81d6ad6179d58e270f4",
+   "broker": "a470057315fa3bf3c1efc93d290859024a82675150f5148cbddd6f7f4ddf2cef"
+  }
+ },
+ "af.lease.operating.commercial": {
+  "fingerprint": "56acd6de7f50161d59fbb23a6fb04b121c7109d15055ef0d333f14f64fa57ed6",
+  "shapes": {
+   "juristic-arrears": "4d53db30c53d761ac4ba427d2e501b2ec737f3108a9a836f15b18117c6cf986f",
+   "juristic-advance": "b8ed33b70c5725f45585e1321a0ae0a1eded59f80ca3a528204c4ea32f72c4a5",
+   "fixed": "7d6eb9d900dc5c25afc8fe301b6625de928407a3bade1bf4fd432121c2b4c001",
+   "rate-repo": "d5ee799e68f3c426e3d198faaa2ff104f9fc3afa2e5687f208f14ff1b5bff8b5",
+   "rate-jibar": "d5594b2fa9c8685c45ca21d35bbb086539f2e420d671337c5e678b3a3167840b",
+   "rate-zaronia": "0ee9179b868f9d03ef364f99b2d56a148036745b3743f225a940dca9f5c96c40",
+   "rate-lender_base": "38b5afae462e13512956f1f4d716fe84a8d7e92e551e537807bd9c9277e8be8a",
+   "flat-km-plain": "ac29e2844bfbae4a3a56f5243ba696ad157624f35376df55c4836b6ee76b7dca",
+   "with-usage": "b66dc03779db3761dd70f6e85e51dfd02b8b3dc8a1649e6c584b5b7bec75cd06",
+   "dealer": "ade51cc21a58ddb568bf8dd485fde24cf865e240d3334da331ac7a07b555af58",
+   "broker": "ab66ea41937ba035708af335c5ceb26b7489a2e653f136e4cfa2054d0e88be9c"
+  }
+ },
+ "af.lease.operating.cpa": {
+  "fingerprint": "ae9429272f1fe4be3783a2efa3e11da7dad30b792144f592d7b5ebc48e5451e6",
+  "shapes": {
+   "juristic-arrears": "49bced1dfe350025fc3ecfb53cf0d4f1a9bc971b0ef0a0e2a5f0e4eadf921fbd",
+   "juristic-advance": "041721d06cddb16003a7a2323fb0865724e69a1c8864ea39f8759bf09555c1fd",
+   "fixed": "a0859fe0e8fa30e85411be98b84496a85e12003806a4bac9bec18722340b8796",
+   "rate-repo": "697df03cf67b389c5cfc7a7bd5223b1707b5937d74cdd213cb02c4fb8dc9ce48",
+   "rate-jibar": "f000a7fe587ad60c943bc1b58d0454f86e64e765445b2ad1fc0aa7eaae60c997",
+   "rate-zaronia": "a8243fda049e811ac62766fbb60dbdee01d0c9f1d3c020e275afec48181553c3",
+   "rate-lender_base": "44d4aad688ea0583d9c21dcafbdcd321f7a2ca2bfebf53fe996938a374d1a79d",
+   "flat-km-plain": "3616fd8d8be2194a99c372811f2da029127ea55f99029f55593a5671094e3fb1",
+   "with-usage": "f38a7a5e70b5dcfda824e0f55e451a908dd1189c3a1e7ec9ae1d2b5597f1d067",
+   "dealer": "9493085f84c4513fa06f0dd299beac1538a7df8f5f4feae69750b8c92beedf35",
+   "broker": "4b62e63c72f82dd4407087045bd6438acbcf6d7670f69a7657bd1c7bbe8b58e6",
+   "sole-proprietor": "1f4c808dcd6f247bb9a472ceb917afc921385a37d556cfbdd5c08fe12ee6cb7f"
+  }
+ },
+ "af.lease.fml.commercial": {
+  "fingerprint": "33ea0b89ae91ea773bfa3eaf09e7463e781d315764afe2feac446b9a0b83bc62",
+  "shapes": {
+   "juristic-arrears": "523b5b983e642db41b1e713b8240302a23bdeb82a6671b7dcdab098374973ba6",
+   "juristic-advance": "8e7cd2ba69988d478a0a69cffee85bf426c1b784bab4184adc2a29b1953caf2f",
+   "fixed": "1cd7d745e081ee17248ab658c854aeeff7981921ab0ae524c6c5a890a5cdf75a",
+   "rate-repo": "f8f504729e11c1870c5bdcb90a6fef64c1381463c93192b5e1d754d1569753c6",
+   "rate-jibar": "7f690a8e01d7388d318cfa9b1cddc68ccb7273a9aba1efdccdc7785cf9dbe592",
+   "rate-zaronia": "00008937ad15efe5bfaf8873d7cf1524241c1acfe432a0afde64646791647f0d",
+   "rate-lender_base": "93b4911a6cd2048320f6a9430b773c2c73e527f26770bd7714ea2f187ac4d893",
+   "flat-km-plain": "28c056a25ed893c7a684cf10d67de3f797f3dce0d6cb1acbf8ad79f141f54b51",
+   "lender-risk": "e47d9b4ef378a4a4568887d01edf3df347365ec336a0582e4e510254712176c9",
+   "dealer": "6a6fb34b68c0906d19aa1c45ffc2a08f7ce031c12ede2da1c3fc1faabc762e1c",
+   "broker": "d1eca0b666ff3fffff11d7320250e033d73da947fda419477854811d3df86561"
+  }
+ },
+ "af.lease.fml.cpa": {
+  "fingerprint": "469275101dce38e483fa3fd7be9bc0e55dbd5dfc256a9480ac8bcae08c532a76",
+  "shapes": {
+   "juristic-arrears": "bac41e5dd83a517853bba9c0e5890ea0c6a4c2a24ccd2fff8b0dc1d351d9609d",
+   "juristic-advance": "085eca5c3594a7e89bd038f252acf0dbf5bcabbf3c32143bd9d5675ab82ef691",
+   "fixed": "e336692ebaa3779113ce02e6f71a2b189b36c70a729281084767d36a9b6454bc",
+   "rate-repo": "171568b414dd50298f4accfc166646573e1b5f9655e5f84c8079fc5149bc77c9",
+   "rate-jibar": "37ce32268e3185d3f1011cb44147e8b9500d093897f6f487f7e6cbd09a699f46",
+   "rate-zaronia": "3db608330406342e8efef9844334f0c9153a80748ffd972391d85ea533d1227c",
+   "rate-lender_base": "0d800fcac2da4498016e1fc1d61d3990ca4dfde4a81df6cc505954d4c31cfade",
+   "flat-km-plain": "f9940278080d351fe29629993964300197a63070928bce89224e4d01edcc47b5",
+   "lender-risk": "e26e5f3690944b29e16379fa50dad9a931c3e9de821391aef6617780d3ab45ee",
+   "dealer": "1717eb569a814f153e83088bebdf98d1023a27c45a474cd3c4e1f052d1769593",
+   "broker": "7ce19fa100fcee4bacef8b100d22968d6235c4f59d683bccce43ef6654d15c3e",
+   "sole-proprietor": "2dfa20235d486fd7063d8ffb7aa56309402f97eff44160e4efb67a9497c3f052"
+  }
+ },
+ "af.nca.instalment_sale": {
+  "fingerprint": "78cc2272c23708b670c3e4dab5ad3feefc85bdfbe3683c669dfb88eea90e770a",
+  "shapes": {
+   "prime-intermediate": "02aa1e200564c00e950957c08e911056a53a328fa3703105132840db6f4046a1",
+   "fixed": "1cc298fa50907f26d581edb800d122af68ae9441afb7a1bfa87ae9b599d84c71",
+   "small-no-residual": "3693b2497384fb6306f289a17cfb3d3ca503838e7a89c3da479434c268fd7775",
+   "large": "ac004dd360d3a7fe32a8327702666ed61c650137d4c0f1c0bd9fece7cc703f9a",
+   "credit-life": "4711b78931a790500671bd9f793796052ce4bf147aa74fc392efeedc645e8e5c",
+   "rate-repo": "2c11d59ac550c589b7d3706eee3e973d960f164a24f76fa174272d346e102870",
+   "rate-jibar": "c2aef4a31f1b89d4e81c5a6927d3ce1d427f6c8a3c5b79020fe2440295036335",
+   "rate-zaronia": "184e2a68e77e8211e5b0b6446d1ed91bf1779a550415b10fd12393447a546093",
+   "rate-lender_base": "4b9de14be4c16c15b95691ca1042ef33465d44e255166c4553b4d6d9152fae52",
+   "dealer": "858c498d17fa05fe6d501530ccc7601884ce1a2b34ba9fe8980eb76d36f5ce44",
+   "broker": "638abc9c8f09410979c8af161b925cb2a90c71b455b1f4c1415ed91b275bd149"
+  }
+ },
+ "af.nca.finance_lease": {
+  "fingerprint": "15c5e98f01f1eb4c8391bd5a66c3350c1bab209716292f85a232849585a932c2",
+  "shapes": {
+   "prime-intermediate": "70023569fef400ef616e4cbecfcbb705707f4634062118f5742621b946165081",
+   "fixed": "055598a5026010baf37ff52581b0a2f776bbca77e8d0953c026dfdb2bf814844",
+   "small-no-residual": "53ae8ab9f18bca3a4f74e45ed7538d60e0cfcc8259aeb30238f88be12f28f575",
+   "large": "5eab721534232c2b22627ea4a550b64d72161c0160ce08ddb13c9a3d250385ed",
+   "credit-life": "d8e9c03dd9946eb0adf4003443615883eae22b8a9bc753d0ba3427fa9876cc1d",
+   "rate-repo": "c8e09a15368edb20859ae589f9278d1d9364ebfe6259f167d66fceae13b7b2ee",
+   "rate-jibar": "fe418131786dbcbb7ce12b16e6ff54f140446a766496f3cbb4806dedf71bedf6",
+   "rate-zaronia": "26febbe7dba61ae0f22a5a681f59a4203fc17c0a0376073b15abbece7aa67f0d",
+   "rate-lender_base": "480a78bb3d246bcc1b0fa67a4bb9f04b995aa5aa786bcfbed6b2ad5ce656b2f7",
+   "dealer": "86fda5d2cde3f12a5efba8583bc999665a4dd82e0daf1ea928e0f86796c9bfe3",
+   "broker": "4e11126a206fcdf25c8c14575c08951017a491832aea20664435a5d8082907b4"
+  }
+ },
+ "af.suretyship.commercial": {
+  "fingerprint": "3075411b27f65252533ecefe9ba33bd534370ad2e219057359387df408ff2568",
+  "shapes": {
+   "surety-with-address": "40fa981790f19737d0b3826c1d647c10fc00155240fce542eac20d3c4e1dda18",
+   "surety-without-address": "c0cc9e3d960ae8eb6702306c6fb9f9da8f819bf68460d55ab5950e326f19b7e4"
+  }
+ },
+ "af.suretyship.nca": {
+  "fingerprint": "512b350acdd4189f62c56148bc7a931ba083e44b7b8bc436cad389515a76632d",
+  "shapes": {
+   "surety-with-address": "8d77bebc943c1a0d2d2d3483e0b01f93e35a1896869f20af5757a601bf770e08",
+   "surety-without-address": "368d32d7b3332d0342435659340d6af00214ba182e1b0a4ab8fa4ae2cd872063"
+  }
+ },
+ "af.resolution.standard": {
+  "fingerprint": "17f7807d1a724c350c7ad903ade3dabac1fbd65739ddb082859bccdc547fcba6",
+  "shapes": {
+   "company": "1d214e15596a8a5c58f2e18af852ccfd76d3d26305fc0c03ebb341d0ffa77d4c",
+   "company-two": "433fea952657f00ad8622c7ea33fe72231a87677c96db89827625b4a7b7cf7e7",
+   "trust": "d33ce4f92aa8c15f62bbcda697876a400925821deee45f70af830ca90b9b45db",
+   "cc": "8a163e3dfdeb65e698af54f8e3dc608b1f8f7f56eb5ab83b224a1f72af8b2ab0",
+   "partnership": "57878200601352f6001f4ef1b6f35d940e1a18084aa9a03c43a7556319f810cd"
+  }
+ }
+}

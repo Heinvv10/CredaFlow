@@ -54,9 +54,9 @@ function document(dealId: string, over: { type?: string; by?: "dealer" | "staff"
   return id
 }
 const attest = (over: { dealId?: string; clientId?: string; documentId?: string; dealerUserId?: string } = {}) =>
-  `INSERT INTO "DealerConsentAttestation" ("id", "tenantId", "dealId", "clientId", "documentId", "dealerUserId", "statementVersion", "statementText")
+  `INSERT INTO "DealerConsentAttestation" ("id", "tenantId", "dealId", "clientId", "documentId", "dealerUserId", "statementVersion", "statementText", "signingMethod")
    VALUES ('${newId("dca")}', ${lit(fx.tenantId)}, ${lit(over.dealId ?? deal)}, ${lit(over.clientId ?? director)}, ${lit(over.documentId ?? consentDoc)},
-     ${lit(over.dealerUserId ?? fx.salesUserA)}, 'dealer-consent-v1', 'TEST statement')`
+     ${lit(over.dealerUserId ?? fx.salesUserA)}, 'dealer-consent-v2', 'TEST statement', 'IN_PERSON')`
 const request = (dealId: string, note = "Please upload the latest bank statement") => {
   const id = newId("ddr")
   return { id, insert: `INSERT INTO "DealerDocumentRequest" ("id", "tenantId", "dealId", "docType", "note", "requestedById")

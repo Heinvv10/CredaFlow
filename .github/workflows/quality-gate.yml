@@ -7,8 +7,19 @@ name: ci
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-  push:
-    branches: [main]
+  # No `push: main` trigger. main's branch protection requires `quality` and
+  # `integration` with "require branches to be up to date" (strict) and
+  # enforce_admins, so a PR can only merge after both jobs passed on a head
+  # that already contains the current main. The merged tree is the tested
+  # tree, so re-running quality on the push to main repeated ~28 min of work
+  # per merge and found nothing new (integration already skipped push). The
+  # local merge queue (mq) merges through PRs and reads only PR-head checks.
+  # Main is still checked nightly (integration) and on demand
+  # (workflow_dispatch). Restore the trigger if strict is ever turned off.
+  #
+  # Caches saved on main are what PRs restore. The nightly run refreshes the
+  # npm cache; after changing lib/kyc/face-model/models.ts, run
+  # `gh workflow run ci --ref main` once so PRs reuse the face-model cache.
   schedule:
     # 02:30 UTC = 04:30 SAST. The nightly run executes integration only.
     - cron: '30 2 * * *'
@@ -18,21 +29,25 @@ on:
 permissions:
   contents: read
 
-# A new revision cancels both jobs from the obsolete revision. Push, PR,
+# A new revision of a PR cancels both jobs from the obsolete revision. PR,
 # schedule and manual runs use separate groups, so a nightly run cannot cancel
-# a main-branch quality gate.
+# a manual main run.
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  quality:
+  # Static checks, face models and build. The unit suites run beside this job
+  # in the `unit` shards; the `quality` job below is the required check.
+  checks:
     # Draft PR synchronization is deliberately free. Marking the PR ready
     # emits ready_for_review and runs the complete gate. Scheduled runs need
     # only the real-DB integration job below.
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Unit + build took 29.5 min on 2026-10-21 (run 39611551763), and 30
+    # cancelled the next run (39633530189) with no failure.
+    timeout-minutes: 45
 
     env:
       TZ: UTC
@@ -82,19 +97,15 @@ jobs:
       - name: AGENTS.md mirrors match CLAUDE.md
         run: npm run agents:check
 
+      # The checker builds a full program over the repo; 2 GiB is not enough.
       - name: No local-zone calendar boundaries
         run: npm run dates:check
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       # The base Vitest config pins UTC, so explicitly exercise other zones.
       - name: Date helpers are timezone-independent
         run: npm run test:tz
-
-      # The unit suites shell out to pdftoppm/pdfinfo and qpdf.
-      - name: Install PDF tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
-
-      - name: Unit tests
-        run: npx vitest run
 
       # models.ts pins every model file's SHA-256. The fetch re-checks a cached
       # file and downloads only what is missing or wrong.
@@ -118,14 +129,90 @@ jobs:
           # Next runs the root TypeScript graph again in its build worker.
           NODE_OPTIONS: --max-old-space-size=6144
 
-  integration:
+  # The repo is private, so ubuntu-latest has 2 vCPUs and Vitest's default is
+  # one worker: one `npx vitest run` took 18.5 min (run 39638498981). Three
+  # shards of two workers each finished in 2.7-3.1 min on 2 pinned velo cores,
+  # with the same file and test counts as one unsharded run.
+  unit:
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Report every shard's failures, as the single run did.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+
+    env:
+      TZ: UTC
+      PUPPETEER_SKIP_DOWNLOAD: 1
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Generate registries
+        run: npm run gen:registries
+
+      # The unit suites shell out to pdftoppm/pdfinfo and qpdf. Skipped when a
+      # (self-hosted) image already has them; the lock timeout lets concurrent
+      # shards on one host wait for apt instead of failing on its lock.
+      - name: Install PDF tools
+        run: |
+          if command -v pdftoppm && command -v pdfinfo && command -v qpdf; then exit 0; fi
+          sudo apt-get -o DPkg::Lock::Timeout=300 update -qq
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq poppler-utils qpdf
+
+      - name: Unit tests
+        run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }} --maxWorkers=2
+
+  # Branch protection requires a check named exactly `quality`. It passes only
+  # if `checks` and every unit shard succeeded. always() keeps it from being
+  # skipped (a skipped required check counts as passing) when a shard fails or
+  # is cancelled; drafts and scheduled runs still skip it, as before.
+  quality:
+    needs: [checks, unit]
+    if: always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checks and every unit shard succeeded
+        env:
+          CHECKS: ${{ needs.checks.result }}
+          UNIT: ${{ needs.unit.result }}
+        run: |
+          echo "checks: ${CHECKS}, unit: ${UNIT}"
+          [[ "$CHECKS" == success && "$UNIT" == success ]]
+
+  integration-shard:
     # Main is tested as a candidate merge by the PR event and again nightly.
     # Avoid paying for the same integration suite immediately after each merge.
     if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
-    # 2026-10-20; 30 cancelled green runs part-way.
+    # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
+    # (440 gated) it was still running, with no failure, when 45 cancelled it
+    # on 2026-10-21 (run 39611551763). Split three ways (IT_SHARD below),
+    # each shard runs about a third of it.
     timeout-minutes: 45
+    # Three jobs, each with its own database, run a third of the suites each
+    # (scripts/integration-weights.txt balances them). The `integration` job
+    # below is the required check; these report as `integration shard i/3`.
+    name: integration shard ${{ matrix.shard }}/${{ strategy.job-total }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     services:
       postgres:
@@ -134,8 +221,10 @@ jobs:
           POSTGRES_USER: ituser
           POSTGRES_PASSWORD: itpass
           POSTGRES_DB: credaflow_it
+        # An ephemeral host port, not 5432:5432: shards sharing one
+        # self-hosted machine would collide, and velo already binds 5432.
         ports:
-          - 5432:5432
+          - 5432
         options: >-
           --health-cmd "pg_isready -U ituser -d credaflow_it"
           --health-interval 5s
@@ -143,19 +232,26 @@ jobs:
           --health-retries 20
 
     env:
-      # Disposable service container. These suites create and delete real rows.
-      DATABASE_URL: postgresql://ituser:itpass@127.0.0.1:5432/credaflow_it
       TZ: UTC
+      IT_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
 
     steps:
+      # Disposable service container. These suites create and delete real rows.
+      # The job context (the mapped port) is not available in job-level env.
+      - name: Point DATABASE_URL at this shard's database
+        env:
+          PG_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: echo "DATABASE_URL=postgresql://ituser:itpass@127.0.0.1:${PG_PORT}/credaflow_it" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The baseline ratchet needs the merge base with the target branch.
           fetch-depth: 0
 
       # The integration baseline is a debt register and may only shrink.
+      # Once per run: the check reads only git, so shard 1 carries it.
       - name: Baseline may only shrink
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.shard == 1
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
@@ -205,8 +301,31 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # Skipped when a (self-hosted) image already has it; the lock timeout
+      # lets concurrent shards on one host wait for apt instead of failing.
       - name: Install pdftotext
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+        run: |
+          if command -v pdftotext; then exit 0; fi
+          sudo apt-get -o DPkg::Lock::Timeout=300 update -qq
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq poppler-utils
 
       - name: Integration gate
         run: bash scripts/run-integration-tests.sh
+
+  # Branch protection requires a check named exactly `integration`. It passes
+  # only when every shard passed. always(), because a skipped required check
+  # counts as passing: without it a failed or cancelled shard would skip this
+  # job and let the PR through. Drafts and the conditions on the shards
+  # still skip it, exactly as they skip the shards.
+  integration:
+    needs: integration-shard
+    if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed
+        env:
+          RESULT: ${{ needs.integration-shard.result }}
+        run: |
+          echo ">> integration shards: ${RESULT}"
+          [[ "$RESULT" == "success" ]]

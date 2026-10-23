@@ -25,11 +25,15 @@ import { SigningPanel } from "./SigningPanel"
 import { loadStaffSigningPanel } from "@/lib/asset-finance/signing-view"
 import { loadPayoutPanel } from "@/lib/asset-finance/payout-view"
 import { PayoutPanel } from "./PayoutPanel"
+import { trackerHeartbeat } from "@/lib/telematics/devices"
 import { CancelDealForm } from "./CancelDealForm"
 import { CANCELLABLE_DEAL_STATUSES } from "@/lib/asset-finance/deal-cancel"
 import { loadDealDealerPanel, loadDealerCapturedPeople } from "@/lib/dealer/staff-deal-panel"
 import { DealerPanel } from "./DealerPanel"
 import { DealerCapturedPeople } from "./DealerCapturedPeople"
+import { GuideValuePanel } from "@/components/asset-finance/valuation-guides/GuideValuePanel"
+import { loadGuidePanel } from "@/lib/valuation-guides/guide-panel"
+import { goodsAdvanceCents } from "@/lib/valuation-guides/ltv"
 
 const DECIDABLE = ["SUBMITTED", "REFERRED"]
 const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: "Declined", REFER: "Referred" }
@@ -48,9 +52,12 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const { schedule, financials } = deal
   const signing = SIGNING_STATUSES.includes(deal.status) ? await loadStaffSigningPanel(tenantId, id) : null
   const payout = PAYOUT_STATUSES.includes(deal.status) ? await loadPayoutPanel(tenantId, id) : null
+  // Beside the tracker item only: the checklist itself never reads telematics (lib/telematics/payout-isolation.test.ts).
+  const heartbeat = payout ? await trackerHeartbeat(tenantId, deal.asset.id) : null
   const dealer = await loadDealDealerPanel(tenantId, id)
   // A staff deal whose borrower a dealer captured: its contacts are verified here before booking.
   const capturedPeople = dealer ? [] : await loadDealerCapturedPeople(tenantId, id)
+  const guide = await loadGuidePanel(tenantId, deal.asset.id, goodsAdvanceCents({ ...deal.asset, depositCents: deal.terms.depositCents, tradeInCents: deal.terms.tradeInCents }))
 
   // A dealer's draft is submitted by accepting the dealer's handover (the Dealer panel).
   const submit = canManage && deal.status === "DRAFT" && !dealer
@@ -72,6 +79,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       />
       <div className="space-y-5 p-4 lg:p-8">
         <DealSummaryPanel deal={deal} />
+        {guide && <GuideValuePanel assetId={deal.asset.id} data={guide} canManage={canManage} />}
 
         {dealer && <DealerPanel panel={dealer} canManage={canManage} />}
         {capturedPeople.length > 0 && (
@@ -145,7 +153,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             advanceStart={deal.terms.lease?.rentalTiming === "ADVANCE" ? deal.terms.firstDueDate : undefined} />
         )}
 
-        {payout && <PayoutPanel dealId={id} panel={payout} canManage={canManage} canDecide={canDecide} userId={user.id} lease={deal.terms.lease !== undefined} />}
+        {payout && <PayoutPanel dealId={id} panel={payout} canManage={canManage} canDecide={canDecide} userId={user.id} lease={deal.terms.lease !== undefined} heartbeat={heartbeat} />}
 
         {canDecide && CANCELLABLE_DEAL_STATUSES.includes(deal.status) && (
           <DataPanel

@@ -177,7 +177,7 @@ beforeEach(() => {
   sendEmailMock.mockResolvedValue({ ok: true, messageId: "mail-1", providerOutcome: "ACCEPTED", acceptedAt: providerAcceptedAt })
   sendMessageMock.mockResolvedValue({ id: "msg-1", providerMessageId: "provider-1", sentAt: providerAcceptedAt })
   messageTemplateFindFirstMock.mockResolvedValue(template)
-  lookupContactMock.mockResolvedValue({ id: "contact-1" })
+  lookupContactMock.mockResolvedValue({ id: "contact-1", clientId: "C1" })
   triggerNotificationMock.mockResolvedValue(undefined)
   lenderIdentityMock.mockResolvedValue({ identity: parseLenderIdentity(VALID_LENDER_COLUMNS) })
 })
@@ -627,6 +627,20 @@ describe("POST /api/loans/section129", () => {
     expect(markKnownNotSentMock).toHaveBeenCalled()
     expect(markReconciliationRequiredMock).not.toHaveBeenCalled()
     expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  // The addressee's email resolves to another person's Contact (a lead, another client):
+  // eligibility would be checked on, and the notice filed under, THEIR Contact.
+  it("refuses a Contact that belongs to someone else: nothing sent, the reservation released", async () => {
+    process.env.MESSAGING_NEW_SEND_S129 = "true"
+    lookupContactMock.mockResolvedValue({ id: "contact-other", clientId: "someone-else" })
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(422)
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(markKnownNotSentMock).toHaveBeenCalled()
+    expect(JSON.stringify(await response.json())).not.toContain("@")
   })
 
   it("releases a pre-provider message-preparation failure instead of certifying uncertainty", async () => {

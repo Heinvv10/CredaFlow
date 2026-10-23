@@ -75,7 +75,7 @@ export function toWaJid(phone: string): string {
 
 import type { Channel, Contact } from "@prisma/client"
 
-type ContactIdentityPrismaLike = {
+export type ContactIdentityPrismaLike = {
   contactIdentity: {
     findFirst: (args: {
       where: { tenantId: string; channel: Channel; value: string }
@@ -94,6 +94,10 @@ type ContactIdentityPrismaLike = {
  *
  * Returns null on miss so callers can decide their unknown-sender policy
  * (the WA STOP webhook returns 200 OK; the inbound-matcher does create-on-miss).
+ *
+ * For INBOUND matching and collision detection only: it returns whoever holds
+ * the value. An outbound send uses `lookupRecipientContact` (./recipient.ts),
+ * which also checks the Contact is the recipient's own.
  */
 export async function lookupContactByChannelValue(
   prisma: ContactIdentityPrismaLike,

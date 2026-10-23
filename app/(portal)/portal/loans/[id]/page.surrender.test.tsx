@@ -10,6 +10,7 @@ vi.mock("@/lib/portal/loan-charges", async (importOriginal) => ({
   portalLoanCharges: vi.fn(async () => ({ outstanding: 0, lines: [], settlementAmount: 0 })),
 }))
 vi.mock("@/lib/asset-finance/surrender-request-gate", () => ({ loadSurrenderRequestOpen: mocks.open }))
+vi.mock("@/components/asset-finance/telematics/PortalTrackingStopped", () => ({ PortalTrackingStopped: () => null }))
 vi.mock("@/components/asset-finance/recovery/PortalRecoverySection", () => ({ PortalRecoverySection: () => null }))
 vi.mock("@/lib/prisma", () => ({ prisma: { client: { findFirst: vi.fn(async () => ({ id: "c1" })) }, loan: { findFirst: mocks.loan } } }))
 

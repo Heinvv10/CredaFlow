@@ -67,6 +67,8 @@ model Tenant {
   arrearsSnapshotRuns        ArrearsSnapshotRun[]
   assetFinanceDeals          AssetFinanceDeal[]
   assetMeterReadings         AssetMeterReading[]
+  assetMeterReadingVoids     AssetMeterReadingVoid[]
+  assetTheftReports          AssetTheftReport[]
   attorneyFirms              AttorneyFirm[]
   auditLogs                  AuditLog[]
   automationLogs             AutomationLog[]
@@ -107,6 +109,8 @@ model Tenant {
   crossSellOpps              CrossSellOpportunity[]
   dataSubjectRequests        DataSubjectRequest[]
   dealerCommissionRates      DealerCommissionRate[]
+  dealerDealPurges           DealerDealPurge[]
+  dealerPurgePendingFiles    DealerPurgePendingFile[]
   dealers                    Dealer[]
   debitMandates              DebitMandate[]
   disbursementPayouts        DisbursementPayout[]
@@ -184,7 +188,10 @@ model Tenant {
   suspiciousReportCases      SuspiciousReportCase[]
   taxInvoices                TaxInvoice[]
   tcfOutcomes                TcfOutcome[]
+  trackerClosures            TrackerClosure[]
+  trackerDevices             TrackerDevice[]
   users                      User[]
+  valuationGuides            ValuationGuide[]
   vatConfig                  VatConfig?
   webhookDeliveries          WebhookDelivery[]
   webhookEndpoints           WebhookEndpoint[]
@@ -244,6 +251,9 @@ model TenantConfig {
   maintenanceClaimDualApprovalCents Int     @default(5000000)
   leasePurchaseValuationMaxAgeDays  Int     @default(30)
   leaseTerminationQuoteValidDays    Int     @default(10)
+  // Telematics (docs/asset-finance/SLICE5.md part B): days a tracker position
+  // is kept before the nightly purge (CHECK 1..365; longer needs legal sign-off).
+  telematicsPositionRetentionDays   Int     @default(90)
 
   // Recovery and remarketing (slice 4a, UNTESTED: lender legal sign-off). The
   // cost types an NCA recovery may deduct from sale proceeds, and the types a
