@@ -755,6 +755,15 @@ the portal on:
    silent; FAIS only if the dealer intermediates insurance). LOW confidence:
    counsel to confirm against current NCR / Credit Ombud guidance on dealer
    incentives (UK motor-finance precedent).
+   **Decided 2026-10-22 (Hein): disclose it.** Built in SLICE5-FOLLOWUPS.md
+   part W: on a deal a dealer or broker introduced, the instalment sale, the
+   leases, the NCA quotation and the NCA agreement print an "Introducer" row
+   and a fixed paragraph (the lender may pay it a commission from its own
+   funds; it is no part of what the borrower pays, or of the cost of credit).
+   No figure changes; the amount is not printed. Fingerprints re-pinned
+   (SYSTEM_REVISION 2026-10-22.1), so every lender re-approves its templates.
+   The counsel judgement calls (may vs will, amount on request, Johnson v
+   FirstRand) are listed in part W.
 5. Dealer pricing discretion (rate/fees proposed per deal): consistency with
    the lender's pricing policy and NCA s61/s13 unfair-discrimination exposure.
    Commission must never depend on rate or fees.

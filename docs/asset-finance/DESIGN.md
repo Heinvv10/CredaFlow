@@ -575,6 +575,19 @@ below. System notices and the NCA quotation remain governed by
   rate; it now reads "linked to the Lender base rate" (other bases unchanged, e.g.
   "the Prime rate"). SYSTEM_REVISION 2026-10-19.1: only the four lease variants'
   fingerprints changed, so lenders re-approve those four; other approvals stand.
+- **Changed 2026-10-22 (Hein, slice 5 follow-ups decision 2):** on the
+  instalment sale, lease, NCA agreement and NCA quotation of a deal a dealer or
+  broker introduced, and on no other deal, an "Introducer" row names it and one
+  fixed, protected paragraph says the lender may pay it a commission from its
+  own funds and that this is no part of the price, the rentals, the
+  instalments or (NCA) the total cost of credit. The NCA documents give it a
+  section of its own. No amount changes anywhere; the introducer is pinned on
+  issuance like the lender identity. SYSTEM_REVISION 2026-10-22.1: the eight
+  pricing variants (`af.isa.*`, `af.lease.*`, `af.nca.*`) gained one
+  fingerprinted `dealer` shape, so their pins moved and lenders approve them
+  again; every pre-existing shape renders byte-identical (the proof, per shape,
+  is in `evidence/slice5-followups/commission/`), and the suretyship and
+  resolution approvals stand. Spec: `SLICE5-FOLLOWUPS.md` "Part W".
 
 - **Changed 2026-10-18 to give effect to total-loss clause 9.5:** closure has an
   evidenced TOTAL_LOSS outcome, with no physical-return/inspection prerequisite or

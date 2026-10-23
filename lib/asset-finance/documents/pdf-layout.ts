@@ -42,6 +42,20 @@ export interface SignatureLine {
 /** CRLF, LF, CR, NEL and the Unicode line and paragraph separators. */
 const LINE_BREAK = /\r\n|[\n\r\u2028\u2029\u0085]/
 
+/** `word` cut into pieces that each fit `maxWidth` (a piece is at least one character). */
+function breakWord(word: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  const pieces: string[] = []
+  let piece = ""
+  for (const char of word) {
+    if (piece && font.widthOfTextAtSize(piece + char, size) > maxWidth) {
+      pieces.push(piece)
+      piece = char
+    } else piece += char
+  }
+  pieces.push(piece)
+  return pieces
+}
+
 export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = []
   // Split and space before sanitising: winAnsiSafe turns a line break or a tab into "?".
@@ -49,7 +63,13 @@ export function wrapText(text: string, font: PDFFont, size: number, maxWidth: nu
     let current = ""
     for (const word of winAnsiSafe(paragraph.replace(/\s+/g, " ")).split(/\s+/).filter(Boolean)) {
       const candidate = current ? `${current} ${word}` : word
-      if (current && font.widthOfTextAtSize(candidate, size) > maxWidth) {
+      if (font.widthOfTextAtSize(word, size) > maxWidth) {
+        // A word wider than the line (an unbroken name) is cut where the line ends, never left to run off the page.
+        if (current) lines.push(current)
+        const pieces = breakWord(word, font, size, maxWidth)
+        lines.push(...pieces.slice(0, -1))
+        current = pieces[pieces.length - 1]
+      } else if (current && font.widthOfTextAtSize(candidate, size) > maxWidth) {
         lines.push(current)
         current = word
       } else current = candidate
