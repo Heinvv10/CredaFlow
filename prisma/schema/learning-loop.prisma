@@ -75,7 +75,79 @@ model CreditDecisionRecord {
   decidedAt            DateTime
   createdAt            DateTime               @default(now())
 
+  outcomes DecisionOutcome[]
+
+  @@unique([tenantId, id])
   @@index([tenantId, applicationId])
   @@index([tenantId, loanId])
   @@index([tenantId, kind, decidedAt])
+}
+
+// ── Learning loop: outcomes (docs/learning-loop/DESIGN.md §3-§4) ─────────────
+// What later happened to a decision, derived nightly from the servicing
+// tables (/api/cron/decision-outcomes, lib/learning-loop/outcomes/). Not
+// append-only: every row is recomputable, each run converges on the key, and a
+// definition change bumps definitionVersion and recomputes.
+
+/// DESIGN.md §3. The headline "bad" is EVER_90_DPD in window 12M. An offer's
+/// NOT_TAKEN_UP is TAKEN_UP with value false (one row per offer, so a resolved
+/// offer never leaves a stale row behind).
+enum DecisionOutcomeKind {
+  PAID
+  LATE
+  RETURNED_DEBIT_ORDER
+  EVER_30_DPD
+  EVER_60_DPD
+  EVER_90_DPD
+  DEFAULTED_STATUS
+  /// Back to 0 DPD after 30+ while the loan is still open (settling is not a cure).
+  CURED
+  /// Settled (COMPLETED) after 30+ DPD in the window: its own outcome, never a cure.
+  SETTLED_AFTER_DELINQUENCY
+  SETTLED
+  WRITTEN_OFF
+  TAKEN_UP
+}
+
+/// PENDING: the window has not elapsed. UNOBSERVABLE: it has, but part of the
+/// history is missing (never read as a good outcome). Only OBSERVED carries a value.
+enum DecisionOutcomeState {
+  OBSERVED
+  PENDING
+  UNOBSERVABLE
+}
+
+model DecisionOutcome {
+  id                String               @id @default(cuid())
+  tenantId          String
+  tenant            Tenant               @relation(fields: [tenantId], references: [id])
+  decisionRecordId  String
+  decisionRecord    CreditDecisionRecord @relation(fields: [tenantId, decisionRecordId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  outcomeKind       DecisionOutcomeKind
+  /// 3M, 6M, 12M (from the first instalment due date), TERM_30D, OFFER or INSTALMENT:<n>.
+  window            String
+  state             DecisionOutcomeState
+  /// Set exactly when OBSERVED.
+  value             Boolean?
+  /// Cents: the instalment or the returned debit order.
+  amountCents       Int?
+  /// A returned debit order's CollectionReasonCode; why a row is UNOBSERVABLE; CURED's NEVER_30_DPD.
+  reasonCode        String?
+  /// credaflow or external_extract.
+  sourceSystem      String
+  /// Opaque: a loan, schedule row, CollectionResult or application id, or an extract row key.
+  sourceRef         String
+  /// The code definition that produced the row (lib/learning-loop/outcomes/definition.ts).
+  definitionVersion String
+  /// When the observed fact happened. Set exactly when OBSERVED.
+  observedAt        DateTime?
+  /// When this content was computed; a run that changes nothing leaves it.
+  computedAt        DateTime
+  /// Derived on a demo lender (TenantConfig.isDemoLender), where simulated
+  /// collection results count: shown only under a "Simulated / demo data"
+  /// label, never in a real lender's figures (DESIGN.md decision 4).
+  demoData          Boolean              @default(false)
+
+  @@unique([decisionRecordId, outcomeKind, window, sourceSystem, sourceRef])
+  @@index([tenantId, outcomeKind, window, state])
 }

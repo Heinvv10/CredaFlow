@@ -114,7 +114,8 @@ suite("decision log (real Postgres)", () => {
   it("refuses to change, remove or truncate a record", async () => {
     await expect(db.$executeRawUnsafe(`UPDATE "CreditDecisionRecord" SET "overridden" = true WHERE "tenantId" = $1`, tenantA)).rejects.toThrow(/append-only/)
     await expect(db.$executeRawUnsafe(`DELETE FROM "CreditDecisionRecord" WHERE "tenantId" = $1`, tenantA)).rejects.toThrow(/append-only/)
-    await expect(db.$executeRawUnsafe(`TRUNCATE "CreditDecisionRecord"`)).rejects.toThrow(/append-only/)
+    // CASCADE: DecisionOutcome references the table, and a plain TRUNCATE stops at that before the trigger runs.
+    await expect(db.$executeRawUnsafe(`TRUNCATE "CreditDecisionRecord" CASCADE`)).rejects.toThrow(/append-only/)
     await expect(db.creditDecisionRecord.updateMany({ where: { tenantId: tenantA }, data: { decision: "DECLINE" } })).rejects.toThrow(/append-only/)
     expect(await db.creditDecisionRecord.count({ where: { tenantId: tenantA } })).toBe(2)
   })

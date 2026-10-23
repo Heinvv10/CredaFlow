@@ -113,6 +113,7 @@ model Tenant {
   dealerPurgePendingFiles    DealerPurgePendingFile[]
   dealers                    Dealer[]
   debitMandates              DebitMandate[]
+  decisionOutcomes           DecisionOutcome[]
   disbursementPayouts        DisbursementPayout[]
   documentTemplates          DocumentTemplate[]
   emailConfig                EmailConfig?
