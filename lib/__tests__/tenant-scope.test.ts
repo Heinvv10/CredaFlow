@@ -187,6 +187,10 @@ describe("tenant-scope — ALS primitives", () => {
       "TelematicsHeldReading",
       "TelematicsAlert",
       "TelematicsPositionAccess",
+      // Append-only decision log (lib/learning-loop) — non-null tenantId, passed explicitly.
+      "CreditDecisionRecord",
+      // Outcomes derived from it nightly (lib/learning-loop/outcomes) — non-null tenantId, passed explicitly.
+      "DecisionOutcome",
       // Valuation guides (slice 5 part C) — non-null tenantId.
       "ValuationGuide",
       "ValuationGuideRow",
@@ -197,10 +201,6 @@ describe("tenant-scope — ALS primitives", () => {
       "AssetTheftReport",
       "AssetMeterReadingVoid",
       "TrackerClosure",
-      // Append-only decision log (lib/learning-loop) — non-null tenantId, passed explicitly.
-      "CreditDecisionRecord",
-      // Outcomes derived from it nightly (lib/learning-loop/outcomes) — non-null tenantId, passed explicitly.
-      "DecisionOutcome",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",
