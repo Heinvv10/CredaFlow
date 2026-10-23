@@ -58,6 +58,14 @@ const HISTORY_DAYS = 401
  */
 export const DECISION_LOOKBACK_MONTHS = 24
 
+/** An `id IN (…)` read in pieces, so a big book cannot reach the bind-variable limit. */
+const IN_CHUNK = 1000
+async function inChunks<T>(ids: readonly string[], read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const pieces: string[][] = []
+  for (let i = 0; i < ids.length; i += IN_CHUNK) pieces.push(ids.slice(i, i + IN_CHUNK))
+  return (await Promise.all(pieces.map(read))).flat()
+}
+
 const month = (d: Date) => sastCalendarDate(d).slice(0, 7)
 const OUTCOME_SELECT = { outcomeKind: true, window: true, state: true, value: true, reasonCode: true } as const
 
@@ -99,10 +107,10 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
         where: { tenantId, kind: "CREDIT_DECISION", decision: "DECLINE", decidedAt: decidedSince },
         select: { decidedAt: true, actorType: true, s71ReviewRequired: true, inputsSnapshot: true },
       }),
-      db.loanArrearsSnapshot.findMany({
-        where: { tenantId, loanId: { in: lateLoanIds }, snapshotDate: { gte: historyFrom } },
+      inChunks(lateLoanIds, (ids) => db.loanArrearsSnapshot.findMany({
+        where: { tenantId, loanId: { in: ids }, snapshotDate: { gte: historyFrom } },
         select: { loanId: true, snapshotDate: true, daysInArrears: true, collectionsStage: true },
-      }),
+      })),
       db.paymentArrangement.groupBy({ by: ["status"], where: { tenantId }, _count: { _all: true } }),
       getBookArrears(tenantId, "ALL", db),
     ])
@@ -130,9 +138,9 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
     }))
 
     const loanIds = [...new Set(snapshots.map((s) => s.loanId))]
-    const loanEnds = await db.loan.findMany({
-      where: { tenantId, id: { in: loanIds } }, select: { id: true, status: true, closedAt: true, writeOffAt: true },
-    })
+    const loanEnds = await inChunks(loanIds, (ids) => db.loan.findMany({
+      where: { tenantId, id: { in: ids } }, select: { id: true, status: true, closedAt: true, writeOffAt: true },
+    }))
     const days = new Map<string, HistoryDay[]>()
     for (const s of snapshots) {
       const list = days.get(s.loanId) ?? []

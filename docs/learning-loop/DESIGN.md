@@ -549,15 +549,23 @@ COMMIT;
   when its approval's rows are all final (no `PENDING`; `UNOBSERVABLE` only
   for a history gap or outage or a cancellation, never a missing close date,
   paid-at or schedule), carry the current `OUTCOME_DEFINITION_VERSION` and the
-  lender's `demoData`, and hold as many `RETURNED_DEBIT_ORDER` rows as the
-  source has returned results (`outcomes/finalized.ts`). A version bump, a
-  late return or any open row derives the loan again; an open loan is always
-  derived. Its decision is kept out of the writer's orphan sweep
+  lender's `demoData`, hold exactly the `RETURNED_DEBIT_ORDER` rows the
+  source's returned results would give (same results, reasons, amounts and
+  times, not only their number), and the loan row has not been edited since
+  the rows were last computed (`Loan.updatedAt` ≤ the newest `computedAt`;
+  `outcomes/finalized.ts`). A version bump, a late or corrected return, an
+  edit to the ended loan (close or write-off date, maturity, status) or any
+  open row derives the loan again; an open loan is always derived. Its
+  decision is kept out of the writer's orphan sweep
   (`skippedDecisionRecordIds`), so the rows stay. The rest are read per
   chunk of 200 applications: instalments and arrears snapshots from the
   chunk's earliest first-due day to its latest 12M window end (no window
-  reads outside that). A backdated edit to a settled loan is not seen until
-  the next version bump; settled loans do not change.
+  reads outside that). **Limit:** `RepaymentSchedule` and receipts have no
+  `updatedAt`, so a schedule or paid-at correction that leaves the `Loan`
+  row untouched is not seen until the next `OUTCOME_DEFINITION_VERSION`
+  bump. A loan edited after its rows were last written is derived every
+  night (the writer rewrites nothing, so `computedAt` does not advance)
+  until a row changes: a cost, not a wrong figure.
 - **Simulated and demo data** (decision 4), as built: the job reads the
   tenant's `TenantConfig.isDemoLender` once per run. For a real lender the
   adapter never reads a simulated `CollectionResult` and every row has
@@ -739,7 +747,9 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
   has the numbers): a request reads decisions (approvals with outcome rows
   for the window, offers, declines) decided in the last
   `DECISION_LOOKBACK_MONTHS` (24) SAST months, and the page says "Decisions
-  from <month> on". The arrears history (last 401 days) is read only for loans
+  from <month> on". The bound is the decision date, a cohort is the
+  disbursal month: the first month shown can be short of loans approved
+  before the bound and paid out after it. The arrears history (last 401 days) is read only for loans
   past due on some day of it (a loan never past due starts no episode, so
   the figures are the same). Still unbounded within that slice: the whole
   `inputsSnapshot` of each approval and decline (only `bureau.scoreBand`,

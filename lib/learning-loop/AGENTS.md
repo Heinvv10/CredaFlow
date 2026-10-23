@@ -49,8 +49,9 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   Simulated rows count only for an `isDemoLender` tenant, written `demoData`;
   never mix demo and real rows in one figure. No learning claims.
 - **Bounded reads.** The job skips a loan that has ended and whose rows are all final,
-  current-version and complete (`outcomes/finalized.ts`); a version bump derives everything
-  again. The dashboard reads decisions from the last `DECISION_LOOKBACK_MONTHS` and arrears
+  current-version and complete, with the same returned debit orders and no `Loan.updatedAt`
+  after its rows (`outcomes/finalized.ts`; schedule edits that leave the Loan untouched are only
+  seen on a version bump); a version bump derives everything again. The dashboard reads decisions from the last `DECISION_LOOKBACK_MONTHS` and arrears
   days only of loans that were past due. Don't add an all-time read to either; measure with
   `scripts/bench-learning-loop-reads.ts`.
 - **Dashboard** (`lib/learning-loop/dashboard/`): rates divide OBSERVED rows

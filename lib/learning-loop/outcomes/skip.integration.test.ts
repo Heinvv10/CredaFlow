@@ -155,6 +155,21 @@ suite("outcome job skips a finalised loan (real Postgres)", () => {
     expect((await run()).snapshotReads).toBe(0)
   })
 
+  it("derives it again when a returned debit order is corrected, though their number is the same", async () => {
+    await db.collectionResult.updateMany({ where: { tenantId, outcome: "UNPAID" }, data: { reasonCode: "ACCOUNT_CLOSED" } })
+    expect((await run()).snapshotReads).toBe(1)
+    const row = await db.decisionOutcome.findFirstOrThrow({ where: { decisionRecordId: approvalId, outcomeKind: "RETURNED_DEBIT_ORDER" } })
+    expect(row.reasonCode).toBe("ACCOUNT_CLOSED")
+    expect((await run()).snapshotReads).toBe(0)
+  })
+
+  it("derives it again when the ended loan is edited after its rows were computed", async () => {
+    // updatedAt is set past the run's asOf (2028): the edit came after the rows.
+    await db.loan.update({ where: { id: loanId }, data: { closedAt: new Date("2026-09-03T10:00:00+02:00"), updatedAt: new Date("2029-01-01T00:00:00Z") } })
+    expect((await run()).snapshotReads).toBe(1)
+    expect(await db.decisionOutcome.count({ where: { decisionRecordId: approvalId, outcomeKind: "SETTLED", observedAt: new Date("2026-09-03T00:00:00+02:00") } })).toBeGreaterThan(0)
+  })
+
   it("never skips a loan that is still open", async () => {
     await db.loan.update({ where: { id: loanId }, data: { status: "ACTIVE", closedAt: null } })
     expect((await run()).snapshotReads).toBe(1)

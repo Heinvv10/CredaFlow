@@ -66,7 +66,7 @@ async function loadChunk(db: CredaflowOutcomeDb, applicationIds: string[], demoT
     db.loanApplication.findMany({ where: { id: { in: applicationIds } }, select: { id: true, status: true, disbursedAt: true, updatedAt: true } }),
     db.loan.findMany({
       where: { applicationId: { in: applicationIds } },
-      select: { id: true, applicationId: true, status: true, maturityDate: true, closedAt: true, writeOffAt: true, createdAt: true },
+      select: { id: true, applicationId: true, status: true, maturityDate: true, closedAt: true, writeOffAt: true, createdAt: true, updatedAt: true },
     }),
   ])
   const returns = await db.collectionResult.findMany({
@@ -178,7 +178,12 @@ export function credaflowOutcomeAdapter(db: CredaflowOutcomeDb): OutcomeSourceAd
           tenantId, demoTenant,
           candidates: loanApprovals
             .filter(({ loan }) => loanEnd(loan.status, loan.closedAt, loan.writeOffAt).kind !== "OPEN")
-            .map(({ loan, approval }) => ({ approvalId: approval.id, returns: chunk.returns.get(loan.id)?.length ?? 0 })),
+            .map(({ loan, approval }) => ({
+              approvalId: approval.id, loanUpdatedAt: loan.updatedAt,
+              returns: (chunk.returns.get(loan.id) ?? []).map((r) => ({
+                ref: r.id, installmentNo: r.instruction.installmentNo, amountCents: r.instruction.amountCents, reasonCode: r.reasonCode, resolvedAt: r.resolvedAt,
+              })),
+            })),
         })
         const todo = loanApprovals.filter(({ approval }) => !finalized.has(approval.id))
         skipped.push(...finalized)
