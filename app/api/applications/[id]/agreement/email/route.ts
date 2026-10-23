@@ -177,6 +177,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         channel: "EMAIL",
         value: emailNormalised,
         templateKey: "agreement_delivery_email",
+        ownerClientId: application.clientId,
       })
       if (!target.ok) {
         // Data drift. Nothing was sent, so the verdict is a definite

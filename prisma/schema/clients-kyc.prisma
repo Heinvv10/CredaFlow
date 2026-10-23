@@ -86,6 +86,10 @@ model Client {
   dealerContactVerifiedAt            DateTime?
   dealerContactVerifiedById          String?
   dealerContactVerifiedBy            User?                  @relation("ClientDealerContactVerifiedBy", fields: [tenantId, dealerContactVerifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Set by the dealer draft purge (lib/dealer/draft-purge.ts): the database
+  // checks the person may be erased and overwrites every identifying column
+  // (guardDealerPurgedParty). Set once.
+  dealerPurgedAt                     DateTime?
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   applications                  LoanApplication[]

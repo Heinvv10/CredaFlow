@@ -36,6 +36,14 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }))
+// The send window is the clock's: pinned open unless a test closes it.
+const sendWindow = vi.hoisted(() => ({ outside: false }))
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => sendWindow.outside,
+}))
+// Template seeding is the reminders suite's to test; here it is a no-op.
+vi.mock("@/lib/collections/dunning-templates", () => ({ ensureDunningTemplates: async () => undefined }))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (a: unknown) => triggerNotificationMock(a),
 }))

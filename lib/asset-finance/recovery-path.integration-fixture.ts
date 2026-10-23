@@ -53,13 +53,13 @@ export async function recordDecidedCost(
 
 /** The highest current independent valuation of an asset (what the sale trigger recomputes). */
 export async function highestValuation(db: PrismaClient, tenantId: string, assetId: string): Promise<number> {
-  const rows = await db.assetValuation.findMany({ where: { tenantId, assetId, source: { not: "INTERNAL" } }, select: { amountCents: true } })
+  const rows = await db.assetValuation.findMany({ where: { tenantId, assetId, source: { notIn: ["INTERNAL", "GUIDE"] } }, select: { amountCents: true } })
   return Math.max(0, ...rows.map((r) => r.amountCents))
 }
 
 /** The data of a sale to a stranger at the valuation (no approval needed); `extra` overrides. */
 export async function saleData(db: PrismaClient, fx: DealFixture, loan: RecoveryLoan, recoveryId: string, extra: Record<string, unknown> = {}) {
-  const valuationId = (await db.assetValuation.findFirstOrThrow({ where: { tenantId: fx.tenantId, assetId: loan.assetId, source: { not: "INTERNAL" } }, orderBy: { amountCents: "desc" } })).id
+  const valuationId = (await db.assetValuation.findFirstOrThrow({ where: { tenantId: fx.tenantId, assetId: loan.assetId, source: { notIn: ["INTERNAL", "GUIDE"] } }, orderBy: { amountCents: "desc" } })).id
   const highest = await highestValuation(db, fx.tenantId, loan.assetId)
   const price = 120_000_000
   return {

@@ -28,6 +28,49 @@ Rendered samples: `docs/asset-finance/evidence/legal-wording/`, produced by
 `scripts/asset-finance/render-legal-wording-deal-samples.ts` (both
 deterministic: a rerun reproduces the committed PDFs).
 
+## Wording outside the templates
+
+- **Dealer consent statement** (`lib/dealer/consent.ts`, `dealer-consent-v2`,
+  SLICE5-FOLLOWUPS.md part D): what a dealer user attests for each person
+  whose signed POPIA consent form it uploads. v2 drops "in my presence" so it
+  is true for a remote signing; each attestation adds how the form was signed
+  (in person, or remotely with how identity was checked) and snapshots the
+  text. Wording revised on the legal reviewer's round 1 (the statement no
+  longer says the dealer itself checked identity before signing, or vouches
+  for a returned copy before it arrived). Attestations made under v1 keep their v1 text. Merged on a blind SA
+  legal reviewer's SHIP (goal §2a 7); the lender's legal team confirms it
+  matches its dealer process before switching the portal on.
+
+- **Tracking stopped notice** (`lib/asset-finance/documents/wording/tracking-stopped.ts`,
+  SLICE5-FOLLOWUPS.md part T): told to the borrower when an agreement with a
+  tracker on its asset completes, in the same words in the portal, the email
+  and the stored letter: from the end date the lender keeps nothing the
+  device sends, the device may still signal the tracking company until it is
+  removed or switched off (until then only a record of when it was last on is
+  kept), location records go within the lender's retention days, and the
+  borrower may ask for, correct or delete what is held, or complain to the
+  Information Regulator (POPIA s18, s23, s24). An entity's people read "the
+  agreement between <entity> and <lender>". Words as the SA legal review of
+  PR #238 gave them; merged on its SHIP (goal §2a 7). Nothing is told to a
+  borrower until the lender sets `assetFinanceLegalWordingApproved`, so each
+  lender's legal team confirms it against its privacy notice first.
+- **Theft report fields** (`components/asset-finance/telematics/TheftReportForm.tsx`):
+  staff labels only (the SAPS case number and the date the theft was reported);
+  no borrower-facing text.
+- **Introducer's commission disclosure** (`lib/asset-finance/documents/wording/commission-disclosure.ts`,
+  SLICE5-FOLLOWUPS.md part W): on a deal a dealer or broker introduced, an
+  "Introducer" row naming it and one fixed, protected paragraph: the credit
+  provider may pay it a commission from its own funds, and it is no part of the
+  price, the rentals, the instalments or (NCA) the total cost of credit. The
+  paragraph refers to "the introducer named above" and never contains the name.
+  On the contracts it ends the price section, unnumbered; on the NCA quotation
+  and agreement it is its own section, "COMMISSION TO THE INTRODUCER". It gives
+  no amount. Not editable by a lender, and a lender's text may not contain the
+  word "commission". SYSTEM_REVISION 2026-10-22.1; lenders approve the eight
+  pricing variants again. Wording is DRAFT until the SA-legal reviewer's SHIP
+  (goal §2a 7); open points for counsel are SLICE5-FOLLOWUPS.md "Known
+  limitations (part W)".
+
 ## Starter wording issues found
 
 - Fixed 2026-10-19 (Hein approved): lease clause 9.3 printed "linked to the

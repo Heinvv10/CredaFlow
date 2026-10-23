@@ -41,32 +41,18 @@ describe("POST /api/notifications/payment", () => {
   })
 })
 
-// Default charges: the
-// amount due quoted is the unpaid instalment + default charges outstanding.
-describe("POST /api/notifications/payment — due_reminder amount", () => {
-  const dueReminder = () => POST(new NextRequest("http://localhost/api/notifications/payment", {
-    method: "POST",
-    headers: { authorization: "Bearer internal-secret" },
-    body: JSON.stringify({ paymentId: "sched-1", event: "due_reminder" }),
-  }))
-
-  beforeEach(() => {
-    sendEmail.mockResolvedValue({ ok: true, messageId: "m1" })
-    scheduleFindUnique.mockResolvedValue({
-      id: "sched-1", loanId: "loan-1", totalDue: 150_000, totalPaid: 20_000, dueDate: new Date("2026-10-01T10:00:00Z"),
-      loan: { reference: "LN-1", client: { firstName: "A", lastName: "B", email: "a@b.invalid" } },
-    })
-  })
-
-  it("quotes the unpaid instalment + default charges outstanding", async () => {
-    charges.mockResolvedValue(12_345)
-    expect((await dueReminder()).status).toBe(200)
-    expect(charges).toHaveBeenCalledWith(expect.anything(), { tenantId: "tenant-1", loanId: "loan-1" }, expect.any(Date))
-    expect(sendEmail.mock.calls[0][0].html).toContain("R 1,423.45")
-  })
-
-  it("flag off (charges 0): the amount is unchanged", async () => {
-    expect((await dueReminder()).status).toBe(200)
-    expect(sendEmail.mock.calls[0][0].html).toContain("R 1,300.00")
+// A payment reminder is dunning: it goes out only from the reminders cron, through
+// sendMessage (opt-out, holds, dedupe, send window). This route no longer sends one.
+describe("POST /api/notifications/payment — due_reminder", () => {
+  it("is refused with 400 and nothing is looked up or sent", async () => {
+    const res = await POST(new NextRequest("http://localhost/api/notifications/payment", {
+      method: "POST",
+      headers: { authorization: "Bearer internal-secret" },
+      body: JSON.stringify({ paymentId: "sched-1", event: "due_reminder" }),
+    }))
+    expect(res.status).toBe(400)
+    expect(scheduleFindUnique).not.toHaveBeenCalled()
+    expect(charges).not.toHaveBeenCalled()
+    expect(sendEmail).not.toHaveBeenCalled()
   })
 })

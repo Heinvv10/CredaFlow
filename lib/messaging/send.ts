@@ -37,6 +37,22 @@ function isSerializableWriteConflict(error: unknown): boolean {
     "code" in error && (error as { code?: unknown }).code === "P2034"
 }
 
+/**
+ * A concurrent send of the same business event committed its Message first. The
+ * preparation transaction is Serializable and its snapshot is taken by its first
+ * statement, the advisory-lock SELECT, i.e. BEFORE the lock is granted: a run that
+ * waited on the lock does not see the row the holder committed, misses it in the
+ * replay read, and its insert hits the (tenantId, idempotencyKey) unique index.
+ * Nothing was dispatched (preparation precedes the provider), so the preparation is
+ * run again in a fresh transaction, whose snapshot sees the row and takes the
+ * replay path. The unique index stays the backstop: the dedupe is not relaxed.
+ */
+function isIdempotencyKeyCollision(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || (error as { code?: unknown }).code !== "P2002") return false
+  const target = (error as { meta?: { target?: unknown } }).meta?.target
+  return JSON.stringify(target ?? "").includes("idempotencyKey")
+}
+
 async function retrySerializablePreparation<T>(operation: () => Promise<T>): Promise<T> {
   let lastError: unknown
   for (let attempt = 1; attempt <= PREPARATION_ATTEMPTS; attempt++) {
@@ -44,7 +60,8 @@ async function retrySerializablePreparation<T>(operation: () => Promise<T>): Pro
       return await operation()
     } catch (error) {
       lastError = error
-      if (!isSerializableWriteConflict(error) || attempt === PREPARATION_ATTEMPTS) throw error
+      const retryable = isSerializableWriteConflict(error) || isIdempotencyKeyCollision(error)
+      if (!retryable || attempt === PREPARATION_ATTEMPTS) throw error
     }
   }
   throw lastError
@@ -54,9 +71,15 @@ function buildListUnsubscribeUrl(
   channel: Channel,
   contactId: string,
   template: Pick<MessageTemplate, "statutoryOverride">,
+  category: string | undefined,
   preparedAt = new Date(),
 ): string | undefined {
   if (channel !== "EMAIL") return undefined
+  // Dunning (a reminder, an overdue notice) is service mail: the one-click link
+  // revokes MARKETING_GENERAL only, so on a reminder it would promise an opt-out
+  // that does not stop the next reminder. No header: an opt-out of reminders is a
+  // SERVICE_COMMS revocation, which this link never recorded.
+  if (isDunningCategory(category)) return undefined
   // Statutory mail (NCA s.129, court process, anything that bypasses
   // canSend via statutoryOverride) MUST NOT offer an unsubscribe — the
   // recipient cannot lawfully opt out of a notice the law requires us
@@ -346,6 +369,7 @@ export async function sendMessage(opts: SendMessageOpts): Promise<Message> {
       opts.channel,
       opts.contactId,
       opts.template,
+      opts.category,
       preparedAt,
     )
     return {
@@ -380,7 +404,9 @@ export async function sendMessage(opts: SendMessageOpts): Promise<Message> {
   // Provider dispatch has not started yet, so a PostgreSQL Serializable
   // write-conflict is safe to retry. This is required under concurrent load:
   // P2034 aborts the whole transaction and therefore cannot have committed a
-  // Message reservation or crossed the provider boundary.
+  // Message reservation or crossed the provider boundary. So is a collision on
+  // the idempotency key with a concurrent send (isIdempotencyKeyCollision): the
+  // retry reads the committed row and replays it.
   const prepared = await retrySerializablePreparation(() => prisma.$transaction(async (tx) => {
     const txClient = tx as unknown as TxClient
     let rearmCandidate: Message | null = null

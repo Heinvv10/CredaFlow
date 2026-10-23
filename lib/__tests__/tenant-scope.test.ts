@@ -180,6 +180,23 @@ describe("tenant-scope — ALS primitives", () => {
       "DealerBankAccount",
       "DealerConsentAttestation",
       "DealerDocumentRequest",
+      // Tracker/telematics (slice 5 part B) — non-null tenantId.
+      "TrackerDevice",
+      "TelematicsEvent",
+      "TelematicsPosition",
+      "TelematicsHeldReading",
+      "TelematicsAlert",
+      "TelematicsPositionAccess",
+      // Valuation guides (slice 5 part C) — non-null tenantId.
+      "ValuationGuide",
+      "ValuationGuideRow",
+      // Dealer draft purge tombstone (SLICE5-FOLLOWUPS.md part D).
+      "DealerDealPurge",
+      "DealerPurgePendingFile",
+      // Telematics follow-ups (SLICE5-FOLLOWUPS.md part T).
+      "AssetTheftReport",
+      "AssetMeterReadingVoid",
+      "TrackerClosure",
       // Append-only decision log (lib/learning-loop) — non-null tenantId, passed explicitly.
       "CreditDecisionRecord",
       // Outcomes derived from it nightly (lib/learning-loop/outcomes) — non-null tenantId, passed explicitly.

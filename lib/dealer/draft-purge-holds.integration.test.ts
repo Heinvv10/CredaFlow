@@ -1,0 +1,202 @@
+/**
+ * Real-Postgres proof of the dealer draft purge's holds and set-once rules
+ * (dealerDealPurgeReason, guardDealerPurgedParty, guardDealerPurgedPartyUse;
+ * SLICE5-FOLLOWUPS.md part D): a staff deal is never named; every open DSAR
+ * and complaint status holds a draft and every closed one releases it; a
+ * sole proprietor is erased (and held like a director); an erased party is
+ * erased once, never inserted erased, and never used again.
+ *
+ *   RUN_ASSET_FINANCE_DEALER_IT=1 DATABASE_URL=postgresql://... \
+ *     npx vitest run lib/dealer/draft-purge-holds.integration.test.ts
+ */
+import { randomUUID } from "node:crypto"
+import { PrismaClient } from "@prisma/client"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
+import { cleanupDealerFixtureIfCreated, createDealerFixture, insertDealerUser, lit, newId, type DealerFixture } from "./dealer.integration-fixture"
+import { actorOf, assetBody, companyBody, createdId, dealBody, dealerDraft, inTenant, personBody } from "./dealer-origination.integration-fixture"
+import { captureForDealer, dealerDeal, dealerDealInsert } from "./dealer-booking.integration-fixture"
+import { listDealerEntities, listDealerPeople } from "./captures"
+import { submitDealerDeal } from "./submit"
+import { attestDealerConsent } from "./consent"
+import { uploadDealerDocument } from "./documents"
+import { pdfUpload } from "./dealer-origination.integration-fixture"
+import { storedDocument } from "./draft-purge.integration-fixture"
+import { captureDealerAsset, captureDealerEntity, captureDealerPerson } from "./capture"
+import { createDealerDeal } from "./deals"
+import { purgeDealerDeal } from "./draft-purge"
+import { age } from "./draft-purge.integration-fixture"
+
+vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
+
+const RUN = process.env.RUN_ASSET_FINANCE_DEALER_IT === "1"
+const suite = RUN ? describe : describe.skip
+const db = RUN ? new PrismaClient() : null
+const t = randomUUID().replaceAll("-", "").slice(0, 16)
+let fx: DealerFixture
+const salesActor = () => actorOf(fx, insertDealerUser(fx.tenantId, fx.dealerA, { role: "DEALER_SALES", byDealerUser: fx.adminUserA }), fx.dealerA)
+const reasonOf = (dealId: string) => sql(`SELECT coalesce("dealerDealPurgeReason"(${lit(fx.tenantId)}, ${lit(dealId)})::text, 'none')`)
+const purge = (dealId: string) => inTenant(fx, () => purgeDealerDeal(fx.tenantId, dealId))
+
+async function soleDraft(): Promise<{ dealId: string; clientId: string }> {
+  const actor = salesActor()
+  return inTenant(fx, async () => {
+    const clientId = createdId(await captureDealerPerson(actor, personBody({ roles: undefined })))
+    const assetId = createdId(await captureDealerAsset(actor, assetBody()))
+    const deal = await createDealerDeal(actor, dealBody(fx, { clientId }, assetId))
+    if (deal.kind !== "created") throw new Error(JSON.stringify(deal))
+    return { dealId: deal.dealId, clientId }
+  })
+}
+
+suite.sequential("dealer draft purge holds (real DB)", () => {
+  beforeAll(async () => {
+    if (!db) throw new Error("RUN_ASSET_FINANCE_DEALER_IT=1 is required")
+    fx = await createDealerFixture(db, t)
+  }, 60_000)
+
+  afterAll(() => cleanupDealerFixtureIfCreated(db, t))
+
+  it("never names a staff deal, however old", async () => {
+    const staff = dealerDeal(fx, { dealerId: null, dealerUserId: null, ...captureForDealer(fx, null) })
+    age(staff.dealId, 400)
+    expect(reasonOf(staff.dealId)).toBe("none")
+    expect(await purge(staff.dealId)).toBeNull()
+  })
+
+  it("holds a draft for every open DSAR and complaint status, and releases it for every closed one", async () => {
+    const draft = await dealerDraft(fx, salesActor())
+    age(draft.dealId, 91)
+    const dsar = newId("dsar")
+    sql(`INSERT INTO "DataSubjectRequest" ("id", "tenantId", "clientId", "reference", "type", "status", "dueDate", "updatedAt")
+      VALUES (${lit(dsar)}, ${lit(fx.tenantId)}, ${lit(draft.directorId)}, ${lit(dsar)}, 'ACCESS', 'RECEIVED', CURRENT_TIMESTAMP + INTERVAL '30 days', CURRENT_TIMESTAMP)`)
+    for (const [status, held] of [["RECEIVED", true], ["IN_PROGRESS", true], ["OVERDUE", true], ["COMPLETED", false], ["REFUSED", false]] as const) {
+      sql(`UPDATE "DataSubjectRequest" SET "status" = '${status}' WHERE "id" = ${lit(dsar)}`)
+      age(draft.dealId, 1)
+      expect(reasonOf(draft.dealId), status).toBe(held ? "none" : "ABANDONED_DRAFT")
+    }
+    const complaint = newId("cmp")
+    sql(`INSERT INTO "Complaint" ("id", "tenantId", "clientId", "reference", "category", "description", "status", "createdById", "updatedAt")
+      VALUES (${lit(complaint)}, ${lit(fx.tenantId)}, ${lit(draft.directorId)}, ${lit(complaint)}, 'OTHER', 'TEST complaint', 'OPEN', ${lit(fx.officer)}, CURRENT_TIMESTAMP)`)
+    for (const [status, held] of [["OPEN", true], ["UNDER_INVESTIGATION", true], ["ESCALATED", true], ["ESCALATED_OMBUD", true], ["RESOLVED", false], ["CLOSED", false]] as const) {
+      sql(`UPDATE "Complaint" SET "status" = '${status}' WHERE "id" = ${lit(complaint)}`)
+      age(draft.dealId, 1)
+      expect(reasonOf(draft.dealId), status).toBe(held ? "none" : "ABANDONED_DRAFT")
+    }
+  }, 30_000)
+
+  it("erases a sole proprietor with no other link, and holds one with an open DSAR", async () => {
+    const sole = await soleDraft()
+    age(sole.dealId, 91)
+    expect(await purge(sole.dealId)).toMatchObject({ clientsErased: 1, clientsKept: 0, entitiesErased: 0 })
+    expect(sql(`SELECT "firstName", "dealerPurgedAt" IS NOT NULL FROM "Client" WHERE "id" = ${lit(sole.clientId)}`)).toBe("Erased|t")
+    const held = await soleDraft()
+    age(held.dealId, 91)
+    sql(`INSERT INTO "DataSubjectRequest" ("id", "tenantId", "clientId", "reference", "type", "status", "dueDate", "updatedAt")
+      VALUES ('${newId("dsar")}', ${lit(fx.tenantId)}, ${lit(held.clientId)}, '${newId("ref")}', 'ACCESS', 'IN_PROGRESS', CURRENT_TIMESTAMP + INTERVAL '30 days', CURRENT_TIMESTAMP)`)
+    expect(reasonOf(held.dealId)).toBe("none")
+  })
+
+  it("erases once, never on insert, and never uses an erased party again", async () => {
+    const draft = await dealerDraft(fx, salesActor())
+    age(draft.dealId, 91)
+    expect(await purge(draft.dealId)).toMatchObject({ clientsErased: 1, entitiesErased: 1 })
+    expectRejected(`UPDATE "Client" SET "dealerPurgedAt" = CURRENT_TIMESTAMP + INTERVAL '1 day' WHERE "id" = ${lit(draft.directorId)}`,
+      "A purged dealer capture stays purged")
+    const id = newId("cli")
+    expectRejected(`INSERT INTO "Client" ("id", "tenantId", "reference", "idNumber", "firstName", "lastName", "email", "phone", "createdByDealerId",
+        "dealerPurgedAt", "updatedAt")
+      VALUES (${lit(id)}, ${lit(fx.tenantId)}, ${lit(id)}, ${lit(id)}, 'TEST', 'New', ${lit(`${id}@client.invalid`)}, '+27820000000', ${lit(fx.dealerA)},
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, "A new row is not purged")
+    // The dealer's lookups skip an erased party (404); the database refuses it underneath.
+    const actor = salesActor()
+    expect(await inTenant(fx, () => captureDealerPerson(actor, personBody(), draft.entityId))).toMatchObject({ kind: "refused", status: 404 })
+    const assetId = createdId(await inTenant(fx, () => captureDealerAsset(actor, assetBody())))
+    expect(await inTenant(fx, () => createDealerDeal(actor, dealBody(fx, { entityId: draft.entityId }, assetId)))).toMatchObject({ kind: "refused", status: 404 })
+    const message = "An erased person or business is not used again"
+    expectRejected(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "updatedAt")
+      VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(draft.entityId)}, ${lit(fx.director)}, 'DIRECTOR', CURRENT_TIMESTAMP)`, message)
+    expectRejected(`UPDATE "LoanApplication" SET "clientId" = ${lit(draft.directorId)} WHERE "id" = (
+      SELECT "applicationId" FROM "AssetFinanceDeal" WHERE "id" = ${lit(draft.dealId)})`, message)
+    // A new deal naming the erased business, by SQL (the application written as history first).
+    expectRejected(dealerDealInsert(fx, { dealerId: fx.dealerA, dealerUserId: fx.salesUserA, entityId: draft.entityId,
+      assetId: captureForDealer(fx, fx.dealerA).assetId }).insert, message)
+    // Ending the erased director's relationship is allowed; renewing it is not.
+    sql(`UPDATE "EntityRelationship" SET "active" = false WHERE "clientId" = ${lit(draft.directorId)}`)
+    expectRejected(`UPDATE "EntityRelationship" SET "active" = true WHERE "clientId" = ${lit(draft.directorId)}`, message)
+    // An erased row stays as erased.
+    expectRejected(`UPDATE "Client" SET "phone" = '+27820000009' WHERE "id" = ${lit(draft.directorId)}`, "An erased person or business is not changed")
+    expectRejected(`UPDATE "BusinessEntity" SET "tradingName" = 'TEST' WHERE "id" = ${lit(draft.entityId)}`, "An erased person or business is not changed")
+    // The dealer's own lists no longer offer them.
+    const lists = await inTenant(fx, () => Promise.all([listDealerEntities(actor), listDealerPeople(actor)]))
+    expect(lists[0].some((e) => e.id === draft.entityId)).toBe(false)
+    expect(lists[1].some((p) => p.id === draft.directorId)).toBe(false)
+  }, 30_000)
+
+  it("refuses a new deal on an erased sole proprietor (404), and the database refuses naming them", async () => {
+    const actor = salesActor()
+    const sole = await soleDraft()
+    age(sole.dealId, 91)
+    expect(await purge(sole.dealId)).toMatchObject({ clientsErased: 1 })
+    const assetId = createdId(await inTenant(fx, () => captureDealerAsset(actor, assetBody())))
+    expect(await inTenant(fx, () => createDealerDeal(actor, dealBody(fx, { clientId: sole.clientId }, assetId)))).toMatchObject({ kind: "refused", status: 404 })
+    // By SQL: the erased client on a new application (a deal's insert is proven on a business above).
+    expectRejected(`UPDATE "LoanApplication" SET "clientId" = ${lit(sole.clientId)} WHERE "id" = (
+      SELECT "applicationId" FROM "AssetFinanceDeal" WHERE "id" = ${lit(sole.dealId)})`, "An erased person or business is not used again")
+  })
+
+  it("closes a sibling draft whose business an earlier purge erased: no upload, attestation or hand-over", async () => {
+    const actor = salesActor()
+    const first = await dealerDraft(fx, actor)
+    const second = await inTenant(fx, async () => {
+      const assetId = createdId(await captureDealerAsset(actor, assetBody()))
+      const deal = await createDealerDeal(actor, dealBody(fx, { entityId: first.entityId }, assetId))
+      if (deal.kind !== "created") throw new Error(JSON.stringify(deal))
+      return deal.dealId
+    })
+    const consent = storedDocument(fx, second)
+    age(first.dealId, 91)
+    age(second, 91)
+    expect(await purge(first.dealId)).toMatchObject({ entitiesErased: 1 })
+    const closed = { kind: "refused", status: 409, error: "This draft was closed and its details erased: start a new deal" }
+    expect(await inTenant(fx, () => uploadDealerDocument(actor, second, pdfUpload("BANK_STATEMENT")))).toEqual(closed)
+    expect(await inTenant(fx, () => attestDealerConsent(actor, second, { documentId: consent.id, clientIds: [first.directorId], signingMethod: "IN_PERSON" })))
+      .toEqual(closed)
+    expect(await inTenant(fx, () => submitDealerDeal(actor, second))).toEqual(closed)
+    const message = "An erased person or business is not used again"
+    expectRejected(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(second)}`, message)
+    expectRejected(`INSERT INTO "EntityDocument" ("id", "tenantId", "entityId", "dealId", "docType", "fileName", "mimeType", "fileSize", "storagePath",
+        "contentSha256", "uploadedByType", "uploadedById")
+      VALUES ('${newId("doc")}', ${lit(fx.tenantId)}, ${lit(first.entityId)}, ${lit(second)}, 'OTHER', 'x.pdf', 'application/pdf', 1,
+        '/nonexistent/x.pdf', repeat('0', 64), 'dealer', ${lit(fx.salesUserA)})`, message)
+    expectRejected(`INSERT INTO "DealerConsentAttestation" ("id", "tenantId", "dealId", "clientId", "documentId", "dealerUserId", "statementVersion",
+        "statementText", "signingMethod")
+      VALUES ('${newId("dca")}', ${lit(fx.tenantId)}, ${lit(second)}, ${lit(first.directorId)}, ${lit(consent.id)}, ${lit(fx.salesUserA)},
+        'dealer-consent-v2', 'TEST', 'IN_PERSON')`, message)
+    // The sibling itself is purged in its turn.
+    expect(await purge(second)).toMatchObject({ documentsErased: 1 })
+  }, 30_000)
+
+  it("refuses handing over a draft on another business whose director a purge erased", async () => {
+    const actor = salesActor()
+    const first = await dealerDraft(fx, actor)
+    const second = await inTenant(fx, async () => {
+      const entityId = createdId(await captureDealerEntity(actor, companyBody()))
+      const assetId = createdId(await captureDealerAsset(actor, assetBody()))
+      const deal = await createDealerDeal(actor, dealBody(fx, { entityId }, assetId))
+      if (deal.kind !== "created") throw new Error(JSON.stringify(deal))
+      return { entityId, dealId: deal.dealId }
+    })
+    // The first draft's director also directs the second business (as history).
+    sql(`BEGIN; SET LOCAL session_replication_role = replica;
+      INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "updatedAt")
+      VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(second.entityId)}, ${lit(first.directorId)}, 'DIRECTOR', CURRENT_TIMESTAMP); COMMIT;`)
+    age(first.dealId, 91)
+    age(second.dealId, 91)
+    expect(await purge(first.dealId)).toMatchObject({ clientsErased: 1 })
+    expect(await inTenant(fx, () => submitDealerDeal(actor, second.dealId)))
+      .toEqual({ kind: "refused", status: 409, error: "This draft was closed and its details erased: start a new deal" })
+    expectRejected(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(second.dealId)}`,
+      "An erased person or business is not used again")
+  }, 30_000)
+})

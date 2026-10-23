@@ -1,0 +1,74 @@
+// Slice 5 part C, valuation guides (docs/asset-finance/SLICE5.md).
+// Rules: hand-written section of migration 20261021090100_valuation_guides.
+
+enum ValuationGuideStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+  DISCARDED
+}
+
+// A dated valuation guide, read by a ValuationProvider (lib/valuation-guides/).
+// DRAFT until a second admin publishes it; published, it never changes
+// (guardValuationGuide) and stays current until a newer guide of the same name
+// supersedes it. Never deleted.
+model ValuationGuide {
+  id             String               @id @default(cuid())
+  tenantId       String
+  tenant         Tenant               @relation(fields: [tenantId], references: [id])
+  name           String
+  effectiveOn    DateTime             @db.Date
+  provider       String
+  simulated      Boolean              @default(false)
+  fileSha256     String
+  rowCount       Int
+  status         ValuationGuideStatus @default(DRAFT)
+  uploadedById   String
+  uploadedBy     User                 @relation("ValuationGuideUploadedBy", fields: [tenantId, uploadedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  uploadedAt     DateTime             @default(now())
+  publishedById  String?
+  publishedBy    User?                @relation("ValuationGuidePublishedBy", fields: [tenantId, publishedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  publishedAt    DateTime?
+  supersededById String?
+  supersededBy   ValuationGuide?      @relation("ValuationGuideSupersededBy", fields: [tenantId, supersededById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supersededAt   DateTime?
+  discardedById  String?
+  discardedBy    User?                @relation("ValuationGuideDiscardedBy", fields: [tenantId, discardedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  discardedAt    DateTime?
+  createdAt      DateTime             @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  rows       ValuationGuideRow[]
+  supersedes ValuationGuide[]    @relation("ValuationGuideSupersededBy")
+  valuations AssetValuation[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+}
+
+// One guide line: make, model, year and variant → trade and retail value in
+// cents, VAT-inclusive as the guide states them. Written only while its guide
+// is a DRAFT; never changed or deleted.
+model ValuationGuideRow {
+  id          String         @id @default(cuid())
+  tenantId    String
+  guideId     String
+  guide       ValuationGuide @relation(fields: [tenantId, guideId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  lineNumber  Int
+  make        String
+  model       String
+  year        Int
+  variant     String         @default("")
+  tradeCents  Int
+  retailCents Int
+  createdAt   DateTime       @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  valuations AssetValuation[]
+
+  @@unique([tenantId, id])
+  // A valuation names a row of its own guide: FK (tenantId, guideId, guideRowId).
+  @@unique([tenantId, guideId, id])
+  @@unique([tenantId, guideId, lineNumber], map: "ValuationGuideRow_line_key")
+  @@index([tenantId, guideId])
+}

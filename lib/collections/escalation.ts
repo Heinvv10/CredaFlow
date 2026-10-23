@@ -13,6 +13,8 @@ import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
 import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/ops/tenant-sweep"
+import { ensureDunningTemplates } from "@/lib/collections/dunning-templates"
+import { DUNNING_SEND_WINDOW_LABEL, outsideDunningSendWindow } from "@/lib/collections/send-window"
 
 interface EscalationResult {
   processed: number
@@ -26,6 +28,15 @@ interface EscalationResult {
 
 interface EscalationRule {
   minDays: number
+  /**
+   * Whether applying the rule to this loan would message the borrower. Outside the
+   * dunning send window such a rule is not applied at all (no status change, no
+   * note, no reservation), so the next in-window run applies it whole: a rule that
+   * wrote its note and skipped its notice would never run again, and the notice
+   * would be lost. A loan the rule would not message (past the notice window, on
+   * a hold) is not deferred: there is nothing to wait for.
+   */
+  sendsNotice?: (ctx: EscalationContext) => Promise<boolean>
   noteType: string
   /** Absent: every loan. A rule outside a loan's regime is skipped, not counted as an error. */
   appliesTo?: (ctx: EscalationContext) => boolean
@@ -83,6 +94,10 @@ const RULES: EscalationRule[] = [
   {
     minDays: DEFAULT_AT_DPD,
     noteType: "escalation_default",
+    // The notice goes to a loan within the 60-66 DPD window that is not on a dunning
+    // hold (the same checks the action makes before it sends).
+    sendsNotice: async (ctx) => ctx.daysInArrears <= DEFAULT_NOTICE_MAX_DPD
+      && !(await loanDunningHold(prisma, { tenantId: ctx.tenantId, loanId: ctx.loanId, statuses: NOTICE_LOAN_STATUSES })),
     action: async (ctx) => {
       // The borrower is quoted arrears + default charges outstanding (0 while
       // the flag is off). ctx.arrearsAmount itself stays schedule-only: the
@@ -129,14 +144,16 @@ const RULES: EscalationRule[] = [
       if (ctx.daysInArrears > DEFAULT_NOTICE_MAX_DPD) {
         return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (past the ${DEFAULT_NOTICE_MAX_DPD} DPD notice window)`
       }
+      let failedLegs: string[] = []
       try {
-        await triggerNotification({
+        const outcome = await triggerNotification({
           tenantId: ctx.tenantId,
           event: "loan_overdue",
           loanId: ctx.loanId,
           ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
           data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
         })
+        failedLegs = [...new Set(outcome?.failedLegs ?? [])]
       } catch (err) {
         // The flip and note above stand, so this rule will not run again: log the
         // cause and count the failure so the run reports it.
@@ -144,6 +161,12 @@ const RULES: EscalationRule[] = [
         // A database that is down is the tenant's fault to retry, not "the notice failed".
         if (isDatabaseInfrastructureError(err)) throw err
         throw new Error(`${ctx.loanRef}: marked DEFAULTED but the borrower notice failed; see the server log`)
+      }
+      // A leg the notification itself reports as failed (a provider's rejection, no
+      // Contact, a missing template) is the same failure: counted, not left looking sent.
+      if (failedLegs.length > 0) {
+        console.error(`[escalation] ${ctx.loanRef}: DEFAULTED notice failed on ${failedLegs.join("+")}; the cause is in the notification log`)
+        throw new Error(`${ctx.loanRef}: marked DEFAULTED but the borrower notice failed (${failedLegs.join("+")}); see the notification log`)
       }
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`
     },
@@ -200,6 +223,8 @@ export async function processEscalations(): Promise<EscalationResult> {
 
 async function processTenantEscalations(tenant: SweepTenant): Promise<EscalationResult> {
   await ensureDpdCurrent(tenant.id)
+  // The 60-DPD notice is loan_overdue, which sends through its template rows.
+  await ensureDunningTemplates(tenant, "escalations")
   const result: EscalationResult = { processed: 0, errors: 0, details: [], tenants: 0, failedTenants: 0 }
 
   const loans = await prisma.loan.findMany({
@@ -248,6 +273,13 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
           ncaRegime: loan.ncaRegime,
         }
         if (rule.appliesTo && !rule.appliesTo(ctx)) continue
+        // Checked per loan, as the window can close mid-run; and only for a rule
+        // that would message this loan's borrower, once its note shows it still
+        // has to run.
+        if (rule.sendsNotice && outsideDunningSendWindow(new Date()) && await rule.sendsNotice(ctx)) {
+          result.details.push(`Deferred ${loan.reference} ${rule.noteType}: outside the ${DUNNING_SEND_WINDOW_LABEL} send window; the next in-window run applies it`)
+          continue
+        }
 
         // noteExists above is checked before the rule writes its note, so two
         // overlapping runs (a takeover of a runner that only lost its heartbeat)

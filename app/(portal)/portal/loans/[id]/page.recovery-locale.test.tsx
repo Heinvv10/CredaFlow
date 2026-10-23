@@ -14,6 +14,7 @@ vi.mock("@/lib/portal/loan-charges", async (importOriginal) => ({
 vi.mock("@/lib/asset-finance/surrender-request-gate", () => ({ loadSurrenderRequestOpen: vi.fn(async () => false) }))
 vi.mock("@/lib/asset-finance/portal-lease", () => ({ loadPortalLease: mocks.loadPortalLease }))
 // The recovery card is an async server component (it reads the DB): stubbed here, and asserted by its props.
+vi.mock("@/components/asset-finance/telematics/PortalTrackingStopped", () => ({ PortalTrackingStopped: () => null }))
 vi.mock("@/components/asset-finance/recovery/PortalRecoverySection", () => ({
   PortalRecoverySection: ({ loanId, locale }: { loanId: string; locale: string }) => `recovery-section:${loanId}:${locale}`,
 }))

@@ -23,6 +23,7 @@ import bcrypt from "bcryptjs"
 import { randomBytes } from "node:crypto"
 import { calculateLoan } from "../lib/loan-calculator"
 import { seedDefaultMessageTemplates } from "../lib/messaging/default-templates"
+import { provisionContactForClient } from "../lib/contact/provision"
 import { generateTotpSecret, generateTotpUri } from "../lib/totp"
 import { demoLender } from "./demo-lender"
 import { catalogueHash } from "../lib/i18n/catalogue-hash"
@@ -205,6 +206,16 @@ async function main() {
       },
     })
     if (portalEnv || row.portalPassword === portalHash) portalPasswordUsed = true
+    // The Contact and the channel identities every outbound message resolves the
+    // client through (lib/contact/recipient.ts), as the app's client create does.
+    // Without them every reminder, overdue notice and 60-DPD notice to a seeded
+    // client fails "No Contact row". Idempotent: a rerun adds nothing.
+    // The seed's plain PrismaClient has no tenant-scope extension; the helper only
+    // reads and writes these three delegates, which have the same shape.
+    await prisma.$transaction((tx) => provisionContactForClient(tx as unknown as Parameters<typeof provisionContactForClient>[0], {
+      tenantId: tenant.id, clientId: row.id, firstName: row.firstName, lastName: row.lastName,
+      email: row.email, phone: row.phone, whatsapp: row.whatsapp, source: "MANUAL",
+    }))
     clients.push({ id: row.id, income: c.income, expenses: c.expenses })
   }
 

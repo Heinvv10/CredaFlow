@@ -4,13 +4,14 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { ScrollTable } from "@/components/asset-finance/ScrollTable"
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import { ReadingForm } from "./ReadingForm"
+import { ReadingVoidControls } from "./ReadingVoidControls"
 import type { LeaseStaffData } from "./lease-staff-data"
 
 // Meter readings of a lease with contracted usage, and what the usage so far
 // would bill at the end of term (lib/asset-finance/lease-usage.ts).
 
 const metric = (text: string) => <span className="block text-xl tabular-nums">{text}</span>
-const SOURCES: Record<string, string> = { STAFF: "Staff", PORTAL: "Lessee (portal)" }
+const SOURCES: Record<string, string> = { STAFF: "Staff", PORTAL: "Lessee (portal)", TELEMATICS: "Telematics" }
 
 export function LeaseReadingsPanel({ data, usage, canRecord }: {
   data: LeaseStaffData
@@ -29,8 +30,8 @@ export function LeaseReadingsPanel({ data, usage, canRecord }: {
         {projection ? (
           <div className="grid gap-4 sm:grid-cols-3">
             <MetricCard label="Used so far" value={metric(`${projection.usedUnits.toLocaleString("en-ZA")} ${unitLabel}`)} detail="Latest reading less the start reading" />
-            <MetricCard label="Projected at term end" value={metric(`${projection.projectedFinalReading.toLocaleString("en-ZA")} ${unitLabel}`)}
-              detail={`Against an allowance of ${projection.allowedUnits.toLocaleString("en-ZA")} ${unitLabel} over the term`} />
+            <MetricCard label="Projected usage at term end" value={metric(`${projection.projectedUsedUnits.toLocaleString("en-ZA")} ${unitLabel}`)}
+              detail={`Against an allowance of ${projection.allowedUnits.toLocaleString("en-ZA")} ${unitLabel} over the term · projected meter reading ${projection.projectedFinalReading.toLocaleString("en-ZA")} ${unitLabel}`} />
             <MetricCard label="Projected excess ex VAT" value={metric(formatMoney(projection.excessCents))} tone={projection.excessCents > 0 ? "warning" : "neutral"}
               detail="An estimate: extrapolated per day from the readings" />
           </div>
@@ -44,14 +45,18 @@ export function LeaseReadingsPanel({ data, usage, canRecord }: {
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Reading ({unitLabel})</TableHead>
                 <TableHead>Recorded by</TableHead>
+                {canRecord && <TableHead>Void</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.readings.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell>{formatIsoDate(r.readingDate)}</TableCell>
-                  <TableCell className="text-right">{r.value.toLocaleString("en-ZA")}</TableCell>
-                  <TableCell>{SOURCES[r.source] ?? r.source}</TableCell>
+                <TableRow key={r.id} className={r.voidedOn ? "text-[var(--cf-text-muted)]" : undefined}>
+                  <TableCell className={r.voidedOn ? "line-through" : undefined}>{formatIsoDate(r.readingDate)}</TableCell>
+                  <TableCell className={`text-right ${r.voidedOn ? "line-through" : ""}`}>{r.value.toLocaleString("en-ZA")}</TableCell>
+                  <TableCell>{r.simulated ? "Telematics, simulated" : SOURCES[r.source] ?? r.source}{r.voidedOn ? ` · Voided ${formatIsoDate(r.voidedOn)}` : ""}</TableCell>
+                  {canRecord && (
+                    <TableCell>{r.voidedOn ? null : <ReadingVoidControls loanId={data.loanId} readingId={r.id} pending={r.pendingVoid ?? null} />}</TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

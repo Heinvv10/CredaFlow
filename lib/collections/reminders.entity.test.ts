@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { Prisma } from "@prisma/client"
 
 // The collections reminder cron for an ENTITY borrower (asset finance, goal
@@ -60,11 +60,17 @@ vi.mock("@/lib/contact/identity", async (orig) => ({
   lookupContactByChannelValue: m.lookupContact,
 }))
 vi.mock("@/lib/notifications", () => ({ triggerNotification: m.triggerNotification }))
+// The send window is the clock's: pinned open here.
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => false,
+}))
 vi.mock("@/lib/loan/charges-replay", () => ({ chargesOutstandingAt: m.chargesOutstandingAt }))
 
 import { processPaymentReminders } from "./reminders"
 import { WABA_BODY_TEMPLATES } from "@/lib/whatsapp/template-vars"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { normaliseEmail, toWaJid } from "@/lib/contact/identity"
 
 function entityLoanDueIn(days: number) {
   const due = new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)
@@ -74,7 +80,15 @@ function entityLoanDueIn(days: number) {
   }
 }
 
-const person = (id: string, firstName: string, whatsapp: string | null) => ({
+// Whose Contact each email address and WhatsApp number is: a person's own, as
+// person() registers it. The dispatch refuses a Contact that is someone else's.
+const owners = new Map<string, string>()
+const person = (id: string, firstName: string, whatsapp: string | null) => {
+  owners.set(normaliseEmail(`${id}@example.test`), id)
+  if (whatsapp) owners.set(toWaJid(whatsapp), id)
+  return personRow(id, firstName, whatsapp)
+}
+const personRow = (id: string, firstName: string, whatsapp: string | null) => ({
   client: { id, firstName, lastName: "Testperson", email: `${id}@example.test`, whatsapp },
 })
 
@@ -82,7 +96,6 @@ beforeEach(() => {
   vi.resetAllMocks()
   // SMS ON: the entity path must not use it even when the channel is enabled.
   process.env.BULKSMS_DRY_RUN = "false"
-  process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
   m.tenantFindFirst.mockResolvedValue({ id: "tenant_acme", name: "Acme" })
   m.scheduleFindFirst.mockResolvedValue({ totalDue: 300_000, totalPaid: 0 })
   m.loanNoteFindFirst.mockResolvedValue(null)
@@ -96,15 +109,11 @@ beforeEach(() => {
   m.relationshipFindMany.mockResolvedValue([
     person("cl_jane", "Jane", "0820000001"), person("cl_jane", "Jane", "0820000001"), person("cl_sam", "Sam", "0820000002"),
   ])
-  m.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}` }))
+  m.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}`, clientId: owners.get(a.value) ?? null }))
   m.sendMessage.mockResolvedValue({ id: "msg", status: "SENT" })
   m.triggerNotification.mockResolvedValue(undefined)
   m.emailConfigFindUnique.mockResolvedValue({ active: true })
   reserveOnceMock.mockResolvedValue(true)
-})
-
-afterEach(() => {
-  delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
 })
 
 describe("processPaymentReminders — entity borrower", () => {
@@ -157,6 +166,37 @@ describe("processPaymentReminders — entity borrower", () => {
     expect(opts).toMatchObject({ event: "loan_overdue", loanId: "loan_af", data: { amount: 262_345, daysOverdue: 3 } })
     expect(opts).not.toHaveProperty("clientId")
     expect(opts.suppressWhatsAppReason).toContain("reminder_overdue_3d")
+  })
+
+  it("WhatsApp off: the entity leg is skipped before sendMessage, counted, not an error; loan_overdue still goes", async () => {
+    process.env.WA_ENABLED = "false"
+    try {
+      m.loanFindMany.mockResolvedValue([entityLoanDueIn(-3)])
+      const r = await processPaymentReminders()
+
+      expect(m.sendMessage).not.toHaveBeenCalled()
+      expect(m.relationshipFindMany).not.toHaveBeenCalled()
+      expect(r.errors).toBe(0)
+      expect(r.whatsappChannelOff).toBe(1)
+      expect(m.triggerNotification).toHaveBeenCalledTimes(1)
+    } finally {
+      delete process.env.WA_ENABLED
+    }
+  })
+
+  it("WhatsApp off, 1 day before due: only the email leg goes to the people who act for the entity", async () => {
+    process.env.WA_ENABLED = "false"
+    try {
+      m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
+      const r = await processPaymentReminders()
+
+      expect(m.sendMessage.mock.calls.map(([a]) => (a as { channel: string }).channel)).toEqual(["EMAIL", "EMAIL"])
+      expect(r.errors).toBe(0)
+      expect(r.whatsappChannelOff).toBe(1)
+      expect(m.loanNoteCreate).toHaveBeenCalledTimes(1)
+    } finally {
+      delete process.env.WA_ENABLED
+    }
   })
 
   // The consumer email leg is skipped for a tenant that cannot send email (reminders.ts,

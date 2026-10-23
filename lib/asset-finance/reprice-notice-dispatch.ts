@@ -7,7 +7,8 @@ import { Prisma, type AssetFinanceRateNotice } from "@prisma/client"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { lookupContactByChannelValue, normaliseEmail } from "@/lib/contact/identity"
+import { normaliseEmail } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { SendBlockedError, sendMessage } from "@/lib/messaging/send"
 import { reconciliationMessageFromError } from "@/lib/messaging/dispatch-control"
 import { escapeHtml } from "@/lib/utils"
@@ -135,11 +136,17 @@ export async function dispatchRepriceNotices(
         continue
       }
       const email = normaliseEmail(recipient.email)
-      const contact = email ? await lookupContactByChannelValue(db, { tenantId, channel: "EMAIL", value: email }) : null
-      if (!contact) {
-        outcomes.push({ ...leg, status: "BLOCKED", reason: "No deliverable email Contact on file" })
+      // The recipient's OWN Contact (lib/contact/recipient.ts): one that is someone else's is refused.
+      const found = email ? await lookupRecipientContact(db, { tenantId, channel: "EMAIL", value: email, ownerClientId: recipient.id }) : null
+      if (!found?.ok) {
+        outcomes.push({
+          ...leg,
+          status: "BLOCKED",
+          reason: found?.reason === "OTHER_OWNER" ? "The email Contact on file belongs to someone else" : "No deliverable email Contact on file",
+        })
         continue
       }
+      const contact = found.contact
       try {
         const message = await send({
           contactId: contact.id,
