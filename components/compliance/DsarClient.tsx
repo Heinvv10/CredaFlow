@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
 import { Plus, X, AlertTriangle } from "lucide-react"
+import { DsarDecisionRecordsButton } from "./DsarDecisionRecordsButton"
 
 type ClientOption = {
   id: string
@@ -260,7 +261,8 @@ export function DsarClient({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 space-y-1.5">
+                    <DsarDecisionRecordsButton dsarId={d.id} reference={d.reference} />
                     {NEXT_STATUS[d.status]?.length > 0 && (
                       <button
                         onClick={() => {
