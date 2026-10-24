@@ -266,10 +266,11 @@ unset VITEST_MAX_THREADS
 # machine overruns them without anything being wrong. On velo-server at load
 # average 81-99 (2026-10-24), four tests in five suites timed out (retention
 # sweep, asset-finance template governance and commission) and all 38 passed
-# with these limits. A timed-out test also keeps running into the next one: the
-# governance suite's second failure ("approved by someone else at the same
-# moment") was the first test's write landing late. A test that sets its own
-# timeout keeps it.
+# with these limits. A timed-out test keeps running into the next one (the
+# governance suite's second failure, "approved by someone else at the same
+# moment", was the first test's write landing late); longer limits make that
+# rarer, they do not prevent it. The cost is that a real hang takes up to 60 s
+# per test to fail. A test that sets its own timeout keeps it.
 IT_TIMEOUTS=(--testTimeout=60000 --hookTimeout=120000)
 
 echo ">> ${#ALL[@]} integration suites${SHARD_LABEL}: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
