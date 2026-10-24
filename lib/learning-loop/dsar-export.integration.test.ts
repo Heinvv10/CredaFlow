@@ -34,13 +34,19 @@ const owner = db as unknown as DsarExportDb
 const decidedAt = (day: number) => new Date(Date.UTC(2026, 9, day, 8))
 const REASON = "Synthetic override reason for the export."
 
-async function record(tenantId: string, subject: { applicationId?: string | null; loanId?: string | null; clientId?: string | null }, day: number) {
+async function record(tenantId: string, subject: { applicationId?: string | null; loanId?: string | null; clientId?: string | null }, day: number, beforeTrigger = false) {
   const base = recordData(consumerDeclineRecord({
     tenantId, applicationId: "placeholder", clientId: null, actor: { userId: "user-1", role: "LOAN_ADMIN" }, decidedAt: decidedAt(day), declineCategory: "OTHER",
   }))
-  const row = await db.creditDecisionRecord.create({
-    data: { ...base, applicationId: null, loanId: null, clientId: null, overridden: true, overrideReason: REASON, ...subject },
-  })
+  const data = { ...base, applicationId: null, loanId: null, clientId: null, overridden: true, overrideReason: REASON, ...subject }
+  // Rows the subject trigger would now refuse (an application erased after the record was written, or a
+  // row written before the trigger existed) are inserted with triggers off: the export must still hold.
+  const row = beforeTrigger
+    ? await db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
+      return tx.creditDecisionRecord.create({ data })
+    })
+    : await db.creditDecisionRecord.create({ data })
   return row.id
 }
 
@@ -50,7 +56,7 @@ async function lender(): Promise<Lender> {
   const { applicationId } = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { applicationId: true } })
   const stranger = await createChargesLoan(db, tenant)
   const strangerApp = (await db.loan.findUniqueOrThrow({ where: { id: stranger.loanId }, select: { applicationId: true } })).applicationId
-  const byClient = await record(tenant.tenantId, { clientId, applicationId: "app-that-is-gone" }, 1)
+  const byClient = await record(tenant.tenantId, { clientId, applicationId: "app-that-is-gone" }, 1, true)
   const byApplication = await record(tenant.tenantId, { applicationId }, 2)
   const byLoan = await record(tenant.tenantId, { loanId }, 3)
   // The same lender's other clients: never in this client's export.
@@ -83,9 +89,9 @@ suite("DSAR export of decision records (real Postgres)", () => {
     // Rows that name lender A's client, application and loan under lender B: a
     // wrong tenant filter would hand them to A's export.
     const [a, b] = lenders
-    await record(b.tenantId, { clientId: a.clientId }, 7)
-    await record(b.tenantId, { applicationId: a.applicationId }, 8)
-    await record(b.tenantId, { loanId: a.loanId }, 9)
+    await record(b.tenantId, { clientId: a.clientId }, 7, true)
+    await record(b.tenantId, { applicationId: a.applicationId }, 8, true)
+    await record(b.tenantId, { loanId: a.loanId }, 9, true)
   }, 120_000)
 
   afterAll(async () => {

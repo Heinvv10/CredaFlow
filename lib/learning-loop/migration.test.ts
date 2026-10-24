@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { baselineConstraintSql, baselineFunctionSql, baselineTriggerSql } from "@/lib/db-baseline.test-helpers"
 
-// Static pins on migrations 20261021090000_credit_decision_record and
-// 20261021100000_decision_record_automated_refusal; the rules run
+// Static pins on migrations 20261021090000_credit_decision_record,
+// 20261021100000_decision_record_automated_refusal and
+// 20261023190000_decision_record_subject_trigger; the rules run
 // against Postgres in RUN_DECISION_LOG_IT (decision-log.integration.test.ts).
 describe("CreditDecisionRecord hand-written objects", () => {
   it("is append-only: no UPDATE, DELETE or TRUNCATE", () => {
@@ -25,5 +26,18 @@ describe("CreditDecisionRecord hand-written objects", () => {
     expect(() => baselineConstraintSql("CreditDecisionRecord_has_subject")).toThrow()
     expect(flat("CreditDecisionRecord_has_subject_or_lead")).toContain(`"applicationId" IS NOT NULL OR "loanId" IS NOT NULL OR "clientId" IS NOT NULL OR "leadId" IS NOT NULL`)
     expect(flat("CreditDecisionRecord_s71_review_automated")).toContain(`CHECK (NOT "s71ReviewRequired" OR "actorType" = 'SYSTEM')`)
+  })
+
+  // 20261023190000_decision_record_subject_trigger; RUN_DECISION_LOG_IT runs it (subject-trigger.integration.test.ts).
+  it("refuses at INSERT a subject id that is not a row of the record's own lender", () => {
+    expect(baselineTriggerSql("CreditDecisionRecord_subject_exists")).toMatch(/BEFORE INSERT ON "CreditDecisionRecord"\s+FOR EACH ROW/)
+    const fn = baselineFunctionSql("guardCreditDecisionRecordSubjects").replace(/\s+/g, " ")
+    for (const [column, table] of [["applicationId", "LoanApplication"], ["loanId", "Loan"], ["clientId", "Client"], ["leadId", "Lead"]]) {
+      expect(fn).toContain(`NEW."${column}" IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM public."${table}" WHERE "id" = NEW."${column}" AND "tenantId" = NEW."tenantId")`)
+      expect(fn).toContain(`CreditDecisionRecord.${column} is not`)
+    }
+    // Invoker rights (the default): the lookups run under the caller's row-level security.
+    expect(fn).not.toMatch(/SECURITY DEFINER/i)
+    expect(fn).toContain("SET search_path = public, pg_temp")
   })
 })

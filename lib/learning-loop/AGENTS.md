@@ -25,6 +25,12 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   correction is a new row. Test teardown deletes under
   `session_replication_role = replica`. The tenant FKs are RESTRICT too:
   offboarding is an operator runbook step only (DESIGN.md §12), no code path.
+- **Subjects must exist.** A BEFORE INSERT trigger (`20261023190000`) refuses a
+  non-null `applicationId`/`loanId`/`clientId`/`leadId` with no row of the same
+  tenant, naming the column. Pass only ids already read or created in the
+  tenant, in the same transaction or before it; a rolled-back parent's id
+  is refused. Insert-only: erasing a parent later is not blocked. A test
+  fixture needs real parent rows.
 - **A person decides.** The record says what the gates said
   (`recommendation`) and what the named staff user decided; going against a
   gate is `overridden` with the reason (DB CHECK: reason exactly when

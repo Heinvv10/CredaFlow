@@ -98,7 +98,7 @@ visibility); learning claims wait for a real book.
 | `overrideReason` | text? | CHECK: present (≥10 chars trimmed) exactly when `overridden` |
 | `actorType` | enum `DecisionActorType` {`STAFF`, `SYSTEM`, `CLIENT`} | CHECK: STAFF names `actorUserId`, SYSTEM names nobody |
 | `actorUserId`, `actorRole` | text? | ids only, no FK |
-| `applicationId`, `loanId`, `clientId`, `leadId` | text? | subject ids, no FK; CHECK `_has_subject_or_lead`: at least one set. `leadId` is for a website refusal that confirms no client (§2.5) |
+| `applicationId`, `loanId`, `clientId`, `leadId` | text? | subject ids, no FK; CHECK `_has_subject_or_lead`: at least one set; INSERT trigger `_subject_exists`: each non-null id is a row of the same tenant (`20261023190000`). `leadId` is for a website refusal that confirms no client (§2.5) |
 | `sourceEntityType`, `sourceEntityId` | text | the row of record changed: `LoanApplication`, `ApplicationCheckFlag`, `AssetFinanceDeal` |
 | `ruleVersion` | text | `decision-log-v1+<code rule version>`, e.g. `+approval-ndi-v3` (`APPROVAL_AFFORDABILITY_POLICY_VERSION`, `lib/affordability/snapshot.ts:20`), `+pasq-v3`, `+af-deal-decision-v1`, `+credit-checks-unversioned` |
 | `policyHash` | char(64), CHECK hex | sha256 of canonical JSON of the tenant's effective thresholds: `TenantConfig.bureauMinScore`, `bureauBlockAdverse`, `ndiBufferPct`, `bureauMaxAgeDays` (effective value via `bureauMaxAgeDays()`, `lib/compliance/bureau.ts:17`) |
@@ -116,7 +116,15 @@ Indexes: `(tenantId, applicationId)`, `(tenantId, loanId)`,
 
 Why no FKs on subject ids: an `ON DELETE SET NULL` would be an UPDATE the
 append-only trigger refuses, and the record must outlive edits to its
-subject. Joins are by id, as `AuditLog.entityId` is.
+subject. Joins are by id, as `AuditLog.entityId` is. What a foreign key
+would have given at write time, a BEFORE INSERT trigger
+(`CreditDecisionRecord_subject_exists`, `20261023190000`) gives: a
+non-null `applicationId`, `loanId`, `clientId` or `leadId` must exist in its
+own table with the record's `tenantId`, else the INSERT fails naming the
+column. It is insert-only, so erasing a parent later (DSAR) is not blocked.
+It is `SECURITY INVOKER`: the lookups run under the caller's row-level
+security, and the explicit `tenantId` predicate holds the rule when RLS is
+unrestricted.
 
 Why a dedicated table rather than `AuditLog`: `AuditLog`
 (`prisma/schema/tenancy.prisma`) is generic JSON and mutable (only
@@ -149,6 +157,7 @@ legal record of the state change; the decision record is the analytical one.
   `_override_reason`, `_actor`, `_has_subject_or_lead` (replaced
   `_has_subject` in `20261021100000`), `_s71_review_automated`,
   `_json_objects`.
+- **Subject trigger**: `_subject_exists` (BEFORE INSERT, `20261023190000`).
 - **Tenancy**: registered in `lib/registry/tenant-scoped-models/250-learning-loop.ts`
   (the extension in `lib/tenant-scope.ts` scopes it); RLS
   ENABLE + FORCE + `tenant_isolation` policy as every tenant table

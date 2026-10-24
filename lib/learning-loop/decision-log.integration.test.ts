@@ -5,7 +5,9 @@
  * CHECKs refuse an unexplained override, a nameless staff decision, a bad
  * hash and an impossible probability, and row-level security keeps one
  * lender's records from another's (under a role RLS binds, as
- * lib/tenant-isolation.integration.test.ts). The asset-finance route writes
+ * lib/tenant-isolation.integration.test.ts). Its subjects are real rows, as the
+ * subject trigger (20261023190000, subject-trigger.integration.test.ts)
+ * requires. The asset-finance route writes
  * through the real stack in lib/asset-finance/deal-decision.integration.test.ts.
  *
  *   RUN_DECISION_LOG_IT=1 DATABASE_URL=postgresql://... \
@@ -14,6 +16,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { recordData, recordDecisions, type DecisionLogDb } from "./decision-log"
@@ -24,16 +27,19 @@ const RUN = process.env.RUN_DECISION_LOG_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
 const db = new PrismaClient()
 const ROLE = "cf_decision_log_it"
-const t = randomUUID().replaceAll("-", "").slice(0, 12)
-const tenantA = `dl-a-${t}`
-const tenantB = `dl-b-${t}`
+// Two lenders, each with a real application, client and lead: the decision record's subjects must exist.
+interface Lender { tenant: ChargesTenant; applicationId: string; loanId: string; clientId: string; leadId: string }
+let lenderA: Lender
+let lenderB: Lender
+let tenantA: string
+let tenantB: string
 let app: ReturnType<typeof createAppPrismaClient>
 // The writer is typed for the app's extended client; a plain one serves here.
 const plain = (tx: unknown) => tx as DecisionLogDb
 
 const decidedAt = new Date("2026-10-21T08:00:00.000Z")
-const approval = (tenantId: string, applicationId: string) => consumerApprovalRecords({
-  tenantId, applicationId, clientId: `client-${applicationId}`, actor: { userId: "user-1", role: "LOAN_ADMIN" }, decidedAt,
+const approval = (tenantId: string, applicationId: string, clientId: string) => consumerApprovalRecords({
+  tenantId, applicationId, clientId, actor: { userId: "user-1", role: "LOAN_ADMIN" }, decidedAt,
   productType: "PERSONAL", interestRatePm: 0.05, principalCents: 1_500_000, termDays: 180, instalmentCents: 310_000,
   creditLifePremiumCents: 0, repaymentMethod: "EFT", monthlyIncomeCents: 2_500_000,
   thresholds: { bureauMinScore: 580, bureauBlockAdverse: false, ndiBufferPct: 110, bureauMaxAgeDays: 60 },
@@ -43,8 +49,16 @@ const approval = (tenantId: string, applicationId: string) => consumerApprovalRe
   affordabilitySnapshot: { policyVersion: "approval-ndi-v3", inputFingerprint: "a".repeat(64), decisionFingerprint: "b".repeat(64) },
 })
 const valid = () => recordData(consumerDeclineRecord({
-  tenantId: tenantA, applicationId: `app-check-${randomUUID()}`, clientId: null, actor: { userId: "user-1", role: "LOAN_ADMIN" }, decidedAt, declineCategory: "OTHER",
+  tenantId: tenantA, applicationId: lenderA.applicationId, clientId: null, actor: { userId: "user-1", role: "LOAN_ADMIN" }, decidedAt, declineCategory: "OTHER",
 }))
+
+async function lender(): Promise<Lender> {
+  const tenant = await createChargesTenant(db, false)
+  const { loanId, clientId } = await createChargesLoan(db, tenant)
+  const { applicationId } = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { applicationId: true } })
+  const lead = await db.lead.create({ data: { tenantId: tenant.tenantId, firstName: "Log", lastName: "Test", phone: "0820000003" } })
+  return { tenant, applicationId, loanId, clientId, leadId: lead.id }
+}
 
 async function createAppRole(): Promise<string> {
   const password = randomBytes(12).toString("hex")
@@ -67,9 +81,12 @@ function roleUrl(password: string): string {
 
 suite("decision log (real Postgres)", () => {
   beforeAll(async () => {
-    for (const id of [tenantA, tenantB]) await db.tenant.create({ data: { id, slug: id, name: `Decision log IT ${id}` } })
-    await db.$transaction((tx) => recordDecisions(plain(tx), approval(tenantA, "app-a")))
-    await db.$transaction((tx) => recordDecisions(plain(tx), approval(tenantB, "app-b")))
+    lenderA = await lender()
+    lenderB = await lender()
+    tenantA = lenderA.tenant.tenantId
+    tenantB = lenderB.tenant.tenantId
+    await db.$transaction((tx) => recordDecisions(plain(tx), approval(tenantA, lenderA.applicationId, lenderA.clientId)))
+    await db.$transaction((tx) => recordDecisions(plain(tx), approval(tenantB, lenderB.applicationId, lenderB.clientId)))
     vi.stubEnv("TENANT_RLS", "on")
     app = createAppPrismaClient(roleUrl(await createAppRole()))
   }, 60_000)
@@ -81,7 +98,6 @@ suite("decision log (real Postgres)", () => {
     await db.$transaction([
       db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
       db.creditDecisionRecord.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } }),
-      db.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } }),
     ])
     if (app) {
       await db.$executeRawUnsafe(`DROP OWNED BY ${ROLE}`)
@@ -105,10 +121,10 @@ suite("decision log (real Postgres)", () => {
 
   it("rolls the record back with a decision that does not commit", async () => {
     await expect(db.$transaction(async (tx) => {
-      await recordDecisions(plain(tx), approval(tenantA, "app-rolled-back"))
+      await recordDecisions(plain(tx), approval(tenantA, lenderA.applicationId, lenderA.clientId))
       throw new Error("the decision failed after its record was written")
     })).rejects.toThrow("the decision failed")
-    expect(await db.creditDecisionRecord.count({ where: { applicationId: "app-rolled-back" } })).toBe(0)
+    expect(await db.creditDecisionRecord.count({ where: { tenantId: tenantA } })).toBe(2)
   })
 
   it("refuses to change, remove or truncate a record", async () => {
@@ -142,10 +158,10 @@ suite("decision log (real Postgres)", () => {
 
   it("accepts an automated refusal that names only a lead, flagged for the s71 review (20261021100000)", async () => {
     const row = recordData(submissionRefusalRecord({
-      tenantId: tenantA, channel: "WEBSITE", reason: "identity_conflict", subject: { leadId: `lead-${t}` }, decidedAt,
+      tenantId: tenantA, channel: "WEBSITE", reason: "identity_conflict", subject: { leadId: lenderA.leadId }, decidedAt,
     }))
     await db.$transaction((tx) => plain(tx).creditDecisionRecord.create({ data: row }))
-    expect(await db.creditDecisionRecord.findFirstOrThrow({ where: { leadId: `lead-${t}` } })).toMatchObject({
+    expect(await db.creditDecisionRecord.findFirstOrThrow({ where: { leadId: lenderA.leadId } })).toMatchObject({
       actorType: "SYSTEM", clientId: null, applicationId: null, s71ReviewRequired: true,
     })
   })
@@ -167,11 +183,40 @@ suite("decision log (real Postgres)", () => {
 
   it("refuses a record written into another lender from a lender's frame", async () => {
     // Awaited inside the frame: a PrismaPromise runs when awaited, which outside it would be with no tenant.
+    // No subject id: a real one of lender A is invisible from B's frame, so the subject trigger (BEFORE INSERT,
+    // before the policy's WITH CHECK) would refuse first; the CHECK that wants a subject runs after the policy.
+    await expect(runWithTenant(tenantB, async () => await app.$executeRaw`
+      INSERT INTO "CreditDecisionRecord" ("id", "tenantId", "kind", "decision", "recommendation", "overridden", "actorType", "actorUserId",
+        "sourceEntityType", "sourceEntityId", "ruleVersion", "policyHash", "inputsSnapshot", "evidenceRefs", "inputsHash", "decidedAt")
+      VALUES (${randomUUID()}, ${tenantA}, 'CREDIT_DECISION', 'DECLINE', 'NONE', false, 'STAFF', 'user-1',
+        'LoanApplication', 'app-x', 'v1', ${"c".repeat(64)}, '{}', '{}', ${"d".repeat(64)}, now())`))
+      .rejects.toThrow(/row-level security/)
+  })
+
+  // Subject trigger (20261023190000): its lookups run as the inserting role, under RLS.
+  it("accepts a lender's own application, loan, client and lead from its frame under RLS", async () => {
+    const row = recordData(consumerDeclineRecord({
+      tenantId: tenantB, applicationId: lenderB.applicationId, clientId: lenderB.clientId, actor: { userId: "user-1", role: "LOAN_ADMIN" }, decidedAt, declineCategory: "OTHER",
+    }))
+    const data = { ...row, loanId: lenderB.loanId, leadId: lenderB.leadId }
+    expect(await runWithTenant(tenantB, async () => await app.creditDecisionRecord.create({ data }))).toMatchObject({ tenantId: tenantB, loanId: lenderB.loanId })
+  })
+
+  it("refuses, naming the column, lender A's real application written from lender B's frame", async () => {
+    // Raw SQL: the client's tenant scope would refuse the mismatch before the database saw it.
     await expect(runWithTenant(tenantB, async () => await app.$executeRaw`
       INSERT INTO "CreditDecisionRecord" ("id", "tenantId", "kind", "decision", "recommendation", "overridden", "actorType", "actorUserId",
         "applicationId", "sourceEntityType", "sourceEntityId", "ruleVersion", "policyHash", "inputsSnapshot", "evidenceRefs", "inputsHash", "decidedAt")
       VALUES (${randomUUID()}, ${tenantA}, 'CREDIT_DECISION', 'DECLINE', 'NONE', false, 'STAFF', 'user-1',
-        'app-x', 'LoanApplication', 'app-x', 'v1', ${"c".repeat(64)}, '{}', '{}', ${"d".repeat(64)}, now())`))
-      .rejects.toThrow(/row-level security/)
+        ${lenderA.applicationId}, 'LoanApplication', ${lenderA.applicationId}, 'v1', ${"c".repeat(64)}, '{}', '{}', ${"d".repeat(64)}, now())`))
+      .rejects.toThrow(/CreditDecisionRecord\.applicationId is not/)
+  })
+
+  it("refuses, naming the column, another lender's client from a lender's own frame and tenant", async () => {
+    const row = recordData(consumerDeclineRecord({
+      tenantId: tenantB, applicationId: lenderB.applicationId, clientId: lenderA.clientId, actor: { userId: "user-1", role: "LOAN_ADMIN" }, decidedAt, declineCategory: "OTHER",
+    }))
+    await expect(runWithTenant(tenantB, async () => await app.creditDecisionRecord.create({ data: row })))
+      .rejects.toThrow(/CreditDecisionRecord\.clientId is not/)
   })
 })
