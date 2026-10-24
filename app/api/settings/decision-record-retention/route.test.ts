@@ -79,9 +79,15 @@ describe("PUT /api/settings/decision-record-retention", () => {
     expect(h.apply).not.toHaveBeenCalled()
   })
 
-  it.each([undefined, "12", 0, 601, 1.5, -3, true, {}, []])("refuses months = %j with 400", async (value) => {
+  it.each([undefined, "12", 0, 1, 59, 601, 1.5, -3, true, {}, []])("refuses months = %j with 400", async (value) => {
     expect((await put({ months: value })).status).toBe(400)
     expect(h.apply).not.toHaveBeenCalled()
+  })
+
+  it("names the 60-month floor when it refuses 59", async () => {
+    const res = await put({ months: 59 })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain("from 60 to 600")
   })
 
   it("refuses a body with no months, or that is not JSON, with 400", async () => {

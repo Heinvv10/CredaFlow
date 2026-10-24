@@ -29,7 +29,7 @@ export function DecisionRetentionCard({ months, canChange, lastChange = null }: 
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null)
 
   const next = on ? Number(value) : null
-  const valid = next === null || (Number.isInteger(next) && next >= 1 && next <= 600)
+  const valid = next === null || (Number.isInteger(next) && next >= 60 && next <= 600)
 
   /** A period is irreversible once the nightly job runs: say how many records it reaches before saving. */
   async function ask() {
@@ -113,11 +113,17 @@ export function DecisionRetentionCard({ months, canChange, lastChange = null }: 
         {on && (
           <div className="flex items-end gap-3 max-w-md">
             <div className="flex-1 space-y-1">
-              <Label htmlFor="decisionRetentionMonths">Retention period (months, 1 to 600)</Label>
+              <Label htmlFor="decisionRetentionMonths">Retention period (months, 60 to 600)</Label>
               <Input
-                id="decisionRetentionMonths" type="number" min={1} max={600} step={1}
+                id="decisionRetentionMonths" type="number" min={60} max={600} step={1}
                 value={value} disabled={disabled} onChange={(e) => setValue(e.target.value)}
+                aria-invalid={!valid} aria-describedby={valid ? undefined : "decisionRetentionMonthsError"}
               />
+              {!valid && (
+                <p id="decisionRetentionMonthsError" className="text-sm text-red-600">
+                  Enter a whole number of months from 60 to 600: records are kept at least 60 months (FICA&apos;s five years).
+                </p>
+              )}
             </div>
           </div>
         )}

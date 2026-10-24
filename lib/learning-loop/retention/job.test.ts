@@ -26,24 +26,24 @@ describe("pseudonymiseTenantDecisionRecords", () => {
   })
 
   it("names its tenant to the transaction before the database function reads it", async () => {
-    const { db, calls } = fakeDb(36, 1)
+    const { db, calls } = fakeDb(72, 1)
     await pseudonymiseTenantDecisionRecords("t1", db)
     expect(calls.order[0]).toContain("set_config('app.tenant_id'")
     expect(calls.order.indexOf("function")).toBeGreaterThan(0)
   })
 
   it("audits a run that changed rows, with counts and no subject", async () => {
-    const { db, calls } = fakeDb(36, 4)
-    expect(await pseudonymiseTenantDecisionRecords("t1", db)).toEqual({ retentionMonths: 36, pseudonymised: 4 })
+    const { db, calls } = fakeDb(72, 4)
+    expect(await pseudonymiseTenantDecisionRecords("t1", db)).toEqual({ retentionMonths: 72, pseudonymised: 4 })
     expect(calls.audit.mock.calls[0][0].data).toMatchObject({
       tenantId: "t1", action: "DECISION_RECORDS_PSEUDONYMISED", entity: "TenantConfig", entityId: "t1",
-      newValue: { retentionMonths: 36, pseudonymised: 4 },
+      newValue: { retentionMonths: 72, pseudonymised: 4 },
     })
   })
 
   it("audits nothing when nothing had aged", async () => {
-    const { db, calls } = fakeDb(36, 0)
-    expect(await pseudonymiseTenantDecisionRecords("t1", db)).toEqual({ retentionMonths: 36, pseudonymised: 0 })
+    const { db, calls } = fakeDb(72, 0)
+    expect(await pseudonymiseTenantDecisionRecords("t1", db)).toEqual({ retentionMonths: 72, pseudonymised: 0 })
     expect(calls.audit).not.toHaveBeenCalled()
   })
 })

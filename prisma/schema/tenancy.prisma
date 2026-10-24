@@ -342,7 +342,7 @@ model TenantConfig {
 
   // Credit decision log retention (lib/learning-loop/retention/). null = off,
   // and there is no default: nothing is pseudonymised until the lender sets a
-  // period in months (CHECK 1..600). Changed only by a SUPER_ADMIN in a
+  // period in months (CHECK 60..600). Changed only by a SUPER_ADMIN in a
   // TOTP-verified session, audited.
   decisionRecordRetentionMonths Int?
 
