@@ -564,11 +564,29 @@ COMMIT;
   `lib/ops/tenant-sweep.ts` does: the repo has no logger module yet) and leave the run 200, a tenant's failure
   sets `x-cron-failed-tenants`; 503 only when every tenant failed
   (`sweepStatus`).
-- **Scale (deferred)**: each run reads every `CREDIT_DECISION`/`OFFER` record
-  of the tenant at once and recomputes matured loans every night. Snapshot
-  reads are bounded by the chunk's latest 12M window end. Paging the record
-  read and skipping decisions whose rows are all final on the current
-  `definitionVersion` wait for a book large enough to need them.
+- **Scale** (bounded reads; `scripts/bench-learning-loop-reads.ts` measures it): the
+  decision-record read is paged (cursor on `id`, 5,000 a page). A loan that
+  has ended (settled, written off, cancelled) is not read or derived again
+  when its approval's rows are all final (no `PENDING`; `UNOBSERVABLE` only
+  for a history gap or outage or a cancellation, never a missing close date,
+  paid-at or schedule), carry the current `OUTCOME_DEFINITION_VERSION` and the
+  lender's `demoData`, hold exactly the `RETURNED_DEBIT_ORDER` rows the
+  source's returned results would give (same results, reasons, amounts and
+  times, not only their number), and the loan row has not been edited since
+  the rows were last computed (`Loan.updatedAt` ≤ the newest `computedAt`;
+  `outcomes/finalized.ts`). A version bump, a late or corrected return, an
+  edit to the ended loan (close or write-off date, maturity, status) or any
+  open row derives the loan again; an open loan is always derived. Its
+  decision is kept out of the writer's orphan sweep
+  (`skippedDecisionRecordIds`), so the rows stay. The rest are read per
+  chunk of 200 applications: instalments and arrears snapshots from the
+  chunk's earliest first-due day to its latest 12M window end (no window
+  reads outside that). **Limit:** `RepaymentSchedule` and receipts have no
+  `updatedAt`, so a schedule or paid-at correction that leaves the `Loan`
+  row untouched is not seen until the next `OUTCOME_DEFINITION_VERSION`
+  bump. A loan edited after its rows were last written is derived every
+  night (the writer rewrites nothing, so `computedAt` does not advance)
+  until a row changes: a cost, not a wrong figure.
 - **Simulated and demo data** (decision 4), as built: the job reads the
   tenant's `TenantConfig.isDemoLender` once per run. For a real lender the
   adapter never reads a simulated `CollectionResult` and every row has
@@ -746,16 +764,20 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
   (`dashboard.integration.test.ts`): two synthetic lenders, aggregates, the
   board-pack figure, isolation by the explicit filters and as an RLS-bound
   role.
-- **Scale note** (deferred; fine for a demo book, not for a large lender):
-  each request reads, for the tenant and without a limit, every final
-  approval with its outcome rows for the window and its whole
-  `inputsSnapshot` (only `bureau.scoreBand` and `productType` are used),
-  every offer and every decline (whole snapshot for `declineCategory`), the
-  matching applications and loans by unbounded `id IN (…)` lists, and 401
-  days of daily arrears rows (about 400 per loan). Arrangements are counted
-  in the database (`groupBy` status). Before a large lender: select the JSON
-  paths in SQL, aggregate cohorts and episodes in SQL, and bound the decision
-  reads by the cohorts shown.
+- **Scale note** (bounded reads; the benchmark in `scripts/bench-learning-loop-reads.ts`
+  has the numbers): a request reads decisions (approvals with outcome rows
+  for the window, offers, declines) decided in the last
+  `DECISION_LOOKBACK_MONTHS` (24) SAST months, and the page says "Decisions
+  from <month> on". The bound is the decision date, a cohort is the
+  disbursal month: the first month shown can be short of loans approved
+  before the bound and paid out after it. The arrears history (last 401 days) is read only for loans
+  past due on some day of it (a loan never past due starts no episode, so
+  the figures are the same). Still unbounded within that slice: the whole
+  `inputsSnapshot` of each approval and decline (only `bureau.scoreBand`,
+  `productType` and `declineCategory` are used) and the `id IN (…)` lookups.
+  Arrangements are counted in the database (`groupBy` status). Before a very
+  large lender: select the JSON paths in SQL and aggregate cohorts and
+  episodes in SQL.
 
 ## 7. Rollout
 

@@ -251,6 +251,7 @@ export function ArrangementLine({ a }: { a: ArrangementSummary }) {
     <p className={cn("text-sm text-[var(--cf-text)]", smallRow(a.small))} data-small={a.small || undefined}>
       {a.total} arrangements: {a.kept} kept, {a.broken} broken, {a.completedShort} ran to the end under 90% paid, {a.active} still active
       {a.other > 0 ? `, ${a.other} other` : ""}. Kept rate {percent(a.keptRatePct)}, broken rate {percent(a.brokenRatePct)} of those that ended.
+      <FewLoans small={a.small} />
     </p>
   )
 }
