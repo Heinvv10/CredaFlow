@@ -261,6 +261,16 @@ export TENANT_RLS="${TENANT_RLS:-on}"
 # the other with it at 1. Tested by scripts/__tests__/run-integration-tests-serial.test.ts.
 export VITEST_MAX_WORKERS=1
 unset VITEST_MAX_THREADS
+# Real-database timeouts. vitest's defaults (5 s a test, 10 s a hook) are sized
+# for mocked unit tests; a suite that seeds and migrates rows on a loaded shared
+# machine overruns them without anything being wrong. On velo-server at load
+# average 81-99 (2026-10-24), four tests in five suites timed out (retention
+# sweep, asset-finance template governance and commission) and all 38 passed
+# with these limits. A timed-out test also keeps running into the next one: the
+# governance suite's second failure ("approved by someone else at the same
+# moment") was the first test's write landing late. A test that sets its own
+# timeout keeps it.
+IT_TIMEOUTS=(--testTimeout=60000 --hookTimeout=120000)
 
 echo ">> ${#ALL[@]} integration suites${SHARD_LABEL}: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
 for f in "${OPT_IN_FILES[@]:-}"; do [[ -n "$f" ]] && echo ">>   opt-in, NOT run by this gate: $f"; done
@@ -279,7 +289,7 @@ if [[ "${1:-}" != "--baseline-only" ]]; then
     exit 1
   fi
   echo ">> running gated suites (these MUST pass)"
-  npx vitest run --no-file-parallelism "${GATED[@]}"
+  npx vitest run --no-file-parallelism "${IT_TIMEOUTS[@]}" "${GATED[@]}"
 fi
 
 # Ratchet: anything baselined that now passes must leave the baseline, or the
@@ -288,7 +298,7 @@ if [[ ${#SKIPPED[@]} -gt 0 ]]; then
   echo ">> re-checking ${#SKIPPED[@]} baselined suites (expected to fail)"
   FIXED=()
   for f in "${SKIPPED[@]}"; do
-    if npx vitest run "$f" >/dev/null 2>&1; then FIXED+=("$f"); fi
+    if npx vitest run "${IT_TIMEOUTS[@]}" "$f" >/dev/null 2>&1; then FIXED+=("$f"); fi
   done
   if [[ ${#FIXED[@]} -gt 0 ]]; then
     echo "!! These baselined suites now PASS. Delete their lines from" >&2

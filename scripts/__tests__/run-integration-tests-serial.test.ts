@@ -12,10 +12,19 @@ describe("run-integration-tests.sh runs suites one at a time", () => {
   it("pins vitest to one worker before it runs the gated suites", () => {
     const pin = SCRIPT.indexOf("export VITEST_MAX_WORKERS=1")
     const unsetThreads = SCRIPT.indexOf("unset VITEST_MAX_THREADS")
-    const gate = SCRIPT.indexOf('npx vitest run --no-file-parallelism "${GATED[@]}"')
+    const gate = SCRIPT.indexOf('npx vitest run --no-file-parallelism "${IT_TIMEOUTS[@]}" "${GATED[@]}"')
     expect(pin).toBeGreaterThan(0)
     expect(unsetThreads).toBeGreaterThan(0)
     expect(gate).toBeGreaterThan(pin)
     expect(gate).toBeGreaterThan(unsetThreads)
+  })
+
+  it("gives the gated suites and the baseline re-check real-database timeouts", () => {
+    const timeouts = SCRIPT.indexOf("IT_TIMEOUTS=(--testTimeout=60000 --hookTimeout=120000)")
+    const gate = SCRIPT.indexOf('npx vitest run --no-file-parallelism "${IT_TIMEOUTS[@]}" "${GATED[@]}"')
+    const recheck = SCRIPT.indexOf('npx vitest run "${IT_TIMEOUTS[@]}" "$f"')
+    expect(timeouts).toBeGreaterThan(0)
+    expect(gate).toBeGreaterThan(timeouts)
+    expect(recheck).toBeGreaterThan(timeouts)
   })
 })
