@@ -105,6 +105,11 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
           Automated refusals recorded: <span className="font-semibold">{data.declines.automated.total}</span>
           {" "}({data.declines.automated.s71ReviewRequired} flagged for the lender&apos;s legal review).
         </p>
+        {data.refusalRecordFailures > 0 && (
+          <p className="mt-2 text-sm font-semibold text-[var(--cf-warning)]" data-refusal-record-failures="true">
+            {data.refusalRecordFailures} {data.refusalRecordFailures === 1 ? "refusal" : "refusals"} could not be recorded in the decision log.
+          </p>
+        )}
         {data.declines.automated.total > 0 && <AutomatedRefusalList a={data.declines.automated} />}
       </DataPanel>
 
