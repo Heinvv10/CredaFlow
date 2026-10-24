@@ -927,3 +927,95 @@ decision 3).
 7. Missed snapshot nights: reconstruct the missing day's DPD from the
    schedule and receipts (backfill), or accept `HISTORY_OUTAGE` windows and
    alert on a missed run?
+
+## 12. Tenant offboarding (runbook, no code path)
+
+A tenant with decision records cannot be deleted by the application or by
+plain SQL, on purpose:
+
+- `CreditDecisionRecord_tenantId_fkey` and `DecisionOutcome_tenantId_fkey`
+  are `ON DELETE RESTRICT` (migrations `20261021090000_credit_decision_record`,
+  `20261021120000_decision_outcome`); `DecisionOutcome` also restricts on
+  `(tenantId, decisionRecordId)` to the record.
+- `CreditDecisionRecord_append_only` and `_guard_truncate` refuse DELETE and
+  TRUNCATE (`guardCreditDecisionRecord`).
+
+No route, job or script removes these rows, and none will be added. The one
+path is a deliberate operator step by a database superuser, agreed with the
+lender's legal team first (retention: §2.7; a lender leaving is not a reason
+to drop records the NCA still requires). For a lender on its own instance
+(`docs/DEPLOY.md`, "Tearing a lender down") dropping the volumes is the
+teardown and this step does not apply.
+
+Step, one transaction, on the shared database, after a verified backup.
+`session_replication_role = replica` disables the append-only trigger and
+every FK trigger: the RESTRICT checks **and** the `ON DELETE SET NULL` /
+`CASCADE` actions. So the step does by hand what those actions would have
+done, and the end state must be orphan-free. Do not rely on
+`lib/registry/tenant-scoped-models/` for the table list (it omits
+`AuditLog`); enumerate from `pg_constraint` (query below).
+
+Run the `pg_constraint` listing (step 5) **before** `BEGIN`, to plan the
+table order; it is repeated in step 5 only so the transaction is
+self-contained.
+
+```sql
+BEGIN;
+SET LOCAL session_replication_role = replica;
+-- 1. Audit first, tenantId NULL (the Tenant row is about to go). Who/what/why live in newValue.
+INSERT INTO "AuditLog" ("id", "tenantId", "userEmail", "action", "entity", "entityId", "newValue", "createdAt")
+VALUES (gen_random_uuid()::text, NULL, '<operator email>', 'TENANT_OFFBOARDED', 'Tenant', '<tenantId>',
+        '{"approvedBy":"<name>","legalRef":"<ticket>","backup":"<backup id>","decisionRecords":<n>,"decisionOutcomes":<n>}',
+        now());
+-- 2. Decision data: DecisionOutcome, then CreditDecisionRecord.
+DELETE FROM "DecisionOutcome" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "CreditDecisionRecord" WHERE "tenantId" = '<tenantId>';
+-- 3. ON DELETE SET NULL tables (baseline: User, AuditLog, WebhookSignatureFailure): keep the rows, detach them.
+--    AuditLog is kept forever. The AuditLog_nca_quote_issued_immutable trigger is off in replica mode, so this runs.
+UPDATE "AuditLog" SET "tenantId" = NULL WHERE "tenantId" = '<tenantId>';
+UPDATE "WebhookSignatureFailure" SET "tenantId" = NULL WHERE "tenantId" = '<tenantId>';
+-- Staff are deactivated, not deleted: User is referenced by many RESTRICT FKs (87 `ADD CONSTRAINT … REFERENCES "User" … RESTRICT`
+-- across prisma/migrations; count live with the step 5 query), so a delete would orphan them. Detached, inactive, no live session, tokens invalidated (tokenVersion).
+DELETE FROM "Session" WHERE "userId" IN (SELECT "id" FROM "User" WHERE "tenantId" = '<tenantId>');
+UPDATE "User" SET "tenantId" = NULL, "active" = false, "tokenVersion" = "tokenVersion" + 1
+ WHERE "tenantId" = '<tenantId>';
+-- 4. ON DELETE CASCADE tables (baseline: EmailLog, NotificationLog, IntegrationLog, MessageMention): delete.
+DELETE FROM "EmailLog" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "NotificationLog" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "IntegrationLog" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "MessageMention" WHERE "tenantId" = '<tenantId>';
+-- 5. Every remaining table with a FK to "Tenant" (RESTRICT or NO ACTION, e.g. SuretyConsent from
+--    20261017170000_commercial_legal_guards), children of those first, then the Tenant row.
+--    Regenerate the list at run time; migrations added since this was written are not in it:
+SELECT conrelid::regclass AS tbl, conname, confdeltype FROM pg_constraint
+ WHERE confrelid = '"Tenant"'::regclass AND contype = 'f' ORDER BY 1;
+DELETE FROM "Tenant" WHERE "id" = '<tenantId>';
+-- 6. Orphan check over EVERY FK (run this DO block once BEFORE step 1 as a baseline: orphans that already
+--    exist would otherwise abort the step; resolve or record them first) in the database, not only those with a tenantId column: cascades from deleted
+--    Loan/Client/... rows did not run either. Any child row whose parent is missing aborts the transaction.
+DO $$
+DECLARE fk RECORD; n bigint; cond text; nn text; total bigint := 0;
+BEGIN
+  FOR fk IN SELECT c.oid, c.conname, c.conrelid::regclass AS child, c.confrelid::regclass AS parent,
+                   c.conkey, c.confkey FROM pg_constraint c WHERE c.contype = 'f' LOOP
+    SELECT string_agg(format('p.%I = c.%I', pa.attname, ca.attname), ' AND '),
+           string_agg(format('c.%I IS NOT NULL', ca.attname), ' AND ')   -- a NULL key references nothing
+      INTO cond, nn
+      FROM unnest(fk.conkey, fk.confkey) AS k(ccol, pcol)
+      JOIN pg_attribute ca ON ca.attrelid = fk.child::oid  AND ca.attnum = k.ccol
+      JOIN pg_attribute pa ON pa.attrelid = fk.parent::oid AND pa.attnum = k.pcol;
+    EXECUTE format('SELECT count(*) FROM %s c WHERE %s AND NOT EXISTS (SELECT 1 FROM %s p WHERE %s)',
+                   fk.child, nn, fk.parent, cond) INTO n;
+    IF n > 0 THEN RAISE WARNING 'orphans: % rows in % violate %', n, fk.child, fk.conname; total := total + n; END IF;
+  END LOOP;
+  IF total > 0 THEN RAISE EXCEPTION 'offboarding left % orphan row(s); transaction aborted', total; END IF;
+END $$;
+-- The DO block raising aborts the transaction (nothing is committed). Delete or detach what it names, then re-run
+-- the whole step from BEGIN. (MATCH FULL / MATCH SIMPLE: a partly-NULL composite key counts as a reference only
+-- with MATCH FULL; the block treats any NULL part as "references nothing", i.e. MATCH SIMPLE, the default.)
+COMMIT;
+```
+
+Counts in the audit row come from `SELECT count(*)` run before the deletes.
+Never run this against a demo stack's database, and never as a shortcut for a
+single record (a correction is a new row; pseudonymising is §2.7).
