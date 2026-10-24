@@ -19,6 +19,8 @@ export interface TenantOutcomeRun {
   decisions: number
   outcomes: number
   failedLoans: number
+  /** Loans whose rows were final and current, so not derived again. */
+  skippedLoans: number
   written: SyncCounts
 }
 
@@ -37,14 +39,15 @@ export async function runTenantDecisionOutcomes(
     const result = await adapter.derive({ tenantId, asOf, today, demoTenant })
     // No logger module exists yet; console.error matches lib/ops/tenant-sweep.ts.
     for (const f of result.failures) console.error(`[cron/decision-outcomes] tenant ${tenantId} ${adapter.sourceSystem} loan ${f.ref} failed: ${f.error}`)
+    const skipped = result.skippedDecisionRecordIds ?? []
     const written = await syncOutcomes(db, {
       tenantId, sourceSystem: adapter.sourceSystem, decisionRecordIds: result.decisionRecordIds, outcomes: result.outcomes, computedAt: asOf,
       demoData: demoTenant,
-      keepDecisionRecordIds: result.failures.map((f) => f.decisionRecordId),
+      keepDecisionRecordIds: [...result.failures.map((f) => f.decisionRecordId), ...skipped],
     })
     runs.push({
-      sourceSystem: adapter.sourceSystem, decisions: new Set(result.decisionRecordIds).size,
-      outcomes: result.outcomes.length, failedLoans: result.failures.length, written,
+      sourceSystem: adapter.sourceSystem, decisions: new Set([...result.decisionRecordIds, ...skipped]).size,
+      outcomes: result.outcomes.length, failedLoans: result.failures.length, skippedLoans: skipped.length, written,
     })
   }
   return runs

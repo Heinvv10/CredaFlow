@@ -13,6 +13,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
@@ -20,7 +21,7 @@ import { getBookArrears } from "@/lib/reports/book-arrears"
 import { recordDecisions, type DecisionLogDb } from "../decision-log"
 import { OUTCOME_DEFINITION_VERSION } from "../outcomes/definition"
 import { consumerApprovalRecords, consumerDeclineRecord } from "../records"
-import { submissionRefusalRecord } from "../submission-refusal"
+import { recordSubmissionRefusal, submissionRefusalRecord } from "../submission-refusal"
 import { loadDecisionPerformance, type DashboardDb, type DecisionPerformance } from "./loader"
 
 const suite = process.env.RUN_DECISION_DASHBOARD_IT === "1" ? describe.sequential : describe.skip
@@ -212,10 +213,89 @@ suite("decision-performance dashboard (real Postgres)", () => {
     await db.decisionOutcome.delete({ where: { id: stray.id } })
   })
 
+  it("counts refusal-record failures per lender from the audit trail, never another lender's", async () => {
+    const [a, b] = lenders
+    const failure = (tenantId: string) => ({
+      tenantId, action: "DECISION_RECORD_WRITE_FAILED", entity: "CreditDecisionRecord",
+      newValue: { tenantId, channel: "PORTAL", reason: "client_blacklisted", subjectId: "client-synthetic" },
+    })
+    await db.auditLog.createMany({ data: [failure(a.tenantId), failure(a.tenantId), failure(b.tenantId)] })
+    // Older than the decision lookback: off the page, like the refusals beside it.
+    await db.auditLog.create({ data: { ...failure(a.tenantId), createdAt: new Date("2023-06-01T10:00:00+02:00") } })
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, a.tenantId, NOW, "12M")).refusalRecordFailures).toBe(2)
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, b.tenantId, NOW, "12M")).refusalRecordFailures).toBe(1)
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, lenders[2].tenantId, NOW, "12M")).refusalRecordFailures).toBe(0)
+    // As the RLS-bound app role (set up by the earlier test) the same counts hold.
+    expect((await loadDecisionPerformance(app as unknown as DashboardDb, a.tenantId, NOW, "12M")).refusalRecordFailures).toBe(2)
+    expect((await loadDecisionPerformance(app as unknown as DashboardDb, b.tenantId, NOW, "12M")).refusalRecordFailures).toBe(1)
+  })
+
+  it("a refusal whose record the database rejects leaves its audit row and a failure row, which the dashboard counts", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const t = lenders[2].tenantId
+    const before = (await loadDecisionPerformance(db as unknown as DashboardDb, t, NOW, "12M")).refusalRecordFailures
+    const leadId = `lead-synthetic-${randomUUID()}`
+    // Real failure, no mock: a NUL byte in the record's evidence is refused by Postgres (jsonb), after the in-transaction
+    // audit insert succeeded, so the whole transaction rolls back. The NUL is not in the audit or failure rows.
+    await recordSubmissionRefusal(
+      { tenantId: t, action: "APPLICATION_SUBMISSION_BLOCKED", entity: "LoanApplication", entityId: leadId, newValue: { reason: "open_application_exists" } },
+      { tenantId: t, channel: "WEBSITE", reason: "open_application_exists", subject: { leadId }, existingApplicationId: "app-synthetic\u0000x" },
+    )
+    expect(await db.creditDecisionRecord.count({ where: { tenantId: t, leadId } })).toBe(0)
+    // Exactly one blocked row: the rolled-back in-transaction row is gone; the alone-written one stays.
+    expect(await db.auditLog.count({ where: { tenantId: t, action: "APPLICATION_SUBMISSION_BLOCKED", entityId: leadId } })).toBe(1)
+    const failures = await db.auditLog.findMany({ where: { tenantId: t, action: "DECISION_RECORD_WRITE_FAILED", newValue: { path: ["subjectId"], equals: leadId } } })
+    expect(failures).toHaveLength(1)
+    expect(failures[0].newValue).toEqual({ tenantId: t, channel: "WEBSITE", reason: "open_application_exists", subjectId: leadId })
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, t, NOW, "12M")).refusalRecordFailures).toBe(before + 1)
+  })
+
   it("reads the asked window only: the 3M gap is unobservable, never good", async () => {
     const d = await loadDecisionPerformance(db as unknown as DashboardDb, lenders[0].tenantId, NOW, "3M")
     expect(d.totals.ever30).toMatchObject({ n: 1, yes: 0, no: 0, unobservable: 1, ratePct: null, coveragePct: 0 })
     // 3M does not measure 90+ DPD (DESIGN.md §3): not a gap, no row expected.
     expect(d.totals.ever90).toBeNull()
+  })
+
+  it("reads a bounded slice: decisions older than the lookback are not on the page", async () => {
+    const [a] = lenders
+    const at = (month: string) => loadDecisionPerformance(db as unknown as DashboardDb, a.tenantId, new Date(`${month}-15T10:00:00+02:00`), "12M")
+    // A's decline is dated 2 Oct 2026; its approval and offer are dated the day the fixture was built.
+    const built = (await db.creditDecisionRecord.findFirstOrThrow({ where: { tenantId: a.tenantId, kind: "OFFER" }, select: { decidedAt: true } })).decidedAt
+    const [y, m] = sastCalendarDate(built).slice(0, 7).split("-").map(Number)
+    const month = (offset: number) => new Date(Date.UTC(y, m - 1 + offset, 1)).toISOString().slice(0, 7)
+    expect(await at(month(24))).toMatchObject({ since: month(0), approvals: 1, takeUp: [{ offers: 1 }] })
+    expect(await at(month(25))).toMatchObject({ since: month(1), approvals: 0, takeUp: [] })
+    expect(await at("2028-10")).toMatchObject({ since: "2026-10", declines: { total: 1 } })
+    expect(await at("2028-11")).toMatchObject({ since: "2026-11", declines: { total: 0 } })
+  })
+
+  it("reads the arrears days of a loan that was past due, and of no other loan", async () => {
+    const tenant = await createChargesTenant(db, false)
+    const late = await createChargesLoan(db, tenant)
+    const healthy = await createChargesLoan(db, tenant)
+    const snapshot = (loanId: string, snapshotDate: Date, daysInArrears: number) => ({
+      tenantId: tenant.tenantId, loanId, snapshotDate, status: "ACTIVE" as const, ncaRegime: "NCA" as const, collectionsStage: "SOFT_REMINDER" as const,
+      daysInArrears, arrearsCents: daysInArrears > 0 ? 216_900 : 0, outstandingPrincipalCents: 200_000, chargesOutstandingCents: 0, chargesLive: false,
+    })
+    await db.loanArrearsSnapshot.createMany({ data: [
+      ...days("2026-06-01", 5).map((d, i) => snapshot(late.loanId, d, i < 2 ? 0 : 5)),
+      ...days("2026-06-01", 5).map((d) => snapshot(healthy.loanId, d, 0)),
+    ] })
+    const read: string[] = []
+    const spy = new Proxy(db, {
+      get(target, prop, receiver) {
+        const model = Reflect.get(target, prop, receiver)
+        if (prop !== "loanArrearsSnapshot") return model
+        return new Proxy(model, { get: (m, op) => (op !== "findMany" ? m[op] : async (args: never) => {
+          const rows = await m.findMany(args) as Array<{ loanId: string }>
+          read.push(...rows.map((r) => r.loanId))
+          return rows
+        }) })
+      },
+    }) as unknown as DashboardDb
+    const d = await loadDecisionPerformance(spy, tenant.tenantId, NOW, "12M")
+    expect(new Set(read)).toEqual(new Set([late.loanId]))
+    expect(d.stages).toMatchObject([{ stage: "SOFT_REMINDER", episodes: 1, loans: 1 }])
   })
 })

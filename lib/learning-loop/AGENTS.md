@@ -27,7 +27,9 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   the table owner inside `pseudonymiseCreditDecisionRecords()` (SECURITY
   DEFINER, no arguments) may NULL the ids, actor, reason, source and hash of an
   aged record, once; never prove it by call stack. Its outcomes are frozen.
-  Test teardown deletes under `session_replication_role = replica`.
+  Test teardown deletes under `session_replication_role = replica`. The tenant
+  FKs are RESTRICT too: offboarding is an operator runbook step only
+  (DESIGN.md §12), no code path.
 - **Subjects must exist.** A BEFORE INSERT trigger (`20261023190000`) refuses a
   non-null `applicationId`/`loanId`/`clientId`/`leadId` with no row of the same
   tenant, naming the column. Pass only ids already read or created in the
@@ -42,7 +44,10 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   as a staff decision.
 - **Automated refusals**: `recordSubmissionRefusal` (audit + SYSTEM record,
   `s71ReviewRequired`, one tx), never a bare `logAudit`; subject is the
-  confirmed client or the lead, never a merely matched client.
+  confirmed client or the lead, never a merely matched client. On a non-strict
+  site a failed record also writes `DECISION_RECORD_WRITE_FAILED` (codes + subject
+  id, no error text); the s71 panel counts it per tenant over the same
+  decision lookback as the refusal total. Best effort: a down database loses both audit rows.
 - **Same transaction, fail closed, for credit decisions and offers**: pass
   the route's `tx` to `recordDecisions`. Collection actions (not hooked yet)
   must never be blocked by the log: write after the action and log a
@@ -58,6 +63,12 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   CHECK). CURED needs the loan open; settling is SETTLED_AFTER_DELINQUENCY.
   Simulated rows count only for an `isDemoLender` tenant, written `demoData`;
   never mix demo and real rows in one figure. No learning claims.
+- **Bounded reads.** The job skips a loan that has ended and whose rows are all final,
+  current-version and complete, with the same returned debit orders and no `Loan.updatedAt`
+  after its rows (`outcomes/finalized.ts`; schedule edits that leave the Loan untouched are only
+  seen on a version bump); a version bump derives everything again. The dashboard reads decisions from the last `DECISION_LOOKBACK_MONTHS` and arrears
+  days only of loans that were past due. Don't add an all-time read to either; measure with
+  `scripts/bench-learning-loop-reads.ts`.
 - **Dashboard** (`lib/learning-loop/dashboard/`): rates divide OBSERVED rows
   only; PENDING/UNOBSERVABLE/missing sit beside them; < 20 loans greyed, not
   hidden; collections "Descriptive, not causal"; no "learning"/"AI" on screen.
@@ -73,9 +84,11 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
 | `lib/learning-loop/records.ts` | consumer decision and offer builders |
 | `lib/learning-loop/records-asset-finance.ts` | asset-finance deal decision builder |
 | `lib/learning-loop/submission-refusal.ts` | automated refusals; IT in `app/api/portal/applications/` |
+| `lib/learning-loop/dsar-export.ts` | a client's records for a DSAR (`/api/dsar/[id]/decision-records`); IT beside it, `RUN_DECISION_LOG_IT` |
 | `lib/learning-loop/decision-log.integration.test.ts` | `RUN_DECISION_LOG_IT`: trigger, CHECKs, RLS |
 | `lib/learning-loop/retention/job.ts` | nightly pseudonymise job (`/api/cron/decision-record-retention`); IT beside it, `RUN_DECISION_LOG_IT` |
 | `lib/learning-loop/outcomes/job.ts` | nightly outcome job (`/api/cron/decision-outcomes`) |
+| `lib/learning-loop/outcomes/finalized.ts` | which loans the job need not derive again; IT `skip.integration.test.ts` |
 | `lib/learning-loop/outcomes/outcomes.integration.test.ts` | `RUN_DECISION_OUTCOMES_IT`: idempotency, key, RLS |
 | `lib/learning-loop/dashboard/loader.ts` | one lender's dashboard (pure aggregation beside it) |
 | `lib/learning-loop/dashboard/dashboard.integration.test.ts` | `RUN_DECISION_DASHBOARD_IT`: aggregates, two-tenant isolation, RLS |

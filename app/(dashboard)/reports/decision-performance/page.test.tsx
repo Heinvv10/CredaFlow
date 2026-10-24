@@ -35,7 +35,7 @@ const approvals = Array.from({ length: 3 }, (_, i) => ({
   scoreBand: "630-679", overridden: false, product: "MICRO", outcomes: row(i === 0),
 }))
 const data = (demoData = false): DecisionPerformance => ({
-  demoData, window: "12M", approvals: approvals.length, totals: cohortTotals(approvals, "12M"),
+  demoData, window: "12M", since: "2024-10", approvals: approvals.length, totals: cohortTotals(approvals, "12M"),
   cohorts: approvalCohorts(approvals, "12M"), overrides: overrideComparison(approvals, "12M"),
   takeUp: [{ month: "2026-03", decision: "APPROVED_TERMS", offers: 3, small: true, takeUp: tally([[], [], []], "TAKEN_UP", "OFFER") }],
   declines: declineVolume([
@@ -43,6 +43,7 @@ const data = (demoData = false): DecisionPerformance => ({
     { month: "2026-03", category: null, actorType: "SYSTEM", refusalReason: "client_blacklisted", s71ReviewRequired: true },
     { month: "2026-03", category: null, actorType: "SYSTEM", refusalReason: "own_lender_arrears", s71ReviewRequired: true },
   ]),
+  refusalRecordFailures: 0,
   stages: [], arrangements: arrangementOutcomes({ KEPT: 1 }),
   book: { scope: "ALL", chargesLive: false, book: { count: 0, value: 0 }, arrears: { count: 0, amount: 0, outstandingPrincipal: 0 },
     chargesOnly: { count: 0, amount: 0 }, ageing: [], par30: { count: 0, value: 0, pct: 0 }, par60: { count: 0, value: 0, pct: 0 },
@@ -111,8 +112,20 @@ describe("Decision performance page", () => {
     // 3 loans < 20: greyed, counts still shown.
     expect(html).toContain('data-small="true"')
     expect(t).toContain("(few loans)")
-    expect(t).toContain("Not yet computed")
+    // The cohort table's own column header, not any mention in the panel text.
+    expect(html).toMatch(/<th[^>]*>Not yet computed<\/th>/)
+    // The arrangements line carries the marker like the tables do.
+    expect(html).toMatch(/<p[^>]*data-small="true"[^>]*>1 arrangements:[^]*\(few loans\)<\/span><\/p>/)
+    expect(t).toContain("Decisions from Oct 2024 on.")
     expect(t).toContain("33.3% 1/3")
+  })
+
+  it("says how many refusals could not be recorded in the decision log, only when there are some", async () => {
+    expect(text(await render())).not.toContain("could not be recorded")
+    state.load.mockResolvedValue({ ...data(), refusalRecordFailures: 3 })
+    expect(text(await render())).toContain("3 refusals could not be recorded in the decision log.")
+    state.load.mockResolvedValue({ ...data(), refusalRecordFailures: 1 })
+    expect(text(await render())).toContain("1 refusal could not be recorded in the decision log.")
   })
 
   it("is read-only: no form, button or input on the page", async () => {
