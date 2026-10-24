@@ -9,7 +9,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma as PrismaClientInstance } from "@/lib/prisma"
 import { prisma } from "@/lib/prisma"
 
-export const RETENTION_MONTHS_MIN = 1
+/** FICA keeps records for five years, longer than the NCA regulations' three (DESIGN.md §2.7). */
+export const RETENTION_MONTHS_MIN = 60
 export const RETENTION_MONTHS_MAX = 600
 
 export function isRetentionMonths(value: unknown): value is number {

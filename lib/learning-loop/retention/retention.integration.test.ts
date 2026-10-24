@@ -1,6 +1,7 @@
 /**
- * Real-Postgres proof of decision log retention (migration
- * 20261023200000_decision_record_retention): with no period nothing changes;
+ * Real-Postgres proof of decision log retention (migrations
+ * 20261023200000_decision_record_retention and its 60-month floor,
+ * 20261024150000_decision_record_retention_floor): with no period nothing changes;
  * with one, an aged decline and an aged terminated-loan decision are
  * pseudonymised and an open loan's, a live application's and a young one's are
  * not; the append-only trigger still refuses every other UPDATE and, from the
@@ -37,6 +38,9 @@ const t = randomUUID().replaceAll("-", "").slice(0, 12)
 // The function reads the database clock, so the fixtures are dated from now.
 const monthsAgo = (n: number) => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - n, 15)) }
 const REASON = "Bureau flag cleared after a manual review."
+/** The legal floor on a period (60 months): every fixture is dated past it, and the lender's period is FLOOR + 12. */
+const FLOOR = 60
+const PERIOD = FLOOR + 12
 let app: ReturnType<typeof createAppPrismaClient>
 let tenant: ChargesTenant
 let offTenant: ChargesTenant
@@ -109,10 +113,10 @@ suite("decision log retention (real Postgres)", () => {
     tenant = await createChargesTenant(db, false)
     offTenant = await createChargesTenant(db, false)
     const open = await loan(tenant, null)
-    const settledLongAgo = await loan(tenant, { status: "COMPLETED", at: monthsAgo(24) })
-    const settledRecently = await loan(tenant, { status: "COMPLETED", at: monthsAgo(6) })
-    const writtenOff = await loan(tenant, { status: "WRITTEN_OFF", at: monthsAgo(24) })
-    const cancelled = await loan(tenant, { status: "CANCELLED", at: monthsAgo(24) })
+    const settledLongAgo = await loan(tenant, { status: "COMPLETED", at: monthsAgo(FLOOR + 24) })
+    const settledRecently = await loan(tenant, { status: "COMPLETED", at: monthsAgo(FLOOR + 6) })
+    const writtenOff = await loan(tenant, { status: "WRITTEN_OFF", at: monthsAgo(FLOOR + 24) })
+    const cancelled = await loan(tenant, { status: "CANCELLED", at: monthsAgo(FLOOR + 24) })
     // Applications with no loan: one still being worked, one declined.
     const [live, declined] = await Promise.all((["SUBMITTED", "DECLINED"] as const).map(async (status) => {
       const clientId = `c-${status.toLowerCase()}-${t}`
@@ -135,36 +139,36 @@ suite("decision log retention (real Postgres)", () => {
       await db.lead.create({ data: { id, tenantId: tenant.tenantId, firstName: "Retention", lastName: "Lead", phone: "0820000003" } })
     }
     ids.declinedApplication = declined.id
-    await record(tenant, "declineAged", { clientId: `c-declined-${t}` }, monthsAgo(24), { overridden: true, overrideReason: REASON })
-    await record(tenant, "declineYoung", { clientId: `c-young-${t}` }, monthsAgo(6))
+    await record(tenant, "declineAged", { clientId: `c-declined-${t}` }, monthsAgo(FLOOR + 24), { overridden: true, overrideReason: REASON })
+    await record(tenant, "declineYoung", { clientId: `c-young-${t}` }, monthsAgo(FLOOR + 6))
     // Nothing but a lead and no actor: the one shape a bare UPDATE of the identifying columns could take.
-    await record(tenant, "leadRefusalYoung", { leadId: `lead-young-${t}` }, monthsAgo(3), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
-    await record(tenant, "leadRefusalAged", { leadId: `lead-${t}` }, monthsAgo(30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
+    await record(tenant, "leadRefusalYoung", { leadId: `lead-young-${t}` }, monthsAgo(FLOOR + 3), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
+    await record(tenant, "leadRefusalAged", { leadId: `lead-${t}` }, monthsAgo(FLOOR + 30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
     // The subject trigger is insert-only: a parent erased later (DSAR) leaves the record, which still pseudonymises.
     await db.lead.create({ data: { id: `lead-erased-${t}`, tenantId: tenant.tenantId, firstName: "Retention", lastName: "Erased", phone: "0820000004" } })
-    await record(tenant, "leadErasedAged", { leadId: `lead-erased-${t}` }, monthsAgo(30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
+    await record(tenant, "leadErasedAged", { leadId: `lead-erased-${t}` }, monthsAgo(FLOOR + 30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
     await db.lead.delete({ where: { id: `lead-erased-${t}` } })
-    await record(tenant, "declinedApplicationAged", { applicationId: declined.id }, monthsAgo(24))
+    await record(tenant, "declinedApplicationAged", { applicationId: declined.id }, monthsAgo(FLOOR + 24))
     // However old, a decision on an application still being worked does not age.
-    await record(tenant, "liveApplication", { applicationId: live.id }, monthsAgo(60))
+    await record(tenant, "liveApplication", { applicationId: live.id }, monthsAgo(FLOOR + 60))
     // A record naming only a client does not age while that client has an open loan or a live application.
-    await record(tenant, "clientOnlyOpenLoan", { clientId: open.clientId }, monthsAgo(60))
-    await record(tenant, "clientOnlyLiveApplication", { clientId: live.clientId! }, monthsAgo(60))
-    await record(tenant, "openLoan", { applicationId: open.applicationId, loanId: open.loanId, clientId: open.clientId }, monthsAgo(60))
-    await record(tenant, "settledAged", { applicationId: settledLongAgo.applicationId, loanId: settledLongAgo.loanId, clientId: settledLongAgo.clientId }, monthsAgo(40), {
+    await record(tenant, "clientOnlyOpenLoan", { clientId: open.clientId }, monthsAgo(FLOOR + 60))
+    await record(tenant, "clientOnlyLiveApplication", { clientId: live.clientId! }, monthsAgo(FLOOR + 60))
+    await record(tenant, "openLoan", { applicationId: open.applicationId, loanId: open.loanId, clientId: open.clientId }, monthsAgo(FLOOR + 60))
+    await record(tenant, "settledAged", { applicationId: settledLongAgo.applicationId, loanId: settledLongAgo.loanId, clientId: settledLongAgo.clientId }, monthsAgo(FLOOR + 40), {
       evidenceRefs: { bureauCheckId: `bureau-${t}` },
     })
-    await record(tenant, "settledAgedByApplicationOnly", { applicationId: settledLongAgo.applicationId }, monthsAgo(40))
-    // Decided long ago, but the loan ended only 6 months ago: the loan's end is the clock.
-    await record(tenant, "settledRecently", { applicationId: settledRecently.applicationId, loanId: settledRecently.loanId }, monthsAgo(60))
-    await record(tenant, "writtenOffAged", { applicationId: writtenOff.applicationId, loanId: writtenOff.loanId }, monthsAgo(40))
-    await record(tenant, "cancelledAged", { applicationId: cancelled.applicationId, loanId: cancelled.loanId }, monthsAgo(40))
-    await record(offTenant, "offTenantDeclineAged", { clientId: `c-off-${t}` }, monthsAgo(60))
+    await record(tenant, "settledAgedByApplicationOnly", { applicationId: settledLongAgo.applicationId }, monthsAgo(FLOOR + 40))
+    // Decided long ago, but the loan ended only FLOOR + 6 months ago: the loan's end is the clock.
+    await record(tenant, "settledRecently", { applicationId: settledRecently.applicationId, loanId: settledRecently.loanId }, monthsAgo(FLOOR + 60))
+    await record(tenant, "writtenOffAged", { applicationId: writtenOff.applicationId, loanId: writtenOff.loanId }, monthsAgo(FLOOR + 40))
+    await record(tenant, "cancelledAged", { applicationId: cancelled.applicationId, loanId: cancelled.loanId }, monthsAgo(FLOOR + 40))
+    await record(offTenant, "offTenantDeclineAged", { clientId: `c-off-${t}` }, monthsAgo(FLOOR + 60))
     // An outcome that names the loan, as the outcome job writes it.
     await db.decisionOutcome.create({
       data: {
         tenantId: tenant.tenantId, decisionRecordId: ids.settledAged, outcomeKind: "EVER_90_DPD", window: "12M", state: "OBSERVED", value: false,
-        sourceSystem: "credaflow", sourceRef: settledLongAgo.loanId, definitionVersion: OUTCOME_DEFINITION_VERSION, observedAt: monthsAgo(25), computedAt: monthsAgo(25),
+        sourceSystem: "credaflow", sourceRef: settledLongAgo.loanId, definitionVersion: OUTCOME_DEFINITION_VERSION, observedAt: monthsAgo(FLOOR + 25), computedAt: monthsAgo(FLOOR + 25),
       },
     })
     ids.settledLoan = settledLongAgo.loanId
@@ -207,7 +211,7 @@ suite("decision log retention (real Postgres)", () => {
   })
 
   it("takes its tenant from the frame and its clock from the database: no frame, no argument", async () => {
-    await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { decisionRecordRetentionMonths: 12 } })
+    await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { decisionRecordRetentionMonths: PERIOD } })
     await expect(fn(null)).rejects.toThrow(/needs a tenant frame/)
     // The old signature took a tenant and an as-of; a caller can no longer choose either.
     await expect(runWithTenant(tenant.tenantId, async () => await app.$queryRaw`SELECT public."pseudonymiseCreditDecisionRecords"(${tenant.tenantId}, '2100-01-01'::timestamptz)`))
@@ -220,19 +224,19 @@ suite("decision log retention (real Postgres)", () => {
   it("previews how many records a period would pseudonymise, from the job's own clock, changing nothing", async () => {
     const count = (months: number) => runWithTenant(tenant.tenantId, () => countDecisionRecordsAgedBy(tenant.tenantId, months, app))
     const before = await rows(tenant)
-    expect(await count(12)).toBe(8)
-    // 5 months also reaches the decline of 6 months ago and the loan settled 6 months ago; 100 reaches nothing.
-    expect(await count(5)).toBe(10)
-    expect(await count(100)).toBe(0)
+    expect(await count(PERIOD)).toBe(8)
+    // FLOOR + 5 also reaches the decline and the loan settled FLOOR + 6 months ago; FLOOR + 100 reaches nothing.
+    expect(await count(FLOOR + 5)).toBe(10)
+    expect(await count(FLOOR + 100)).toBe(0)
     // Another lender's frame counts only its own records, however old.
-    expect(await runWithTenant(offTenant.tenantId, () => countDecisionRecordsAgedBy(offTenant.tenantId, 12, app))).toBe(1)
+    expect(await runWithTenant(offTenant.tenantId, () => countDecisionRecordsAgedBy(offTenant.tenantId, PERIOD, app))).toBe(1)
     expect(await rows(tenant)).toEqual(before)
   })
 
   it("pseudonymises what has aged past the period and nothing else, then does nothing the second time", async () => {
     const before = await rows(tenant)
 
-    expect(await run(tenant)).toEqual({ retentionMonths: 12, pseudonymised: 8 })
+    expect(await run(tenant)).toEqual({ retentionMonths: PERIOD, pseudonymised: 8 })
     expect(await pseudonymised(tenant)).toEqual(new Set([
       "declineAged", "leadRefusalAged", "leadErasedAged", "declinedApplicationAged", "settledAged", "settledAgedByApplicationOnly", "writtenOffAged", "cancelledAged",
     ]))
@@ -262,10 +266,10 @@ suite("decision log retention (real Postgres)", () => {
     expect(outcome.sourceRef).not.toBe(ids.settledLoan)
 
     const audits = await db.auditLog.findMany({ where: { tenantId: tenant.tenantId, action: "DECISION_RECORDS_PSEUDONYMISED" } })
-    expect(audits.map((a) => a.newValue)).toEqual([{ retentionMonths: 12, pseudonymised: 8 }])
+    expect(audits.map((a) => a.newValue)).toEqual([{ retentionMonths: PERIOD, pseudonymised: 8 }])
 
-    expect(await run(tenant)).toEqual({ retentionMonths: 12, pseudonymised: 0 })
-    expect(await runWithTenant(tenant.tenantId, () => countDecisionRecordsAgedBy(tenant.tenantId, 12, app))).toBe(0)
+    expect(await run(tenant)).toEqual({ retentionMonths: PERIOD, pseudonymised: 0 })
+    expect(await runWithTenant(tenant.tenantId, () => countDecisionRecordsAgedBy(tenant.tenantId, PERIOD, app))).toBe(0)
     expect(await db.auditLog.count({ where: { tenantId: tenant.tenantId, action: "DECISION_RECORDS_PSEUDONYMISED" } })).toBe(1)
     expect(await rows(tenant)).toEqual([...after.values()])
   })
@@ -273,7 +277,7 @@ suite("decision log retention (real Postgres)", () => {
   it("leaves a lender with no period alone when the nightly sweep runs over every tenant", async () => {
     const result = await runDecisionRecordRetention()
     expect(result.perTenant).toContainEqual({ tenantId: offTenant.tenantId, retentionMonths: null, pseudonymised: 0 })
-    expect(result.perTenant).toContainEqual({ tenantId: tenant.tenantId, retentionMonths: 12, pseudonymised: 0 })
+    expect(result.perTenant).toContainEqual({ tenantId: tenant.tenantId, retentionMonths: PERIOD, pseudonymised: 0 })
     expect((await db.creditDecisionRecord.findUniqueOrThrow({ where: { id: ids.offTenantDeclineAged } })).clientId).toBe(`c-off-${t}`)
   })
 
@@ -376,5 +380,14 @@ suite("decision log retention (real Postgres)", () => {
 
     const left = await db.decisionOutcome.findMany({ where: { tenantId: tenant.tenantId }, select: { decisionRecordId: true } })
     expect(left.map((o) => o.decisionRecordId)).toEqual([ids.settledAged])
+  })
+
+  it("holds a lender's period to 60..600 months or off, whoever writes it", async () => {
+    const set = (months: number | null) => db.$executeRaw`UPDATE "TenantConfig" SET "decisionRecordRetentionMonths" = ${months} WHERE "tenantId" = ${offTenant.tenantId}`
+    for (const months of [1, 59, 601]) {
+      await expect(set(months), String(months)).rejects.toMatchObject({ meta: { code: "23514" } })
+    }
+    for (const months of [60, 600, null]) expect(await set(months), String(months)).toBe(1)
+    expect((await db.tenantConfig.findUniqueOrThrow({ where: { tenantId: offTenant.tenantId } })).decisionRecordRetentionMonths).toBeNull()
   })
 })

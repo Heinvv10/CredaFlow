@@ -56,6 +56,6 @@ describe("applyDecisionRecordRetention", () => {
 })
 
 describe("isRetentionMonths", () => {
-  it.each([1, 36, 600])("accepts %s", (v) => expect(isRetentionMonths(v)).toBe(true))
-  it.each([0, -1, 601, 1.5, NaN, "12", null, undefined, {}])("refuses %j", (v) => expect(isRetentionMonths(v)).toBe(false))
+  it.each([60, 61, 600])("accepts %s", (v) => expect(isRetentionMonths(v)).toBe(true))
+  it.each([0, -1, 1, 36, 59, 601, 1.5, NaN, "12", null, undefined, {}])("refuses %j", (v) => expect(isRetentionMonths(v)).toBe(false))
 })

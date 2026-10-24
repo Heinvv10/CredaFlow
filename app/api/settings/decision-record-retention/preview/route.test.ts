@@ -22,23 +22,23 @@ beforeEach(() => {
 
 describe("POST /api/settings/decision-record-retention/preview", () => {
   it("counts for the session's tenant and the asked period", async () => {
-    const res = await post({ months: 24 })
+    const res = await post({ months: 60 })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, months: 24, wouldPseudonymise: 7 })
-    expect(h.count).toHaveBeenCalledWith("t1", 24)
+    expect(await res.json()).toEqual({ ok: true, months: 60, wouldPseudonymise: 7 })
+    expect(h.count).toHaveBeenCalledWith("t1", 60)
   })
 
   it("is for a SUPER_ADMIN only", async () => {
     for (const role of ["READONLY", "BRANCH_MANAGER", "ADMIN"]) {
       h.session = caller(role)
-      expect((await post({ months: 24 })).status, role).toBe(403)
+      expect((await post({ months: 60 })).status, role).toBe(403)
     }
     h.session = null
-    expect((await post({ months: 24 })).status).toBe(401)
+    expect((await post({ months: 60 })).status).toBe(401)
     expect(h.count).not.toHaveBeenCalled()
   })
 
-  it.each([undefined, null, 0, 601, 1.5, "12"])("refuses months = %j with 400", async (months) => {
+  it.each([undefined, null, 0, 59, 601, 1.5, "12"])("refuses months = %j with 400", async (months) => {
     expect((await post({ months })).status).toBe(400)
     expect(h.count).not.toHaveBeenCalled()
   })

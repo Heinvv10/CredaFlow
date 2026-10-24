@@ -73,12 +73,12 @@ describe("CreditDecisionRecord hand-written objects", () => {
     expect(baselineFunctionSql("guardCreditDecisionRecordPseudonymisedInsert")).toContain("cannot be created pseudonymised")
   })
 
-  it("allows a pseudonymised row no reason, actor, subject, source or hash, and only then; and holds the period to 1..600", () => {
+  it("allows a pseudonymised row no reason, actor, subject, source or hash, and only then; and holds the period to 60..600", () => {
     const flat = (name: string) => baselineConstraintSql(name).replace(/\s+/g, " ")
     expect(flat("CreditDecisionRecord_override_reason")).toContain(`("overridden" AND "pseudonymisedAt" IS NOT NULL AND "overrideReason" IS NULL)`)
     expect(flat("CreditDecisionRecord_has_subject_or_lead")).toContain(`OR "pseudonymisedAt" IS NOT NULL`)
     expect(flat("CreditDecisionRecord_pseudonymised_shape")).toContain(`"pseudonymisedAt" IS NULL OR ("applicationId" IS NULL AND "loanId" IS NULL AND "clientId" IS NULL AND "leadId" IS NULL AND "actorUserId" IS NULL AND "overrideReason" IS NULL AND "sourceEntityId" IS NULL AND "inputsHash" IS NULL AND "evidenceRefs" = '{}'::jsonb)`)
     expect(flat("CreditDecisionRecord_identity_present")).toContain(`"pseudonymisedAt" IS NOT NULL OR ("sourceEntityId" IS NOT NULL AND "inputsHash" IS NOT NULL)`)
-    expect(flat("TenantConfig_decisionRecordRetentionMonths_range")).toContain(`"decisionRecordRetentionMonths" >= 1 AND "decisionRecordRetentionMonths" <= 600`)
+    expect(flat("TenantConfig_decisionRecordRetentionMonths_range")).toContain(`"decisionRecordRetentionMonths" >= 60 AND "decisionRecordRetentionMonths" <= 600`)
   })
 })

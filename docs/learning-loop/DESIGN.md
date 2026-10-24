@@ -389,9 +389,10 @@ gates at decline (two reads) and record `PASS`/`BLOCK`.
 
 ### 2.7 Retention
 
-Built (migration `20261023200000_decision_record_retention`), **off by
+Built (migration `20261023200000_decision_record_retention`, floor raised by
+`20261024150000_decision_record_retention_floor`), **off by
 default**: `TenantConfig.decisionRecordRetentionMonths` (null = off, no
-default, CHECK 1..600) is set per lender, by a SUPER_ADMIN in a TOTP-verified
+default, CHECK 60..600) is set per lender, by a SUPER_ADMIN in a TOTP-verified
 session only (`PUT /api/settings/decision-record-retention`, card on
 Settings -> Security & KYC policy, audit `DECISION_RECORD_RETENTION_UPDATED`).
 The repo has no other retention rule for decision or audit data
@@ -399,8 +400,15 @@ The repo has no other retention rule for decision or audit data
 `lib/lender-api/retention.ts` covers API logs only). **The period itself needs
 lender legal sign-off**: the NCA record-keeping period (my recollection: 3
 years from termination or rejection, **to verify**) and FICA's 5 years for the
-same client file are for the lender's counsel to apply; the system sets no
-floor or default.
+same client file are for the lender's counsel to apply. The system sets no
+default, but it does set a floor of 60 months (Hein, 2026-10-24): FICA's five
+years is the longer of the two figures, so no lender can pseudonymise a record
+sooner than FICA allows. The database CHECK, `RETENTION_MONTHS_MIN` in
+`lib/learning-loop/retention/policy.ts`, the routes and the card all hold
+60..600. A lender's legal team may choose a longer period; anything above 60
+still needs its sign-off. The floor migration aborts, rather than clamping, if
+a lender has a period under 60 set: a clamp would change a legal setting
+without an audit row.
 
 **Pseudonymise, not delete.** The nightly job
 (`/api/cron/decision-record-retention`, `lib/learning-loop/retention/job.ts`,
@@ -843,7 +851,8 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
   has the numbers): a request reads decisions (approvals with outcome rows
   for the window, offers, declines) decided in the last
   `DECISION_LOOKBACK_MONTHS` (24) SAST months, and the page says "Decisions
-  from <month> on". The bound is the decision date, a cohort is the
+  from <month> on". Decided (Hein, 2026-10-24): keep the 24-month cut, for
+  bounded reads; no setting and no full-history view. The bound is the decision date, a cohort is the
   disbursal month: the first month shown can be short of loans approved
   before the bound and paid out after it. The arrears history (last 401 days) is read only for loans
   past due on some day of it (a loan never past due starts no episode, so
@@ -1030,7 +1039,8 @@ whether settling after 30+ DPD is a cure (no: `SETTLED_AFTER_DELINQUENCY`,
 decision 3).
 
 1. Retention: confirm the NCA record-keeping period with legal, and whether
-   pseudonymise-after is acceptable.
+   pseudonymise-after is acceptable. (The 60-month floor is decided, §2.7;
+   the period a lender sets above it is still for its legal team.)
 2. Collection-action records: build after R4 merges, or wait for a strategy
    / variant concept?
 3. Benchmark floor: 5 lenders (proposed) or 10 (safer)?
