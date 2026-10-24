@@ -5,6 +5,7 @@
  * operator console reads none of this. The aggregation is the pure code
  * beside this file.
  */
+import { AuditAction } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import type { prisma } from "@/lib/prisma"
 import { getBookArrears, type BookArrears } from "@/lib/reports/book-arrears"
@@ -20,7 +21,7 @@ import {
 import { declineVolume, offerTakeUp, type DeclineSummary, type TakeUpCell } from "./offers-declines"
 
 export type DashboardDb = Pick<typeof prisma,
-  "creditDecisionRecord" | "loanApplication" | "loan" | "loanArrearsSnapshot" | "paymentArrangement" | "tenantConfig">
+  "auditLog" | "creditDecisionRecord" | "loanApplication" | "loan" | "loanArrearsSnapshot" | "paymentArrangement" | "tenantConfig">
 
 export interface DecisionPerformance {
   /**
@@ -36,6 +37,8 @@ export interface DecisionPerformance {
   overrides: OverrideCell[]
   takeUp: TakeUpCell[]
   declines: DeclineSummary
+  /** Automated refusals whose decision record failed to write (the refusal itself stood); counted from the audit trail. */
+  refusalRecordFailures: number
   stages: StageCell[]
   arrangements: ArrangementSummary
   /** The collectible book now, by the board pack's own definitions (lib/reports/book-arrears.ts). */
@@ -65,7 +68,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
     const today = sastCalendarDate(asOf)
     // Outcome rows are read only where demoData matches the lender: never demo and real in one figure.
     const demoData = (await db.tenantConfig.findUnique({ where: { tenantId }, select: { isDemoLender: true } }))?.isDemoLender === true
-    const [approvalRows, offerRows, declineRows, snapshots, arrangements, book] = await Promise.all([
+    const [approvalRows, offerRows, declineRows, snapshots, arrangements, book, refusalRecordFailures] = await Promise.all([
       // Final approvals the outcome job attached loan outcomes to (an approval undone by a return gets none).
       db.creditDecisionRecord.findMany({
         where: { tenantId, kind: "CREDIT_DECISION", decision: "APPROVE", outcomes: { some: { demoData } } },
@@ -88,6 +91,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
       }),
       db.paymentArrangement.groupBy({ by: ["status"], where: { tenantId }, _count: { _all: true } }),
       getBookArrears(tenantId, "ALL", db),
+      db.auditLog.count({ where: { tenantId, action: AuditAction.DECISION_RECORD_WRITE_FAILED } }),
     ])
 
     // Disbursal month, as the outcome job dates the loan: LoanApplication.disbursedAt, else Loan.createdAt.
@@ -145,6 +149,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
         month: month(d.decidedAt), category: snapshotField(d.inputsSnapshot, "declineCategory"), actorType: d.actorType,
         refusalReason: snapshotField(d.inputsSnapshot, "refusalReason"), s71ReviewRequired: d.s71ReviewRequired,
       }))),
+      refusalRecordFailures,
       stages: cureRollByStage(histories, today),
       arrangements: arrangementOutcomes(Object.fromEntries(arrangements.map((a) => [a.status, a._count._all]))),
       book,
