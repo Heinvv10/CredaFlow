@@ -22,9 +22,14 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   `records.test.ts` salts inputs with synthetic PII and must stay green.
 - **Append-only.** The table refuses UPDATE, DELETE and TRUNCATE (migration
   `20261021090000_credit_decision_record`). Never add an update path; a
-  correction is a new row. Test teardown deletes under
-  `session_replication_role = replica`. The tenant FKs are RESTRICT too:
-  offboarding is an operator runbook step only (DESIGN.md §12), no code path.
+  correction is a new row. The one exception is retention
+  (`lib/learning-loop/retention/`, DESIGN.md §2.7): off by default; only
+  the table owner inside `pseudonymiseCreditDecisionRecords()` (SECURITY
+  DEFINER, no arguments) may NULL the ids, actor, reason, source and hash of an
+  aged record, once; never prove it by call stack. Its outcomes are frozen.
+  Test teardown deletes under `session_replication_role = replica`. The tenant
+  FKs are RESTRICT too: offboarding is an operator runbook step only
+  (DESIGN.md §12), no code path.
 - **Subjects must exist.** A BEFORE INSERT trigger (`20261023190000`) refuses a
   non-null `applicationId`/`loanId`/`clientId`/`leadId` with no row of the same
   tenant, naming the column. Pass only ids already read or created in the
@@ -81,6 +86,7 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
 | `lib/learning-loop/submission-refusal.ts` | automated refusals; IT in `app/api/portal/applications/` |
 | `lib/learning-loop/dsar-export.ts` | a client's records for a DSAR (`/api/dsar/[id]/decision-records`); IT beside it, `RUN_DECISION_LOG_IT` |
 | `lib/learning-loop/decision-log.integration.test.ts` | `RUN_DECISION_LOG_IT`: trigger, CHECKs, RLS |
+| `lib/learning-loop/retention/job.ts` | nightly pseudonymise job (`/api/cron/decision-record-retention`); IT beside it, `RUN_DECISION_LOG_IT` |
 | `lib/learning-loop/outcomes/job.ts` | nightly outcome job (`/api/cron/decision-outcomes`) |
 | `lib/learning-loop/outcomes/finalized.ts` | which loans the job need not derive again; IT `skip.integration.test.ts` |
 | `lib/learning-loop/outcomes/outcomes.integration.test.ts` | `RUN_DECISION_OUTCOMES_IT`: idempotency, key, RLS |

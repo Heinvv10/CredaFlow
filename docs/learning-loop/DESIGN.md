@@ -278,8 +278,8 @@ none. The fields are an allow-list: the lender's `tenantId` and `actorUserId`
 There is no generic access-event table (`DocumentAccessLog` is for
 `ClientDocument` only), so the audit row `DSAR_DECISION_RECORDS_EXPORTED`
 (who, which request, how many records; never the records) is the access
-event, written before the file is served. A retention rule (§2.7) is not
-built yet.
+event, written before the file is served. A pseudonymised record (§2.7)
+has no subject left, so it is in no DSAR export.
 
 ### 2.4 Recommendation vs decision
 
@@ -389,19 +389,94 @@ gates at decline (two reads) and record `PASS`/`BLOCK`.
 
 ### 2.7 Retention
 
-The repo has no retention rule for decision or audit data
+Built (migration `20261023200000_decision_record_retention`), **off by
+default**: `TenantConfig.decisionRecordRetentionMonths` (null = off, no
+default, CHECK 1..600) is set per lender, by a SUPER_ADMIN in a TOTP-verified
+session only (`PUT /api/settings/decision-record-retention`, card on
+Settings -> Security & KYC policy, audit `DECISION_RECORD_RETENTION_UPDATED`).
+The repo has no other retention rule for decision or audit data
 (`lib/notifications/retention.ts` says `AuditLog` is kept indefinitely;
-`lib/lender-api/retention.ts` covers API logs only). Proposal, **flagged**:
-keep a decision record as long as the application and agreement records it
-describes, which the NCA requires a credit provider to keep for a prescribed
-period (National Credit Regulations, record-keeping; my recollection is 3
-years from termination or rejection, **to verify**; FICA's 5 years may apply
-to the same client file, **to verify**). After that, pseudonymise rather
-than delete: null the subject ids and `actorUserId` and drop `overrideReason`
-in a migration-owned job that runs under a bypass of the append-only trigger,
-so aggregate history survives. Because the table is append-only, that job is
-a deliberate, audited exception and is **not built in PR A**.
-**Needs lender legal sign-off.**
+`lib/lender-api/retention.ts` covers API logs only). **The period itself needs
+lender legal sign-off**: the NCA record-keeping period (my recollection: 3
+years from termination or rejection, **to verify**) and FICA's 5 years for the
+same client file are for the lender's counsel to apply; the system sets no
+floor or default.
+
+**Pseudonymise, not delete.** The nightly job
+(`/api/cron/decision-record-retention`, `lib/learning-loop/retention/job.ts`,
+01:15 SAST, every ACTIVE tenant in its own frame) calls
+`pseudonymiseCreditDecisionRecords()`, which for a tenant with a period NULLs
+`applicationId`, `loanId`, `clientId`, `leadId`, `actorUserId`, `overrideReason`,
+`sourceEntityId` (it names the application or loan) and `inputsHash` (a hash of
+low-entropy inputs plus the evidence ids, so re-identifiable), empties
+`evidenceRefs` (bureau check, flag and deal ids) and stamps `pseudonymisedAt`,
+on every aged record. The record's outcomes keep their figures but their
+`sourceRef` (the loan) becomes the outcome's own id. Bands, `recommendation`,
+`overridden`, `ruleVersion`, `policyHash`, `actorRole` and the outcome figures
+stay, so the dashboard and calibration keep their history. One audit row per
+tenant per run that changed anything (`DECISION_RECORDS_PSEUDONYMISED`: counts
+only). Nothing here can be undone.
+
+**The clock** (the fields that exist: `Loan.status`, `closedAt` (stamped on
+COMPLETED/CANCELLED by the receipt writers), `writeOffAt` (the write-off route
+sets this, not `closedAt`), `updatedAt`; `LoanApplication.status`). A record
+ages from:
+
+| Record | Ages from |
+|---|---|
+| its loan exists (`loanId`, else the loan booked from its `applicationId`) and is COMPLETED or CANCELLED | `COALESCE(closedAt, updatedAt)` |
+| its loan is WRITTEN_OFF | `COALESCE(writeOffAt, closedAt, updatedAt)` |
+| its loan is open (ACTIVE, DEFAULTED, PENDING_WRITE_OFF, RESTRUCTURED) | never |
+| no loan; its application is DRAFT, SUBMITTED, UNDER_REVIEW or APPROVED | never (still live) |
+| no loan, names only a client (no application, no loan) | never while that client has an open loan or a live application; else `decidedAt` |
+| no loan otherwise (declined, cancelled, erased, or only a lead) | its own `decidedAt` |
+
+`updatedAt` is the fallback when a terminal loan has no end stamp: it can only
+be later than the true end, so a record is kept longer, never shorter. It also
+means a terminal loan that something keeps touching does not age. A record
+ages when its clock plus the period is not after the database clock (`now()`,
+never a caller's argument).
+
+**The database enforces the exception, and who may make it.** The append-only
+trigger (`guardCreditDecisionRecord`) still refuses every UPDATE, DELETE and
+TRUNCATE except one, which needs all of: (1) the session user is the table's
+owner (looked up from `pg_class.relowner`); `pseudonymiseCreditDecisionRecords()`
+is `SECURITY DEFINER`, owned by the migrating role, so inside it the user is the
+owner and no other role, whatever it sets or calls, gets through; (2) the
+function's transaction-local flag names this transaction; (3) the UPDATE
+changes only the ten pseudonymisation columns, the identifying ones to NULL (the
+refs to `{}`), on a row not yet pseudonymised, every other column unchanged
+(compared as jsonb, so a column added later is protected). The call stack is
+deliberately not the proof: `PG_CONTEXT` carries the text of the running query,
+so a comment forges it (reviewer repro, 2026-10-23). The function takes no
+argument: its tenant is the transaction's `app.tenant_id` (set by the job; it
+refuses with none) and its clock is `now()`. A record is never inserted
+pseudonymised (a BEFORE INSERT trigger), which would skip the CHECKs; three
+CHECKs allow a pseudonymised row what it no longer has, `pseudonymised_shape`
+requires it to have none of it, and `identity_present` requires the source
+entity and hash of every other row.
+
+**Limits, stated.** A session that is the table owner (a superuser or the
+migrate role) can drop the trigger or set the flag, so is not defended against.
+Today every stack connects as a superuser (`docs/ARCHITECTURE.md`, RLS
+activation checklist): until the application role is neither superuser nor the
+table owner, this keeps code paths honest and proves the rules, but does not stop
+a hostile application session. The function is executable by any role: a caller
+can only run the nightly job early for its own tenant, on records past the
+clock, when the lender has set a period. A pseudonymised record's outcomes are
+frozen at the definition version current when it was pseudonymised: the outcome
+writer neither recomputes them (there is no subject to read the loan from) nor
+sweeps them (the orphan sweep skips a pseudonymised decision), so a later
+`OUTCOME_DEFINITION_VERSION` bump does not reach them and they keep their old
+`definitionVersion`; a window still PENDING at that point stays PENDING. Figures
+that mix versions across old and new decisions are a consequence the dashboard
+does not mark.
+
+**Confirmation.** Saving a period pseudonymises, at the next nightly run,
+everything already past it, irreversibly. The settings card therefore asks
+`POST /api/settings/decision-record-retention/preview` (SUPER_ADMIN, read-only,
+the same `agedCreditDecisionRecordIds` clock) how many records that is, and
+shows the count with a destructive confirm button before it saves.
 
 ## 3. Outcome definitions (implemented in PR B)
 
@@ -789,7 +864,7 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
 3. PR C: dashboard (built); show it in the browser on the FairScore demo
    (pending: needs a demo image with PR A–C).
 4. Follow-ups: collection-action records after R4 lands, gate version
-   constants, decline-time gate evaluation, retention/pseudonymisation job.
+   constants, decline-time gate evaluation (retention/pseudonymisation: built, §2.7).
    **Decided follow-up, own PR**: move the escalations cron's DEFAULTED flip
    from 60 to 90 DPD (decision 1, §3).
 5. External extract only after §4.1's legal points are signed off and its

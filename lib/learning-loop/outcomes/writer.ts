@@ -5,7 +5,9 @@
  * are updated, rows whose key the definitions no longer produce are deleted,
  * and unchanged rows are left alone. Rows of a decision the adapter no longer
  * attributes anything to (neither evaluated nor failed this run) are deleted
- * too, unless the run attributed nothing at all. Running it twice on the same facts writes nothing the second time.
+ * too, unless the run attributed nothing at all or the decision was
+ * pseudonymised (its outcomes stay as they were). Running it twice on the same
+ * facts writes nothing the second time.
  */
 import type { DecisionOutcome } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
@@ -103,8 +105,11 @@ export async function syncOutcomes(
   // empty read (wrong tenant frame, a source with no extract), not a reason to
   // wipe the source's rows.
   if (attributed.size === 0) return counts
+  // A pseudonymised record (DESIGN.md §2.7) has no subject left to attribute
+  // anything to: its outcomes are the aggregate history that survives it, so
+  // they are frozen as they were, never swept.
   const orphaned = (await db.decisionOutcome.findMany({
-    where: { tenantId, sourceSystem }, select: { decisionRecordId: true }, distinct: ["decisionRecordId"],
+    where: { tenantId, sourceSystem, decisionRecord: { pseudonymisedAt: null } }, select: { decisionRecordId: true }, distinct: ["decisionRecordId"],
   })).map((r) => r.decisionRecordId).filter((id) => !attributed.has(id)).sort()
   for (let i = 0; i < orphaned.length; i += CHUNK) {
     counts.deleted += (await db.decisionOutcome.deleteMany({

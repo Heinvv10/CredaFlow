@@ -17,6 +17,8 @@ import { StaffAccessPolicyCard } from "@/components/settings/StaffAccessPolicyCa
 import { PortalSigningPolicyCard } from "@/components/settings/PortalSigningPolicyCard"
 import { getSegregationOfDutiesState } from "@/lib/security/segregation-of-duties"
 import { SegregationOfDutiesToggle } from "@/components/settings/SegregationOfDutiesToggle"
+import { getDecisionRetentionState } from "@/lib/learning-loop/retention/policy"
+import { DecisionRetentionCard } from "@/components/settings/DecisionRetentionCard"
 
 export const metadata = {
   title: "Security & KYC policy — Settings",
@@ -36,7 +38,7 @@ export default async function SecurityPolicySettingsPage() {
   // except segregation of duties, which an ADMIN changes too.
   const user = await requireMinRole("ADMIN")
   const tenantId = await getStaffTenantId()
-  const [state, kycState, accessColumns, portalPolicy, accessChange, portalChange, requestHeaders, sod] = await Promise.all([
+  const [state, kycState, accessColumns, portalPolicy, accessChange, portalChange, requestHeaders, sod, retention] = await Promise.all([
     getStaffTotpPolicyState(tenantId),
     getKycOverridePolicyState(tenantId),
     readStaffAccessColumns(tenantId),
@@ -45,6 +47,7 @@ export default async function SecurityPolicySettingsPage() {
     lastChangeOf(tenantId, AuditAction.PORTAL_POLICY_UPDATED),
     headers(),
     getSegregationOfDutiesState(tenantId),
+    getDecisionRetentionState(tenantId),
   ])
   const access = policyFromConfig(accessColumns)
   const lastChange = state.lastChange
@@ -89,6 +92,13 @@ export default async function SecurityPolicySettingsPage() {
           portalEnabled={portalPolicy.portalEnabled}
           canChange={canChange}
           lastChange={portalChange}
+        />
+        <DecisionRetentionCard
+          months={retention.months}
+          canChange={canChange}
+          lastChange={retention.lastChange
+            ? `Last changed by ${retention.lastChange.byEmail ?? "unknown"} on ${formatDateTime(retention.lastChange.at)}.`
+            : null}
         />
         <KycOverridePolicyCard
           enabled={kycState.enabled}
