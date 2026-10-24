@@ -124,11 +124,26 @@ suite("decision log retention (real Postgres)", () => {
       })
     }))
 
+    // Subjects must exist as rows of the lender (the INSERT trigger of 20261023190000): the clients and leads the records name.
+    const person = (owner: ChargesTenant, id: string, n: number) => db.client.create({
+      data: { id, tenantId: owner.tenantId, idNumber: `92${t}${n}`, firstName: "Retention", lastName: "Subject", email: `${id}@client.invalid`, phone: "0820000002" },
+    })
+    // `c-declined-…` is the declined application's client, created above.
+    await person(tenant, `c-young-${t}`, 2)
+    await person(offTenant, `c-off-${t}`, 3)
+    for (const id of [`lead-young-${t}`, `lead-${t}`]) {
+      await db.lead.create({ data: { id, tenantId: tenant.tenantId, firstName: "Retention", lastName: "Lead", phone: "0820000003" } })
+    }
+    ids.declinedApplication = declined.id
     await record(tenant, "declineAged", { clientId: `c-declined-${t}` }, monthsAgo(24), { overridden: true, overrideReason: REASON })
     await record(tenant, "declineYoung", { clientId: `c-young-${t}` }, monthsAgo(6))
     // Nothing but a lead and no actor: the one shape a bare UPDATE of the identifying columns could take.
     await record(tenant, "leadRefusalYoung", { leadId: `lead-young-${t}` }, monthsAgo(3), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
     await record(tenant, "leadRefusalAged", { leadId: `lead-${t}` }, monthsAgo(30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
+    // The subject trigger is insert-only: a parent erased later (DSAR) leaves the record, which still pseudonymises.
+    await db.lead.create({ data: { id: `lead-erased-${t}`, tenantId: tenant.tenantId, firstName: "Retention", lastName: "Erased", phone: "0820000004" } })
+    await record(tenant, "leadErasedAged", { leadId: `lead-erased-${t}` }, monthsAgo(30), { actorType: "SYSTEM", actorUserId: null, actorRole: null, s71ReviewRequired: true })
+    await db.lead.delete({ where: { id: `lead-erased-${t}` } })
     await record(tenant, "declinedApplicationAged", { applicationId: declined.id }, monthsAgo(24))
     // However old, a decision on an application still being worked does not age.
     await record(tenant, "liveApplication", { applicationId: live.id }, monthsAgo(60))
@@ -205,9 +220,9 @@ suite("decision log retention (real Postgres)", () => {
   it("previews how many records a period would pseudonymise, from the job's own clock, changing nothing", async () => {
     const count = (months: number) => runWithTenant(tenant.tenantId, () => countDecisionRecordsAgedBy(tenant.tenantId, months, app))
     const before = await rows(tenant)
-    expect(await count(12)).toBe(7)
+    expect(await count(12)).toBe(8)
     // 5 months also reaches the decline of 6 months ago and the loan settled 6 months ago; 100 reaches nothing.
-    expect(await count(5)).toBe(9)
+    expect(await count(5)).toBe(10)
     expect(await count(100)).toBe(0)
     // Another lender's frame counts only its own records, however old.
     expect(await runWithTenant(offTenant.tenantId, () => countDecisionRecordsAgedBy(offTenant.tenantId, 12, app))).toBe(1)
@@ -217,9 +232,9 @@ suite("decision log retention (real Postgres)", () => {
   it("pseudonymises what has aged past the period and nothing else, then does nothing the second time", async () => {
     const before = await rows(tenant)
 
-    expect(await run(tenant)).toEqual({ retentionMonths: 12, pseudonymised: 7 })
+    expect(await run(tenant)).toEqual({ retentionMonths: 12, pseudonymised: 8 })
     expect(await pseudonymised(tenant)).toEqual(new Set([
-      "declineAged", "leadRefusalAged", "declinedApplicationAged", "settledAged", "settledAgedByApplicationOnly", "writtenOffAged", "cancelledAged",
+      "declineAged", "leadRefusalAged", "leadErasedAged", "declinedApplicationAged", "settledAged", "settledAgedByApplicationOnly", "writtenOffAged", "cancelledAged",
     ]))
 
     const after = new Map((await rows(tenant)).map((r) => [r.id, r]))
@@ -247,7 +262,7 @@ suite("decision log retention (real Postgres)", () => {
     expect(outcome.sourceRef).not.toBe(ids.settledLoan)
 
     const audits = await db.auditLog.findMany({ where: { tenantId: tenant.tenantId, action: "DECISION_RECORDS_PSEUDONYMISED" } })
-    expect(audits.map((a) => a.newValue)).toEqual([{ retentionMonths: 12, pseudonymised: 7 }])
+    expect(audits.map((a) => a.newValue)).toEqual([{ retentionMonths: 12, pseudonymised: 8 }])
 
     expect(await run(tenant)).toEqual({ retentionMonths: 12, pseudonymised: 0 })
     expect(await runWithTenant(tenant.tenantId, () => countDecisionRecordsAgedBy(tenant.tenantId, 12, app))).toBe(0)
@@ -336,7 +351,7 @@ suite("decision log retention (real Postgres)", () => {
 
   it("holds a pseudonymised row to its shape, and an unpseudonymised one to its reason, actor, subject and source", async () => {
     const base = recordData(consumerDeclineRecord({
-      tenantId: tenant.tenantId, applicationId: `app-shape-${t}`, clientId: null, actor: { userId: tenant.userId, role: "LOAN_ADMIN" }, decidedAt: monthsAgo(1),
+      tenantId: tenant.tenantId, applicationId: ids.declinedApplication, clientId: null, actor: { userId: tenant.userId, role: "LOAN_ADMIN" }, decidedAt: monthsAgo(1),
       declineCategory: "OTHER",
     }))
     const create = (change: Record<string, unknown>) => db.creditDecisionRecord.create({ data: { ...base, ...change } })
