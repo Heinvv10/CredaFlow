@@ -85,13 +85,17 @@ suite("valuation guide breaker repros", () => {
     const d1 = await draftGuide(database(), fx.tenantId, fx.adminA, { name, effectiveOn: day(-2) })
     const d2 = await draftGuide(database(), fx.tenantId, fx.adminA, { name, effectiveOn: day(-1) })
     const kinds = await Promise.all([runWithTenant(fx.tenantId, () => publishGuide(actor(fx.adminB), d1.id)), runWithTenant(fx.tenantId, () => publishGuide(actor(fx.adminB), d2.id))].map((p) => p.then((r) => r.kind, (e: unknown) => `threw: ${(e as Error).message.slice(0, 200)}`)))
-    expect(kinds.every((k) => k === "published" || k === "concurrent_publish")).toBe(true)
+    expect(kinds.every((k) => k === "published" || k === "concurrent_publish" || k === "older_than_current")).toBe(true)
     // Overlapping, one wins and the other is concurrent_publish. A slow runner can serialise the two calls: then the
-    // later-dated draft legitimately supersedes the earlier one and both report published. Either way one is current.
-    if (kinds.every((k) => k === "published")) {
-      expect((await database().valuationGuide.findUniqueOrThrow({ where: { id: d2.id } })).status).toBe("PUBLISHED")
-      expect((await database().valuationGuide.findUniqueOrThrow({ where: { id: d1.id } })).status).toBe("SUPERSEDED")
-    } else expect(kinds.filter((k) => k === "published")).toHaveLength(1)
+    // later-dated draft ends current either way (d1 then d2: both published, d1 superseded by d2; d2 then d1: d1 is
+    // older_than_current and stays a draft). Either way exactly one is current.
+    if (kinds.includes("concurrent_publish")) expect(kinds.filter((k) => k === "published")).toHaveLength(1)
+    else {
+      const guide = (id: string) => database().valuationGuide.findUniqueOrThrow({ where: { id } })
+      expect((await guide(d2.id)).status).toBe("PUBLISHED")
+      const first = await guide(d1.id)
+      expect(kinds[0] === "published" ? [first.status, first.supersededById] : [first.status]).toEqual(kinds[0] === "published" ? ["SUPERSEDED", d2.id] : ["DRAFT"])
+    }
     expect(await published(name)).toBe(1)
   })
 
