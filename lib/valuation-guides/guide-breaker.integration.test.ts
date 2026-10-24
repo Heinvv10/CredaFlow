@@ -85,8 +85,13 @@ suite("valuation guide breaker repros", () => {
     const d1 = await draftGuide(database(), fx.tenantId, fx.adminA, { name, effectiveOn: day(-2) })
     const d2 = await draftGuide(database(), fx.tenantId, fx.adminA, { name, effectiveOn: day(-1) })
     const kinds = await Promise.all([runWithTenant(fx.tenantId, () => publishGuide(actor(fx.adminB), d1.id)), runWithTenant(fx.tenantId, () => publishGuide(actor(fx.adminB), d2.id))].map((p) => p.then((r) => r.kind, (e: unknown) => `threw: ${(e as Error).message.slice(0, 200)}`)))
-    expect(kinds.filter((k) => k === "published")).toHaveLength(1)
     expect(kinds.every((k) => k === "published" || k === "concurrent_publish")).toBe(true)
+    // Overlapping, one wins and the other is concurrent_publish. A slow runner can serialise the two calls: then the
+    // later-dated draft legitimately supersedes the earlier one and both report published. Either way one is current.
+    if (kinds.every((k) => k === "published")) {
+      expect((await database().valuationGuide.findUniqueOrThrow({ where: { id: d2.id } })).status).toBe("PUBLISHED")
+      expect((await database().valuationGuide.findUniqueOrThrow({ where: { id: d1.id } })).status).toBe("SUPERSEDED")
+    } else expect(kinds.filter((k) => k === "published")).toHaveLength(1)
     expect(await published(name)).toBe(1)
   })
 
