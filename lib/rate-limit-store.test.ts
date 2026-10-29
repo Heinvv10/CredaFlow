@@ -54,49 +54,72 @@ describe("createPostgresStore", () => {
     expect(await check("ns", "k", OPTS)).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 5 })
   })
 
-  describe("a sealed group", () => {
-    const sealed = { n: null, retry_ms: null }
-    const created = { n: 1, retry_ms: null }
+  describe("a refused call", () => {
+    const refused = [{ n: null }]
+    const noRow: unknown[] = [] // the follow-up read finds no row: the group is sealed and took no new key
+    const created = [{ n: 1 }]
     const bypassOf = (call: unknown[]) => call.slice(1).includes(true)
+    const sealedFirst = () => vi.fn().mockResolvedValueOnce(refused).mockResolvedValueOnce(noRow)
+
+    it("reads why it was refused in a statement of its own and, for a key with a row, tells the wait: no budget is touched", async () => {
+      const query = vi.fn().mockResolvedValueOnce(refused).mockResolvedValueOnce([{ retry_ms: 4200 }])
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 5 })
+      expect(query).toHaveBeenCalledTimes(2)
+    })
+
+    it("does not mistake a concurrent commit for a sealed group: a row found by the follow-up read means no credit is spent", async () => {
+      // the upsert refused on the limit; its snapshot may predate the row, but the follow-up read sees it
+      const query = vi.fn().mockResolvedValueOnce(refused).mockResolvedValueOnce([{ retry_ms: null }])
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 1 })
+      expect(query).toHaveBeenCalledTimes(2)
+    })
 
     it("refuses a key with no row, telling the caller to come back later, when no address is given", async () => {
-      const query = vi.fn().mockResolvedValue([sealed])
+      const query = sealedFirst()
       const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:")
-      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 300 })
-      expect(query).toHaveBeenCalledTimes(1)
-    })
-
-    it("creates the key when its address has budget for new keys: budget spent first, then the key made past the seal", async () => {
-      const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([created]).mockResolvedValueOnce([created])
-      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
-      expect(result).toEqual({ allowed: true, remaining: 2, retryAfterSeconds: 0 })
-      expect(query).toHaveBeenCalledTimes(3)
-      expect(query.mock.calls.map(bypassOf)).toEqual([false, false, true])
-      // the budget is its own key in its own group: 6 per window per address
-      expect(query.mock.calls[1]!.slice(1)).toContain("sealed-new:")
-      expect(query.mock.calls[1]!.slice(1)).toContain(NEW_KEYS_PER_ADDRESS)
-    })
-
-    it("refuses when the address has spent its budget, and makes no key", async () => {
-      const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([{ n: null, retry_ms: 5000 }])
-      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
       expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 300 })
       expect(query).toHaveBeenCalledTimes(2)
     })
 
+    it("creates the key when its address has budget for new keys: budget spent first, then the key made past the seal", async () => {
+      const query = sealedFirst().mockResolvedValueOnce(created).mockResolvedValueOnce(created)
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      expect(result).toEqual({ allowed: true, remaining: 2, retryAfterSeconds: 0 })
+      // the key's own upsert and why-read, the budget upsert, the key made past the seal
+      expect(query).toHaveBeenCalledTimes(4)
+      expect(query.mock.calls.map(bypassOf)).toEqual([false, false, false, true])
+      expect(query.mock.calls[2]!.slice(1)).toContain("sealed-new:")
+      expect(query.mock.calls[2]!.slice(1)).toContain(NEW_KEYS_PER_ADDRESS)
+    })
+
+    it("refuses when the address has spent its budget, and makes no key", async () => {
+      const query = sealedFirst().mockResolvedValueOnce(refused).mockResolvedValueOnce([{ retry_ms: 5000 }])
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 300 })
+      expect(query).toHaveBeenCalledTimes(4)
+      expect(query.mock.calls.some(bypassOf)).toBe(false)
+    })
+
     it("lifts the seal itself when the group is back under the ceiling, and then makes the key", async () => {
-      const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([{ lifted: 1 }]).mockResolvedValueOnce([created])
+      const query = sealedFirst().mockResolvedValueOnce([{ lifted: 1 }]).mockResolvedValueOnce(created)
       const result = await createPostgresStore({ $queryRaw: query }, { sealCeiling: 100 })("", "login:email:x@y.example", OPTS, "login:email:")
       expect(result.allowed).toBe(true)
-      expect(query).toHaveBeenCalledTimes(3)
+      expect(query).toHaveBeenCalledTimes(4)
       // the check counts the group's live rows against the ceiling
-      expect(query.mock.calls[1]!.slice(1)).toEqual(expect.arrayContaining(["login:email:", 100]))
+      expect(query.mock.calls[2]!.slice(1)).toEqual(expect.arrayContaining(["login:email:", 100]))
     })
 
     it("checks a sealed group at most once a minute per process, and keeps refusing when it is still full", async () => {
       vi.useFakeTimers({ now: new Date("2026-10-30T10:00:00Z") })
       try {
-        const query = vi.fn(async (strings: TemplateStringsArray) => (strings.join("?").includes("DELETE FROM") ? [{ lifted: 0 }] : [sealed]))
+        const query = vi.fn(async (strings: TemplateStringsArray) => {
+          const text = strings.join("?")
+          if (text.includes("DELETE FROM")) return [{ lifted: 0 }]
+          if (text.includes("SELECT (SELECT extract")) return [] // why-read: no row
+          return refused
+        })
         const check = createPostgresStore({ $queryRaw: query as never }, { sealCeiling: 100 })
         const healChecks = () => query.mock.calls.filter(([strings]) => (strings as TemplateStringsArray).join("?").includes("DELETE FROM")).length
         expect((await check("", "login:email:a@y.example", OPTS, "login:email:")).allowed).toBe(false)
@@ -111,13 +134,6 @@ describe("createPostgresStore", () => {
       } finally {
         vi.useRealTimers()
       }
-    })
-
-    it("asks for no budget when the key has a row: a refusal on its own limit is just that", async () => {
-      const query = vi.fn().mockResolvedValue([{ n: null, retry_ms: 4200 }])
-      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
-      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 5 })
-      expect(query).toHaveBeenCalledTimes(1)
     })
   })
 

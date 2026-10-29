@@ -153,6 +153,10 @@ NetworkPolicy enforces that for the web pods.
 
 ### Rate limits are shared across pods
 
+**Apply the migration before the code.** `RateLimitHit` and `RateLimitSealedGroup` must exist before pods that use them run: with the tables
+missing every shared-store call errors, and the authentication limits fail closed (every sign-in refused) until the breaker
+clears. The chart's pre-upgrade migration Job does this in order; a manual rollout must run `prisma migrate deploy` first.
+
 `lib/rate-limit.ts` keeps each limit's window in Postgres (table `RateLimitHit`, one row per limited key), so a
 limit on a login, OTP or API key holds across every web replica and survives a restart. One atomic
 `INSERT ... ON CONFLICT DO UPDATE` per check, stamped with the database clock, so replicas with skewed clocks agree;
@@ -206,10 +210,10 @@ autovacuum (`autovacuum_vacuum_scale_factor = 0.01`); on a busy lender watch `pg
 The cleanup job treats two kinds of group differently. **Ordinary groups** are bounded at 200 000 rows by deleting the
 least recently used rows that are not lockouts (a lockout is a key whose hits have reached its limit with its window
 open); above 5 times that it deletes the rows expiring soonest even if they are lockouts, with an `ALERT` log per group.
-**Authentication groups are never evicted**: every row in one with a hit inside its window is an active counter or a
+**Authentication groups are never evicted** (sign-in and the other authentication limits, and `portal:apply:`, the paid bureau pulls behind a portal application, which is authentication-grade: never evicted, fail-closed): every row in one with a hit inside its window is an active counter or a
 lockout, and deleting it would lift it. Keys the caller chooses (an email typed into a form: `login:email:`,
 `login:combined:`, `forgot:acct:`, `reset-otp:acct:`, `register:identity:`) are groups of their own, apart from the address
-keys (`login:ip:`, `forgot:ip:`, ...), so a flood of one kind cannot crowd or seal the other. Only the keys the caller chooses are ever sealed, per
+keys (`login:ip:`, `forgot:ip:`, ...), so a flood of one kind cannot crowd or seal the other. Ordinary limits are grouped by feature (`website:`, `portal:`, `statement-ai-ask:`, `dealer-capture:`, ...), and the two whose keys a caller chooses (selfie-link tokens, chat phone numbers) are groups of their own, so a flood of made-up tokens is capped in its own group and cannot evict another feature's counters. Routes charge the address bucket first and stop on refusal, so an address already over its limit writes no row for a key it made up. Only the keys the caller chooses are ever sealed, per
 kind (`login:email:`, `login:combined:`, `forgot:acct:`, `reset-otp:acct:`, `register:identity:`); the address-gate groups
 are never sealed, so a flood of made-up emails cannot stop the per-address gate from creating its rows. A group that
 reaches 1 000 000 rows (`RATE_LIMIT_SEAL_CEILING` to change it) is **sealed** (`RateLimitSealedGroup`): a call whose key has no

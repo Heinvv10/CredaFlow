@@ -11,7 +11,6 @@ export interface RawQueryClient {
 
 interface Row {
   n: number | null
-  retry_ms: number | null
 }
 
 /** sha256(namespace NUL key): keys name emails and addresses, which the table has no need to hold. */
@@ -118,16 +117,18 @@ export function createPostgresStore(client: RawQueryClient, options: StoreOption
         WHERE (SELECT count(*) FROM unnest("RateLimitHit"."hits") x WHERE x > (SELECT t - w FROM c)) < ${opts.limit}::int
         RETURNING cardinality("hits") AS n
       )
-      SELECT
-        (SELECT n FROM up)::int AS n,
-        (SELECT extract(epoch FROM (min(x) + (SELECT w FROM c) - (SELECT t FROM c))) * 1000
-           FROM "RateLimitHit" r, unnest(r."hits") x
-          WHERE r."keyHash" = ${hash}::text AND x > (SELECT t - w FROM c))::float8 AS retry_ms`)
+      SELECT (SELECT n FROM up)::int AS n`)
     const row = rows[0]
     if (row?.n != null) return { result: { allowed: true, remaining: Math.max(0, opts.limit - row.n), retryAfterSeconds: 0 }, sealedNoRow: false }
-    // No count and no wait: the key had no row and its group is sealed.
-    if (row?.retry_ms == null) return { result: { allowed: false, remaining: 0, retryAfterSeconds: SEALED_RETRY_SECONDS }, sealedNoRow: true }
-    return { result: { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(row.retry_ms / 1000)) }, sealedNoRow: false }
+    // Refused. Why is read in a statement of its own, so it sees the row the refusing upsert saw: a snapshot taken before a
+    // concurrent commit would show no row and read as a sealed group, wasting the caller's new-key credit.
+    const why = await queryStore(() => client.$queryRaw<Array<{ retry_ms: number | null }>>`
+      SELECT (SELECT extract(epoch FROM (min(x) + make_interval(secs => ${windowSeconds}::double precision) - clock_timestamp())) * 1000
+                FROM unnest(r."hits") x WHERE x > clock_timestamp() - make_interval(secs => ${windowSeconds}::double precision))::float8 AS retry_ms
+      FROM "RateLimitHit" r WHERE r."keyHash" = ${hash}::text`)
+    // No row: the group is sealed and took no new key. Try again later.
+    if (why.length === 0) return { result: { allowed: false, remaining: 0, retryAfterSeconds: SEALED_RETRY_SECONDS }, sealedNoRow: true }
+    return { result: { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil((why[0]!.retry_ms ?? 1000) / 1000)) }, sealedNoRow: false }
   }
 
   /**

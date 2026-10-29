@@ -218,6 +218,42 @@ suite("the cleanup caps a flooded group", () => {
     await side.rateLimitHit.deleteMany({ where: { ns: group } })
   })
 
+  // PR #259 round 2 (breaker R4): a flood of token keys used to share the one group with every ordinary counter.
+  it("caps a flood of made-up token keys in its own group and leaves the paid-bureau and ordinary counters alone", async () => {
+    vi.stubEnv("RATE_LIMIT_STORE", "postgres")
+    const { checkRateLimit, _resetRateLimitStore } = await import("./rate-limit")
+    const { capRowsPerGroup } = await import("./rate-limit-cleanup")
+    _resetRateLimitStore()
+    const submit = { limit: 6, windowMs: 60 * 60_000 }
+    const apply = `portal:apply:${randomUUID()}`
+    const ask = `statement-ai-ask:user:${randomUUID()}`
+    for (let i = 0; i < 5; i++) await checkRateLimit(apply, submit)
+    for (let i = 0; i < 5; i++) await checkRateLimit(ask, submit)
+    for (let i = 0; i < 60; i++) await checkRateLimit(`selfie-link:capture:tok:${randomUUID().replace(/-/g, "")}`, { limit: 10, windowMs: 10 * 60_000 })
+    const result = await capRowsPerGroup(side, { cap: 20, hardCeiling: 100_000, onlyGroups: ["selfie-link:capture:tok:", "portal:apply:", "statement-ai-ask:"] })
+    expect(result.evicted).toBeGreaterThanOrEqual(40)
+    expect(await side.rateLimitHit.count({ where: { ns: "selfie-link:capture:tok:" } })).toBe(20)
+    // both victims still hold their 5 of 6: one more is allowed, the next is refused, as if nothing had been cleaned
+    expect((await checkRateLimit(apply, submit)).allowed).toBe(true)
+    expect((await checkRateLimit(apply, submit)).allowed).toBe(false)
+    expect((await checkRateLimit(ask, submit)).allowed).toBe(true)
+    expect((await checkRateLimit(ask, submit)).allowed).toBe(false)
+    await side.rateLimitHit.deleteMany({ where: { ns: "selfie-link:capture:tok:" } })
+  })
+
+  it("does not read a refusal on a key's own limit as a sealed group: the wait comes from the row", async () => {
+    vi.stubEnv("RATE_LIMIT_STORE", "postgres")
+    const { checkRateLimit, _resetRateLimitStore } = await import("./rate-limit")
+    _resetRateLimitStore()
+    const key = `login:email:${randomUUID()}@x.test`
+    for (let i = 0; i < 3; i++) await checkRateLimit(key, { limit: 3, windowMs: WINDOW }, { newKeyAddress: "203.0.113.7" })
+    const refused = await checkRateLimit(key, { limit: 3, windowMs: WINDOW }, { newKeyAddress: "203.0.113.7" })
+    expect(refused.allowed).toBe(false)
+    // a lockout's wait is the time left on its window (about 15 minutes), not the sealed-group wait of 5
+    expect(refused.retryAfterSeconds).toBeGreaterThan(300)
+    expect(refused.retryAfterSeconds).toBeLessThanOrEqual(900)
+  })
+
   it("leaves a locked-out key locked out through the whole cleanup, and the limiter still refuses it afterwards", async () => {
     vi.stubEnv("RATE_LIMIT_STORE", "postgres")
     const { checkRateLimit, _resetRateLimitStore } = await import("./rate-limit")
@@ -227,7 +263,7 @@ suite("the cleanup caps a flooded group", () => {
     const opts = { limit: 3, windowMs: WINDOW }
     for (let i = 0; i < 3; i++) await checkRateLimit(key, opts)
     expect((await checkRateLimit(key, opts)).allowed).toBe(false)
-    await capRowsPerGroup(side, { cap: 0, hardCeiling: 1_000_000, onlyGroups: [""] })
+    await capRowsPerGroup(side, { cap: 0, hardCeiling: 1_000_000, onlyGroups: ["website:"] })
     expect((await checkRateLimit(key, opts)).allowed).toBe(false)
   })
 })

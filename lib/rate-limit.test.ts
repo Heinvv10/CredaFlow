@@ -95,7 +95,7 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     await checkRateLimit("login:email:a@b.example", OPTS, { newKeyAddress: "1.2.3.4" })
     expect(shared).toHaveBeenLastCalledWith("", "login:email:a@b.example", OPTS, "login:email:", "1.2.3.4")
     await checkRateLimit("website:contact:1.2.3.4", OPTS)
-    expect(shared).toHaveBeenLastCalledWith("", "website:contact:1.2.3.4", OPTS, "", undefined)
+    expect(shared).toHaveBeenLastCalledWith("", "website:contact:1.2.3.4", OPTS, "website:", undefined)
   })
 
   it("passes a refusal through unchanged", async () => {
@@ -125,6 +125,26 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     expect(await groups("register:ip:1.2.3.4")).toBe("register:ip:")
     expect(await groups("register:identity:a@b.example")).toBe("register:identity:")
     expect(await groups("sealed-new:login:email::1.2.3.4")).toBe("sealed-new:")
+  })
+
+  it("keeps the ordinary limits a caller can flood with made-up keys in groups of their own, apart from the counters that matter", async () => {
+    shared.mockResolvedValue(ALLOWED)
+    const groups = async (key: string) => {
+      await checkRateLimit(key, OPTS)
+      return shared.mock.lastCall![3]
+    }
+    // keys the caller chooses: a group each
+    expect(await groups(`selfie-link:capture:tok:${"a".repeat(32)}`)).toBe("selfie-link:capture:tok:")
+    expect(await groups("website:chat:start:phone:27712345678:1.2.3.4")).toBe("website:chat:start:phone:")
+    // everything else by its first segment, which the code chooses
+    expect(await groups("selfie-link:capture:ip:1.2.3.4")).toBe("selfie-link:")
+    expect(await groups("website:contact:1.2.3.4")).toBe("website:")
+    expect(await groups("portal:af-sign:t1:c1")).toBe("portal:")
+    expect(await groups("statement-ai-ask:user:u1")).toBe("statement-ai-ask:")
+    expect(await groups("dealer-capture:t1:d1")).toBe("dealer-capture:")
+    // the paid-bureau counters are an authentication-grade group
+    expect(await groups("portal:apply:c1")).toBe("portal:apply:")
+    expect(await groups("portal:apply:req:c1")).toBe("portal:apply:")
   })
 
   describe("one store call in flight per key", () => {
@@ -193,7 +213,7 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
   describe("when the store is unavailable", () => {
     it.each([
       ["login:email:a@b.example"], ["totp-current-code:u1"], ["sso:code:u1"], ["sso:start:1.2.3.4"], ["forgot:ip:1.2.3.4"],
-      ["reset-otp:1.2.3.4"], ["register:identity:a@b.example"], ["portal-password-ip:1.2.3.4"], ["signing-otp:verify:ip:1.2.3.4"],
+      ["reset-otp:1.2.3.4"], ["register:identity:a@b.example"], ["portal:apply:c1"], ["portal:apply:req:c1"], ["portal-password-ip:1.2.3.4"], ["signing-otp:verify:ip:1.2.3.4"],
     ])("refuses the authentication attempt %s, and does not fall back to a fresh in-memory budget", async (key) => {
       quiet()
       shared.mockRejectedValue(down())
@@ -243,7 +263,7 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     it.each([["a timeout", slow], ["a database error", down], ["a full pool", full]])("never decides an authentication call in memory on %s", async (_label, make) => {
       quiet()
       shared.mockRejectedValue(make())
-      for (const key of ["login:email:a@b.example", "totp-current-code:u1", "sso:code:u1", "forgot:ip:1.2.3.4", "reset-otp:1.2.3.4", "register:identity:a@b.example", "portal-password-ip:1.2.3.4", "signing-otp:verify:ip:1.2.3.4"]) {
+      for (const key of ["login:email:a@b.example", "totp-current-code:u1", "sso:code:u1", "forgot:ip:1.2.3.4", "reset-otp:1.2.3.4", "register:identity:a@b.example", "portal-password-ip:1.2.3.4", "signing-otp:verify:ip:1.2.3.4", "portal:apply:req:c1", "portal:apply:c1"]) {
         expect((await createRateLimiter(10, "oauth:client")(key, OPTS)).allowed).toBe(false)
         expect((await checkRateLimit(key, OPTS)).allowed).toBe(false)
       }

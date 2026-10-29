@@ -18,6 +18,9 @@ export const FAIL_CLOSED_KEY_PREFIXES: readonly string[] = [
   "portal-password-ip:", "portal-password-acct:", "signing-otp:verify:ip:", "signing-otp:request:ip:",
   // What a sealed group lets an address spend on creating a new key (lib/rate-limit-store.ts).
   "sealed-new:",
+  // The paid bureau pulls behind a portal application: a client's submission counters must never be evicted or decided
+  // in memory (a lifted counter is free credit checks), so they are authentication-grade although keyed by a session.
+  "portal:apply:",
 ].sort((a, b) => b.length - a.length)
 export const FAIL_CLOSED_NAMESPACES: ReadonlySet<string> = new Set(["oauth:client", "oauth:failed:address", "lender-api:failed-auth:address"])
 /** Seconds a refused-because-the-store-is-down caller is told to wait. */
@@ -37,10 +40,21 @@ export interface Classified {
   podLocal: boolean
 }
 
+/**
+ * Ordinary limits whose key the CALLER chooses (a token, a phone number): groups of their own, so a flood of made-up
+ * keys fills and is capped in its own group (lib/rate-limit-cleanup.ts) and cannot evict the counters of the others.
+ * Every other ordinary key is grouped by its first segment (`website:`, `portal:`, `statement-ai-ask:`, ...), which the
+ * code, not the caller, chooses.
+ */
+export const CALLER_KEYED_GROUPS: readonly string[] = ["selfie-link:capture:tok:", "website:chat:start:phone:"].sort((a, b) => b.length - a.length)
+
 export function classify(namespace: string, key: string): Classified {
   if (namespace !== "") return { group: namespace, failClosed: FAIL_CLOSED_NAMESPACES.has(namespace), podLocal: false }
   const prefix = FAIL_CLOSED_KEY_PREFIXES.find((p) => key.startsWith(p)) // longest first
-  return { group: prefix ?? "", failClosed: prefix !== undefined, podLocal: POD_LOCAL_KEYS.has(key) }
+  if (prefix !== undefined) return { group: prefix, failClosed: true, podLocal: false }
+  const own = CALLER_KEYED_GROUPS.find((p) => key.startsWith(p))
+  const colon = key.indexOf(":")
+  return { group: own ?? (colon >= 0 ? key.slice(0, colon + 1) : ""), failClosed: false, podLocal: POD_LOCAL_KEYS.has(key) }
 }
 
 
