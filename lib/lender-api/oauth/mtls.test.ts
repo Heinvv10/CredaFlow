@@ -45,6 +45,26 @@ describe("checkClientCertificate", () => {
     expect(checkClientCertificate(headers({ ...good, "x-ssl-client-cert": "A".repeat(20_000) }), client(), on)).toBe("no_cert")
   })
 
+  it("requires exactly one certificate and nothing else in the header", () => {
+    const enc = encodeURIComponent
+    const cases: Array<[string, string]> = [
+      ["two headers joined by a comma (one appended by the caller)", `${enc(PEM)}, ${enc(OTHER_PEM)}`],
+      ["the pinned certificate after a caller's certificate", `${enc(OTHER_PEM)}, ${enc(PEM)}`],
+      ["two certificates in one value", enc(PEM + OTHER_PEM)],
+      ["garbage before the certificate", enc("garbage\n" + PEM)],
+      ["garbage after the certificate", enc(PEM + "garbage")],
+      ["a certificate with text between its lines", enc(PEM.replace("\n", "\nsurprise\n"))],
+    ]
+    for (const [label, value] of cases) {
+      expect(checkClientCertificate(headers({ ...good, "x-ssl-client-cert": value }), client(), on), label).toBe("no_cert")
+    }
+  })
+
+  it("accepts the certificate with or without its final newline", () => {
+    expect(checkClientCertificate(headers({ ...good, "x-ssl-client-cert": encodeURIComponent(PEM.trimEnd()) }), client(), on)).toBe("ok")
+    expect(checkClientCertificate(headers({ ...good, "x-ssl-client-cert": encodeURIComponent(PEM.trimEnd() + "\n") }), client(), on)).toBe("ok")
+  })
+
   it("ignores a fingerprint header: only the forwarded certificate counts, so a caller cannot assert one", () => {
     const h = headers({ "x-ssl-client-verify": "SUCCESS", "x-ssl-client-sha256": FP })
     expect(checkClientCertificate(h, client(), on)).toBe("no_cert")

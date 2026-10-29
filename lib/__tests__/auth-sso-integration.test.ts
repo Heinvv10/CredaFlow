@@ -55,6 +55,32 @@ function signIn(r: Record<string, unknown>, code: string | null = generateTotpCo
 beforeEach(() => { h.policy = true; h.audits.length = 0 })
 afterEach(() => vi.unstubAllEnvs())
 
+describe("an SSO-bound user while SSO is on (the lender has NOT turned password sign-in off)", () => {
+  const link = { ssoIdentity: { id: "link-1" } }
+  const open = sso({ passwordLoginDisabled: false })
+
+  it("cannot sign in with a password and a valid code: their way in is the provider", async () => {
+    expect(await signIn(row(link, open))).toBe("threw:password_login_disabled")
+    expect(h.audits).not.toContain("SSO_PASSWORD_BREAK_GLASS")
+  })
+
+  it("is refused before any code is asked for", async () => {
+    expect(await signIn(row(link, open), null)).toBe("threw:password_login_disabled")
+  })
+
+  it.each([
+    ["was never bound", {}, sso({ passwordLoginDisabled: false })],
+    ["is bound but SSO is switched off", link, sso({ enabled: false, passwordLoginDisabled: false })],
+    ["is bound but the lender has no connection", link, null],
+  ])("still signs in with a password when the user %s", async (_l, over, connection) => {
+    expect(await signIn(row(over, connection as Record<string, unknown> | null))).toMatchObject({ id: "u1", totpVerified: true })
+  })
+
+  it("leaves the Super Admin break-glass path alone, even for a bound Super Admin", async () => {
+    expect(await signIn(row({ ...link, role: "SUPER_ADMIN" }, open))).toMatchObject({ id: "u1", role: "SUPER_ADMIN", totpVerified: true })
+  })
+})
+
 describe("password sign-in turned off by the lender", () => {
   it("refuses an admin even with the right password and a valid code", async () => {
     expect(await signIn(row())).toBe("threw:password_login_disabled")

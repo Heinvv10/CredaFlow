@@ -23,6 +23,7 @@ import { mintState, type SsoFlowState } from "./tokens"
  * match the browser's signed state cookie (login CSRF).
  */
 
+const PERSISTENT = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
 const REQUEST_LIFE_MS = 10 * 60_000
 const SKEW_MS = 60_000
 const MAX_ASSERTION_AGE_MS = 5 * 60_000
@@ -44,6 +45,8 @@ function samlFor(conn: LoadedConnection, acsUrl: string, requestId?: string): SA
     audience: conn.samlEntityId,
     idpIssuer: conn.samlIdpEntityId,
     idpCert: certs,
+    // Ask for the one NameID format subjectOf() accepts (the library's default, emailAddress, would make every sign-in fail).
+    identifierFormat: conn.samlSubjectAttribute ? null : PERSISTENT,
     signatureAlgorithm: "sha256",
     wantAssertionsSigned: true,
     wantAuthnResponseSigned: false,
@@ -86,8 +89,6 @@ function inResponseTosOf(assertionXml: string): string[] {
   return [...assertionXml.matchAll(/<(?:[\w-]+:)?SubjectConfirmationData\b[^>]*?\bInResponseTo="([^"]*)"/g)].map((m) => m[1])
 }
 
-const PERSISTENT = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
-
 /**
  * The stable id of the person: the lender's immutable attribute (objectGUID, immutableId) when one is configured,
  * else a PERSISTENT NameID. Transient, email-address and unspecified NameIDs are refused as subjects: an email can be
@@ -127,7 +128,9 @@ export async function completeSaml(
   const subject = subjectOf(conn, profile)
 
   const attributeEmail = profile[conn.emailClaim]
-  const email = (typeof attributeEmail === "string" && attributeEmail) || (profile.nameID.includes("@") ? profile.nameID : "")
+  // A multi-valued (or non-text) email attribute is ambiguous: refused, never replaced by the NameID.
+  if (attributeEmail !== undefined && typeof attributeEmail !== "string") throw new SamlFlowError("no_email")
+  const email = attributeEmail || (profile.nameID.includes("@") ? profile.nameID : "")
   if (!email) throw new SamlFlowError("no_email")
   const display = profile.displayName ?? profile.name
   return {

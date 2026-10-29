@@ -19,7 +19,7 @@ import { checkStaffSignIn, staffSessionAllowed } from "@/lib/security/staff-acce
 import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/staff-access-messages"
 import { isPortalEnabled } from "@/lib/portal/portal-policy"
 import { authorizeSsoCredentials } from "@/lib/sso/provider"
-import { PASSWORD_POLICY_SELECT, auditBreakGlassSignIn, passwordLoginOff } from "@/lib/sso/password-policy"
+import { PASSWORD_POLICY_SELECT, auditBreakGlassSignIn, passwordBlockedBySso, passwordLoginOff } from "@/lib/sso/password-policy"
 
 export { claimTotpCounter }
 
@@ -179,7 +179,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // to avoid leaking which audience an email belongs to).
         const user =
           loginType === "staff"
-            ? await prisma.user.findUnique({ where: { email }, include: { tenant: { select: { status: true, ssoConnection: PASSWORD_POLICY_SELECT } } } })
+            ? await prisma.user.findUnique({ where: { email }, include: { ssoIdentity: { select: { id: true } }, tenant: { select: { status: true, ssoConnection: PASSWORD_POLICY_SELECT } } } })
             : null
 
         if (loginType === "staff" && !user) {
@@ -216,7 +216,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Password sign-in switched off for this lender: refuse before the code step, except
           // a Super Admin, who must then present a TOTP code (break-glass, checked below).
           const passwordOff = passwordLoginOff(user)
-          if (passwordOff && user.role !== "SUPER_ADMIN") {
+          if (passwordBlockedBySso(user) || (passwordOff && user.role !== "SUPER_ADMIN")) {
             await recordFailure("password_login_disabled")
             throw new PasswordLoginDisabledError()
           }

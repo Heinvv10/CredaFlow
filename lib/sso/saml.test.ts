@@ -23,7 +23,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-import { beginSaml, completeSaml, SamlFlowError } from "./saml"
+import { beginSaml, completeSaml, samlServiceProviderMetadata, SamlFlowError } from "./saml"
 import { readState } from "./tokens"
 import { samlResponse, testIdp } from "./test-support/saml-fixture"
 import type { LoadedConnection } from "./connection"
@@ -62,6 +62,25 @@ describe("SAML sign-in", () => {
     expect(url.startsWith("https://idp.example.test/sso?")).toBe(true)
     expect(requestId).toMatch(/^_/)
     expect(relay).toBeTruthy()
+  })
+
+  it("asks for a persistent NameID in the request and in the metadata, the one format the subject rule accepts", async () => {
+    const { url } = await begin()
+    const xml = await inflate(new URL(url).searchParams.get("SAMLRequest")!)
+    expect(xml).toContain("urn:oasis:names:tc:SAML:2.0:nameid-format:persistent")
+    expect(xml).not.toContain("nameid-format:emailAddress")
+    const metadata = samlServiceProviderMetadata(conn(), ACS)
+    expect(metadata).toContain("urn:oasis:names:tc:SAML:2.0:nameid-format:persistent")
+    expect(metadata).not.toContain("nameid-format:emailAddress")
+  })
+
+  it("does not constrain the NameID format when the lender names an immutable attribute instead", async () => {
+    const c = conn({ samlSubjectAttribute: "objectGUID" })
+    const { url } = await begin(c)
+    const xml = await inflate(new URL(url).searchParams.get("SAMLRequest")!)
+    expect(xml).not.toContain("nameid-format:persistent")
+    expect(xml).not.toContain("nameid-format:emailAddress")
+    expect(samlServiceProviderMetadata(c, ACS)).not.toContain("nameid-format:emailAddress")
   })
 
   it("accepts a correctly signed assertion and reads email, groups and MFA", async () => {
@@ -239,6 +258,11 @@ describe("SAML refusals", () => {
     for (const attributes of [attrs, { ...attrs, objectGUID: "" }, { ...attrs, objectGUID: ["a", "b"] }]) {
       expect((await attempt({ attributes }, { conn: c }))?.code).toBe("no_subject")
     }
+  })
+
+  it("refuses a multi-valued email attribute instead of falling back to the NameID", async () => {
+    const out = await attempt({ attributes: { email: ["ann@bank.example.test", "ceo@bank.example.test"], groups: ["admins"] }, nameId: "fallback@bank.example.test" })
+    expect(out?.code).toBe("no_email")
   })
 
   it("refuses an identity with no email", async () => {

@@ -12,6 +12,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { claimOnce, DbSamlCache } from "./cache"
 import { resolveStaffUser } from "./identity"
+import { prisma } from "@/lib/prisma"
+import { SSO_BOUND_SELECT, passwordBlockedBySso } from "./password-policy"
 import type { LoadedConnection } from "./connection"
 import { saveConnection } from "./connection"
 import { createOauthClient, revokeOauthClient } from "@/lib/lender-api/oauth/clients"
@@ -190,6 +192,25 @@ suite("SSO and OAuth (real database)", () => {
       await db.ssoIdentity.deleteMany({ where: { userId: out.userId } })
       await db.auditLog.deleteMany({ where: { entityId: out.userId } })
       await db.user.delete({ where: { id: out.userId } })
+    })
+  })
+
+  describe("password path of an SSO-bound user (the real select shape)", () => {
+    const row = (id: string) => prisma.user.findUniqueOrThrow({ where: { id }, select: SSO_BOUND_SELECT })
+
+    it("is blocked only for a bound, non-Super-Admin user while the lender's SSO is enabled", async () => {
+      await db.ssoIdentity.deleteMany({ where: { tenantId: tenantA } })
+      await db.ssoConnection.deleteMany({ where: { tenantId: tenantA } })
+      await db.ssoIdentity.create({ data: { tenantId: tenantA, userId: adminA, subject: `https://idp|pw-${t}` } })
+      expect(passwordBlockedBySso(await row(adminA))).toBe(false) // bound, but the lender has no connection
+      await make(tenantA, { ...oidc, enabled: false })
+      expect(passwordBlockedBySso(await row(adminA))).toBe(false) // connection switched off
+      await db.ssoConnection.update({ where: { tenantId: tenantA }, data: { enabled: true } })
+      expect(passwordBlockedBySso(await row(adminA))).toBe(true)
+      expect(passwordBlockedBySso(await row(rootA))).toBe(false) // unbound Super Admin
+      await db.ssoIdentity.deleteMany({ where: { tenantId: tenantA } })
+      expect(passwordBlockedBySso(await row(adminA))).toBe(false) // no longer bound
+      await db.ssoConnection.deleteMany({ where: { tenantId: tenantA } })
     })
   })
 

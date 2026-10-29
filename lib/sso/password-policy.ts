@@ -19,6 +19,28 @@ export function passwordLoginOff(user: PasswordPolicyRow): boolean {
   return sso?.enabled === true && sso.passwordLoginDisabled
 }
 
+/**
+ * An SSO-bound staff user (an SsoIdentity row) while the lender has SSO on signs in through the provider only: their
+ * password, and a password reset, are not a way in. That stops a leftover or reset password from outliving the
+ * provider's lifecycle (a person disabled there). A SUPER_ADMIN is exempt: password plus TOTP is their one path and
+ * the break-glass one.
+ */
+export const SSO_BOUND_SELECT = {
+  role: true,
+  ssoIdentity: { select: { id: true } },
+  tenant: { select: { ssoConnection: { select: { enabled: true } } } },
+} as const
+
+export type SsoBoundRow = {
+  role: string
+  ssoIdentity?: { id: string } | null
+  tenant?: { ssoConnection?: { enabled: boolean } | null } | null
+}
+
+export function passwordBlockedBySso(user: SsoBoundRow): boolean {
+  return user.role !== "SUPER_ADMIN" && !!user.ssoIdentity && user.tenant?.ssoConnection?.enabled === true
+}
+
 export async function auditBreakGlassSignIn(user: { id: string; email: string; tenantId: string }, ip: string): Promise<void> {
   await logAudit({
     tenantId: user.tenantId, userId: user.id, userEmail: user.email, action: AuditAction.SSO_PASSWORD_BREAK_GLASS,

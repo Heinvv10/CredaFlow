@@ -12,7 +12,12 @@ import { ipInAllowlist, parseIpAllowlist } from "@/lib/security/ip-allowlist"
 
 export function parseCredentialAllowlist(value: unknown): { ok: true; entries: string[] } | { ok: false; error: string } {
   if (value === undefined || value === null || value === "") return { ok: true, entries: [] }
-  return parseIpAllowlist(value)
+  const parsed = parseIpAllowlist(value)
+  // A block with a zero-length prefix (0.0.0.0/0, ::/0, ...) allows every address: that is no allowlist, it is a mistake.
+  if (parsed.ok && parsed.entries.some((entry) => /\/0+$/.test(entry))) {
+    return { ok: false, error: "An allowlist entry with a /0 prefix allows every address. Remove it, or leave the allowlist empty." }
+  }
+  return parsed
 }
 
 export function sourceAddressAllowed(req: Request, allowlist: readonly string[]): boolean {

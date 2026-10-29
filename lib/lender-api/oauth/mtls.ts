@@ -28,12 +28,17 @@ interface MtlsClient {
 
 const DEFAULTS = { verify: "x-ssl-client-verify", dn: "x-ssl-client-dn", cert: "x-ssl-client-cert" }
 const MAX_CERT_HEADER = 16_384
+const SINGLE_PEM = /^-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?\n?$/
 
 /** The SHA-256 (lower-case hex) of the certificate the proxy forwarded (URL-encoded PEM, nginx `$ssl_client_escaped_cert`), or null. */
 function forwardedFingerprint(value: string | null): string | null {
   if (!value || value.length > MAX_CERT_HEADER) return null
   try {
-    return new X509Certificate(decodeURIComponent(value)).fingerprint256.replace(/:/g, "").toLowerCase()
+    // Exactly one PEM block and nothing around it: a second header value appended by a caller arrives comma-joined, and
+    // a certificate parser would happily read the first block and ignore the rest.
+    const pem = decodeURIComponent(value)
+    if (!SINGLE_PEM.test(pem)) return null
+    return new X509Certificate(pem).fingerprint256.replace(/:/g, "").toLowerCase()
   } catch {
     return null
   }
