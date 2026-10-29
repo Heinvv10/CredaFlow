@@ -5,7 +5,7 @@ import { generateReference } from "@/lib/utils"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { validateAllClient } from "@/lib/validation/client-wizard"
+import { canonicalIdNumber, validateAllClient } from "@/lib/validation/client-wizard"
 import type {
   ClientWizardData,
   DebtObligationInput,
@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
     // and hid the real cause from the operator.
     return await withTenantContext(req, async (tenant) => {
       const data = await req.json()
+      if (typeof data.idNumber === "string") data.idNumber = canonicalIdNumber(data.idNumber)
 
       // Wizard submissions carry money as Rand strings. Normalise to cents
       // (Int) before validation and persistence. The legacy POST path that

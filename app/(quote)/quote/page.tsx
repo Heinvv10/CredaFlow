@@ -89,7 +89,7 @@ export default async function QuotePage({ searchParams }: QuotePageProps) {
           {/* Registration numbers belong on the collecting origin, not only on
               the page that frames it — this host stands alone in the iframe. */}
           <span className="ml-auto text-[0.6rem] uppercase tracking-[0.14em] text-white/48">
-            NCR {identity.ncrNumber} · FSP {identity.fspNumber}
+            {identity.ncrNumber ? `NCR ${identity.ncrNumber}` : null}{identity.ncrNumber && identity.fspNumber ? " · " : null}{identity.fspNumber ? `FSP ${identity.fspNumber}` : null}
           </span>
         </header>
 

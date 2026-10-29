@@ -13,7 +13,7 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { sendWhatsAppForTenant } from "@/lib/whatsapp/send-for-tenant"
 import { getLenderIdentity, type LenderIdentity } from "@/lib/config/identity"
 import { requireAppBaseUrl } from "@/lib/config/deployment-urls"
-import { escapeHtml } from "@/lib/utils"
+import { activeCurrencySymbol, escapeHtml } from "@/lib/utils"
 import { portalContinueUrl } from "@/lib/portal-urls"
 import {
   applicationSubmittedEmail,
@@ -294,7 +294,7 @@ async function buildTemplate(
       return {
         subject: t("subjReceived"),
         html: paymentReceivedEmail(identity, fullName, amount, reference, outstanding, locale),
-        text: t("textReceived", { name: fullName, balance: `R${(outstanding / 100).toFixed(2)}` }),
+        text: t("textReceived", { name: fullName, balance: `${activeCurrencySymbol()}${(outstanding / 100).toFixed(2)}` }),
         waVars: { ...EMPTY_WA_VARS, reference, amount, outstanding },
       }
     }
@@ -346,7 +346,7 @@ async function buildTemplate(
 // see lib/pdf/.claude.md). This preserves the WA_TEMPLATES formatting that
 // was already live before this fix (e.g. application_submitted).
 function formatRand(cents: number): string {
-  return `R${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
+  return `${activeCurrencySymbol()}${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
 }
 
 interface WaBuildResult {

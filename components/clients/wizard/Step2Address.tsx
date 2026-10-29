@@ -3,7 +3,7 @@ import { INP } from "./constants"
 import type { ClientWizardData, WizardMode } from "./types"
 import type { ClientWizardErrors } from "@/lib/validation/client-wizard"
 import { activeJurisdiction } from "@/lib/jurisdiction/active"
-import { LESOTHO_DISTRICTS, LESOTHO_DISTRICT_NAMES } from "@/lib/jurisdiction/phone-region"
+import { profileFor } from "@/lib/jurisdiction/profiles"
 
 interface StepProps {
   data: ClientWizardData
@@ -12,23 +12,9 @@ interface StepProps {
   mode: WizardMode
 }
 
-const PROVINCES: { code: string; label: string }[] = [
-  { code: "EC", label: "Eastern Cape" },
-  { code: "FS", label: "Free State" },
-  { code: "GP", label: "Gauteng" },
-  { code: "KZN", label: "KwaZulu-Natal" },
-  { code: "LP", label: "Limpopo" },
-  { code: "MP", label: "Mpumalanga" },
-  { code: "NC", label: "Northern Cape" },
-  { code: "NW", label: "North West" },
-  { code: "WC", label: "Western Cape" },
-]
-
-const DISTRICTS: { code: string; label: string }[] = LESOTHO_DISTRICTS.map((code) => ({ code, label: LESOTHO_DISTRICT_NAMES[code] }))
-
 export function Step2Address({ data, patch, errors }: StepProps) {
-  const lesotho = activeJurisdiction() === "LS"
-  const regions = lesotho ? DISTRICTS : PROVINCES
+  const rules = profileFor(activeJurisdiction()).capture
+  const regions = rules.regions
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-[var(--cf-text)]">Residential address</h2>
@@ -60,7 +46,7 @@ export function Step2Address({ data, patch, errors }: StepProps) {
             autoComplete="address-level2"
           />
         </FieldGroup>
-        <FieldGroup label={lesotho ? "District" : "Province"} required error={errors.province}>
+        <FieldGroup label={rules.regionLabel} required error={errors.province}>
           <select
             className={INP}
             value={data.province}
@@ -78,7 +64,7 @@ export function Step2Address({ data, patch, errors }: StepProps) {
         <input
           className={INP}
           value={data.postalCode}
-          onChange={(e) => patch({ postalCode: e.target.value.replace(/\D/g, "").slice(0, lesotho ? 3 : 4) })}
+          onChange={(e) => patch({ postalCode: e.target.value.replace(/\D/g, "").slice(0, rules.postalDigits) })}
           inputMode="numeric"
           autoComplete="postal-code"
         />

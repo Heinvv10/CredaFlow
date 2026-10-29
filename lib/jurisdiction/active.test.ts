@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { activeCurrency, activeJurisdiction, isNcaJurisdiction, resetActiveJurisdiction, setActiveJurisdiction } from "./active"
+import { activeCurrency, activeJurisdiction, isJurisdictionLoaded, isNcaJurisdiction, resetActiveJurisdiction, setActiveJurisdiction } from "./active"
 
 afterEach(() => resetActiveJurisdiction())
 
@@ -32,5 +32,13 @@ describe("active jurisdiction", () => {
   it("refuses an unknown code rather than silently falling back", () => {
     expect(() => setActiveJurisdiction({ jurisdiction: "XX" as never, currency: "ZAR" })).toThrow(/jurisdiction/i)
     expect(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "USD" as never })).toThrow(/currency/i)
+  })
+})
+
+describe("ZA is billed in rand only", () => {
+  it("refuses ZA with another currency and leaves the value untouched", () => {
+    expect(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "LSL" })).toThrow(/ZAR only/)
+    expect(activeJurisdiction()).toBe("ZA")
+    expect(isJurisdictionLoaded()).toBe(false)
   })
 })

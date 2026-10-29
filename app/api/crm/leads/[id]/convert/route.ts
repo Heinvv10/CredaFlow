@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { canonicalIdNumber } from "@/lib/validation/client-wizard"
 import { PO_FUNDING_NEEDS_ORDER, requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -80,6 +81,7 @@ export async function POST(
     try {
       const { id: leadId } = await params
       const data = await req.json()
+      if (typeof data.idNumber === "string") data.idNumber = canonicalIdNumber(data.idNumber)
 
       const recoveryApplicationId = typeof data.recoveryApplicationId === "string"
         ? data.recoveryApplicationId.trim()

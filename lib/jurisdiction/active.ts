@@ -2,13 +2,16 @@ import { parseCurrency, parseJurisdiction, profileFor, type Currency, type Juris
 
 /**
  * The jurisdiction and currency this deployment runs as. One instance serves
- * one lender (docs/ARCHITECTURE.md), so a process-wide value is enough and it
- * lets the many synchronous formatters and gates read it without a tenant
- * argument. It is loaded from `TenantConfig` by ./load.server.ts (server boot
- * and the root layout) and primed in the browser by components/JurisdictionProvider.
+ * one lender (docs/ARCHITECTURE.md, "Jurisdiction"), so a process-wide value is
+ * the design, and boot enforces it: ./load.server.ts refuses to start when the
+ * instance's active tenants disagree. Synchronous formatters and gates read it
+ * without a tenant argument. It is loaded from `TenantConfig` (server boot,
+ * tenant resolution, the root layout) and primed in the browser by
+ * components/JurisdictionProvider.
  *
- * Until something sets it the value is ZA / ZAR: an unconfigured process keeps
- * the NCA gates ON, so a failure to load can only make behaviour stricter.
+ * Until something sets it the value is ZA / ZAR with `loaded` false: an
+ * unconfigured process keeps the NCA gates ON, so a failure to load can only
+ * make behaviour stricter.
  *
  * The state lives on globalThis because Next bundles the server entry points
  * (instrumentation, route handlers, server components) separately; a plain
@@ -17,19 +20,29 @@ import { parseCurrency, parseJurisdiction, profileFor, type Currency, type Juris
 interface ActiveState {
   jurisdiction: Jurisdiction
   currency: Currency
+  loaded: boolean
 }
 
 const KEY = Symbol.for("credaflow.activeJurisdiction")
-const DEFAULT: ActiveState = { jurisdiction: "ZA", currency: "ZAR" }
+const DEFAULT: ActiveState = { jurisdiction: "ZA", currency: "ZAR", loaded: false }
 
 function store(): ActiveState {
   const holder = globalThis as Record<symbol, ActiveState | undefined>
   return holder[KEY] ?? DEFAULT
 }
 
+/**
+ * Makes `next` the active value. A South African lender is billed in rand only
+ * (the NCA documents print the currency); an LS lender may use loti or rand
+ * (the rand is legal tender in Lesotho). Anything else throws.
+ */
 export function setActiveJurisdiction(next: { jurisdiction: Jurisdiction; currency: Currency }): void {
-  const state: ActiveState = { jurisdiction: parseJurisdiction(next.jurisdiction), currency: parseCurrency(next.currency) }
-  ;(globalThis as Record<symbol, ActiveState>)[KEY] = state
+  const jurisdiction = parseJurisdiction(next.jurisdiction)
+  const currency = parseCurrency(next.currency)
+  if (jurisdiction === "ZA" && currency !== "ZAR") {
+    throw new Error(`A ZA lender is billed in ZAR only, not ${currency}`)
+  }
+  ;(globalThis as Record<symbol, ActiveState>)[KEY] = { jurisdiction, currency, loaded: true }
 }
 
 export function resetActiveJurisdiction(): void {
@@ -42,6 +55,11 @@ export function activeJurisdiction(): Jurisdiction {
 
 export function activeCurrency(): Currency {
   return store().currency
+}
+
+/** True once a real value was set (as opposed to the fail-closed default). */
+export function isJurisdictionLoaded(): boolean {
+  return store().loaded
 }
 
 /**

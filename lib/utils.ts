@@ -1,7 +1,7 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { activeCurrency } from "@/lib/jurisdiction/active"
-import { formatMoney, formatMoneyCompact, formatMoneyWhole } from "@/lib/jurisdiction/money"
+import { currencySymbol, formatMoney, formatMoneyCompact, formatMoneyWhole } from "@/lib/jurisdiction/money"
 
 // The lender operates only in South Africa. Formatting with the runtime's
 // LOCAL timezone (what date-fns' `format()` and bare `toLocale*()` calls do)
@@ -23,6 +23,11 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function formatZAR(cents: number): string {
   return formatMoney(cents, activeCurrency())
+}
+
+/** The active currency's symbol ("R" or "M"), for a formatter whose shape formatZAR does not have. */
+export function activeCurrencySymbol(): string {
+  return currencySymbol(activeCurrency())
 }
 
 /**

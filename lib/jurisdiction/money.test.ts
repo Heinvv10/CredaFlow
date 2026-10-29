@@ -6,7 +6,7 @@ describe("formatMoney", () => {
     expect(formatMoney(123456, "ZAR")).toBe("R 1,234.56")
     expect(formatMoney(0, "ZAR")).toBe("R 0.00")
     expect(formatMoney(5, "ZAR")).toBe("R 0.05")
-    expect(formatMoney(-5, "ZAR")).toBe("R -0.05")
+    expect(formatMoney(-5, "ZAR")).toBe("-R 0.05")
     expect(formatMoney(100000000, "ZAR")).toBe("R 1,000,000.00")
   })
 
@@ -25,5 +25,20 @@ describe("formatMoney", () => {
     expect(formatMoneyCompact(250_000_000, "ZAR")).toBe("R2.5m")
     expect(formatMoneyCompact(12_300_000, "LSL")).toBe("M123k")
     expect(formatMoneyCompact(99_900, "LSL")).toBe("M 999.00")
+  })
+
+  it("negative amounts lead with the sign", () => {
+    expect(formatMoney(-123456, "LSL")).toBe("-M 1,234.56")
+    expect(formatMoney(-0.4, "ZAR")).toBe("R 0.00")
+    expect(formatMoneyWhole(-2500.4, "ZAR")).toBe("-R 2,500")
+    expect(formatMoneyCompact(-250_000_000, "ZAR")).toBe("-R2.5m")
+    expect(formatMoneyCompact(-12_300_000, "LSL")).toBe("-M123k")
+    expect(formatMoneyCompact(-99_900, "LSL")).toBe("-M 999.00")
+  })
+
+  it("a figure that rounds up to 1000k is shown in millions", () => {
+    expect(formatMoneyCompact(99_950_000, "ZAR")).toBe("R1.0m")
+    expect(formatMoneyCompact(99_949_999, "ZAR")).toBe("R999k")
+    expect(formatMoneyCompact(100_000_000, "ZAR")).toBe("R1.0m")
   })
 })

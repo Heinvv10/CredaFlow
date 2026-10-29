@@ -29,7 +29,7 @@ export type InsuranceFact = { name: string; type: string }
 export function buildKnowledge(a: { identity: LenderIdentity; products: PublicLoanProduct[]; insurance: InsuranceFact[] }): string {
   const { identity: id, products, insurance } = a
   const company = [
-    `${id.legalName}. NCR registration ${id.ncrNumber}.${id.fspNumber ? ` FSP licence ${id.fspNumber}.` : ""} Company registration ${id.companyRegNumber}.`,
+    `${id.legalName}.${id.ncrNumber ? ` NCR registration ${id.ncrNumber}.` : ""}${id.fspNumber ? ` FSP licence ${id.fspNumber}.` : ""} Company registration ${id.companyRegNumber}.`,
     id.ncrStatus && `NCR status: ${id.ncrStatus}.`,
     id.ncrRegistrationDate && `Registered with the NCR on ${formatIdentityDate(id.ncrRegistrationDate)}.`,
     id.fspNumber && id.fscaAuthorisationDate && `Authorised as an FSP on ${formatIdentityDate(id.fscaAuthorisationDate)}.`,

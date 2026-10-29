@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
@@ -29,6 +30,8 @@ function parseDecision(body: unknown): ReferenceRateDecision | null {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
+  const notNca = ncaOnlyRefusal("Reference rates")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     const { id } = await params

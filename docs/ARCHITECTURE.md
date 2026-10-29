@@ -177,6 +177,30 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
 - **Feature flags.** `TenantConfig.feature*` switch modules (CRM, insurance,
   bureau submission, portal, …) per tenant (`resolveFeatureFlags`).
 
+## Jurisdiction
+
+One instance and one database serve one jurisdiction (`TenantConfig.jurisdiction`,
+ZA or LS, with `currency`). It is a deployment property, not a per-request one:
+`lib/jurisdiction/active.ts` holds it process-wide so synchronous formatters and
+gates need no tenant argument.
+
+- **Enforced at boot.** `instrumentation.ts` reads every ACTIVE tenant's
+  jurisdiction and currency (`bootActiveJurisdiction`, retries with backoff,
+  bounded wait) and refuses to start when they differ
+  (`JurisdictionConflictError`). Until the value is known the process is ZA with
+  the NCA gates on, so a failed read is stricter, never looser. Crons, tenant
+  resolution (`withTenantContext`, `getStaffTenantId`, ...) and the root layout
+  await `ensureActiveJurisdiction()`.
+- **Database guards** (migration `20261029100000_jurisdiction_guards`): a CHECK
+  ties currency to jurisdiction (ZA is rand only), and a trigger refuses a
+  jurisdiction change once the lender has a loan application or loan.
+- **No application write path.** Setting a lender's jurisdiction is an operator
+  action on the database before its first application; nothing in the app edits it.
+- **NCA-only steps** are gated at their entry points by `isNcaJurisdiction()` /
+  `ncaOnlyRefusal()`, and listed in `lib/registry/nca-only/`; the census test
+  fails when an NCA-looking route or page is neither gated nor declared.
+- Details and rules: `lib/jurisdiction/.claude.md`.
+
 ## Lender-owned asset-finance templates
 
 Each lender owns the wording of its asset-finance agreements, suretyships and

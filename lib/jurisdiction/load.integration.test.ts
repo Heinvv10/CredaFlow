@@ -41,17 +41,17 @@ suite("jurisdiction columns and loader (real DB)", () => {
     await expect(db.$executeRawUnsafe(`UPDATE "TenantConfig" SET "jurisdiction" = 'US' WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow()
   })
 
-  it("loads a stored LS / LSL for the tenant named by the slug env", async () => {
+  it("loads a stored LS / LSL", async () => {
     await db.tenantConfig.update({ where: { tenantId }, data: { jurisdiction: "LS", currency: "LSL" } })
-    const previous = process.env.NEXT_PUBLIC_TENANT_SLUG
-    process.env.NEXT_PUBLIC_TENANT_SLUG = slug
-    try {
-      await loadActiveJurisdiction(db as unknown as Parameters<typeof loadActiveJurisdiction>[0])
-      expect(activeJurisdiction()).toBe("LS")
-      expect(activeCurrency()).toBe("LSL")
-    } finally {
-      if (previous === undefined) delete process.env.NEXT_PUBLIC_TENANT_SLUG
-      else process.env.NEXT_PUBLIC_TENANT_SLUG = previous
+    // The shared test database holds other tenants; narrow the read to this one.
+    const own = {
+      tenantConfig: {
+        findMany: (args: Record<string, unknown>) =>
+          db.tenantConfig.findMany({ ...args, where: { tenantId } } as never),
+      },
     }
+    await loadActiveJurisdiction(own as never)
+    expect(activeJurisdiction()).toBe("LS")
+    expect(activeCurrency()).toBe("LSL")
   })
 })

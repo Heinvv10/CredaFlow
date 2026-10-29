@@ -1,3 +1,4 @@
+import { activeCurrencySymbol } from "@/lib/utils"
 import { calculateLoan } from "@/lib/loan-calculator"
 import type { LoanCalcInput, LoanCalcResult } from "@/lib/loan-calculator"
 import { PRODUCT_PRICING } from "@/lib/product-pricing"
@@ -568,7 +569,7 @@ export function buildProductApplyHref(product: PublicLoanProduct, quote: PublicL
 // Whole-rand, comma-grouped, no decimals — the style the hardcoded copy used
 // ("R500", "R10,000"). CENTS in. Client-safe (no prisma).
 export function formatRandsWhole(cents: number): string {
-  return `R${Math.round(cents / 100).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
+  return `${activeCurrencySymbol()}${Math.round(cents / 100).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 }
 
 // "R500 – R10,000" from a product's (live) amount range. `sep` matches each

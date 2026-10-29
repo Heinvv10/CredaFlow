@@ -12,10 +12,11 @@ import type { Jurisdiction } from "./profiles"
  * Monday, 4 Apr (Heroes' Day), 1 May, Ascension Day (Easter + 39), 25 May
  * (Africa Day), 17 Jul (King's Birthday), 4 Oct (Independence Day), 25 and
  * 26 Dec. MEDIUM confidence, compiled from published calendars, not the
- * statute. Two things are NOT modelled and need the lender to confirm: a
- * Sunday holiday moving to the Monday, and one-off proclaimed days (the
- * South African equivalent is the SaProclaimedPublicHoliday table). A day
- * missing here sends a debit on a bank holiday; add it to LESOTHO_FIXED.
+ * statute. A holiday that falls on a Sunday is observed on the Monday, as in
+ * South Africa (ASSUMED for Lesotho; the bank to confirm). One-off proclaimed
+ * days are NOT modelled (the South African equivalent is the
+ * SaProclaimedPublicHoliday table). A day missing here sends a debit on a bank
+ * holiday; add it to LESOTHO_FIXED.
  */
 const LESOTHO_FIXED = ["01-01", "03-11", "04-04", "05-01", "05-25", "07-17", "10-04", "12-25", "12-26"] as const
 
@@ -34,12 +35,16 @@ function shiftDay(value: string, days: number): string {
 
 export function lesothoPublicHolidays(year: number): Set<string> {
   const easter = easterSunday(year)
-  return new Set([
+  const holidays = new Set([
     ...LESOTHO_FIXED.map((monthDay) => `${year}-${monthDay}`),
     shiftDay(easter, -2),
     shiftDay(easter, 1),
     shiftDay(easter, 39),
   ])
+  for (const day of [...holidays]) {
+    if (parseDay(day).getUTCDay() === 0) holidays.add(shiftDay(day, 1))
+  }
+  return holidays
 }
 
 export function isBusinessDate(day: string, jurisdiction: Jurisdiction = activeJurisdiction()): boolean {

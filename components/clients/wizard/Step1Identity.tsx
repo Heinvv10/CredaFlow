@@ -9,6 +9,7 @@ import {
   type ClientWizardErrors,
 } from "@/lib/validation/client-wizard"
 import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import { profileFor } from "@/lib/jurisdiction/profiles"
 
 interface StepProps {
   data: ClientWizardData
@@ -53,12 +54,12 @@ export function Step1Identity({ data, patch, errors, mode }: StepProps) {
           onChange={(e) => {
             // A Lesotho ID's layout is unconfirmed (lib/jurisdiction/national-id.ts):
             // keep letters, derive nothing.
-            const lesotho = activeJurisdiction() === "LS"
-            const next = lesotho
-              ? e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 15)
-              : e.target.value.replace(/\D/g, "").slice(0, 13)
+            const idRules = profileFor(activeJurisdiction()).capture
+            const next = (idRules.idAlphanumeric
+              ? e.target.value.replace(/[^0-9A-Za-z]/g, "")
+              : e.target.value.replace(/\D/g, "")).slice(0, idRules.idMaxLength)
             const updates: Partial<ClientWizardData> = { idNumber: next }
-            if (!lesotho && next.length === 13) {
+            if (idRules.idEncodesDob && next.length === idRules.idMaxLength) {
               const derivedDob = deriveDobFromSaId(next)
               if (derivedDob && !data.dateOfBirth) {
                 updates.dateOfBirth = derivedDob
@@ -70,7 +71,7 @@ export function Step1Identity({ data, patch, errors, mode }: StepProps) {
             }
             patch(updates)
           }}
-          inputMode={activeJurisdiction() === "LS" ? "text" : "numeric"}
+          inputMode={profileFor(activeJurisdiction()).capture.idAlphanumeric ? "text" : "numeric"}
           autoComplete="off"
         />
         <DuplicateIdWarning idNumber={data.idNumber} enabled={mode === "staff"} />

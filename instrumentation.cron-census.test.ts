@@ -145,6 +145,11 @@ describe("scheduler cadence", () => {
 // What register() actually hands node-cron, not what the source looks like.
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
+const ensureActiveJurisdiction = vi.hoisted(() => vi.fn(async () => ({ jurisdiction: "ZA", currency: "ZAR" })))
+vi.mock("@/lib/jurisdiction/load.server", () => ({
+  bootActiveJurisdiction: vi.fn(async () => ({ jurisdiction: "ZA", currency: "ZAR" })),
+  ensureActiveJurisdiction,
+}))
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
 // The scheduler's HTTP call (lib/ops/cron-call.ts) and its claims: the behaviour of those is in
 // instrumentation.scheduler-claims.test.ts. Here only what is scheduled and what is called.

@@ -1,9 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+vi.mock("next/headers", () => ({ headers: vi.fn() }))
+vi.mock("next/cache", () => ({ unstable_cache: (fn: unknown) => fn }))
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { approvalInterestCapCheck, checkRepeatShortTermFor } from "@/lib/loan/nca-interest-cap.server"
 import { loanProductCreateCapRefusal, loanProductUpdateCapRefusal } from "@/lib/product-config/interest-cap"
 import { interestGuidance } from "@/lib/product-config/interest-guidance"
 import { affordabilityExpenseEvidenceNeedsMleJustification } from "@/lib/affordability/snapshot"
+import { calculateLoan } from "@/lib/loan-calculator"
+import { capInitiationFee } from "@/lib/loan/nca-fee-cap"
+import { micro30ContractIssues } from "@/lib/product-config/micro30"
+import { parseAssetFinanceSettings } from "@/lib/asset-finance/settings-input"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "./active"
 
 // A database that fails the test if the gate lets a query through.
@@ -85,3 +93,64 @@ describe("LS skips the NCA-only steps", () => {
     expect(interestGuidance(preview)).toMatchObject({ warning: false, classification: null })
   })
 })
+
+describe("fee ceilings, the MICRO30 contract and the asset-finance switch", () => {
+  const pricing = {
+    productType: "PERSONAL", principal: 300_000, termDays: 90, interestRatePm: 0.0225, interestModel: "REDUCING_BALANCE" as const,
+    initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0.25, initiationFeeMax: 0, monthlyServiceFee: 20_000,
+  }
+  const micro30 = { code: "MICRO30", productType: "MICRO", minTermDays: 30, maxTermDays: 30, interestRatePm: 0.07, interestModel: "DAILY_ACCRUAL", monthlyServiceFee: 20_000 }
+
+  it("ZA holds the initiation fee to the Regulation 42 ceiling (15% of R3,000 = R450 at most)", () => {
+    expect(capInitiationFee(75_000, 300_000, "PERSONAL")).toBeLessThan(75_000)
+    expect(calculateLoan(pricing, new Date("2026-10-01T08:00:00Z")).initiationFee).toBeLessThan(75_000)
+  })
+
+  it("ZA locks the MICRO30 contract at its prescribed price", () => {
+    expect(micro30ContractIssues(micro30)).toEqual(["interestRatePm", "monthlyServiceFee"])
+  })
+
+  it("ZA lets the module switch on", () => {
+    expect(parseAssetFinanceSettings({ featureAssetFinance: true })).toEqual({ data: { featureAssetFinance: true } })
+  })
+
+  it("LS charges the configured initiation fee, uncapped", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(capInitiationFee(75_000, 300_000, "PERSONAL")).toBe(75_000)
+    expect(calculateLoan(pricing, new Date("2026-10-01T08:00:00Z")).initiationFee).toBe(75_000)
+  })
+
+  it("LS prices an NCA_REG42-model product as a flat percentage, not on the statutory schedule", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const fee = calculateLoan({ ...pricing, initiationFeeModel: "NCA_REG42" as const, initiationFeePct: 0.1 }, new Date("2026-10-01T08:00:00Z")).initiationFee
+    expect(fee).toBe(30_000)
+  })
+
+  it("LS may price a product named MICRO30 as it likes", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(micro30ContractIssues(micro30)).toEqual([])
+  })
+
+  it("LS refuses to switch the NCA asset-finance module on, and still lets it be switched off", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(parseAssetFinanceSettings({ featureAssetFinance: true })).toEqual({
+      errors: { featureAssetFinance: "asset finance is an NCA product and is not available to this lender" },
+    })
+    expect(parseAssetFinanceSettings({ featureAssetFinance: false })).toEqual({ data: { featureAssetFinance: false } })
+  })
+})
+
+describe("feature flags", () => {
+  const flags = { featureCrm: true, featureIms: true, featureAssetFinance: true }
+  it("ZA keeps asset finance on when the column says so", async () => {
+    const { resolveFeatureFlags } = await import("@/lib/tenant")
+    expect(resolveFeatureFlags(flags).featureAssetFinance).toBe(true)
+  })
+  it("LS has asset finance off whatever the column says", async () => {
+    const { resolveFeatureFlags } = await import("@/lib/tenant")
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(resolveFeatureFlags(flags).featureAssetFinance).toBe(false)
+    expect(resolveFeatureFlags(flags).featureCrm).toBe(true)
+  })
+})
+

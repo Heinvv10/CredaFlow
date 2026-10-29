@@ -44,8 +44,8 @@ describe("business days by jurisdiction", () => {
   })
 
   it("LS adds business days across its own holidays", () => {
-    // Fri 2026-10-02 + 1 business day: Sat, Sun, then Mon 5 Oct (4 Oct is a Sunday).
-    expect(addBusinessDays("2026-10-02", 1, "LS")).toBe("2026-10-05")
+    // Fri 2026-10-02 + 1 business day: Sat, Sun, Mon 5 Oct (Independence Day observed), then Tue 6 Oct.
+    expect(addBusinessDays("2026-10-02", 1, "LS")).toBe("2026-10-06")
     // Tue 2026-03-10 + 1: Wed 11 Mar is Moshoeshoe's Day, so Thu 12 Mar.
     expect(addBusinessDays("2026-03-10", 1, "LS")).toBe("2026-03-12")
   })
@@ -59,4 +59,26 @@ describe("business days by jurisdiction", () => {
     expect(() => addBusinessDays("2026-03-10", 1.5, "LS")).toThrow(RangeError)
     expect(() => isBusinessDate("2026-3-1", "LS")).toThrow(RangeError)
   })
+})
+
+describe("Sunday holidays and malformed input", () => {
+  it("LS observes a Sunday holiday on the Monday (4 Oct 2026 is a Sunday)", () => {
+    expect(lesothoPublicHolidays(2026).has("2026-10-05")).toBe(true)
+    expect(isBusinessDate("2026-10-05", "LS")).toBe(false)
+    expect(addBusinessDays("2026-10-02", 1, "LS")).toBe("2026-10-06")
+  })
+
+  it.each(["", "2026-3-1", "20260301", "2026-13-01", "2026-02-30", "not a date", "2026-03-01T00:00:00Z"])(
+    "LS and ZA treat %j alike",
+    (input) => {
+      const outcome = (jurisdiction: "LS" | "ZA") => {
+        try { return String(isBusinessDate(input, jurisdiction)) } catch (e) { return `${(e as Error).name}` }
+      }
+      expect(outcome("LS")).toBe(outcome("ZA"))
+      const add = (jurisdiction: "LS" | "ZA") => {
+        try { return addBusinessDays(input, 1, jurisdiction) } catch (e) { return `${(e as Error).name}` }
+      }
+      expect(add("LS")).toBe(add("ZA"))
+    },
+  )
 })

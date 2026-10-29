@@ -5,9 +5,11 @@ export async function register() {
     assertSmileIdentityRuntimeSafety()
 
     // Before anything formats an amount or checks an NCA gate: the lender's
-    // jurisdiction and currency (lib/jurisdiction). Never throws.
-    const { ensureActiveJurisdiction } = await import("@/lib/jurisdiction/load.server")
-    await ensureActiveJurisdiction()
+    // jurisdiction and currency (lib/jurisdiction). Retries with backoff, waits
+    // at most BOOT_TIMEOUT_MS, and THROWS (the process does not start) when the
+    // instance's active tenants disagree about jurisdiction.
+    const { bootActiveJurisdiction, ensureActiveJurisdiction } = await import("@/lib/jurisdiction/load.server")
+    await bootActiveJurisdiction()
 
     const APP_MODE = process.env.APP_MODE || "all"
     console.log(`[boot] APP_MODE=${APP_MODE} GIT_SHA=${process.env.GIT_SHA ?? "unknown"}`)
@@ -71,6 +73,9 @@ export async function register() {
       // heartbeat, which the runner writes. A claim that cannot be made fails
       // closed: a skipped run shows on /api/health, a duplicate reminder or
       // Section 129 notice cannot be taken back.
+      // A cron job fires without a page or request to have loaded the
+      // jurisdiction: make sure it is known before the route runs.
+      await ensureActiveJurisdiction()
       const claimKey = path.replace("/api/cron/", "")
       const claimedAt = new Date()
       let ownerToken: string | null = null

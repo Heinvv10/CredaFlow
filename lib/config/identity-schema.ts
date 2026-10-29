@@ -215,9 +215,11 @@ const lsIdentityColumnsSchema = z.object({
   collectionsPhoneSecondary: optional(lsPhone),
 })
 
+const IDENTITY_SCHEMAS = { ZA: zaIdentityColumnsSchema, LS: lsIdentityColumnsSchema } as const
+
 /** The identity schema of a jurisdiction (default: the deployment's). */
 export function identityColumnsSchemaFor(jurisdiction: Jurisdiction = activeJurisdiction()) {
-  return jurisdiction === "LS" ? lsIdentityColumnsSchema : zaIdentityColumnsSchema
+  return IDENTITY_SCHEMAS[jurisdiction]
 }
 
 /** The South African schema, kept under its original name. */

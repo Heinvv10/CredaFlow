@@ -32,7 +32,7 @@ export function rateDescription(p: Pick<DealDocumentData["pricing"], "annualRate
 export function lenderLetterhead(w: DealDocumentWriter, data: Pick<DealDocumentData, "lender">): void {
   const l = data.lender
   w.letterhead(l.legalName, [
-    `${l.tradingName !== l.legalName ? `Trading as ${l.tradingName} · ` : ""}Registration No ${l.companyRegNumber} · NCR ${l.ncrNumber}`,
+    `${l.tradingName !== l.legalName ? `Trading as ${l.tradingName} · ` : ""}Registration No ${l.companyRegNumber} · NCR ${requireNcrNumber(l)}`,
     l.registeredOfficeLines.join(", "),
   ])
 }

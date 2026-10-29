@@ -19,7 +19,7 @@ import {
 import { requireApiRole } from "@/lib/auth-guards"
 import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { clientWithoutLoanBook } from "@/lib/security/client-redaction"
-import { ACCOUNT_TYPE_VALUES } from "@/lib/validation/client-wizard"
+import { ACCOUNT_TYPE_VALUES, canonicalIdNumber } from "@/lib/validation/client-wizard"
 import { withTenantContext } from "@/lib/tenant"
 import { minimumLivingExpense } from "@/lib/affordability/mle"
 import { sumExpenseBreakdown } from "@/lib/affordability/sum-expense-breakdown"
@@ -306,6 +306,7 @@ export async function PUT(
     return await withTenantContext(req, async (tenant) => {
       const { id } = await ctx.params
       const data = await req.json()
+      if (typeof data.idNumber === "string") data.idNumber = canonicalIdNumber(data.idNumber)
       const hasKey = (key: string) => Object.prototype.hasOwnProperty.call(data, key)
       const expectedUpdatedAt = typeof data.expectedUpdatedAt === "string"
         ? new Date(data.expectedUpdatedAt)

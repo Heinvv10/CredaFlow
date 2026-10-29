@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -15,6 +16,8 @@ import { auth } from "@/lib/auth"
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
+  const notNca = ncaOnlyRefusal("The FSCA return")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     const body = (await req.json().catch(() => ({}))) as { quarter?: string }

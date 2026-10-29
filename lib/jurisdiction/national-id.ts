@@ -17,6 +17,11 @@ export const LESOTHO_ID_SHAPE_ONLY = true
 
 const LESOTHO_ID_SHAPE = /^[A-Z0-9]{6,15}$/
 
+/** The one stored and compared form of a Lesotho ID: trimmed, upper case. */
+export function canonicalLesothoNationalId(raw: string): string {
+  return raw.trim().toUpperCase()
+}
+
 export function isValidLesothoNationalId(raw: string): boolean {
-  return LESOTHO_ID_SHAPE.test(raw.trim().toUpperCase())
+  return LESOTHO_ID_SHAPE.test(canonicalLesothoNationalId(raw))
 }

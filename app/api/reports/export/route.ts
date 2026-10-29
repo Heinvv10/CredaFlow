@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withStrAuditVisibility } from "@/lib/fic/audit-visibility"
 import { prisma } from "@/lib/prisma"
@@ -270,6 +271,8 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: "Affordability Register", rows }])
   } else if (type === "ncr-quarterly") {
+    const notNca = ncaOnlyRefusal("The NCR quarterly return")
+    if (notNca) return notNca
     // Two sheets of this workbook carry client ID numbers and full names, so a
     // generic READONLY export permission is too broad — same reasoning as the
     // section129-register and audit-log branches. The audit row below was added
@@ -456,6 +459,8 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: "Credit Agreements Register", rows }])
   } else if (type === "section129-log") {
+    const notNca = ncaOnlyRefusal("The Section 129 log")
+    if (notNca) return notNca
     // The legal register contains ID numbers, addresses, recipient details and
     // financial snapshots. A generic READONLY export permission is too broad.
     const upgraded = await requireApiRole("LOAN_ADMIN")
@@ -606,6 +611,8 @@ export async function GET(req: NextRequest) {
     const month = now.toLocaleString("en-ZA", { month: "long", year: "numeric", timeZone: SAST_TIME_ZONE })
     wb = createWorkbook([{ name: `Reconciliation ${month}`, rows }])
   } else if (type === "fsca-annual") {
+    const notNca = ncaOnlyRefusal("The FSCA return")
+    if (notNca) return notNca
     // SAST year. The FSCA annual return is filed for a South African year.
     const year = sastParts(now).year
 
@@ -657,6 +664,8 @@ export async function GET(req: NextRequest) {
     ])
     return workbookResponse(fscaWb, `fsca-annual-return-${year}.xlsx`)
   } else if (type === "fsca-quarterly") {
+    const notNca = ncaOnlyRefusal("The FSCA return")
+    if (notNca) return notNca
     const quarter = parseQuarterParam(req.nextUrl.searchParams.get("quarter") ?? undefined, now)
     const { start, end } = quarterBounds(quarter)
     const data = await getFscaReturnData(tenant.id, quarter)

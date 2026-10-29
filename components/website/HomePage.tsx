@@ -9,6 +9,7 @@ import { homeFaqs } from "@/app/(website)/site/home-faqs"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
 import { localizeProduct } from "@/lib/i18n/products"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 // Client-facing portal URLs (lib/portal-urls.ts), null when the deployment has
 // no portal URL configured: the portal links are then left out rather than
@@ -34,7 +35,7 @@ const returnShortcuts: { label: HomeKey; href: string; icon: typeof FilePlus2 }[
 
 const protections: HomeKey[] = ["protection1", "protection2", "protection3", "protection4"]
 
-const rands = (cents: number) => `R${Math.round(cents / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
+const rands = (cents: number) => `${activeCurrencySymbol()}${Math.round(cents / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 
 function productRange(product: PublicLoanProduct, t: Translator<"websiteHome">): string {
   const unit = t(product.termUnit === "days" ? "unitDays" : "unitMonths")

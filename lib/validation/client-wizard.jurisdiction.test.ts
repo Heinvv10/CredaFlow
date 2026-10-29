@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { EMPTY_CLIENT_WIZARD_DATA } from "@/components/clients/wizard/types"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import {
+  canonicalIdNumber,
   isValidIdNumber,
   isValidPhone,
   validateStep1Identity,
@@ -68,5 +69,16 @@ describe("LS capture", () => {
     expect(bad.nextOfKinPhone).toBe("Use +266… or 8-digit mobile format")
     const good = validateStep3Employment({ ...filled, nextOfKinPhone: "+26662123456" } as never)
     expect(good.nextOfKinPhone).toBeUndefined()
+  })
+})
+
+describe("one canonical form of an ID number", () => {
+  it("LS: trimmed and upper case, so case and whitespace variants are the same person", () => {
+    asLesotho()
+    expect(canonicalIdNumber(" ab123456 ")).toBe("AB123456")
+    expect(canonicalIdNumber("AB123456")).toBe(canonicalIdNumber("ab123456"))
+  })
+  it("ZA: left exactly as typed", () => {
+    expect(canonicalIdNumber(" 9001015009086")).toBe(" 9001015009086")
   })
 })

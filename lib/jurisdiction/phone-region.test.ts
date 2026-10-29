@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { LESOTHO_DISTRICTS, isValidLesothoMobile } from "./phone-region"
+import { isValidLesothoMobile } from "./phone-region"
+import { LESOTHO_DISTRICTS } from "./profiles"
 
 describe("Lesotho phone and district", () => {
   it("accepts +266 and local 8-digit mobiles starting 5 or 6", () => {
@@ -17,6 +18,6 @@ describe("Lesotho phone and district", () => {
 
   it("lists the ten districts", () => {
     expect(LESOTHO_DISTRICTS).toHaveLength(10)
-    expect(LESOTHO_DISTRICTS).toContain("MS")
+    expect(LESOTHO_DISTRICTS.map((d) => d.code)).toContain("MS")
   })
 })
