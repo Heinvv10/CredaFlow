@@ -111,6 +111,8 @@ TENANT_SOD_OFF_SQL='DO $sod$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.c
 # seed sets it, but the column arrives false on rows that existed before it,
 # which no restore or in-place upgrade re-seeds. A snapshot from before the
 # column exists is left alone. Tested by staff-totp-off.integration.test.ts.
+# Re-establishes the audit protections a --no-owner --no-acl restore loses (audit_reassert_protections, migration 20261029100000).
+AUDIT_REASSERT_SQL="DO \$\$ BEGIN IF to_regprocedure('public.audit_reassert_protections()') IS NOT NULL THEN PERFORM public.audit_reassert_protections(); END IF; END \$\$"
 TENANT_DEMO_LENDER_SQL='DO $demo$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = '"'TenantConfig'"' AND column_name = '"'isDemoLender'"') THEN UPDATE "TenantConfig" SET "isDemoLender" = true WHERE "tenantId" IN (SELECT id FROM "Tenant" WHERE slug IN ('"'acme', 'fairscore', 'tsela'"')); END IF; END $demo$'
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }

@@ -117,7 +117,8 @@ dcompose up -d --wait db >/dev/null
 t_db_up="$(ms)"
 
 gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$file" \
-  | dcompose exec -T db pg_restore --no-owner --exit-on-error -U "$PGUSER" -d "$PGDB" || die "pg_restore failed"
+  | dcompose exec -T db pg_restore --no-owner --no-acl --exit-on-error -U "$PGUSER" -d "$PGDB" || die "pg_restore failed"
+dcompose exec -T db psql -v ON_ERROR_STOP=1 -qAt -U "$PGUSER" -d "$PGDB" -c "$AUDIT_REASSERT_SQL" >/dev/null || failures+=("the audit protections could not be re-asserted after the restore")
 t_restored="$(ms)"
 restored="$(dcompose exec -T db psql -v ON_ERROR_STOP=1 -qAt -U "$PGUSER" -d "$PGDB" -c "$COUNTS_SQL")"
 if drift="$(count_drift "$file.counts" "$restored")"; then note "row counts match the backup: $(tr '\n' ' ' <<<"$restored")"

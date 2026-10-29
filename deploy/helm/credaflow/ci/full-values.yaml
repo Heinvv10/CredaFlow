@@ -18,3 +18,10 @@ serviceMonitor:
   enabled: true
 autoscaling:
   targetMemoryUtilizationPercentage: 80
+# The supported production shape: a web login and a worker login, the worker with its own Secret.
+appRole:
+  workerName: credaflow_worker
+  passwordSecret: { name: credaflow-db-passwords, key: WEB_PASSWORD }
+  workerPasswordSecret: { name: credaflow-db-passwords, key: WORKER_PASSWORD }
+worker:
+  existingSecrets: [credaflow-worker]

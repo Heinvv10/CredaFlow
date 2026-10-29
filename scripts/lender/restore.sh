@@ -80,7 +80,11 @@ fail() { die "$*"; }
 note "restoring $(basename "$file") into new database $scratch"
 psql_db postgres "CREATE DATABASE \"$scratch\"" >/dev/null
 gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$file" \
-  | lcompose exec -T db pg_restore --no-owner --exit-on-error -U "$PGUSER" -d "$scratch" || fail "pg_restore failed; scratch database dropped"
+  | lcompose exec -T db pg_restore --no-owner --no-acl --exit-on-error -U "$PGUSER" -d "$scratch" || fail "pg_restore failed; scratch database dropped"
+# --no-acl: grants to roles that may not exist here are not replayed; the audit protections and the
+# application's login are set up again below (docs/DEPLOY.md, "Two database logins").
+reassert_audit_protections "$scratch" || fail "could not re-assert the audit protections in the restored database; scratch database dropped"
+[ -z "$(env_get "$ENV_FILE" APP_DB_USER)" ] || ensure_app_role "$scratch" || fail "could not set up the application's database login in the restored database; scratch database dropped"
 
 mig="$(psql_db "$scratch" "$MIG_STATE_SQL")" \
   || fail "could not read _prisma_migrations in the restored database; scratch database dropped"

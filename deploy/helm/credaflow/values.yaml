@@ -119,6 +119,12 @@ worker:
   affinity: {}
   podAnnotations: {}
   extraEnv: {}
+  # Secrets the worker mounts INSTEAD of existingSecrets (empty: the shared list). The supported
+  # production shape: the worker's own Secret holds its database login (appRole.workerName's
+  # DATABASE_URL), AUDIT_CHAIN_KEY and the other cron-side secrets; the web pods mount none of them.
+  # Then the web login can neither chain, checkpoint nor touch the SIEM queue, and a web compromise
+  # cannot forge the chain. Left empty, web and worker share one login (weaker: docs/ARCHITECTURE.md).
+  existingSecrets: []
 
 # `prisma migrate deploy` before each install/upgrade (Helm hook). Its image is the
 # Dockerfile `migrator` target. A migration that adds a trigger, CHECK or UNIQUE
@@ -150,9 +156,16 @@ migrate:
 # through the audit functions). The pods' DATABASE_URL (existingSecrets) is this role's.
 appRole:
   enabled: true
+  # The WEB login (the pods' DATABASE_URL): INSERT/SELECT on AuditLog, audit_policy_save, a chain's status.
   name: credaflow_app
+  # The WORKER login (worker.existingSecrets' DATABASE_URL): the chainer, verifier and SIEM delivery.
+  # Empty: one login for both (name above), the weaker single-process shape.
+  workerName: ""
   # Set to have the Job create the role (or reset its password); unset, the role must exist.
   passwordSecret:
+    name: ""
+    key: APP_DB_PASSWORD
+  workerPasswordSecret:
     name: ""
     key: APP_DB_PASSWORD
   image:

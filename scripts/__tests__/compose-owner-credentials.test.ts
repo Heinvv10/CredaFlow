@@ -29,7 +29,7 @@ function render(source: string, envFile: string, extraEnv: Record<string, string
         ...process.env, APP_IMAGE: "cf:x", APP_PORT: "3999", PORTAL_PORT: "3998", PORTAL_NEXTAUTH_URL: "https://portal.example", PORTAL_AUTH_URL: "https://portal.example",
         STAFF_AUTH_SECRET: "staff-secret", PORTAL_AUTH_SECRET: "portal-secret", NEXTAUTH_SECRET: "s", NEXT_PUBLIC_TENANT_SLUG: "x",
         POSTGRES_USER: "ownerlogin", POSTGRES_PASSWORD: OWNER_SECRET, POSTGRES_DB: "d", APP_DB_USER: "app_u", APP_DB_PASSWORD: "appp", ...extraEnv,
-      },
+      } as unknown as NodeJS.ProcessEnv,
       encoding: "utf8",
     })
     expect(r.status, r.stderr).toBe(0)
@@ -50,6 +50,28 @@ describe.skipIf(!compose)("owner database credentials stay out of the app contai
           expect(env[key] ?? "", `${name} ${key}`).toBe("")
         }
         expect(JSON.stringify(services[name]), name).not.toContain(OWNER_SECRET)
+      }
+    })
+
+    it(`${source}: still renders for ps/logs before a stack has been moved to its own login, falling back to the owner`, () => {
+      const dir = mkdtempSync(join(tmpdir(), "compose-fallback-"))
+      try {
+        cpSync(join(ROOT, source), join(dir, "docker-compose.yml"))
+        writeFileSync(join(dir, envFile), OWNER_ENV)
+        const env = { ...process.env }
+        for (const k of ["APP_DB_USER", "APP_DB_PASSWORD"]) delete env[k]
+        const [bin, ...sub] = compose.split(" ")
+        const r = spawnSync(bin, [...sub, "-p", "x", "-f", join(dir, "docker-compose.yml"), "--project-directory", dir, "config", "--format", "json"], {
+          env: { ...env, APP_IMAGE: "cf:x", APP_PORT: "3999", PORTAL_PORT: "3998", PORTAL_NEXTAUTH_URL: "https://portal.example", PORTAL_AUTH_URL: "https://portal.example",
+            STAFF_AUTH_SECRET: "staff-secret", PORTAL_AUTH_SECRET: "portal-secret", NEXTAUTH_SECRET: "s", NEXT_PUBLIC_TENANT_SLUG: "x",
+            POSTGRES_USER: "ownerlogin", POSTGRES_PASSWORD: OWNER_SECRET, POSTGRES_DB: "d" },
+          encoding: "utf8",
+        })
+        expect(r.status, r.stderr).toBe(0)
+        const services = (JSON.parse(r.stdout) as { services: Record<string, Service> }).services
+        expect(services.app.environment?.DATABASE_URL).toMatch(/^postgresql:\/\/ownerlogin:/)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
       }
     })
 

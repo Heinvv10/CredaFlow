@@ -223,6 +223,10 @@ docker exec -e DB="$tmp_db" "$LIVE_DB" sh -c '
   set -eu
   trap "rm -f /tmp/restore.dump" EXIT
   pg_restore -U "$POSTGRES_USER" -d "$DB" --no-owner --no-acl --exit-on-error -j 4 /tmp/restore.dump'
+step="audit protections"
+# --no-owner --no-acl loses audit_log_redact()'s owner and the REVOKE FROM PUBLIC on the audit functions: re-assert them
+# (migration 20261029100000; a snapshot older than that has no such function and needs nothing).
+live_sql "$tmp_db" "$AUDIT_REASSERT_SQL" >/dev/null
 step="row-count check"
 want="$(jq -cS '.counts | del(.uploadFiles)' "$snap/meta.json")"
 got="$(live_sql "$tmp_db" "$SNAPSHOT_COUNTS_SQL" | jq -cS .)"

@@ -19,7 +19,7 @@
 # This synthetic stack runs the app as the database superuser, because the snapshot and
 # restore tooling needs it; /api/health therefore warns audit_runtime_role_owns_tables.
 # Real lenders use the two-login setup of docker-compose.yml (docs/ARCHITECTURE.md,
-# "Tamper-evident audit").
+# "Tamper-evident audit"). AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 (below) is what lets it boot.
 name: credaflow-demo-sim
 
 x-faketime: &faketime
@@ -93,6 +93,9 @@ services:
       <<: *faketime
       FAKETIME_LIB: /usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1
       NODE_ENV: production
+      # This synthetic stack runs as the database superuser (snapshot/restore tooling): it accepts the audit
+      # protections being undoable, which would otherwise stop a production process starting.
+      AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1"
       PORT: 3300
       HOSTNAME: 0.0.0.0
       APP_MODE: all

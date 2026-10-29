@@ -35,6 +35,21 @@ describe("chart: the owner database login", () => {
     for (const f of ["templates/migrate-job.yaml", "templates/app-role-job.yaml"]) expect(read(f), f).toContain('include "credaflow.assertOwnerSecretApart"')
   })
 
+  it("lets the worker mount its own Secrets instead of the shared list, and never the owner's", () => {
+    const helpers = read("templates/_helpers.tpl")
+    expect(helpers).toMatch(/default \.root\.Values\.existingSecrets \.secrets/)
+    expect(helpers).toMatch(/define "credaflow.assertWorkerSecretsApart"/)
+    expect(read("templates/worker-deployment.yaml")).toContain('"secrets" .Values.worker.existingSecrets')
+    expect(read("templates/web-deployment.yaml")).not.toContain("worker.existingSecrets")
+    expect(block("worker")).toMatch(/existingSecrets: \[\]/)
+  })
+
+  it("passes no password on a command line: the role Job and compose pipe \\set lines to psql's stdin", () => {
+    const job = read("templates/app-role-job.yaml")
+    expect(job).toContain("| psql \"$url\" -v ON_ERROR_STOP=1 -f -")
+    expect(job).not.toMatch(/-v app_password|-v worker_password/)
+  })
+
   it("is not read by any pod template", () => {
     for (const f of ["web-deployment.yaml", "worker-deployment.yaml", "external-crons.yaml"]) expect(read(`templates/${f}`), f).not.toMatch(/databaseUrlSecret/)
   })

@@ -168,9 +168,21 @@ for you except where stated, and no agent edits these files.
 6. The demo-sim stacks (`docker-compose.demo-sim.yml`) stay on one superuser login on purpose and keep
    showing `audit_runtime_role_owns_tables`; do not use them as a pattern for a real lender.
 
-For a separate SIEM delivery login, create the role by hand, pass `-v delivery_role=<role>` to
-`app-role.sql`, and give only the worker `AUDIT_DELIVERY_DATABASE_URL` (the Helm chart mounts one Secret
-into web and worker alike in this release, so a worker-only Secret needs your own `worker.extraEnv` source).
+A single-process stack (the lender scripts and `docker-compose.yml` run the app and the crons together) uses
+ONE login for both kinds of work (`audit_grant_runtime`) and one `AUDIT_CHAIN_KEY`: the web process then
+holds the worker's functions and the key, which `/api/health` reports as `audit_web_holds_worker_functions`
+only where the process does not run the crons. The supported production shape is two logins: on Kubernetes
+set `appRole.workerName` and give the worker Deployment its own Secret (`worker.existingSecrets`) holding the
+worker login's `DATABASE_URL` and `AUDIT_CHAIN_KEY`; the web pods mount neither. In production a process whose
+role could undo the audit protections refuses to start; the demo-sim stacks set
+`AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` because they run as the database superuser, and a stack not yet moved to
+its own login needs the same until it is (step 4 above).
+
+After ANY restore (`scripts/lender/restore.sh`, `restore-drill.sh`, `scripts/demo/restore.sh`) the scripts run
+`audit_reassert_protections()` in the restored database (a `--no-owner --no-acl` dump loses the redaction
+function's owner and the REVOKE FROM PUBLIC on the audit functions) and, for a lender with `APP_DB_USER`, the
+application's grants. Restoring by hand: run `SELECT audit_reassert_protections();` as the owner, then the
+app-role script (`deploy/helm/credaflow/files/app-role.sql`).
 
 ## Deploy
 

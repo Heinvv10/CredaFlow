@@ -56,13 +56,21 @@ spec:
         - name: app-role
           image: {{ include "credaflow.imageRef" (dict "repository" .Values.appRole.image.repository "tag" .Values.appRole.image.tag) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # libpq rejects Prisma's ?schema= query parameter: it is dropped from the URL.
+          # libpq rejects Prisma's ?schema= query parameter: it is dropped from the URL. The role names
+          # and passwords go to psql on STDIN as \set lines, never on its command line (where any
+          # process on the node could read them).
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -eu
               url=$(printf '%s' "$OWNER_DATABASE_URL" | sed -E 's/([?&])schema=[^&]*&?/\1/; s/[?&]$//')
-              exec psql "$url" -v ON_ERROR_STOP=1 -v app_role="$APP_DB_USER"{{ if .Values.appRole.passwordSecret.name }} -v app_password="$APP_DB_PASSWORD"{{ end }} -f /sql/app-role.sql
+              {
+                printf '\\set app_role %s\n' "'$APP_DB_USER'"
+                [ -z "${APP_DB_PASSWORD:-}" ] || printf '\\set app_password %s\n' "'$APP_DB_PASSWORD'"
+                [ -z "${WORKER_DB_USER:-}" ] || printf '\\set worker_role %s\n' "'$WORKER_DB_USER'"
+                [ -z "${WORKER_DB_PASSWORD:-}" ] || printf '\\set worker_password %s\n' "'$WORKER_DB_PASSWORD'"
+                cat /sql/app-role.sql
+              } | psql "$url" -v ON_ERROR_STOP=1 -f -
           env:
             - name: OWNER_DATABASE_URL
               valueFrom:
@@ -77,6 +85,17 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.appRole.passwordSecret.name }}
                   key: {{ .Values.appRole.passwordSecret.key }}
+            {{- end }}
+            {{- if .Values.appRole.workerName }}
+            - name: WORKER_DB_USER
+              value: {{ .Values.appRole.workerName | quote }}
+            {{- end }}
+            {{- if and .Values.appRole.workerName .Values.appRole.workerPasswordSecret.name }}
+            - name: WORKER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.appRole.workerPasswordSecret.name }}
+                  key: {{ .Values.appRole.workerPasswordSecret.key }}
             {{- end }}
           resources:
             {{- toYaml .Values.appRole.resources | nindent 12 }}

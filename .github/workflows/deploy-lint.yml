@@ -53,6 +53,8 @@ jobs:
         run: |
           ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set migrate.databaseUrlSecret.name=credaflow-app
           ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set migrate.databaseUrlSecret.name=
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set externalCrons.secret.name=credaflow-migrate
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set 'worker.existingSecrets={credaflow-migrate}'
       # Each variant is a release shape the README documents. The ServiceMonitor CRD has no schema here.
       - name: helm template | kubeconform
         run: |

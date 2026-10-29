@@ -57,11 +57,15 @@ app.kubernetes.io/component: {{ .component }}
 {{- default (printf "%s-uploads" (include "credaflow.fullname" .)) .Values.persistence.existingClaim -}}
 {{- end -}}
 
-{{/* envFrom: the shared ConfigMap and every existing Secret. */}}
+{{/*
+envFrom: the shared ConfigMap and every existing Secret. The worker may name its own Secrets
+(worker.existingSecrets) INSTEAD of the shared list: its database login and AUDIT_CHAIN_KEY
+live there and the web pods do not mount them (docs/ARCHITECTURE.md, Tamper-evident audit).
+*/}}
 {{- define "credaflow.envFrom" -}}
 - configMapRef:
     name: {{ include "credaflow.fullname" .root }}
-{{- range .root.Values.existingSecrets }}
+{{- range (default .root.Values.existingSecrets .secrets) }}
 - secretRef:
     name: {{ . }}
 {{- end }}
@@ -216,5 +220,17 @@ It also may not share a Secret with the cron Jobs. Rendering fails if it does.
 {{- end -}}
 {{- if eq $owner .Values.externalCrons.secret.name -}}
 {{- fail (printf "migrate.databaseUrlSecret.name %q is also externalCrons.secret.name: keep the owner database login in a Secret of its own" $owner) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The web and worker logins and the worker's key stay apart: a Secret the web pods mount must not
+be one the worker needs for the audit chain, and the worker's own Secrets must not be the owner's.
+*/}}
+{{- define "credaflow.assertWorkerSecretsApart" -}}
+{{- range .Values.worker.existingSecrets -}}
+{{- if eq . $.Values.migrate.databaseUrlSecret.name -}}
+{{- fail (printf "worker.existingSecrets includes %q, the owner database login's Secret (migrate.databaseUrlSecret.name): the worker connects as the worker login, never as the owner" .) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

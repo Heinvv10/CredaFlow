@@ -110,8 +110,12 @@ Secrets, Vault agent...). The Secret must exist before the migration hook runs; 
 the role Job); the pods' `DATABASE_URL` is a different login, `appRole.name`, that owns nothing. The
 `app-role` Job runs `files/app-role.sql` right after the migration Job, before any pod changes: the role gets the table privileges
 and loses the audit evidence tables, so a compromised pod can insert and read `AuditLog` but cannot rewrite
-it, switch a trigger off or touch the hash chain, checkpoints or SIEM queue. Also set `AUDIT_CHAIN_KEY`
-(32+ characters, not in the database). `/api/health` warns while the pods' role owns or can write those tables.
+it, switch a trigger off or touch the hash chain, checkpoints or SIEM queue. Set `appRole.workerName` for a separate
+WORKER login (the chainer, verifier and SIEM delivery) and give the worker Deployment its own Secret with
+`worker.existingSecrets` (its `DATABASE_URL` and `AUDIT_CHAIN_KEY`, 32+ characters, not in the database);
+the web pods mount neither, so a web compromise cannot forge the chain. With no worker login, web and worker share
+one (weaker). `/api/health` warns while the pods' role owns or can write those tables, and a production pod whose
+role could undo the audit protections refuses to start.
 
 A separate client-portal host is a second release of the same chart, in the same namespace:
 
