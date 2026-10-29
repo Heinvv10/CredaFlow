@@ -1,5 +1,5 @@
 /** Housekeeping for RateLimitHit (lib/rate-limit-store.ts): expired rows, and a ceiling on each group's row count. */
-import { FAIL_CLOSED_KEY_PREFIXES, FAIL_CLOSED_NAMESPACES } from "./rate-limit-groups"
+import { FAIL_CLOSED_KEY_PREFIXES, FAIL_CLOSED_NAMESPACES, SEALABLE_GROUPS } from "./rate-limit-groups"
 
 interface ExecClient {
   $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>
@@ -19,6 +19,15 @@ export const MAX_ROWS_PER_GROUP = 200_000
  * this way. Each such eviction is an alert (the route logs it).
  */
 export const HARD_CEILING_MULTIPLIER = 5
+
+/**
+ * Rows at which a sealable authentication group is sealed: 5 times the cap unless RATE_LIMIT_SEAL_CEILING sets it (a
+ * lender with a small table can lower it; the integration tests do).
+ */
+export function sealCeiling(env: Record<string, string | undefined> = process.env): number {
+  const configured = Number.parseInt(env.RATE_LIMIT_SEAL_CEILING ?? "", 10)
+  return Number.isFinite(configured) && configured > 0 ? configured : MAX_ROWS_PER_GROUP * HARD_CEILING_MULTIPLIER
+}
 
 const AUTH_GROUPS: readonly string[] = [...FAIL_CLOSED_KEY_PREFIXES, ...FAIL_CLOSED_NAMESPACES]
 
@@ -94,20 +103,22 @@ export async function groupsOverCap(db: ExecClient, cap = MAX_ROWS_PER_GROUP): P
 }
 
 /**
- * Bounds the authentication groups without ever deleting a counter or a lockout: a group that holds `hardCeiling` rows or
- * more is SEALED (RateLimitSealedGroup): the store takes no new key in it, so a flood of made-up keys cannot grow it
- * further, while every key that has a row keeps counting and a lockout stays locked out. A sealed group that is back
- * under the ceiling (rows expire on their own) is unsealed. Returns the groups sealed now, with their row counts; the
- * route raises an alert for each, every run.
+ * Bounds the keys a caller chooses in the authentication groups (SEALABLE_GROUPS) without ever deleting a counter or a
+ * lockout: a group that holds `hardCeiling` rows or more is SEALED (RateLimitSealedGroup): the store takes no new key in
+ * it except against a per-address budget, so a flood of made-up keys cannot grow it further, while every key that has a
+ * row keeps counting and a lockout stays locked out. The address-gate groups are never sealed. A sealed group that is
+ * back under the ceiling (rows expire by themselves) is unsealed here, and by the store itself within a minute of a
+ * refusal (lib/rate-limit-store.ts). Returns the groups sealed now, with their row counts; the route raises an alert for
+ * each, every run.
  */
-export async function sealOverfullAuthGroups(db: ExecClient, hardCeiling = MAX_ROWS_PER_GROUP * HARD_CEILING_MULTIPLIER): Promise<GroupSize[]> {
+export async function sealOverfullAuthGroups(db: ExecClient, hardCeiling = sealCeiling()): Promise<GroupSize[]> {
   await db.$executeRaw`
     INSERT INTO "RateLimitSealedGroup" ("ns")
-    SELECT "ns" FROM "RateLimitHit" WHERE "ns" = ANY(${AUTH_GROUPS}::text[]) GROUP BY "ns" HAVING count(*) >= ${hardCeiling}::int
+    SELECT "ns" FROM "RateLimitHit" WHERE "ns" = ANY(${SEALABLE_GROUPS}::text[]) GROUP BY "ns" HAVING count(*) >= ${hardCeiling}::int
     ON CONFLICT ("ns") DO NOTHING`
   await db.$executeRaw`
-    DELETE FROM "RateLimitSealedGroup" WHERE "ns" = ANY(${AUTH_GROUPS}::text[]) AND "ns" NOT IN (
-      SELECT "ns" FROM "RateLimitHit" WHERE "ns" = ANY(${AUTH_GROUPS}::text[]) GROUP BY "ns" HAVING count(*) >= ${hardCeiling}::int
+    DELETE FROM "RateLimitSealedGroup" WHERE "ns" NOT IN (
+      SELECT "ns" FROM "RateLimitHit" WHERE "ns" = ANY(${SEALABLE_GROUPS}::text[]) GROUP BY "ns" HAVING count(*) >= ${hardCeiling}::int
     )`
   const sealed = await db.$queryRaw<Array<{ ns: string; rows: number }>>`
     SELECT h."ns", count(*)::int AS rows FROM "RateLimitHit" h JOIN "RateLimitSealedGroup" s ON s."ns" = h."ns" GROUP BY h."ns" ORDER BY 2 DESC`

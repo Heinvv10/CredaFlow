@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import type { RateLimitOptions, RateLimitResult } from "./rate-limit"
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
+import { sealCeiling as configuredSealCeiling } from "./rate-limit-cleanup"
 import { isAuthGroup } from "./rate-limit-groups"
 
 /** The part of a Prisma client the store uses: the application client or any other. */
@@ -64,7 +65,37 @@ async function queryStore<T>(run: () => Promise<T>): Promise<T> {
  * the lockout) and the statement returns no row from the upsert. Every timestamp is
  * the database's own clock_timestamp(), so replicas with skewed clocks agree.
  */
-export function createPostgresStore(client: RawQueryClient) {
+export interface StoreOptions {
+  /** Rows at which a sealed group stays sealed (the cleanup's ceiling). */
+  sealCeiling?: number
+  /** Least time between two checks, per group and process, of whether a sealed group may be unsealed. */
+  healEveryMs?: number
+  /** Off only for tests of the refusal itself. */
+  selfHeal?: boolean
+}
+
+export function createPostgresStore(client: RawQueryClient, options: StoreOptions = {}) {
+  const healEveryMs = options.healEveryMs ?? 60_000
+  const lastHeal = new Map<string, number>()
+
+  /**
+   * A call refused because its group is sealed re-checks, at most once per minute per group per process, whether the group
+   * is back under the ceiling (live rows only), and lifts the seal if so: it need not wait for the cleanup job's next
+   * run. Returns whether the seal was lifted.
+   */
+  async function healSeal(group: string): Promise<boolean> {
+    const now = Date.now()
+    if (now - (lastHeal.get(group) ?? -Infinity) < healEveryMs) return false
+    lastHeal.set(group, now)
+    const rows = await queryStore(() => client.$queryRaw<Array<{ lifted: number }>>`
+      WITH live AS (SELECT count(*) AS n FROM "RateLimitHit" WHERE "ns" = ${group}::text AND "expiresAt" > now()),
+      gone AS (
+        DELETE FROM "RateLimitSealedGroup" WHERE "ns" = ${group}::text AND (SELECT n FROM live) < ${options.sealCeiling ?? configuredSealCeiling()}::int RETURNING 1
+      )
+      SELECT (SELECT count(*) FROM gone)::int AS lifted`)
+    return (rows[0]?.lifted ?? 0) > 0
+  }
+
   type Attempt = { result: RateLimitResult; sealedNoRow: boolean }
 
   /** One upsert. `sealedNoRow`: the key had no row and its group is sealed, so nothing was recorded. */
@@ -107,7 +138,8 @@ export function createPostgresStore(client: RawQueryClient) {
   return async function check(namespace: string, key: string, opts: RateLimitOptions, group = namespace, newKeyAddress?: string): Promise<RateLimitResult> {
     if (opts.limit <= 0) return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(opts.windowMs / 1000)) }
     const hash = keyHash(namespace, key)
-    const first = await attempt(hash, group, opts, false)
+    let first = await attempt(hash, group, opts, false)
+    if (first.sealedNoRow && options.selfHeal !== false && (await healSeal(group))) first = await attempt(hash, group, opts, false)
     if (!first.sealedNoRow || !newKeyAddress) return first.result
     const budget = await attempt(keyHash("", `sealed-new:${group}:${newKeyAddress}`), "sealed-new:", { limit: NEW_KEYS_PER_ADDRESS, windowMs: opts.windowMs }, false)
     if (!budget.result.allowed) return first.result

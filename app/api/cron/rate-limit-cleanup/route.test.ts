@@ -26,11 +26,11 @@ beforeEach(() => {
     if (/RateLimitSealedGroup/.test(text)) return answers.sealed
     return answers.over
   })
-  vi.stubEnv("CRON_SECRET", "cron-secret-for-tests-0123456789")
+  vi.stubEnv("CRON_SECRET", "synthetic-cron-secret")
 })
 
 describe("GET /api/cron/rate-limit-cleanup", () => {
-  const ok = "cron-secret-for-tests-0123456789"
+  const ok = "synthetic-cron-secret"
 
   it("refuses a caller without the cron secret and deletes nothing", async () => {
     expect((await GET(request())).status).toBe(401)

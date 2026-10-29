@@ -48,3 +48,11 @@ export function classify(namespace: string, key: string): Classified {
 export function isAuthGroup(group: string): boolean {
   return FAIL_CLOSED_NAMESPACES.has(group) || FAIL_CLOSED_KEY_PREFIXES.includes(group)
 }
+
+/**
+ * The authentication groups whose keys the CALLER chooses (an email typed into a form): the only ones that can be sealed
+ * when they grow past the hard row ceiling (lib/rate-limit-cleanup.ts). Address-gate groups (login:ip:, forgot:ip:, ...)
+ * are never sealed: they are the first line of defence and are bounded by the address buckets (an IPv6 /64), so a flood
+ * of made-up emails must never stop them from creating rows.
+ */
+export const SEALABLE_GROUPS: readonly string[] = ["login:email:", "login:combined:", "forgot:acct:", "reset-otp:acct:", "register:identity:"]

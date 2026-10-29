@@ -61,14 +61,14 @@ describe("createPostgresStore", () => {
 
     it("refuses a key with no row, telling the caller to come back later, when no address is given", async () => {
       const query = vi.fn().mockResolvedValue([sealed])
-      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:")
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:")
       expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 300 })
       expect(query).toHaveBeenCalledTimes(1)
     })
 
     it("creates the key when its address has budget for new keys: budget spent first, then the key made past the seal", async () => {
       const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([created]).mockResolvedValueOnce([created])
-      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
       expect(result).toEqual({ allowed: true, remaining: 2, retryAfterSeconds: 0 })
       expect(query).toHaveBeenCalledTimes(3)
       expect(query.mock.calls.map(bypassOf)).toEqual([false, false, true])
@@ -79,14 +79,43 @@ describe("createPostgresStore", () => {
 
     it("refuses when the address has spent its budget, and makes no key", async () => {
       const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([{ n: null, retry_ms: 5000 }])
-      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
       expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 300 })
       expect(query).toHaveBeenCalledTimes(2)
     })
 
+    it("lifts the seal itself when the group is back under the ceiling, and then makes the key", async () => {
+      const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([{ lifted: 1 }]).mockResolvedValueOnce([created])
+      const result = await createPostgresStore({ $queryRaw: query }, { sealCeiling: 100 })("", "login:email:x@y.example", OPTS, "login:email:")
+      expect(result.allowed).toBe(true)
+      expect(query).toHaveBeenCalledTimes(3)
+      // the check counts the group's live rows against the ceiling
+      expect(query.mock.calls[1]!.slice(1)).toEqual(expect.arrayContaining(["login:email:", 100]))
+    })
+
+    it("checks a sealed group at most once a minute per process, and keeps refusing when it is still full", async () => {
+      vi.useFakeTimers({ now: new Date("2026-10-30T10:00:00Z") })
+      try {
+        const query = vi.fn(async (strings: TemplateStringsArray) => (strings.join("?").includes("DELETE FROM") ? [{ lifted: 0 }] : [sealed]))
+        const check = createPostgresStore({ $queryRaw: query as never }, { sealCeiling: 100 })
+        const healChecks = () => query.mock.calls.filter(([strings]) => (strings as TemplateStringsArray).join("?").includes("DELETE FROM")).length
+        expect((await check("", "login:email:a@y.example", OPTS, "login:email:")).allowed).toBe(false)
+        expect((await check("", "login:email:b@y.example", OPTS, "login:email:")).allowed).toBe(false)
+        expect(healChecks()).toBe(1)
+        vi.advanceTimersByTime(61_000)
+        await check("", "login:email:c@y.example", OPTS, "login:email:")
+        expect(healChecks()).toBe(2)
+        // another group has its own clock
+        await check("", "forgot:acct:a@y.example", OPTS, "forgot:acct:")
+        expect(healChecks()).toBe(3)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("asks for no budget when the key has a row: a refusal on its own limit is just that", async () => {
       const query = vi.fn().mockResolvedValue([{ n: null, retry_ms: 4200 }])
-      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      const result = await createPostgresStore({ $queryRaw: query }, { selfHeal: false })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
       expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 5 })
       expect(query).toHaveBeenCalledTimes(1)
     })

@@ -235,6 +235,8 @@ suite("the cleanup caps a flooded group", () => {
 suite("an authentication group past its hard ceiling stops taking new keys", () => {
   beforeEach(async () => {
     vi.stubEnv("RATE_LIMIT_STORE", "postgres")
+    // the store's own re-check of the ceiling (self-heal) must not undo the tiny ceilings these tests seal at
+    vi.stubEnv("RATE_LIMIT_SEAL_CEILING", "1")
     vi.spyOn(console, "error").mockImplementation(() => {})
     const { _resetRateLimitStore } = await import("./rate-limit")
     _resetRateLimitStore()
@@ -313,6 +315,39 @@ suite("an authentication group past its hard ceiling stops taking new keys", () 
     expect(results.every((r) => r.allowed === false)).toBe(true)
     await held.released
   }, 40_000)
+
+  it("never seals an address-gate group, however full: only the keys a caller chooses are sealable", async () => {
+    const { sealOverfullAuthGroups } = await import("./rate-limit-cleanup")
+    const { checkRateLimit } = await import("./rate-limit")
+    const opts = { limit: 3, windowMs: WINDOW }
+    await checkRateLimit(`login:ip:${randomUUID()}`, opts)
+    await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)
+    const sealed = (await sealOverfullAuthGroups(side, 1)).map((g) => g.ns)
+    expect(sealed).toContain("login:email:")
+    expect(sealed).not.toContain("login:ip:")
+    expect(sealed).not.toContain("forgot:ip:")
+    expect(sealed).not.toContain("sealed-new:")
+    // a flood of email keys has sealed their group, yet the address gate still creates its rows
+    expect(await side.rateLimitSealedGroup.count({ where: { ns: { in: ["login:ip:", "forgot:ip:", "register:ip:", "reset-otp:", "sealed-new:"] } } })).toBe(0)
+    expect((await checkRateLimit(`login:ip:${randomUUID()}`, opts)).allowed).toBe(true)
+  })
+
+  it("lifts a seal itself, within a minute of a refusal, when the group is back under the ceiling; and does not re-check inside that minute", async () => {
+    const { sealOverfullAuthGroups } = await import("./rate-limit-cleanup")
+    const { createPostgresStore } = await import("./rate-limit-store")
+    const opts = { limit: 3, windowMs: WINDOW }
+    const store = createPostgresStore(side, { sealCeiling: 1_000_000_000, healEveryMs: 60_000 })
+    await store("", `login:email:${randomUUID()}@x.test`, opts, "login:email:")
+    await sealOverfullAuthGroups(side, 1)
+    expect(await side.rateLimitSealedGroup.count({ where: { ns: "login:email:" } })).toBe(1)
+    // the first refusal re-checks the group: it is far under the ceiling, so the seal goes and the key is made
+    expect((await store("", `login:email:${randomUUID()}@x.test`, opts, "login:email:")).allowed).toBe(true)
+    expect(await side.rateLimitSealedGroup.count({ where: { ns: "login:email:" } })).toBe(0)
+    // sealed again by the cleanup: inside the minute this process does not look again
+    await sealOverfullAuthGroups(side, 1)
+    expect((await store("", `login:email:${randomUUID()}@x.test`, opts, "login:email:")).allowed).toBe(false)
+    expect(await side.rateLimitSealedGroup.count({ where: { ns: "login:email:" } })).toBe(1)
+  })
 
   it("keeps ordinary limits taking new keys while an authentication group is sealed", async () => {
     const { checkRateLimit } = await import("./rate-limit")

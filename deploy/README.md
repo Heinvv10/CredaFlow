@@ -209,11 +209,15 @@ open); above 5 times that it deletes the rows expiring soonest even if they are 
 **Authentication groups are never evicted**: every row in one with a hit inside its window is an active counter or a
 lockout, and deleting it would lift it. Keys the caller chooses (an email typed into a form: `login:email:`,
 `login:combined:`, `forgot:acct:`, `reset-otp:acct:`, `register:identity:`) are groups of their own, apart from the address
-keys (`login:ip:`, `forgot:ip:`, ...), so a flood of one kind cannot crowd or seal the other. An authentication group that
-reaches 1 000 000 rows is **sealed** (`RateLimitSealedGroup`): a call whose key has no row is refused (`Retry-After`
-300) unless its address has budget for creating a key: **6 new keys per address (IPv6 /64) per window**, 1/5 of the 30
-sign-ins an address may make in it, spent on a row in the `sealed-new:` group. Keys that have a row keep counting, and a
-lockout stays locked out. The job logs an `ALERT` line on every
+keys (`login:ip:`, `forgot:ip:`, ...), so a flood of one kind cannot crowd or seal the other. Only the keys the caller chooses are ever sealed, per
+kind (`login:email:`, `login:combined:`, `forgot:acct:`, `reset-otp:acct:`, `register:identity:`); the address-gate groups
+are never sealed, so a flood of made-up emails cannot stop the per-address gate from creating its rows. A group that
+reaches 1 000 000 rows (`RATE_LIMIT_SEAL_CEILING` to change it) is **sealed** (`RateLimitSealedGroup`): a call whose key has no
+row is refused (`Retry-After` 300) unless its address has budget for creating a key: **6 new keys per address (IPv6 /64)
+per window**, 1/5 of the 30 sign-ins an address may make in it, spent on a row in the `sealed-new:` group. Keys that have
+a row keep counting, and a lockout stays locked out. A refusal also re-checks, at most once a minute per group per pod,
+whether the group's live rows are back under the ceiling and lifts the seal itself, instead of waiting for the cleanup
+job (every 10 minutes). The job logs an `ALERT` line on every
 run a group is sealed, and unseals it when it is back under the ceiling (rows expire by themselves). The address-first
 gate order and the IPv6 /64 keys are what keep a flood from getting there in practice.
 
