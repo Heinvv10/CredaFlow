@@ -135,6 +135,27 @@ describe("POST /api/auth/oauth/token", () => {
     expect(await res.json()).toMatchObject({ error: "invalid_request" })
   })
 
+  it("refuses a correctly formed body sent with the wrong content type, and accepts it with the right one (with a charset)", async () => {
+    for (const type of ["text/plain", "application/json", ""]) {
+      const res = await tokenCall(grant, { "content-type": type })
+      expect(res.status, type).toBe(400)
+      expect(await res.json()).toMatchObject({ error: "invalid_request" })
+    }
+    expect((await tokenCall(grant, { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" })).status).toBe(200)
+  })
+
+  it("refuses an oversize body before looking at any client", async () => {
+    const res = await tokenCall(`${grant}&scope=${"a".repeat(9_000)}`)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ error: "invalid_request" })
+    expect(h.clientFindUnique).not.toHaveBeenCalled()
+  })
+
+  it("accepts a body just under the cap", async () => {
+    const res = await tokenCall(`${grant}&padding=${"a".repeat(7_000)}`)
+    expect(res.status).toBe(200)
+  })
+
   it("refuses a JSON body", async () => {
     const res = await tokenCall(JSON.stringify({ grant_type: "client_credentials" }), { "content-type": "application/json" })
     expect(res.status).toBe(400)

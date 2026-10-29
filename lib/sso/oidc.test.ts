@@ -106,6 +106,19 @@ describe("OIDC refusals", () => {
     expect(e?.code).toBe("discovery_failed")
   })
 
+  it("refuses a symmetric (HS256) ID token signed with the client secret: only the provider's asymmetric keys count", async () => {
+    expect((await failure(run({ hmacSign: true, claims: { email: "a@b.test" } })))?.code).toBe("token_exchange_failed")
+  })
+
+  it("lets the ID token's claims win over userinfo's, and fills only what the ID token lacks", async () => {
+    idp.userinfo.email = "userinfo-says-otherwise@bank.example.test"
+    idp.userinfo.groups = ["from-userinfo"]
+    idp.userinfo.name = "Userinfo Name"
+    // No groups in the ID token, so userinfo is consulted: its email must not displace the ID token's.
+    const who = await run({ claims: { email: "idtoken@bank.example.test", name: "Id Token Name" } })
+    expect(who).toMatchObject({ email: "idtoken@bank.example.test", name: "Id Token Name", groups: ["from-userinfo"] })
+  })
+
   it("refuses an ID token for another client", async () => {
     expect((await failure(run({ audience: "someone-else", claims: { email: "a@b.test" } })))?.code).toBe("token_exchange_failed")
   })

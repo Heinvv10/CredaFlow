@@ -199,6 +199,13 @@ describe("resolveStaffUser: existing users", () => {
     expect(users.size).toBe(0)
   })
 
+  it("does not provision when jitProvisioning is off, even with a default role and a mapped group", async () => {
+    const off = conn({ jitProvisioning: false, jitDefaultRole: "READONLY" })
+    expect(await resolveStaffUser(who({ groups: ["admins"] }), off)).toEqual({ ok: false, reason: "no_account" })
+    expect(users.size).toBe(0)
+    expect(links).toHaveLength(0)
+  })
+
   it("refuses a user of another lender", async () => {
     seed({ tenantId: "t2" })
     expect(await resolveStaffUser(who(), conn())).toEqual({ ok: false, reason: "no_account" })
@@ -206,6 +213,18 @@ describe("resolveStaffUser: existing users", () => {
 
   it("refuses an operator user", async () => {
     seed({ tenantId: null, operatorId: "op1", role: "OPERATOR_ADMIN" })
+    expect(await resolveStaffUser(who(), conn())).toEqual({ ok: false, reason: "no_account" })
+  })
+
+  it("refuses a user that matches the lender but is also bound to an operator", async () => {
+    seed({ tenantId: "t1", operatorId: "op1" })
+    expect(await resolveStaffUser(who(), conn())).toEqual({ ok: false, reason: "no_account" })
+    expect(links).toHaveLength(0)
+  })
+
+  it("refuses a bound subject whose user is bound to an operator", async () => {
+    seed({ tenantId: "t1", operatorId: "op1" })
+    links.push({ tenantId: "t1", userId: "u1", subject: "https://idp.example.test|sub-ann" })
     expect(await resolveStaffUser(who(), conn())).toEqual({ ok: false, reason: "no_account" })
   })
 

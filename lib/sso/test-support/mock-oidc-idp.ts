@@ -19,6 +19,8 @@ export interface IssueOptions {
   expiresInSeconds?: number
   nonceClaim?: string
   signWithOtherKey?: boolean
+  /** Sign HS256 with the client secret (a symmetric ID token). */
+  hmacSign?: boolean
   omitIdToken?: boolean
 }
 
@@ -67,10 +69,10 @@ export async function startMockIdp(overrideIssuerInMetadata?: string): Promise<M
       if (challenge !== issued.codeChallenge) return send(400, { error: "invalid_grant", error_description: "pkce" })
       const now = Math.floor(Date.now() / 1000)
       const idToken = await new SignJWT({ nonce: issued.nonceClaim ?? issued.nonce, ...issued.claims })
-        .setProtectedHeader({ alg: "RS256", kid: "k1" })
+        .setProtectedHeader(issued.hmacSign ? { alg: "HS256" } : { alg: "RS256", kid: "k1" })
         .setIssuer(issued.issuer ?? issuer).setAudience(issued.audience ?? clientId).setSubject("user-1")
         .setIssuedAt(now - 10).setExpirationTime(now + (issued.expiresInSeconds ?? 300))
-        .sign(issued.signWithOtherKey ? other.privateKey : privateKey)
+        .sign(issued.hmacSign ? new TextEncoder().encode(clientSecret) : issued.signWithOtherKey ? other.privateKey : privateKey)
       return send(200, { access_token: "at-" + randomUUID(), token_type: "Bearer", expires_in: 300, ...(issued.omitIdToken ? {} : { id_token: idToken }) })
     }
     send(404, { error: "not_found" })

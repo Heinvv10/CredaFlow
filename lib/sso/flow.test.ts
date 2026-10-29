@@ -38,7 +38,13 @@ vi.mock("@/lib/prisma", () => {
           if (h.cache.has(data.key)) throw Object.assign(new Error("unique"), { code: "P2002" })
           h.cache.set(data.key, data)
         },
-        deleteMany: async () => ({ count: 0 }),
+        findUnique: async ({ where }: { where: { key: string } }) => h.cache.get(where.key) ? { key: where.key, ...h.cache.get(where.key)! } : null,
+        deleteMany: async ({ where }: { where: { key?: string; expiresAt?: { lt: Date } } }) => {
+          const row = where.key === undefined ? undefined : h.cache.get(where.key)
+          const due = row !== undefined && (!where.expiresAt || row.expiresAt < where.expiresAt.lt)
+          if (due) h.cache.delete(where.key as string)
+          return { count: due ? 1 : 0 }
+        },
       },
     },
   }
@@ -55,7 +61,9 @@ vi.mock("@/lib/audit", () => ({
   logAuditStrict: async (p: { action: string }) => { h.audits.push(p.action) },
 }))
 
-import { handleOidcCallback, handleSamlMetadata, handleSsoStart } from "./flow"
+import { handleOidcCallback, handleSamlAcs, handleSamlMetadata, handleSsoStart } from "./flow"
+import { readState } from "./tokens"
+import { samlResponse, testCertificatePem } from "./test-support/saml-fixture"
 import { authorizeSso } from "./authorize"
 import { sealSecret } from "@/lib/crypto/secret-box"
 import { startMockIdp, type MockIdp } from "./test-support/mock-oidc-idp"
@@ -287,5 +295,69 @@ describe("SAML service provider metadata", () => {
     expect((await handleSamlMetadata(req("/api/auth/sso/saml/metadata"))).status).toBe(404)
     h.conn = samlConn()
     expect((await handleSamlMetadata(req("/api/auth/sso/saml/metadata", undefined, "other.example.test"))).status).toBe(404)
+  })
+})
+
+describe("SAML ACS", () => {
+  const ACS_URL = "https://app.example.test/api/auth/sso/saml/acs"
+  const samlConn = () => ({
+    ...h.conn!, protocol: "SAML", samlEntityId: "urn:cf:t1", samlIdpEntityId: "https://idp.example.test/saml",
+    samlIdpSsoUrl: "https://idp.example.test/sso", samlIdpCert: testCertificatePem(), samlSubjectAttribute: null,
+  })
+  const post = (flow: string | null, fields: Record<string, string>) => {
+    const body = new URLSearchParams(fields)
+    return handleSamlAcs(new Request(ACS_URL, {
+      method: "POST", body,
+      headers: { host: "app.example.test", "content-type": "application/x-www-form-urlencoded", ...(flow ? { cookie: flow } : {}) },
+    }))
+  }
+  const begin = async () => {
+    const start = await handleSsoStart(req("/api/auth/sso/start"), TEST)
+    const flow = cookieOf(start, flowCookieName())!
+    const state = (await readState(decodeURIComponent(flow.split("=")[1])))!
+    return { flow, state, relay: new URL(start.headers.get("location")!).searchParams.get("RelayState")! }
+  }
+  const refusedWith = (res: Response, reason: string) => {
+    expect(new URL(res.headers.get("location")!).searchParams.get("sso_error")).toBe("sso_refused")
+    expect(h.failures).toContain(reason)
+  }
+
+  it("signs a mapped user in end to end: ticket cookie, then the trade", async () => {
+    h.conn = samlConn()
+    const { flow, state, relay } = await begin()
+    const res = await post(flow, {
+      RelayState: relay,
+      SAMLResponse: samlResponse({ inResponseTo: state.requestId, attributes: { email: "ann@bank.example.test", groups: ["officers"] }, nameId: "persistent-ann" }),
+    })
+    expect(res.status).toBe(303)
+    expect(new URL(res.headers.get("location")!).searchParams.get("sso")).toBe("1")
+    expect(await trade(res)).toMatchObject({ ok: true, user: { id: "u1" } })
+    expect(h.links).toEqual([{ tenantId: "t1", userId: "u1", subject: "https://idp.example.test/saml|persistent-ann" }])
+  })
+
+  it("refuses a response larger than the cap, before parsing it", async () => {
+    h.conn = samlConn()
+    const { flow, relay } = await begin()
+    refusedWith(await post(flow, { RelayState: relay, SAMLResponse: "A".repeat(400_001) }), "sso_bad_response")
+  })
+
+  it("accepts one just under the cap as far as size goes (then fails on content, not size)", async () => {
+    h.conn = samlConn()
+    const { flow, relay } = await begin()
+    refusedWith(await post(flow, { RelayState: relay, SAMLResponse: "A".repeat(399_999) }), "sso_invalid_response")
+  })
+
+  it("refuses a missing response and a callback with no flow cookie", async () => {
+    h.conn = samlConn()
+    const { flow, relay } = await begin()
+    refusedWith(await post(flow, { RelayState: relay }), "sso_bad_response")
+    h.failures.length = 0
+    refusedWith(await post(null, { RelayState: relay, SAMLResponse: "x" }), "sso_no_flow")
+  })
+
+  it("is not served for an OIDC lender", async () => {
+    const { flow } = await (async () => { h.conn = samlConn(); return begin() })()
+    h.conn = { ...h.conn!, protocol: "OIDC" }
+    refusedWith(await post(flow, { RelayState: "r", SAMLResponse: "x" }), "sso_no_flow")
   })
 })

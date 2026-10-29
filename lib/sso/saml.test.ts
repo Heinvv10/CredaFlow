@@ -140,6 +140,26 @@ describe("SAML refusals", () => {
     expect((await attempt({ notBefore: new Date(Date.now() + 3_600_000), notOnOrAfter: new Date(Date.now() + 7_200_000) }))?.code).toBe("invalid_response")
   })
 
+  it("refuses an unsigned assertion, with or without a signed Response around it", async () => {
+    expect((await attempt({ unsignedAssertion: true }))?.code).toBe("invalid_response")
+    expect((await attempt({ unsignedAssertion: true, signResponse: true }))?.code).toBe("invalid_response")
+  })
+
+  it("refuses an assertion issued longer ago than the maximum age even though its validity window is still open", async () => {
+    const issueInstant = new Date(Date.now() - 20 * 60_000)
+    const stillOpen = { issueInstant, notBefore: new Date(Date.now() - 25 * 60_000), notOnOrAfter: new Date(Date.now() + 5 * 60_000) }
+    expect((await attempt(stillOpen))?.code).toBe("invalid_response")
+  })
+
+  it("accepts an assertion issued a few minutes ago, inside the maximum age", async () => {
+    const { flow, requestId, relay } = await begin()
+    const who = await completeSaml(conn(), {
+      acsUrl: ACS, flow, relayState: relay,
+      samlResponse: samlResponse({ inResponseTo: requestId, attributes: attrs, issueInstant: new Date(Date.now() - 2 * 60_000) }),
+    })
+    expect(who.email).toBe("ann@bank.example.test")
+  })
+
   it("refuses an assertion for another audience", async () => {
     expect((await attempt({ audience: "urn:some:other:sp" }))?.code).toBe("invalid_response")
   })

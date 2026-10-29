@@ -50,6 +50,10 @@ export interface TestAssertion {
   signer?: TestIdp
   /** Sign the whole Response too (default: the Assertion only). */
   signResponse?: boolean
+  /** Leave the Assertion unsigned (with signResponse, only the Response carries a signature). */
+  unsignedAssertion?: boolean
+  /** When the assertion was issued (default: now); NotOnOrAfter is independent of it. */
+  issueInstant?: Date
 }
 
 const iso = (d: Date) => d.toISOString()
@@ -86,15 +90,15 @@ export function samlResponse(opts: TestAssertion = {}): string {
   const attrs = Object.entries(opts.attributes ?? {}).map(([name, v]) =>
     `<saml:Attribute Name="${esc(name)}">${(Array.isArray(v) ? v : [v]).map((x) => `<saml:AttributeValue>${esc(x)}</saml:AttributeValue>`).join("")}</saml:Attribute>`).join("")
   const assertion =
-    `<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${assertionId}" Version="2.0" IssueInstant="${iso(new Date(now))}">` +
+    `<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${assertionId}" Version="2.0" IssueInstant="${iso(opts.issueInstant ?? new Date(now))}">` +
     `<saml:Issuer>${esc(issuer)}</saml:Issuer>` +
     `<saml:Subject><saml:NameID Format="${esc(opts.nameIdFormat ?? "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent")}">${esc(opts.nameId ?? "staff@bank.example.test")}</saml:NameID>` +
     `<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><saml:SubjectConfirmationData${irt} NotOnOrAfter="${iso(notOnOrAfter)}" Recipient="${esc(destination)}"/></saml:SubjectConfirmation></saml:Subject>` +
     `<saml:Conditions NotBefore="${iso(notBefore)}" NotOnOrAfter="${iso(notOnOrAfter)}"><saml:AudienceRestriction><saml:Audience>${esc(audience)}</saml:Audience></saml:AudienceRestriction></saml:Conditions>` +
-    `<saml:AuthnStatement AuthnInstant="${iso(new Date(now))}" SessionIndex="_s1"><saml:AuthnContext><saml:AuthnContextClassRef>${esc(opts.authnContext ?? "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport")}</saml:AuthnContextClassRef></saml:AuthnContext></saml:AuthnStatement>` +
+    `<saml:AuthnStatement AuthnInstant="${iso(opts.issueInstant ?? new Date(now))}" SessionIndex="_s1"><saml:AuthnContext><saml:AuthnContextClassRef>${esc(opts.authnContext ?? "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport")}</saml:AuthnContextClassRef></saml:AuthnContext></saml:AuthnStatement>` +
     (attrs ? `<saml:AttributeStatement>${attrs}</saml:AttributeStatement>` : "") +
     `</saml:Assertion>`
-  const signedAssertion = sign(assertion, idp, assertionId)
+  const signedAssertion = opts.unsignedAssertion ? assertion : sign(assertion, idp, assertionId)
   const response =
     `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${responseId}" Version="2.0" IssueInstant="${iso(new Date(now))}" Destination="${esc(destination)}"${irt}>` +
     `<saml:Issuer>${esc(issuer)}</saml:Issuer><samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>` +

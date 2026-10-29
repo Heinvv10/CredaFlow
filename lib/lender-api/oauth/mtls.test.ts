@@ -79,6 +79,22 @@ describe("the optional subject pin is an exact RFC 4514 string match", () => {
     expect(checkClientCertificate(withDn(multi), client({ mtlsSubjectDn: multi }), on)).toBe("ok")
     expect(checkClientCertificate(withDn("UID=7+CN=lpb-core,O=Bank,C=LS"), client({ mtlsSubjectDn: multi }), on)).toBe("dn_mismatch")
   })
+  it.each([
+    ["a space after a comma", "CN=lpb-core, O=Lesotho PostBank,C=LS"],
+    ["a doubled inner space", "CN=lpb-core,O=Lesotho  PostBank,C=LS"],
+    ["a missing last RDN", "CN=lpb-core,O=Lesotho PostBank"],
+    ["a one-character difference", "CN=lpb-core,O=Lesotho PostBanK,C=LS"],
+    ["a trailing comma", `${DN},`],
+    ["a quoted value", 'CN="lpb-core",O=Lesotho PostBank,C=LS'],
+  ])("refuses a near-match subject: %s", (_l, dn) => {
+    expect(checkClientCertificate(withDn(dn), pinned, on)).toBe("dn_mismatch")
+  })
+
+  it("refuses when the stored pin carries a stray space the header can never have (no trimming on our side)", () => {
+    expect(checkClientCertificate(withDn(DN), client({ mtlsSubjectDn: `${DN} ` }), on)).toBe("dn_mismatch")
+    expect(checkClientCertificate(withDn(DN), client({ mtlsSubjectDn: ` ${DN}` }), on)).toBe("dn_mismatch")
+  })
+
   it("still needs the fingerprint when a subject is pinned too", () => {
     const h = headers({ "x-ssl-client-verify": "SUCCESS", "x-ssl-client-cert": encodeURIComponent(OTHER_PEM), "x-ssl-client-dn": DN })
     expect(checkClientCertificate(h, pinned, on)).toBe("fingerprint_mismatch")
