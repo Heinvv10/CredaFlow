@@ -51,6 +51,8 @@ async function requireStepUp(tenantId: string, actor: Actor): Promise<void> {
 
 /** How long a checker who set up or changed the maker's account stays barred, how old a minted maker account must be, and the takeover window. */
 export const MAKER_ACCOUNT_CONTROL_DAYS = 30
+const TRAIL_PAGE_SIZE = 200
+const MAX_TRAIL_ROWS = 5000
 
 /** What on a USER_UPDATED row is a change of how someone signs in or what they may do: role, email, password. */
 function changesAccessOnUpdate(row: { oldValue: unknown; newValue: unknown }): boolean {
@@ -86,21 +88,7 @@ async function refuseControlledMaker(
     })
     if (minted) throw refuse(`The account that drafted this was created less than ${MAKER_ACCOUNT_CONTROL_DAYS} days ago by a user or by SSO: its changes cannot be approved yet`)
   }
-  const recent = await tx.auditLog.findMany({
-    where: {
-      tenantId, entity: "User", entityId: makerId, createdAt: { gte: since },
-      action: {
-        in: [
-          AuditAction.SSO_IDENTITY_LINKED, AuditAction.SSO_ROLE_SYNCED, AuditAction.SSO_PASSWORD_BREAK_GLASS,
-          AuditAction.TOTP_ENROLLED, AuditAction.TOTP_REPLACED, AuditAction.TOTP_DISABLED, AuditAction.TOTP_RESET_BY_ADMIN,
-          AuditAction.USER_UPDATED,
-        ],
-      },
-    },
-    select: { action: true, oldValue: true, newValue: true, createdAt: true },
-    take: 200,
-  })
-  const takenOver = async (row: (typeof recent)[number]): Promise<boolean> => {
+  const takenOver = async (row: { action: string; oldValue: unknown; newValue: unknown; createdAt: Date }): Promise<boolean> => {
     if (row.action === AuditAction.USER_UPDATED) return changesAccessOnUpdate(row)
     if (row.action !== AuditAction.TOTP_ENROLLED) return true
     // A user's FIRST enrolment is how a new account is set up (staff TOTP is on by default), not a takeover. An enrolment after an
@@ -114,12 +102,36 @@ async function refuseControlledMaker(
     })
     return earlier !== null
   }
-  let takeover = false
-  for (const row of recent) {
-    if (await takenOver(row)) { takeover = true; break }
-  }
-  if (takeover) {
-    throw refuse(`The sign-in, second factor, role, email or password of the account that drafted this changed in the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: its changes cannot be approved yet`)
+  // Every row of the window is read, newest first, a page at a time: a long run of harmless edits (names, phones) cannot hide a takeover
+  // behind a cap. A trail longer than MAX_TRAIL_ROWS is not read to the end, so it is refused rather than approved unseen.
+  let cursor: string | undefined
+  let scanned = 0
+  for (;;) {
+    const page = await tx.auditLog.findMany({
+      where: {
+        tenantId, entity: "User", entityId: makerId, createdAt: { gte: since },
+        action: {
+          in: [
+            AuditAction.SSO_IDENTITY_LINKED, AuditAction.SSO_ROLE_SYNCED, AuditAction.SSO_PASSWORD_BREAK_GLASS,
+            AuditAction.TOTP_ENROLLED, AuditAction.TOTP_REPLACED, AuditAction.TOTP_DISABLED, AuditAction.TOTP_RESET_BY_ADMIN,
+            AuditAction.USER_UPDATED,
+          ],
+        },
+      },
+      select: { id: true, action: true, oldValue: true, newValue: true, createdAt: true },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: TRAIL_PAGE_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    })
+    for (const row of page) {
+      if (await takenOver(row)) {
+        throw refuse(`The sign-in, second factor, role, email or password of the account that drafted this changed in the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: its changes cannot be approved yet`)
+      }
+    }
+    scanned += page.length
+    if (page.length < TRAIL_PAGE_SIZE) break
+    if (scanned >= MAX_TRAIL_ROWS) throw refuse("The account that drafted this has too many recent changes on record to check: its changes cannot be approved yet")
+    cursor = page[page.length - 1].id
   }
   const control = await tx.auditLog.findFirst({
     where: {

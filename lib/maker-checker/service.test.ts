@@ -26,7 +26,12 @@ function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeH
 function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
-    auditLog: { create: vi.fn(), findMany: vi.fn(async () => h.recent), findFirst: vi.fn(async (a: { where: { action: { in: string[] } } }) => (a.where.action.in.includes("SSO_USER_PROVISIONED") ? h.minted : a.where.action.in.includes("TOTP_ENROLLED") ? h.earlierTotp : h.control)) },
+    auditLog: { create: vi.fn(), findMany: vi.fn(async (a: { take?: number; cursor?: { id: string } } = {}) => {
+      // Newest first, paged by cursor as the service asks (rows without an id get one by position).
+      const rows = (h.recent as Array<Record<string, unknown>>).map((r, i) => ({ id: `r${i}`, createdAt: new Date(), ...r }))
+      const start = a.cursor ? rows.findIndex((r) => r.id === a.cursor!.id) + 1 : 0
+      return rows.slice(start, start + (a.take ?? rows.length))
+    }), findFirst: vi.fn(async (a: { where: { action: { in: string[] } } }) => (a.where.action.in.includes("SSO_USER_PROVISIONED") ? h.minted : a.where.action.in.includes("TOTP_ENROLLED") ? h.earlierTotp : h.control)) },
     user: { findFirst: vi.fn(async () => (h.makerCreatedAt ? { createdAt: h.makerCreatedAt } : null)) },
     $executeRaw: vi.fn(async () => 0),
   }
@@ -136,6 +141,31 @@ describe("maker-checker service (state, permission, staleness; the database rule
       it("a USER_UPDATED row that changed only a name, phone or branch does not", async () => {
         h.recent = [{ action: "USER_UPDATED", oldValue: null, newValue: { changed: ["name", "phone", "branchId"] } }]
         expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
+      })
+
+      it("harmless USER_UPDATED rows cannot hide a takeover: 250 name edits newer than one role change still refuse", async () => {
+        const harmless = Array.from({ length: 250 }, () => ({ action: "USER_UPDATED", oldValue: null, newValue: { changed: ["name"] } }))
+        h.recent = [...harmless, { action: "USER_UPDATED", oldValue: { role: "READONLY" }, newValue: { role: "ADMIN" } }]
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+      })
+
+      it("a takeover row of another kind (second factor, SSO) behind 250 harmless rows is found too", async () => {
+        const harmless = Array.from({ length: 250 }, () => ({ action: "USER_UPDATED", oldValue: null, newValue: { changed: ["phone"] } }))
+        h.recent = [...harmless, { action: "TOTP_RESET_BY_ADMIN", oldValue: null, newValue: null }]
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+      })
+
+      it("fails closed when the trail is longer than the most it will read, rather than approve unseen rows", async () => {
+        h.recent = Array.from({ length: 6000 }, () => ({ action: "USER_UPDATED", oldValue: null, newValue: { changed: ["name"] } }))
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+      })
+
+      it("reads the trail newest first, in pages", async () => {
+        const { db, tx } = fakeDb(row())
+        await approve({ ...scope, actor: checker }, db)
+        const query = (tx.auditLog.findMany.mock.calls[0] as unknown as [{ orderBy: unknown; take: number }])[0]
+        expect(query.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }])
+        expect(query.take).toBe(200)
       })
 
       it("looks at the maker's own rows from the last 30 days, written by anyone", async () => {

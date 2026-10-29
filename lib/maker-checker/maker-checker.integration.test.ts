@@ -437,6 +437,20 @@ suite("maker-checker (real Postgres)", () => {
     expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: old })).status).toBe("APPROVED")
   })
 
+  it("a long run of harmless edits of the maker's account cannot hide a takeover behind it (the trail is paged, not capped)", async () => {
+    const u = await db.user.create({ data: { id: `u_many_${lender.tenantId}`, tenantId: lender.tenantId, email: `many_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 90 * 86_400_000) } })
+    const row = (newValue: object, oldValue: object, ageHours: number) => ({ tenantId: lender.tenantId, action: "USER_UPDATED", entity: "User", entityId: u.id, userId: u.id, oldValue, newValue, createdAt: new Date(Date.now() - ageHours * 3_600_000) })
+    await db.auditLog.createMany({ data: [
+      // The role change is the OLDEST row in the window; 450 name and phone edits are newer.
+      row({ role: "ADMIN" }, { role: "READONLY" }, 24 * 20),
+      ...Array.from({ length: 450 }, (_, i) => row({ changed: [i % 2 ? "name" : "phone"] }, {}, 1 + i / 100)),
+    ] })
+    const actor = { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
+    const d = await createDraft({ tenantId: lender.tenantId, actor, kind: RULE_SET_KIND, title: "many", payload: payload({ name: "Many rules" }) })
+    await submit({ tenantId: lender.tenantId, actor, id: d.id })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+  })
+
   it("a LIVE or s71 settings change needs a maker account 30 days old even where nobody on record created it (operator, seed)", async () => {
     const young = await db.user.create({ data: { id: `u_youngop_${lender.tenantId}`, tenantId: lender.tenantId, email: `youngop_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 4 * 86_400_000) } })
     const asYoung = { id: young.id, email: young.email, role: "ADMIN", totpVerified: true }
