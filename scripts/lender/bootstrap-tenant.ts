@@ -6,7 +6,8 @@
  * no-op that still re-ensures the default document and message templates.
  */
 import type { Prisma, PrismaClient } from "@prisma/client"
-import { instanceJurisdictionConflict } from "@/lib/jurisdiction/instance.server"
+import { readInstanceJurisdiction } from "@/lib/jurisdiction/instance.server"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditDb } from "./audit-db"
 import { tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
@@ -105,17 +106,24 @@ export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig
     if (domainRefusal) throw new TenantBootstrapRefusal("DOMAIN_RESERVED", domainRefusal)
     const slugRefusal = await tenantSlugRefusal(c.slug, tx)
     if (slugRefusal) throw new TenantBootstrapRefusal("SLUG_HOST_TAKEN", slugRefusal)
-    // One jurisdiction per instance (lib/jurisdiction/instance.server.ts): a new lender
-    // is ZA / ZAR (the file carries no jurisdiction), so it cannot join an LS instance.
-    const clash = await instanceJurisdictionConflict(tx, { tenantId: null, jurisdiction: "ZA", currency: "ZAR" })
-    if (clash) throw new TenantBootstrapRefusal("JURISDICTION_CONFLICT", clash.message)
+    // One jurisdiction per instance (InstanceJurisdiction): the new lender takes it, and
+    // its identity must have been validated under it (the file carries no jurisdiction of
+    // its own). A process that validated under another one is refused, not adopted.
+    const instance = await readInstanceJurisdiction(tx)
+    if (instance && activeJurisdiction() !== instance.jurisdiction) {
+      throw new TenantBootstrapRefusal(
+        "JURISDICTION_CONFLICT",
+        `This instance serves ${instance.jurisdiction}/${instance.currency}, but the lender file was validated as ${activeJurisdiction()}. `
+        + "Run from a process that has loaded the instance jurisdiction (the operator console does; the CLI loads it itself).",
+      )
+    }
     if (opts.dryRun) return { status: "dry-run-create", tenantId: null }
 
     const created = await tx.tenant.create({
       data: {
         slug: c.slug, name: c.name, domain: c.domain, status: "ACTIVE",
         ...(opts.operatorId ? { operatorId: opts.operatorId } : {}),
-        config: { create: configColumns(c) as Prisma.TenantConfigCreateWithoutTenantInput },
+        config: { create: { ...configColumns(c), ...(instance ? { jurisdiction: instance.jurisdiction, currency: instance.currency } : {}) } as Prisma.TenantConfigCreateWithoutTenantInput },
       },
     })
     const by = { userId: opts.actor?.userId, userEmail: opts.actor?.email ?? SOURCE }

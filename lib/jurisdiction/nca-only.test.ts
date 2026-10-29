@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+const findUnique = vi.fn()
+vi.mock("@/lib/prisma", () => ({ prisma: { instanceJurisdiction: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
 import { resetActiveJurisdiction, setActiveJurisdiction } from "./active"
+import { resetEnsuredJurisdiction } from "./load.server"
 import { ncaOnlyRefusal } from "./nca-only"
 import { itemEnabled } from "@/components/app-shell/AppSidebar"
 import { staffNavigation } from "@/lib/navigation"
 
-afterEach(() => resetActiveJurisdiction())
+afterEach(() => { resetActiveJurisdiction(); resetEnsuredJurisdiction(); findUnique.mockReset() })
 
 describe("ncaOnlyRefusal", () => {
   it("lets a ZA lender through", async () => {
@@ -18,6 +20,18 @@ describe("ncaOnlyRefusal", () => {
     const refusal = await ncaOnlyRefusal("The NCR return")
     expect(refusal?.status).toBe(404)
     expect(await refusal?.json()).toEqual({ error: "The NCR return does not apply to this lender." })
+  })
+})
+
+describe("a cold process", () => {
+  it("loads the instance jurisdiction before it decides, so an LS instance is never let through on the ZA default", async () => {
+    findUnique.mockResolvedValue({ id: 1, jurisdiction: "LS", currency: "LSL" })
+    expect((await ncaOnlyRefusal("The NCR return"))?.status).toBe(404)
+  })
+
+  it("and a ZA instance is let through", async () => {
+    findUnique.mockResolvedValue({ id: 1, jurisdiction: "ZA", currency: "ZAR" })
+    expect(await ncaOnlyRefusal("The NCR return")).toBeNull()
   })
 })
 

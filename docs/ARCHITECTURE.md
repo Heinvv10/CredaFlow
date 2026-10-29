@@ -179,32 +179,43 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
 
 ## Jurisdiction
 
-One instance and one database serve one jurisdiction (`TenantConfig.jurisdiction`,
-ZA or LS, with `currency`). It is a deployment property, not a per-request one:
-`lib/jurisdiction/active.ts` holds it process-wide so synchronous formatters and
-gates need no tenant argument.
+One instance and one database serve one jurisdiction. The `InstanceJurisdiction`
+table holds it: a single row (id = 1, CHECK) with jurisdiction (ZA or LS) and
+currency. It is the one source of truth.
 
-- **Enforced at boot.** `instrumentation.ts` reads every ACTIVE tenant's
-  jurisdiction and currency (`bootActiveJurisdiction`, retries with backoff,
-  bounded wait) and refuses to start when they differ
-  (`JurisdictionConflictError`). Until the value is known the process is ZA with
-  the NCA gates on, so a failed read is stricter, never looser. Crons, tenant
-  resolution (`withTenantContext`, `getStaffTenantId`, ...) and the root layout
-  await `ensureActiveJurisdiction()`.
-- **Database guards** (migrations `20261029100000_jurisdiction_guards`,
-  `20261029110000_jurisdiction_instance_guard`): a CHECK ties currency to
-  jurisdiction (ZA is rand only); triggers refuse any state where two ACTIVE
-  tenants differ in jurisdiction or currency (so a ZA lender cannot be created,
-  activated or reactivated on an LS instance, with a 409 from the app paths
-  that pre-check it); and a trigger freezes jurisdiction and currency, and
-  forbids deleting the config, once the lender has a loan application or loan.
-- **Recovery without a restart.** A runtime conflict is re-checked after a short
-  cooldown; while it exists the instance refuses to serve.
-- **No application write path.** Setting a lender's jurisdiction is an operator
-  action on the database before its first application; nothing in the app edits it.
-- **NCA-only steps** are gated at their entry points by `isNcaJurisdiction()` /
-  `ncaOnlyRefusal()`, and listed in `lib/registry/nca-only/`; the census test
-  fails when an NCA-looking route or page is neither gated nor declared.
+- **Written once, then by an operator only.** The migration backfills it (ZA /
+  ZAR on every existing database). After that only
+  `lib/jurisdiction/instance-write.ts` writes it, through
+  `npm run lender:set-jurisdiction` (and the demo seed): audited, never
+  reachable from a request, refused once any loan application or loan exists
+  (and a trigger refuses it too). It moves the lenders' configs with it. Run it
+  before onboarding lenders.
+- **Every lender equals it.** Triggers refuse a `TenantConfig` whose
+  jurisdiction/currency differs (insert, or a change to either or `tenantId`),
+  and a tenant becoming ACTIVE or PROVISIONING whose config differs; a change of
+  the row commits only if every lender then equals it. Each takes
+  `pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))` first, so
+  a lender created while the row is being changed waits and then sees the new
+  value. A CHECK ties currency to jurisdiction (ZA is rand only).
+- **The app reads the row, not the tenants.** `lib/jurisdiction/active.ts`
+  holds it process-wide (synchronous formatters and gates need no tenant
+  argument). `instrumentation.ts` loads it at boot (retries with backoff,
+  bounded wait; a database that is not migrated boots as ZA, NCA gates on), and
+  `ensureActiveJurisdiction()` (cron runner, tenant resolution, root layout)
+  re-reads it every 60 s. If the database value ever differs from the one in
+  use, the process refuses to serve (`JurisdictionChangedError`) and logs, until
+  it matches again or is restarted. A re-read that merely fails keeps serving.
+- **Provisioning** takes the instance's jurisdiction: the operator console and
+  `lender:bootstrap-tenant` validate the lender file under it and write it to the
+  new config; a process that validated under another one is refused (409 /
+  `JURISDICTION_CONFLICT`). Admin PATCH to ACTIVE and operator reactivation
+  pre-check and answer 409; the triggers are the backstop.
+- **Lenders are retired, never deleted.** A `TenantConfig` cannot be deleted once
+  the lender has a loan application or loan; set its status to SUSPENDED.
+- **NCA-only steps** are gated at their entry points by `ncaOnlyRefusal()` /
+  `ncaOnlyPage()` / `ncaOnlyCronSkip()` and listed in `lib/registry/nca-only/`;
+  the census and behaviour tests fail when an NCA-looking route is neither gated
+  nor declared, or does not refuse under an LS lender.
 - Details and rules: `lib/jurisdiction/.claude.md`.
 
 ## Lender-owned asset-finance templates

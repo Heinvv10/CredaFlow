@@ -2,18 +2,14 @@ import { prisma } from "@/lib/prisma"
 import { activeCurrency, activeJurisdiction, isJurisdictionLoaded, setActiveJurisdiction } from "./active"
 import { parseCurrency, parseJurisdiction, type Currency, type Jurisdiction } from "./profiles"
 
-interface ConfigRow {
+interface InstanceRow {
   jurisdiction: string
   currency: string
-  tenant: { slug: string }
 }
 
-type ConfigDb = {
-  tenantConfig: {
-    findMany: (args: {
-      where: { tenant: { status: "ACTIVE" } }
-      select: { jurisdiction: true; currency: true; tenant: { select: { slug: true } } }
-    }) => Promise<ConfigRow[]>
+type InstanceDb = {
+  instanceJurisdiction: {
+    findUnique: (args: { where: { id: 1 } }) => Promise<InstanceRow | null>
   }
 }
 
@@ -22,60 +18,58 @@ export interface ActiveJurisdictionState {
   currency: Currency
 }
 
-/** The instance's ACTIVE tenants disagree about jurisdiction or currency. Fatal at boot. */
-export class JurisdictionConflictError extends Error {
-  constructor(readonly tenants: Record<string, string>) {
+/**
+ * The database's instance jurisdiction no longer matches the one this process
+ * is serving under. The process refuses to serve (a stale value would print the
+ * wrong currency and let the wrong gates through) until it matches again or is
+ * restarted.
+ */
+export class JurisdictionChangedError extends Error {
+  constructor(readonly inUse: string, readonly inDatabase: string) {
     super(
-      "One instance serves one jurisdiction, but its active tenants differ: "
-      + Object.entries(tenants).map(([slug, key]) => `${slug}=${key}`).join(", ")
-      + ". Give each jurisdiction its own instance and database.",
+      `The instance jurisdiction in the database (${inDatabase}) differs from the one this process is serving under (${inUse}). `
+      + "Restart the process; it refuses to serve meanwhile.",
     )
-    this.name = "JurisdictionConflictError"
+    this.name = "JurisdictionChangedError"
   }
 }
 
 const current = (): ActiveJurisdictionState => ({ jurisdiction: activeJurisdiction(), currency: activeCurrency() })
+const key = (s: ActiveJurisdictionState) => `${s.jurisdiction}/${s.currency}`
 
 // TODO(#252): switch these to the repo logger when lib/observability/logger.ts lands on main.
 const logError = (message: string, error?: unknown) => console.error(`[jurisdiction] ${message}`, error ?? "")
 
 /**
- * Reads the instance's lender from `TenantConfig` and makes it the active
- * jurisdiction (./active.ts). Every ACTIVE tenant is read: they must all agree
- * (JurisdictionConflictError otherwise, which the caller lets propagate: the
- * process must not run on a guess). When NEXT_PUBLIC_TENANT_SLUG is set, that
- * tenant must be ACTIVE. Returns settled=false, leaving the fail-closed default
- * (ZA, NCA gates on), when there is nothing to adopt yet.
+ * Reads the InstanceJurisdiction row (the single source of truth: every lender's
+ * TenantConfig must equal it, enforced by triggers). First read adopts it; a
+ * later read that differs from what the process is already using throws
+ * JurisdictionChangedError. `settled` is false when there is no row (the
+ * database is not migrated), leaving the fail-closed default: ZA, NCA gates on.
  */
-async function readJurisdiction(db: ConfigDb): Promise<{ state: ActiveJurisdictionState; settled: boolean }> {
-  const rows = await db.tenantConfig.findMany({
-    where: { tenant: { status: "ACTIVE" } },
-    select: { jurisdiction: true, currency: true, tenant: { select: { slug: true } } },
-  })
-  if (rows.length === 0) return { state: current(), settled: false }
-  const keys = Object.fromEntries(rows.map((row) => [row.tenant.slug, `${row.jurisdiction}/${row.currency}`]))
-  if (new Set(Object.values(keys)).size > 1) throw new JurisdictionConflictError(keys)
-  const slug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim()
-  if (slug && !(slug in keys)) {
-    logError(`NEXT_PUBLIC_TENANT_SLUG "${slug}" is not an ACTIVE tenant; keeping ZA`)
-    return { state: current(), settled: false }
-  }
-  setActiveJurisdiction({ jurisdiction: parseJurisdiction(rows[0].jurisdiction), currency: parseCurrency(rows[0].currency) })
+async function readJurisdiction(db: InstanceDb): Promise<{ state: ActiveJurisdictionState; settled: boolean }> {
+  const row = await db.instanceJurisdiction.findUnique({ where: { id: 1 } })
+  if (!row) return { state: current(), settled: false }
+  const stored: ActiveJurisdictionState = { jurisdiction: parseJurisdiction(row.jurisdiction), currency: parseCurrency(row.currency) }
+  if (isJurisdictionLoaded() && key(stored) !== key(current())) throw new JurisdictionChangedError(key(current()), key(stored))
+  setActiveJurisdiction(stored)
   return { state: current(), settled: true }
 }
 
-/** One read. Throws JurisdictionConflictError; any other failure is logged and leaves the current value. */
-export async function loadActiveJurisdiction(db: ConfigDb = prisma as unknown as ConfigDb): Promise<ActiveJurisdictionState> {
+/** One read. Throws JurisdictionChangedError; any other failure is logged and leaves the current value. */
+export async function loadActiveJurisdiction(db: InstanceDb = prisma as unknown as InstanceDb): Promise<ActiveJurisdictionState> {
   try {
     return (await readJurisdiction(db)).state
   } catch (error) {
-    if (error instanceof JurisdictionConflictError) throw error
-    logError("could not load the lender's jurisdiction; keeping the current value", error)
+    if (error instanceof JurisdictionChangedError) throw error
+    logError("could not load the instance jurisdiction; keeping the current value", error)
     return current()
   }
 }
 
 const RETRY_COOLDOWN_MS = 5_000
+/** A loaded process re-reads the row at most this often. */
+export const RELOAD_TTL_MS = 60_000
 const BOOT_DELAYS_MS = [0, 500, 1_000, 2_000, 4_000, 8_000]
 export const BOOT_TIMEOUT_MS = 20_000
 
@@ -84,12 +78,12 @@ type Outcome = "loaded" | "empty" | "failed"
 interface Memo {
   inflight: Promise<ActiveJurisdictionState> | null
   lastAttemptAt: number
-  conflict: JurisdictionConflictError | null
+  changed: JurisdictionChangedError | null
 }
 const MEMO_KEY = Symbol.for("credaflow.jurisdictionLoad")
 function memo(): Memo {
   const holder = globalThis as Record<symbol, Memo | undefined>
-  return (holder[MEMO_KEY] ??= { inflight: null, lastAttemptAt: 0, conflict: null })
+  return (holder[MEMO_KEY] ??= { inflight: null, lastAttemptAt: 0, changed: null })
 }
 
 /** Test seam: forget the load memo. */
@@ -97,43 +91,45 @@ export function resetEnsuredJurisdiction(): void {
   delete (globalThis as Record<symbol, Memo | undefined>)[MEMO_KEY]
 }
 
-/**
- * One read, with its result recorded: a conflict is remembered (and re-checked
- * after the cooldown, so fixing the data clears it without a restart), a read
- * that failed or found no ACTIVE tenant is `failed` / `empty`.
- */
-async function attempt(db: ConfigDb): Promise<{ state: ActiveJurisdictionState; outcome: Outcome }> {
+async function attempt(db: InstanceDb): Promise<{ state: ActiveJurisdictionState; outcome: Outcome }> {
   const m = memo()
   m.lastAttemptAt = Date.now()
   try {
     const { state, settled } = await readJurisdiction(db)
-    m.conflict = null
+    m.changed = null
     return { state, outcome: settled ? "loaded" : "empty" }
   } catch (error) {
-    if (error instanceof JurisdictionConflictError) {
-      m.conflict = error
+    if (error instanceof JurisdictionChangedError) {
+      m.changed = error
+      logError(error.message)
       throw error
     }
-    logError("could not load the lender's jurisdiction", error)
+    logError("could not read the instance jurisdiction", error)
     return { state: current(), outcome: "failed" }
   }
 }
 
 /**
  * The value every server entry point awaits (tenant resolution, the root
- * layout, the cron runner). Instant once loaded. Otherwise one read at a time,
- * and after a failed or empty read no new one for a few seconds, so a database
- * outage does not turn into a query per request. While the tenants disagree it
- * rejects with JurisdictionConflictError (the process does not serve), and it
- * re-reads once the cooldown has passed, so fixing the data needs no restart.
+ * layout, the cron runner). Instant while a loaded value is younger than
+ * RELOAD_TTL_MS; then it re-reads the row. If the database now says something
+ * else, it rejects with JurisdictionChangedError (the process does not serve),
+ * re-checking every few seconds so it recovers if the value comes back. A
+ * re-read that merely FAILS keeps serving the loaded value. Before anything is
+ * loaded, one read at a time, and after a failed or empty read none for a few
+ * seconds, so a database outage does not turn into a query per request.
  */
-export function ensureActiveJurisdiction(db: ConfigDb = prisma as unknown as ConfigDb): Promise<ActiveJurisdictionState> {
+export function ensureActiveJurisdiction(db: InstanceDb = prisma as unknown as InstanceDb): Promise<ActiveJurisdictionState> {
   const m = memo()
   if (m.inflight) return m.inflight
-  const cooling = Date.now() - m.lastAttemptAt < RETRY_COOLDOWN_MS
-  if (m.conflict && cooling) return Promise.reject(m.conflict)
-  if (isJurisdictionLoaded()) return Promise.resolve(current())
-  if (cooling) return Promise.resolve(current())
+  const age = Date.now() - m.lastAttemptAt
+  if (m.changed) {
+    if (age < RETRY_COOLDOWN_MS) return Promise.reject(m.changed)
+  } else if (isJurisdictionLoaded()) {
+    if (age < RELOAD_TTL_MS) return Promise.resolve(current())
+  } else if (age < RETRY_COOLDOWN_MS) {
+    return Promise.resolve(current())
+  }
   m.inflight = attempt(db).then((r) => r.state).finally(() => { m.inflight = null })
   return m.inflight
 }
@@ -141,18 +137,17 @@ export function ensureActiveJurisdiction(db: ConfigDb = prisma as unknown as Con
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /**
- * Boot: read until the lender is known. A read that FAILS is retried with
- * backoff; an instance with no ACTIVE tenant yet is not waited for (it boots as
- * ZA, fail-closed, logged once, and the next request retries on the cooldown).
- * Conflicting tenants reject at once.
+ * Boot: read until the instance row is known. A read that FAILS is retried with
+ * backoff; a database with no instance row (not migrated) is not waited for
+ * (it boots as ZA, fail-closed, logged once, and the next request retries).
  */
-async function loadWithBackoff(db: ConfigDb, sleep: (ms: number) => Promise<void>): Promise<ActiveJurisdictionState> {
+async function loadWithBackoff(db: InstanceDb, sleep: (ms: number) => Promise<void>): Promise<ActiveJurisdictionState> {
   for (const [i, delay] of BOOT_DELAYS_MS.entries()) {
     if (delay > 0) await sleep(delay)
     const { state, outcome } = await attempt(db)
     if (outcome === "loaded") return state
     if (outcome === "empty") {
-      logError("no ACTIVE tenant yet; booting as ZA with the NCA gates on until one exists")
+      logError("no instance jurisdiction row (is the database migrated?); booting as ZA with the NCA gates on")
       return state
     }
     logError(`attempt ${i + 1}/${BOOT_DELAYS_MS.length}: the database could not be read`)
@@ -164,15 +159,14 @@ async function loadWithBackoff(db: ConfigDb, sleep: (ms: number) => Promise<void
 /**
  * instrumentation.ts: load the jurisdiction before serving. Waits at most
  * `timeoutMs` (a hung database must not block boot for ever), then lets boot
- * continue while the retries run on. Throws JurisdictionConflictError, which
- * stops the process: the instance's tenants must agree.
+ * continue while the retries run on.
  */
 export async function bootActiveJurisdiction(opts: {
-  db?: ConfigDb
+  db?: InstanceDb
   timeoutMs?: number
   sleep?: (ms: number) => Promise<void>
 } = {}): Promise<ActiveJurisdictionState> {
-  const { db = prisma as unknown as ConfigDb, timeoutMs = BOOT_TIMEOUT_MS, sleep = wait } = opts
+  const { db = prisma as unknown as InstanceDb, timeoutMs = BOOT_TIMEOUT_MS, sleep = wait } = opts
   const loading = loadWithBackoff(db, sleep)
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<ActiveJurisdictionState>((resolve) => {
@@ -185,7 +179,6 @@ export async function bootActiveJurisdiction(opts: {
     return await Promise.race([loading, timeout])
   } finally {
     clearTimeout(timer)
-    // A conflict found after the timeout has nobody to throw to: it is memoised, so every request rejects.
     loading.catch(() => undefined)
   }
 }

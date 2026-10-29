@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { transaction, logAuditStrict, updateMany, findFirst, tenantConfigFindUnique, tenantConfigFindMany } = vi.hoisted(() => ({
+const { transaction, logAuditStrict, updateMany, findFirst, tenantConfigFindUnique, instanceFindUnique } = vi.hoisted(() => ({
   transaction: vi.fn(), logAuditStrict: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(),
-  tenantConfigFindUnique: vi.fn(), tenantConfigFindMany: vi.fn(),
+  tenantConfigFindUnique: vi.fn(), instanceFindUnique: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: transaction } }))
 vi.mock("@/lib/audit", () => ({ logAuditStrict, AuditAction: { TENANT_SUSPENDED: "S", TENANT_REACTIVATED: "R" } }))
@@ -10,10 +10,10 @@ vi.mock("@/lib/audit", () => ({ logAuditStrict, AuditAction: { TENANT_SUSPENDED:
 import { setLenderStatus } from "./lender-actions"
 
 const principal = { id: "op1", email: "op@test.invalid", operatorId: "op" } as never
-const tx = { tenant: { updateMany, findFirst }, tenantConfig: { findUnique: tenantConfigFindUnique, findMany: tenantConfigFindMany } }
+const tx = { tenant: { updateMany, findFirst }, tenantConfig: { findUnique: tenantConfigFindUnique }, instanceJurisdiction: { findUnique: instanceFindUnique } }
 
 beforeEach(() => {
-  for (const m of [transaction, logAuditStrict, updateMany, findFirst, tenantConfigFindUnique, tenantConfigFindMany]) m.mockReset()
+  for (const m of [transaction, logAuditStrict, updateMany, findFirst, tenantConfigFindUnique, instanceFindUnique]) m.mockReset()
   transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx))
   updateMany.mockResolvedValue({ count: 1 })
 })
@@ -23,16 +23,16 @@ const reactivate = () => setLenderStatus({ principal, tenantId: "za-1", status: 
 describe("reactivating a lender on a one-jurisdiction instance", () => {
   it("is a 409 naming the clash when an ACTIVE lender differs, and changes nothing", async () => {
     tenantConfigFindUnique.mockResolvedValue({ jurisdiction: "ZA", currency: "ZAR" })
-    tenantConfigFindMany.mockResolvedValue([{ jurisdiction: "LS", currency: "LSL", tenant: { slug: "basotho" } }])
+    instanceFindUnique.mockResolvedValue({ jurisdiction: "LS", currency: "LSL" })
     const r = await reactivate()
     expect(r).toMatchObject({ ok: false, status: 409 })
-    expect((r as { error: string }).error).toMatch(/basotho=LS\/LSL/)
+    expect((r as { error: string }).error).toMatch(/this instance is LS\/LSL, this lender is ZA\/ZAR/)
     expect(updateMany).not.toHaveBeenCalled()
   })
 
   it("goes ahead when the instance agrees", async () => {
     tenantConfigFindUnique.mockResolvedValue({ jurisdiction: "ZA", currency: "ZAR" })
-    tenantConfigFindMany.mockResolvedValue([{ jurisdiction: "ZA", currency: "ZAR", tenant: { slug: "acme" } }])
+    instanceFindUnique.mockResolvedValue({ jurisdiction: "ZA", currency: "ZAR" })
     expect(await reactivate()).toEqual({ ok: true, status: "ACTIVE" })
   })
 
@@ -44,6 +44,6 @@ describe("reactivating a lender on a one-jurisdiction instance", () => {
 
   it("suspending is never blocked by it", async () => {
     expect(await setLenderStatus({ principal, tenantId: "za-1", status: "SUSPENDED", reason: "x" })).toEqual({ ok: true, status: "SUSPENDED" })
-    expect(tenantConfigFindMany).not.toHaveBeenCalled()
+    expect(instanceFindUnique).not.toHaveBeenCalled()
   })
 })

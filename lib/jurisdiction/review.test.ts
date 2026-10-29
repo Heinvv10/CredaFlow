@@ -1,12 +1,12 @@
 // Ported from the PR #253 round-1 breaker repros, adapted to the enforced design:
-// one jurisdiction per instance (refused at boot otherwise), ZA never billed in
+// one jurisdiction per instance (a single InstanceJurisdiction row), ZA never billed in
 // loti, and no "NCR null" on paper or in public copy.
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
 import { activeJurisdiction, isNcaJurisdiction, resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
-import { JurisdictionConflictError, loadActiveJurisdiction } from "@/lib/jurisdiction/load.server"
+import { JurisdictionChangedError, loadActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { formatZAR } from "@/lib/utils"
@@ -17,21 +17,22 @@ import { LenderIdentityError } from "@/lib/config/identity-schema"
 afterEach(() => { resetActiveJurisdiction(); delete process.env.NEXT_PUBLIC_TENANT_SLUG })
 
 const zaLoan = { status: "ACTIVE", ncaRegime: "NCA" as const, arrearsAmount: 500_00, outstandingPrincipal: 10_000_00, daysInArrears: 120 }
-const row = (slug: string, jurisdiction: string, currency: string) => ({ tenant: { slug }, jurisdiction, currency })
+const instance = (jurisdiction: string, currency: string) => ({ instanceJurisdiction: { findUnique: vi.fn(async () => ({ id: 1, jurisdiction, currency })) } })
 vi.spyOn(console, "error").mockImplementation(() => {})
 
-describe("a ZA tenant can never be served under an LS gate", () => {
-  it("an instance mixing an LS and a ZA tenant is refused, so a ZA loan cannot lose Section 129", async () => {
-    process.env.NEXT_PUBLIC_TENANT_SLUG = "basotho"
-    const db = { tenantConfig: { findMany: vi.fn(async () => [row("basotho", "LS", "LSL"), row("acme", "ZA", "ZAR")]) } }
-    await expect(loadActiveJurisdiction(db as never)).rejects.toBeInstanceOf(JurisdictionConflictError)
-    expect(evaluateCollectionsEligibility(zaLoan, "SECTION_129").eligible).toBe(true)
+describe("a warm process never serves under a stale jurisdiction (breaker repro A)", () => {
+  it("an LS process whose database now says ZA refuses to load it, rather than let a ZA loan lose Section 129 or print Maloti", async () => {
+    await loadActiveJurisdiction(instance("LS", "LSL") as never)
+    expect(evaluateCollectionsEligibility(zaLoan, "SECTION_129").eligible).toBe(false) // correct for an LS instance
+    await expect(loadActiveJurisdiction(instance("ZA", "ZAR") as never)).rejects.toBeInstanceOf(JurisdictionChangedError)
   })
 
-  it("the loader reads only ACTIVE tenants", async () => {
-    const findMany = vi.fn(async (_args: { where: unknown }) => [row("x", "ZA", "ZAR")])
-    await loadActiveJurisdiction({ tenantConfig: { findMany } } as never)
-    expect(findMany.mock.calls[0][0].where).toEqual({ tenant: { status: "ACTIVE" } })
+  it("reads the instance row and nothing else (no tenant, no slug)", async () => {
+    process.env.NEXT_PUBLIC_TENANT_SLUG = "ignored"
+    const db = instance("ZA", "ZAR")
+    await loadActiveJurisdiction(db as never)
+    expect(db.instanceJurisdiction.findUnique).toHaveBeenCalledWith({ where: { id: 1 } })
+    expect(evaluateCollectionsEligibility(zaLoan, "SECTION_129").eligible).toBe(true)
   })
 })
 

@@ -6,8 +6,7 @@ export async function register() {
 
     // Before anything formats an amount or checks an NCA gate: the lender's
     // jurisdiction and currency (lib/jurisdiction). Retries with backoff, waits
-    // at most BOOT_TIMEOUT_MS, and THROWS (the process does not start) when the
-    // instance's active tenants disagree about jurisdiction.
+    // at most BOOT_TIMEOUT_MS. It reads the one InstanceJurisdiction row.
     const { bootActiveJurisdiction, ensureActiveJurisdiction } = await import("@/lib/jurisdiction/load.server")
     await bootActiveJurisdiction()
 

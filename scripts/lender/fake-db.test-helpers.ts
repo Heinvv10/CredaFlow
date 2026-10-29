@@ -13,6 +13,8 @@ export type FakeTables = {
   tenantConfigs: Row[]
   users: Row[]
   auditLogs: Row[]
+  /** The InstanceJurisdiction row; absent = a database that is not migrated. */
+  instance: Row | null
 }
 
 let seq = 0
@@ -24,6 +26,7 @@ export function createFakeDb(seed: Partial<FakeTables> = {}) {
     tenantConfigs: seed.tenantConfigs ?? [],
     users: seed.users ?? [],
     auditLogs: seed.auditLogs ?? [],
+    instance: seed.instance ?? null,
   }
   const calls: string[] = []
 
@@ -57,14 +60,8 @@ export function createFakeDb(seed: Partial<FakeTables> = {}) {
         return row
       },
     },
+    instanceJurisdiction: { findUnique: async () => tables.instance },
     tenantConfig: {
-      // The instance-jurisdiction check (lib/jurisdiction/instance.server.ts): configs of ACTIVE tenants.
-      findMany: async ({ where }: { where: { tenant: { status: string }; tenantId?: { not: string } } }) =>
-        tables.tenantConfigs
-          .filter((c) => c.tenantId !== where.tenantId?.not)
-          .map((c) => ({ c, t: tables.tenants.find((t) => t.id === c.tenantId) }))
-          .filter(({ t }) => t?.status === where.tenant.status)
-          .map(({ c, t }) => ({ jurisdiction: c.jurisdiction ?? "ZA", currency: c.currency ?? "ZAR", tenant: { slug: t?.slug } })),
       create: async ({ data }: { data: Row }) => {
         const row = { id: nextId(), ...data }
         tables.tenantConfigs.push(row)
