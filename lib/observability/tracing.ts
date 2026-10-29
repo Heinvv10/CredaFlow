@@ -1,4 +1,5 @@
 import { DEFAULT_SERVICE, logger } from "./logger"
+import { scrubbingExporter } from "./span-scrub"
 
 type Env = Partial<Record<string, string>>
 
@@ -17,6 +18,7 @@ export interface TracingHandle {
  * Next.js emits its request, render and fetch spans to whatever global provider
  * exists, so registering one is all the server needs. The exporter reads the
  * endpoint, headers, sampler and timeouts from the standard OTEL_* variables.
+ * Spans are scrubbed of query strings and path tokens before export (span-scrub.ts).
  * The SDK is imported only when tracing is on, so an unset deploy pays nothing.
  */
 export async function startTracing(env: Env = process.env): Promise<TracingHandle | null> {
@@ -32,7 +34,7 @@ export async function startTracing(env: Env = process.env): Promise<TracingHandl
       "service.name": serviceName,
       "service.version": env.GIT_SHA ?? "unknown",
     }),
-    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+    spanProcessors: [new BatchSpanProcessor(scrubbingExporter(new OTLPTraceExporter()))],
   })
   provider.register()
   logger.info("[tracing] OpenTelemetry tracing on", { serviceName })

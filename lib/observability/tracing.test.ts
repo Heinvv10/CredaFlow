@@ -1,3 +1,5 @@
+import http from "node:http"
+import type { AddressInfo } from "node:net"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { trace } from "@opentelemetry/api"
 import { startTracing, tracingEnabled } from "./tracing"
@@ -39,5 +41,33 @@ describe("startTracing", () => {
     const span = trace.getTracer("t").startSpan("s")
     expect(span.spanContext().traceId).toMatch(/^[0-9a-f]{32}$/)
     expect(span.spanContext().traceId).not.toBe("00000000000000000000000000000000")
+  })
+
+  it("exports spans without query strings: the wiring goes through the scrubbing exporter", async () => {
+    const bodies: string[] = []
+    const sink = http.createServer((req, res) => {
+      const chunks: Buffer[] = []
+      req.on("data", (chunk: Buffer) => chunks.push(chunk))
+      req.on("end", () => {
+        bodies.push(Buffer.concat(chunks).toString("utf8"))
+        res.end("{}")
+      })
+    })
+    await new Promise<void>((resolve) => sink.listen(0, "127.0.0.1", resolve))
+    try {
+      vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", `http://127.0.0.1:${(sink.address() as AddressInfo).port}`)
+      handle = await startTracing(process.env)
+      const span = trace.getTracer("t").startSpan("GET /portal/reset?token=SECRET-TOKEN-VALUE", {
+        attributes: { "http.target": "/portal/reset?token=SECRET-TOKEN-VALUE" },
+      })
+      span.end()
+      await handle!.shutdown()
+      handle = null
+      expect(bodies.length).toBeGreaterThan(0)
+      expect(bodies.join("")).toContain("/portal/reset")
+      expect(bodies.join("")).not.toContain("SECRET-TOKEN-VALUE")
+    } finally {
+      await new Promise((resolve) => sink.close(resolve))
+    }
   })
 })

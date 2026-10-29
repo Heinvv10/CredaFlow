@@ -8,6 +8,12 @@ const { probeDatabase, recentOutboxFailures, heartbeats } = vi.hoisted(() => ({
 vi.mock("@/lib/ops/health-checks", () => ({ probeDatabase, recentOutboxFailures }))
 vi.mock("@/lib/prisma", () => ({ prisma: { cronHeartbeat: { findMany: heartbeats } } }))
 
+// The path-shape fallback, whatever .next/ a developer has built locally.
+vi.mock("@/lib/observability/route-label", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/observability/route-label")>()
+  return { ...original, routeLabel: original.createRouteLabeler(null) }
+})
+
 import { GET } from "./route"
 import { observeHttpRequest, recordCronOutcome } from "@/lib/observability/metrics"
 
@@ -65,6 +71,14 @@ describe("/api/metrics content", () => {
     expect(text).toContain('credaflow_http_requests_total{method="GET",route="/api/loans/:id",status="200"}')
     expect(text).toContain("credaflow_http_request_duration_seconds_bucket{")
     expect(text).not.toContain("2f1c8a9e")
+  })
+
+  it("puts every 404 under one route label, whatever path was asked for", async () => {
+    observeHttpRequest("GET", "/wp-login/aaaa-bbbb", "404", 0.01)
+    observeHttpRequest("GET", "/admin/zzzz-yyyy", "404", 0.01)
+    const text = await (await scrape(`Bearer ${TOKEN}`)).text()
+    expect(text).toContain('route="unmatched",status="404"} 2')
+    expect(text).not.toContain("wp-login")
   })
 
   it("reports cron run outcomes", async () => {

@@ -38,9 +38,14 @@ spec:
         - name: migrate
           image: {{ include "credaflow.migrateImage" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # Secrets only: the ConfigMap does not exist yet on a first install. DATABASE_URL is all it needs.
-          envFrom:
-            {{- include "credaflow.envFrom" (dict "root" . "secretsOnly" true) | nindent 12 }}
+          # DATABASE_URL alone: the ConfigMap does not exist yet on a first install, and the
+          # Job has no use for the other secrets.
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.migrate.databaseUrlSecret.name }}
+                  key: {{ .Values.migrate.databaseUrlSecret.key }}
           resources:
             {{- toYaml .Values.migrate.resources | nindent 12 }}
           securityContext:

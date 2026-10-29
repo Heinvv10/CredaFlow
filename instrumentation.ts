@@ -168,7 +168,11 @@ export async function register() {
           console.error(`[cron] ${path} run claim not closed:`, err)
         }
       }
-      recordCronOutcome(path, error !== null ? "error" : status !== null && status >= 200 && status < 300 ? (tenantFailed ? "tenant_failed" : "ok") : "failed")
+      try {
+        recordCronOutcome(path, error !== null ? "error" : status !== null && status >= 200 && status < 300 ? (tenantFailed ? "tenant_failed" : "ok") : "failed")
+      } catch (err) {
+        console.error(`[cron] ${path} outcome not counted:`, err)
+      }
       // The run's outcome for /api/health (lib/ops/cron-heartbeat.ts).
       try {
         const { recordCronRun } = await import("@/lib/ops/cron-heartbeat")

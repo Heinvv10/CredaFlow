@@ -62,6 +62,15 @@ groups:
         annotations:
           summary: "Cron job {{ $labels.job }} has not succeeded within its freshness budget"
           description: "Reminders, Section 129 and arrears jobs missing a day is a compliance problem. Is the worker running?"
+      - alert: CredaFlowExternalCronFailed
+        # The chart's CronJobs for the registry's owner "external" routes (messaging-retry, email-poll,
+        # lead-task-reminders, cleanup-notifications). They write no heartbeat, so Kubernetes is the signal.
+        expr: |
+          sum by (namespace, job_name) (kube_job_status_failed{job_name=~".+-(messaging-retry|email-poll|lead-task-reminders|cleanup-notifications)-.+"}) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "External cron Job {{ $labels.job_name }} failed"
+          description: "kubectl logs job/{{ $labels.job_name }}. messaging-retry failing means failed messages are not being retried."
       - alert: CredaFlowWebhookOutboxFailures
         expr: max(credaflow_webhook_outbox_failures_24h) > 0
         for: 30m

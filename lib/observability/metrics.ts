@@ -1,5 +1,5 @@
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "prom-client"
-import { routeLabel } from "./route-label"
+import { UNMATCHED, routeLabel } from "./route-label"
 
 export type CronOutcome = "ok" | "failed" | "tenant_failed" | "error"
 
@@ -50,10 +50,10 @@ export function getMetrics(): Metrics {
   return created
 }
 
-/** `pathname` is the raw request path; it is collapsed to a bounded route label here. */
+/** `pathname` is the raw request path; it is mapped to a bounded route label here. Every 404 is `unmatched`. */
 export function observeHttpRequest(method: string, pathname: string, status: string, seconds: number): void {
   const metrics = getMetrics()
-  const route = routeLabel(pathname)
+  const route = status === "404" ? UNMATCHED : routeLabel(pathname)
   metrics.httpRequests.inc({ method, route, status })
   metrics.httpDuration.observe({ method, route }, seconds)
 }

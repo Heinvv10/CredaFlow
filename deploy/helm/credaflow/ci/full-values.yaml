@@ -1,4 +1,6 @@
 # Every optional template on, for helm lint / template / kubeconform in CI.
+image:
+  tag: ci
 config:
   NEXTAUTH_URL: https://staff.lender.example
   AUTH_URL: https://staff.lender.example

@@ -69,6 +69,10 @@ COPY --from=deps /app/node_modules/prisma ./node_modules/prisma
 COPY --from=deps /app/node_modules/@prisma ./node_modules/@prisma
 COPY package.json ./
 COPY prisma ./prisma
+# The root filesystem is read-only in the cluster: Prisma's cache and update check
+# write under $HOME, so point it at the Job's /tmp emptyDir and switch the check off.
+ENV HOME=/tmp
+ENV CHECKPOINT_DISABLE=1
 USER node
 CMD ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
 

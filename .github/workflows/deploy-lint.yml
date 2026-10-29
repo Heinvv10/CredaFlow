@@ -1,0 +1,72 @@
+name: deploy-lint
+
+# Lints the Helm chart and the Prometheus rules in deploy/. Separate from the
+# quality gate and not required; runs only when deploy/ changes. Tools are pinned
+# by version and sha256 (image by digest).
+on:
+  pull_request:
+    paths:
+      - 'deploy/**'
+      - '.github/workflows/deploy-lint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HELM_VERSION: 3.19.0
+      HELM_SHA256: a7f81ce08007091b86d8bd696eb4d86b8d0f2e1b9f6c714be62f82f96a594496
+      KUBECONFORM_VERSION: 0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install helm and kubeconform
+        run: |
+          mkdir "$RUNNER_TEMP/bin"
+          curl -sSfL -o helm.tgz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz -C "$RUNNER_TEMP" linux-amd64/helm && mv "$RUNNER_TEMP/linux-amd64/helm" "$RUNNER_TEMP/bin/"
+          curl -sSfL -o kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
+          tar -xzf kubeconform.tgz -C "$RUNNER_TEMP/bin" kubeconform
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: helm lint
+        run: helm lint deploy/helm/credaflow -f deploy/helm/credaflow/ci/full-values.yaml
+      # The default image.tag is empty on purpose: rendering without one must fail.
+      - name: Chart refuses a missing or floating image tag
+        run: |
+          ! helm template rel deploy/helm/credaflow
+          ! helm template rel deploy/helm/credaflow --set image.tag=latest
+      # Each variant is a release shape the README documents. The ServiceMonitor CRD has no schema here.
+      - name: helm template | kubeconform
+        run: |
+          chart=deploy/helm/credaflow
+          kc() { kubeconform -strict -ignore-missing-schemas -summary -kubernetes-version 1.30.0 -; }
+          helm template rel $chart -f $chart/ci/full-values.yaml | kc
+          helm template rel $chart --set image.tag=v1 | kc
+          helm template rel $chart --set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000 | kc
+          helm template rel $chart --set image.tag=v1 --set autoscaling.enabled=false --set persistence.enabled=false --set networkPolicy.enabled=false | kc
+          helm template rel $chart --set image.tag=v1 --set web.appMode=client --set worker.enabled=false --set externalCrons.enabled=false --set migrate.enabled=false --set persistence.existingClaim=uploads | kc
+
+  prometheus-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: promtool check rules
+        run: |
+          docker run --rm -v "$PWD/deploy/monitoring:/rules:ro" --entrypoint promtool \
+            prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 \
+            check rules /rules/prometheus-alerts.yaml

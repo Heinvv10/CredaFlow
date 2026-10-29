@@ -14,7 +14,7 @@
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 app.kubernetes.io/name: {{ include "credaflow.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/version: {{ include "credaflow.tag" . | replace ":" "-" | trunc 63 | trimSuffix "-" | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
@@ -25,12 +25,24 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
-{{- define "credaflow.image" -}}
-{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
+{{/* The release tag or digest. Empty and "latest" are refused: a rollout must be reproducible. */}}
+{{- define "credaflow.tag" -}}
+{{- $tag := required "image.tag is required: set a release tag, git SHA or digest" .Values.image.tag -}}
+{{- if eq $tag "latest" -}}{{- fail "image.tag must not be \"latest\": pin a release tag, git SHA or digest" -}}{{- end -}}
+{{- $tag -}}
 {{- end -}}
 
+{{- define "credaflow.imageRef" -}}
+{{- if hasPrefix "sha256:" .tag -}}{{ .repository }}@{{ .tag }}{{- else -}}{{ .repository }}:{{ .tag }}{{- end -}}
+{{- end -}}
+
+{{- define "credaflow.image" -}}
+{{- include "credaflow.imageRef" (dict "repository" .Values.image.repository "tag" (include "credaflow.tag" .)) -}}
+{{- end -}}
+
+{{/* The migrator image defaults to the runner's tag: they are built together. */}}
 {{- define "credaflow.migrateImage" -}}
-{{- printf "%s:%s" .Values.migrate.image.repository (default .Chart.AppVersion .Values.migrate.image.tag) -}}
+{{- include "credaflow.imageRef" (dict "repository" .Values.migrate.image.repository "tag" (default (include "credaflow.tag" .) .Values.migrate.image.tag)) -}}
 {{- end -}}
 
 {{- define "credaflow.serviceAccountName" -}}
@@ -41,12 +53,10 @@ app.kubernetes.io/component: {{ .component }}
 {{- default (printf "%s-uploads" (include "credaflow.fullname" .)) .Values.persistence.existingClaim -}}
 {{- end -}}
 
-{{/* envFrom: the shared ConfigMap (unless skipped) and every existing Secret. */}}
+{{/* envFrom: the shared ConfigMap and every existing Secret. */}}
 {{- define "credaflow.envFrom" -}}
-{{- if not .secretsOnly }}
 - configMapRef:
     name: {{ include "credaflow.fullname" .root }}
-{{- end }}
 {{- range .root.Values.existingSecrets }}
 - secretRef:
     name: {{ . }}
@@ -168,8 +178,21 @@ capabilities:
 - to:
     - ipBlock:
         cidr: 0.0.0.0/0
+        {{- with .Values.networkPolicy.egressExcept }}
+        except:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
   ports:
     {{- range .Values.networkPolicy.egressPorts }}
     - { protocol: TCP, port: {{ . }} }
     {{- end }}
+{{- if .Values.observability.otlpEndpoint }}
+- to:
+    {{- toYaml .Values.networkPolicy.otlpTo | nindent 4 }}
+  ports:
+    - { protocol: TCP, port: {{ .Values.networkPolicy.otlpPort }} }
+{{- end }}
+{{- with .Values.networkPolicy.egressExtra }}
+{{ toYaml . }}
+{{- end }}
 {{- end -}}

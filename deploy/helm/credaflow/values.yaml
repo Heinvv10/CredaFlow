@@ -5,7 +5,8 @@
 image:
   # The runner image: `docker build .` (the last Dockerfile stage).
   repository: credaflow
-  # Empty: the chart's appVersion. Pin a git SHA or digest in production.
+  # Required: a release tag, git SHA or digest ("sha256:..."). The chart refuses
+  # an empty tag and "latest": a rollout must be reproducible and rollback-able.
   tag: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
@@ -24,6 +25,13 @@ existingSecrets:
 config:
   NODE_ENV: production
   LOG_FORMAT: json
+  # How many proxies between the internet and the pods append to X-Forwarded-For
+  # (lib/rate-limit.ts callerIp). 1 = one ingress controller. Behind a cloud load
+  # balancer or CDN that also appends, count it too (CDN + ingress = 2). Unset, every
+  # caller is "unknown": one shared login rate-limit bucket, no IP in audit rows, and
+  # no staff IP allowlist. Wrong in either direction lets a client forge its address
+  # (see deploy/README.md "Client IP").
+  TRUSTED_PROXY: "1"
   NEXTAUTH_URL: ""
   AUTH_URL: ""
 
@@ -65,6 +73,31 @@ autoscaling:
   # Scale down slowly: an in-flight upload or PDF render must finish.
   scaleDownStabilizationSeconds: 300
 
+# Routes the registry marks owner "external" (lib/registry/cron-jobs/100-external-scheduler.ts):
+# nothing in the application schedules them, so each becomes a Kubernetes CronJob that
+# calls the web Service with the cron secret. Turn off in a client-portal release (its
+# audience gate 404s cron routes) or if the operator's own scheduler already calls them:
+# both would run them twice. Schedules are SAST. The routes document messaging-retry
+# (every minute) and email-poll (every few minutes); lead-task-reminders and
+# cleanup-notifications follow the simulator's slots (scripts/demo/sim/cron.ts).
+# external-crons.test.ts fails when the registry gains an external job missing here.
+externalCrons:
+  enabled: true
+  timeZone: Africa/Johannesburg
+  # Only CRON_SECRET reaches these pods.
+  secret:
+    name: credaflow-app
+    key: CRON_SECRET
+  deadlineSeconds: 300
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  jobs:
+    - { route: messaging-retry, schedule: "* * * * *" }
+    - { route: email-poll, schedule: "*/5 * * * *" }
+    - { route: lead-task-reminders, schedule: "0 9 * * *" }
+    - { route: cleanup-notifications, schedule: "30 23 * * *" }
+
 podDisruptionBudget:
   enabled: true
   maxUnavailable: 1
@@ -89,10 +122,15 @@ worker:
 
 # `prisma migrate deploy` before each install/upgrade (Helm hook). Its image is the
 # Dockerfile `migrator` target. A migration that adds a trigger, CHECK or UNIQUE
-# takes effect while the old pods still run: ship such a migration with its code
-# as a Recreate upgrade, see deploy/README.md "Releases and migrations".
+# takes effect while the old pods still run: ship such a migration with its code in
+# a maintenance window (every pod down while it migrates), deploy/README.md "Releases
+# and migrations".
 migrate:
   enabled: true
+  # Only this key of an existing Secret reaches the Job (not the whole of existingSecrets).
+  databaseUrlSecret:
+    name: credaflow-app
+    key: DATABASE_URL
   image:
     repository: credaflow-migrate
     tag: ""
@@ -132,6 +170,8 @@ serviceAccount:
 networkPolicy:
   enabled: true
   # Who may reach the web pods on 3300: the ingress controller's namespace by default.
+  # This matches ingress-nginx. Another controller (Traefik, HAProxy, OpenShift router, a
+  # cloud gateway) runs in a namespace of its own: replace the list or no request arrives.
   ingressFrom:
     - namespaceSelector:
         matchLabels:
@@ -141,13 +181,26 @@ networkPolicy:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: monitoring
-  # PostgreSQL. Narrow to the database's CIDR or pod selector in production.
+  # PostgreSQL. Narrow to the database's CIDR or pod selector in production
+  # (e.g. [{ ipBlock: { cidr: 10.20.30.0/24 } }] or a podSelector for an in-cluster database).
   databaseTo:
     - ipBlock:
         cidr: 0.0.0.0/0
   databasePort: 5432
-  # Outbound HTTPS/SMTP/IMAP to providers (Stitch, bureaus, Resend, WhatsApp, SmileIdentity, the OTLP collector).
-  egressPorts: [443, 587, 465, 993, 4318]
+  # Outbound HTTPS/SMTP/IMAP to providers (Stitch, bureaus, Resend, WhatsApp, SmileIdentity).
+  # Private ranges are excluded, so a compromised pod cannot reach other workloads or
+  # the node network: add providers that live on a private address under egressExtra.
+  egressPorts: [443, 587, 465, 993]
+  egressExcept: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+  # Where the OTLP collector runs (only when observability.otlpEndpoint is set), and its port.
+  otlpTo:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: observability
+  otlpPort: 4318
+  # Raw NetworkPolicy egress rules appended for web, worker and migrate: a core-banking
+  # endpoint, an SMTP relay or an SFTP host on a private address.
+  egressExtra: []
 
 serviceMonitor:
   # Prometheus Operator. Needs METRICS_TOKEN in a Secret: tokenSecret names it.

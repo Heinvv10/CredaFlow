@@ -5,7 +5,8 @@ import { cronOccurrences } from "@/lib/ops/cron-run-claim"
 /** The scheduler counts each finished run by outcome (lib/observability/metrics.ts), for /api/metrics. */
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
-vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
+const recordCronRun = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun }))
 const callCronRoute = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/ops/cron-call", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/ops/cron-call")>()), callCronRoute }))
 const recordCronOutcome = vi.hoisted(() => vi.fn())
@@ -45,5 +46,15 @@ describe("cron outcome metrics", () => {
     callCronRoute.mockRejectedValue(new Error("ECONNREFUSED"))
     await fire()
     expect(recordCronOutcome).toHaveBeenCalledWith(`/api/cron/${plain.job.route}`, "error")
+  })
+
+  it("still records the heartbeat when the metrics counter throws", async () => {
+    callCronRoute.mockResolvedValue({ status: 200, body: null, failedTenants: 0 })
+    recordCronRun.mockClear()
+    recordCronOutcome.mockImplementationOnce(() => {
+      throw new Error("registry broken")
+    })
+    await fire()
+    expect(recordCronRun).toHaveBeenCalledTimes(1)
   })
 })
