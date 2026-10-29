@@ -487,3 +487,61 @@ suite("the guards need READ COMMITTED (real DB)", () => {
     await expect(fresh.db.$transaction((tx) => tx.tenantConfig.delete({ where: { tenantId: t.tenantId } }), { isolationLevel: "Serializable" })).rejects.toThrow(RC)
   })
 })
+
+suite("the guards do not trust the schema search path (real DB)", () => {
+  let fresh: ThrowawayDb
+
+  beforeAll(async () => { fresh = await createThrowawayDb({ instance: { jurisdiction: "LS", currency: "LSL" } }) }, 240_000)
+  afterAll(() => fresh?.drop())
+
+  it("a public.<> operator on the currency enum that always says 'equal' does not let an instance change leave a lender behind", async () => {
+    const db = fresh.db
+    await db.tenant.create({ data: { slug: "ls-op", name: "ls-op", status: "SUSPENDED", config: { create: {} } } })
+    // enum <> enum in pg_catalog is polymorphic (anyenum), so an exact-typed operator in a schema on the
+    // search path would win over it: this is the shadowing the pinned search_path closes.
+    await db.$executeRawUnsafe(`CREATE FUNCTION public.shadow_never_differs(public."LenderCurrency", public."LenderCurrency") RETURNS boolean LANGUAGE sql AS 'SELECT false'`)
+    await db.$executeRawUnsafe(`CREATE OPERATOR public.<> (LEFTARG = public."LenderCurrency", RIGHTARG = public."LenderCurrency", FUNCTION = public.shadow_never_differs)`)
+    try {
+      await expect(db.$transaction(async (tx) => {
+        await tx.instanceJurisdiction.update({ where: { id: 1 }, data: { currency: "ZAR" } }) // the lender stays LS / LSL
+        await tx.$executeRaw`SET CONSTRAINTS "InstanceJurisdiction_configs_agree" IMMEDIATE`
+      })).rejects.toThrow(REFUSED)
+    } finally {
+      await db.$executeRawUnsafe(`DROP OPERATOR public.<> (public."LenderCurrency", public."LenderCurrency")`)
+      await db.$executeRawUnsafe(`DROP FUNCTION public.shadow_never_differs(public."LenderCurrency", public."LenderCurrency")`)
+    }
+  })
+})
+
+suite("the tenant guards take the instance lock shared (real DB)", () => {
+  let fresh: ThrowawayDb
+
+  beforeAll(async () => { fresh = await createThrowawayDb() }, 240_000)
+  afterAll(() => fresh?.drop())
+
+  it("a tenant is created while another transaction holds the shared lock; an instance change is not", async () => {
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let locked: () => void = () => undefined
+    const lockedFlag = new Promise<void>((resolve) => { locked = resolve })
+    const holder = fresh.db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext('credaflow.instance_jurisdiction'))`
+      locked()
+      await held
+    }, { timeout: 60_000 })
+    await lockedFlag
+    let tenantDone = false
+    const create = createChargesTenant(fresh.db, false).finally(() => { tenantDone = true })
+    await sleep(1_500)
+    expect(tenantDone, "tenant and config writers share the lock and must not queue behind one another").toBe(true)
+    let changeDone = false
+    const change = setInstanceJurisdiction(fresh.db, { jurisdiction: "LS", currency: "LSL", actor: "ops@test.invalid", reason: "shared" }).finally(() => { changeDone = true })
+    change.catch(() => undefined)
+    await sleep(1_000)
+    expect(changeDone, "an instance change takes it exclusive and must wait").toBe(false)
+    release()
+    await holder
+    await create
+    expect(await change).toMatchObject({ ok: true })
+  }, 120_000)
+})

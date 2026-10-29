@@ -15,9 +15,11 @@
 --     does not thaw it), cannot be deleted or truncated, and a change commits
 --     only if every TenantConfig then equals it (deferred check).
 --
--- LOCKING. Every guard takes pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))
--- first (lockInstanceJurisdiction), so a tenant created while the row is being
--- changed waits and then sees the new value. A LoanApplication or Loan INSERT
+-- LOCKING. Every guard takes the advisory lock hashtext('credaflow.instance_jurisdiction')
+-- first (lockInstanceJurisdiction): exclusive in the guards of the instance row, of
+-- config deletes and in the writer; shared in the tenant and config guards, which only
+-- have to keep the instance from changing under them. So a tenant created while the row
+-- is being changed waits and then sees the new value. A LoanApplication or Loan INSERT
 -- takes the same lock in SHARED mode until it commits, so an instance change
 -- waits for inserts in flight and then counts them. Waiting for a lock does not
 -- refresh a REPEATABLE READ / SERIALIZABLE snapshot, so every guard refuses to
@@ -46,7 +48,7 @@
 --   DROP FUNCTION public."guardTenantMatchesInstance"(), public."guardTenantConfigMatchesInstance"(),
 --     public."guardTenantConfigDelete"(), public."guardInstanceJurisdictionChange"(),
 --     public."guardInstanceJurisdictionTruncate"(), public."checkInstanceConfigsAgree"(),
---     public."holdInstanceJurisdiction"(), public."lockInstanceJurisdiction"();
+--     public."holdInstanceJurisdiction"(), public."lockInstanceJurisdiction"(boolean);
 --   DROP TABLE "InstanceJurisdiction";
 --   DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261029120000_instance_jurisdiction';
 --   COMMIT;
@@ -88,17 +90,24 @@ BEGIN
   END IF;
   in_use := EXISTS (SELECT 1 FROM public."LoanApplication") OR EXISTS (SELECT 1 FROM public."Loan");
   INSERT INTO public."InstanceJurisdiction" ("id", "jurisdiction", "currency", "frozenAt")
-    VALUES (1, coalesce(j, 'ZA')::"Jurisdiction", coalesce(c, 'ZAR')::"LenderCurrency", CASE WHEN in_use THEN now() END);
+    VALUES (1, coalesce(j, 'ZA')::public."Jurisdiction", coalesce(c, 'ZAR')::public."LenderCurrency", CASE WHEN in_use THEN now() END);
 END
 $backfill$;
 
-CREATE OR REPLACE FUNCTION public."lockInstanceJurisdiction"()
+CREATE OR REPLACE FUNCTION public."lockInstanceJurisdiction"(shared boolean DEFAULT false)
  RETURNS void
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'));
+  -- Exclusive for what changes the instance (or must see every insert in flight); shared for
+  -- what only has to keep the instance from changing under it (a lender being created), so
+  -- ordinary tenant and config writes do not queue behind one another.
+  IF shared THEN
+    PERFORM pg_advisory_xact_lock_shared(hashtext('credaflow.instance_jurisdiction'));
+  ELSE
+    PERFORM pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'));
+  END IF;
   -- Waiting for the lock does not refresh a REPEATABLE READ / SERIALIZABLE snapshot: the
   -- reads after it would still miss what committed meanwhile. Refuse rather than guess.
   IF current_setting('transaction_isolation') <> 'read committed' THEN
@@ -111,13 +120,13 @@ $function$;
 CREATE OR REPLACE FUNCTION public."guardTenantConfigMatchesInstance"()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   inst_j text;
   inst_c text;
 BEGIN
-  PERFORM public."lockInstanceJurisdiction"();
+  PERFORM public."lockInstanceJurisdiction"(true);
   SELECT "jurisdiction"::text, "currency"::text INTO inst_j, inst_c FROM public."InstanceJurisdiction" WHERE "id" = 1;
   IF inst_j IS NULL THEN
     RETURN NEW;
@@ -125,8 +134,8 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     -- A new config IS the instance's: the column defaults are ZA / ZAR, and an upsert
     -- inserts before it updates, so refusing here would break every settings writer.
-    NEW."jurisdiction" := inst_j::"Jurisdiction";
-    NEW."currency" := inst_c::"LenderCurrency";
+    NEW."jurisdiction" := inst_j::public."Jurisdiction";
+    NEW."currency" := inst_c::public."LenderCurrency";
     RETURN NEW;
   END IF;
   IF NEW."jurisdiction"::text <> inst_j OR NEW."currency"::text <> inst_c THEN
@@ -142,7 +151,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public."guardTenantMatchesInstance"()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   previous_bypass text;
@@ -151,7 +160,7 @@ DECLARE
   cfg_j text;
   cfg_c text;
 BEGIN
-  PERFORM public."lockInstanceJurisdiction"();
+  PERFORM public."lockInstanceJurisdiction"(true);
   previous_bypass := current_setting('app.rls_bypass', true);
   PERFORM set_config('app.rls_bypass', 'on', true);
   SELECT "jurisdiction"::text, "currency"::text INTO inst_j, inst_c FROM public."InstanceJurisdiction" WHERE "id" = 1;
@@ -171,7 +180,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public."guardTenantConfigDelete"()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   previous_bypass text;
@@ -195,7 +204,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public."guardInstanceJurisdictionChange"()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   previous_bypass text;
@@ -231,7 +240,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public."guardInstanceJurisdictionTruncate"()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 BEGIN
   RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The instance jurisdiction row cannot be truncated';
@@ -241,7 +250,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public."checkInstanceConfigsAgree"()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   previous_bypass text;
@@ -267,7 +276,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public."holdInstanceJurisdiction"()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path = public, pg_temp
+ SET search_path = pg_catalog, pg_temp
 AS $function$
 BEGIN
   -- Shared: inserts do not block one another, only a change of the instance (exclusive).

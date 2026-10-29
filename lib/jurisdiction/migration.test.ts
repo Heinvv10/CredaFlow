@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { baselineConstraintSql, baselineFunctionSql, baselineTriggerSql } from "@/lib/db-baseline.test-helpers"
 
 // Static pins on migrations 20261029101000_jurisdiction_guards,
 // 20261029110000_jurisdiction_instance_guard and 20261029120000_instance_jurisdiction;
 // the rules run against Postgres in RUN_DB_IT (instance-guard.integration.test.ts).
+const MIGRATION = "prisma/migrations/20261029120000_instance_jurisdiction/migration.sql"
 const flat = (sql: string) => sql.replace(/\s+/g, " ")
 
 describe("jurisdiction hand-written objects", () => {
@@ -30,28 +32,54 @@ describe("jurisdiction hand-written objects", () => {
     )
     for (const name of ["guardTenantConfigMatchesInstance", "guardTenantMatchesInstance"]) {
       const fn = flat(baselineFunctionSql(name))
-      expect(fn, name).toContain(`public."lockInstanceJurisdiction"()`)
+      expect(fn, name).toContain(`public."lockInstanceJurisdiction"(true)`)
       expect(fn, name).toContain(`FROM public."InstanceJurisdiction" WHERE "id" = 1`)
       expect(fn, name).toContain("One instance serves one jurisdiction")
     }
     // The lock (which also refuses a snapshot isolation level) comes first in each guard, before it reads anything.
     for (const name of ["guardTenantConfigMatchesInstance", "guardTenantMatchesInstance", "guardTenantConfigDelete", "guardInstanceJurisdictionChange"]) {
       const fn = flat(baselineFunctionSql(name))
-      const lock = fn.indexOf(`public."lockInstanceJurisdiction"()`)
+      const lock = fn.indexOf(`public."lockInstanceJurisdiction"(`)
       expect(lock, name).toBeGreaterThan(-1)
       expect(lock, name).toBeLessThan(fn.indexOf("SELECT") === -1 ? Infinity : fn.indexOf("SELECT"))
       expect(lock, name).toBeLessThan(fn.indexOf("EXISTS") === -1 ? Infinity : fn.indexOf("EXISTS"))
     }
     const lock = flat(baselineFunctionSql("lockInstanceJurisdiction"))
     expect(lock).toContain(`pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))`)
+    expect(lock).toContain(`pg_advisory_xact_lock_shared(hashtext('credaflow.instance_jurisdiction'))`)
     expect(lock).toContain(`current_setting('transaction_isolation') <> 'read committed'`)
+  })
+
+  it("the tenant and config guards take the lock shared; the instance change, the config delete and the writer take it exclusive", () => {
+    for (const name of ["guardTenantConfigMatchesInstance", "guardTenantMatchesInstance"]) {
+      expect(flat(baselineFunctionSql(name)), name).toContain(`public."lockInstanceJurisdiction"(true)`)
+    }
+    for (const name of ["guardTenantConfigDelete", "guardInstanceJurisdictionChange"]) {
+      expect(flat(baselineFunctionSql(name)), name).toContain(`public."lockInstanceJurisdiction"()`)
+    }
+    expect(readFileSync("lib/jurisdiction/instance-write.ts", "utf8")).toContain("SELECT pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))")
+  })
+
+  it("every jurisdiction guard function pins search_path to pg_catalog first, so a schema cannot shadow an operator or function it calls", () => {
+    const names = [
+      "lockInstanceJurisdiction", "guardTenantConfigMatchesInstance", "guardTenantMatchesInstance", "guardTenantConfigDelete",
+      "guardInstanceJurisdictionChange", "guardInstanceJurisdictionTruncate", "checkInstanceConfigsAgree", "holdInstanceJurisdiction",
+    ]
+    for (const name of names) {
+      expect(flat(baselineFunctionSql(name)), name).toMatch(/SET search_path = pg_catalog, pg_temp AS/)
+    }
+    // Every function this migration creates is in the list above.
+    const created = [...readFileSync(MIGRATION, "utf8").matchAll(/CREATE OR REPLACE FUNCTION public\."(\w+)"/g)].map((m) => m[1])
+    expect(created.sort()).toEqual([...names].sort())
+    // No unqualified enum cast: pg_catalog does not hold them.
+    expect(readFileSync(MIGRATION, "utf8")).not.toMatch(/::"(Jurisdiction|LenderCurrency)"/)
   })
 
   it("a new config takes the instance's values on INSERT (an upsert inserts first), and an update that would differ is refused", () => {
     const fn = flat(baselineFunctionSql("guardTenantConfigMatchesInstance"))
     expect(fn).toContain(`IF TG_OP = 'INSERT' THEN`)
-    expect(fn).toContain(`NEW."jurisdiction" := inst_j::"Jurisdiction"`)
-    expect(fn).toContain(`NEW."currency" := inst_c::"LenderCurrency"`)
+    expect(fn).toContain(`NEW."jurisdiction" := inst_j::public."Jurisdiction"`)
+    expect(fn).toContain(`NEW."currency" := inst_c::public."LenderCurrency"`)
     expect(fn).toContain("this lender would be")
   })
 
