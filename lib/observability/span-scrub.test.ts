@@ -172,11 +172,19 @@ describe("scrubSpan", () => {
       span("GET /api/files/[name]", {
         "next.route": "/api/files/[name]",
         "http.target": "/api/files/a%20secret%2Fname",
-        "url.full": "https://h.example/api/files/a secret/name",
-        "other": "opened /api/files/a%20secret%2Fname and /api/files/a secret/name",
+        // Only the target records the path, encoded; the other layers wrote it decoded and re-encoded.
+        "decoded.attribute": "opened /api/files/a secret/name",
+        "reencoded.attribute": "opened /api/files/a%20secret/name",
       }),
     )
     expect(JSON.stringify(scrubbed.attributes)).not.toMatch(/secret/i)
+    expect(scrubbed.attributes["decoded.attribute"]).toBe("opened /api/files/[name]")
+  })
+
+  it("overwrites a path attribute that is not a path at all, once the route is known", () => {
+    const scrubbed = scrubSpan(span("x", { "next.route": "/r/[id]", "url.path": "no-leading-slash/TOKEN-XY", "http.target": "*TOKEN-XY" }))
+    expect(scrubbed.attributes["url.path"]).toBe("/r/[id]")
+    expect(scrubbed.attributes["http.target"]).toBe("/r/[id]")
   })
 
   describe("a span with no next.route (Next's middleware span)", () => {
