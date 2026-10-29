@@ -61,6 +61,8 @@ export async function createOauthClient(args: {
   scopes: ApiScope[]
   lifetimeDays: number
   mtls: MtlsPin | null
+  /** Optional CIDR allowlist (lib/lender-api/ip-restriction.ts); empty = any address. */
+  ipAllowlist?: string[]
 }): Promise<CreateClientOutcome> {
   const generated = generateClientCredentials()
   const now = new Date()
@@ -72,6 +74,7 @@ export async function createOauthClient(args: {
       data: {
         tenantId: args.tenantId, name: args.name, clientId: generated.clientId, secretHash: generated.secretHash,
         scopes: args.scopes, createdById: args.actor.id, createdAt: now, expiresAt,
+        ipAllowlist: args.ipAllowlist ?? [],
         requireMtls: args.mtls !== null, mtlsSubjectDn: args.mtls?.subjectDn ?? null, mtlsCertSha256: args.mtls?.certSha256 ?? null,
       },
       select: { id: true, name: true, clientId: true, scopes: true, expiresAt: true, requireMtls: true },
@@ -81,7 +84,7 @@ export async function createOauthClient(args: {
       entity: "OauthClient", entityId: client.id,
       newValue: {
         name: client.name, clientId: client.clientId, scopes: client.scopes, expiresAt: expiresAt.toISOString(),
-        requireMtls: client.requireMtls, mtlsSubjectDn: args.mtls?.subjectDn ?? null, mtlsCertSha256: args.mtls?.certSha256 ?? null,
+        ipAllowlist: args.ipAllowlist ?? [], requireMtls: client.requireMtls, mtlsSubjectDn: args.mtls?.subjectDn ?? null, mtlsCertSha256: args.mtls?.certSha256 ?? null,
       },
       ipAddress: args.actor.ipAddress,
     }, tx)
@@ -114,7 +117,7 @@ export async function listOauthClients(tenantId: string) {
     orderBy: { createdAt: "desc" },
     select: {
       id: true, name: true, clientId: true, scopes: true, createdAt: true, expiresAt: true, lastUsedAt: true, revokedAt: true,
-      requireMtls: true, mtlsSubjectDn: true, mtlsCertSha256: true,
+      requireMtls: true, mtlsSubjectDn: true, mtlsCertSha256: true, ipAllowlist: true,
       createdBy: { select: { active: true, role: true } },
     },
   })

@@ -55,7 +55,7 @@ vi.mock("@/lib/audit", () => ({
   logAuditStrict: async (p: { action: string }) => { h.audits.push(p.action) },
 }))
 
-import { handleOidcCallback, handleSsoStart } from "./flow"
+import { handleOidcCallback, handleSamlMetadata, handleSsoStart } from "./flow"
 import { authorizeSso } from "./authorize"
 import { sealSecret } from "@/lib/crypto/secret-box"
 import { startMockIdp, type MockIdp } from "./test-support/mock-oidc-idp"
@@ -90,13 +90,13 @@ beforeEach(() => {
   h.conn = {
     id: "c1", tenantId: "t1", protocol: "OIDC", enabled: true, oidcIssuer: idp.issuer, oidcClientId: idp.clientId,
     oidcClientSecretSealed: sealSecret(idp.clientSecret, KEY), oidcScopes: ["openid", "email", "profile"], emailClaim: "email", groupsClaim: "groups",
-    allowedEmailDomains: ["bank.example.test", "acme-lending.example"], allowUnverifiedEmail: false, groupRoleMap: { admins: "ADMIN" }, jitProvisioning: false, jitDefaultRole: null, trustIdpMfa: false, mfaAcrValues: [], passwordLoginDisabled: false,
+    allowedEmailDomains: ["bank.example.test", "acme-lending.example"], allowUnverifiedEmail: false, groupRoleMap: { admins: "ADMIN", officers: "CREDIT_OFFICER" }, jitProvisioning: false, jitDefaultRole: null, mfaAcrValues: [], passwordLoginDisabled: false, sessionHours: 10,
   }
 })
 
 /** Start, let the provider authenticate, return to the callback. */
 async function signInVia(rawClaims: Record<string, unknown>, tweak: { dropCookie?: boolean; reuse?: boolean } = {}) {
-  const claims = { email_verified: true, ...rawClaims }
+  const claims = { email_verified: true, groups: ["officers"], ...rawClaims }
   const start = await handleSsoStart(req("/api/auth/sso/start?callbackUrl=/loans"), TEST)
   const auth = new URL(start.headers.get("location")!)
   const flow = cookieOf(start, flowCookieName())
@@ -135,27 +135,30 @@ describe("SSO sign-in, end to end against a local OIDC provider", () => {
     expect(h.audits).toContain("SSO_ROLE_SYNCED")
   })
 
-  it("does not accept provider MFA unless the lender trusts it: the user is held at enrolment", async () => {
+  it("holds an unenrolled user at enrolment even when the provider reports MFA (the TOTP rule stands)", async () => {
     const { cb } = await signInVia({ email: "ann@bank.example.test", amr: ["pwd", "mfa"] })
-    expect(await trade(cb)).toMatchObject({ ok: true, user: { totpEnrolmentRequired: true, idpMfa: false } })
+    expect(await trade(cb)).toMatchObject({ ok: true, user: { totpEnrolmentRequired: true, totpVerified: false } })
   })
 
-  it("accepts provider MFA when the lender trusts it and the provider proved it", async () => {
-    h.conn = { ...h.conn!, trustIdpMfa: true }
-    const { cb } = await signInVia({ email: "ann@bank.example.test", amr: ["pwd", "mfa"] })
-    expect(await trade(cb)).toMatchObject({ ok: true, user: { totpEnrolmentRequired: false, idpMfa: true, totpVerified: false } })
+  it("applies the group's role only at the trade, and ends the session after the configured hours", async () => {
+    const { cb } = await signInVia({ email: "ann@bank.example.test", groups: ["admins"] })
+    expect(h.users.get("ann@bank.example.test")!.role).toBe("CREDIT_OFFICER")
+    const out = await trade(cb)
+    expect(out).toMatchObject({ ok: true, user: { role: "ADMIN" } })
+    expect(h.users.get("ann@bank.example.test")!.role).toBe("ADMIN")
+    if (out.ok) expect(out.user.ssoSessionExp).toBeGreaterThan(Date.now() / 1000 + 9 * 3600)
   })
 
-  it("demands TOTP when the lender trusts MFA but the provider did not prove it", async () => {
-    h.conn = { ...h.conn!, trustIdpMfa: true }
-    const { cb } = await signInVia({ email: "ann@bank.example.test", amr: ["pwd"] })
-    expect(await trade(cb)).toMatchObject({ ok: true, user: { totpEnrolmentRequired: true, idpMfa: false } })
+  it("refuses a user whose groups no longer map to a role", async () => {
+    const { cb } = await signInVia({ email: "ann@bank.example.test", groups: ["nobody"] })
+    expect(cb.status).toBe(303)
+    expect(new URL(cb.headers.get("location")!).searchParams.get("sso_error")).toBe("sso_refused")
+    expect(h.failures).toContain("sso_no_mapped_group")
   })
 
   it("asks an enrolled user for a code, whatever the provider proved, and a ticket survives the ask", async () => {
     h.users.get("ann@bank.example.test")!.totpEnabled = true
     h.users.get("ann@bank.example.test")!.totpSecret = "x"
-    h.conn = { ...h.conn!, trustIdpMfa: true }
     const { cb } = await signInVia({ email: "ann@bank.example.test", amr: ["pwd", "mfa"] })
     h.totp = { kind: "required" }
     expect(await trade(cb)).toEqual({ ok: false, error: "totp_required" })
@@ -257,8 +260,32 @@ describe("SSO sign-in refusals", () => {
   it("never lands on an external URL after sign-in", async () => {
     const start = await handleSsoStart(req("/api/auth/sso/start?callbackUrl=https://evil.example.test/x"), TEST)
     const auth = new URL(start.headers.get("location")!)
-    const code = await idp.issueCode({ nonce: auth.searchParams.get("nonce")!, codeChallenge: auth.searchParams.get("code_challenge")!, redirectUri: "https://app.example.test/api/auth/sso/oidc/callback", claims: { email: "ann@bank.example.test", email_verified: true } })
+    const code = await idp.issueCode({ nonce: auth.searchParams.get("nonce")!, codeChallenge: auth.searchParams.get("code_challenge")!, redirectUri: "https://app.example.test/api/auth/sso/oidc/callback", claims: { email: "ann@bank.example.test", email_verified: true, groups: ["officers"] } })
     const cb = await handleOidcCallback(req(`/api/auth/sso/oidc/callback?code=${code}&state=${auth.searchParams.get("state")}`, cookieOf(start, flowCookieName()) ?? undefined), TEST)
     expect(new URL(cb.headers.get("location")!).searchParams.get("callbackUrl")).toBe("/dashboard")
+  })
+})
+
+describe("SAML service provider metadata", () => {
+  const samlConn = () => ({
+    ...h.conn!, protocol: "SAML", samlEntityId: "urn:cf:t1", samlIdpEntityId: "https://idp.example.test/saml",
+    samlIdpSsoUrl: "https://idp.example.test/sso", samlIdpCert: "x", samlSubjectAttribute: null,
+  })
+
+  it("serves the entity id and ACS URL while SAML is on", async () => {
+    h.conn = samlConn()
+    const res = await handleSamlMetadata(req("/api/auth/sso/saml/metadata"))
+    expect(res.status).toBe(200)
+    const xml = await res.text()
+    expect(xml).toContain("urn:cf:t1")
+    expect(xml).toContain("https://app.example.test/api/auth/sso/saml/acs")
+  })
+
+  it("is not found for OIDC, for a disabled connection and for an unknown host", async () => {
+    expect((await handleSamlMetadata(req("/api/auth/sso/saml/metadata"))).status).toBe(404)
+    h.conn = null
+    expect((await handleSamlMetadata(req("/api/auth/sso/saml/metadata"))).status).toBe(404)
+    h.conn = samlConn()
+    expect((await handleSamlMetadata(req("/api/auth/sso/saml/metadata", undefined, "other.example.test"))).status).toBe(404)
   })
 })

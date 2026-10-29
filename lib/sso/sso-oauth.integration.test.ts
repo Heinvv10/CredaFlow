@@ -11,8 +11,9 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { claimOnce, DbSamlCache } from "./cache"
+import { resolveStaffUser } from "./identity"
+import type { LoadedConnection } from "./connection"
 import { saveConnection } from "./connection"
-import { revalidatePrincipal } from "@/lib/auth-principal"
 import { createOauthClient, revokeOauthClient } from "@/lib/lender-api/oauth/clients"
 import { handleTokenRequest } from "@/lib/lender-api/oauth/endpoint"
 import { authenticateApiKey } from "@/lib/lender-api/handler"
@@ -85,6 +86,11 @@ suite("SSO and OAuth (real database)", () => {
       await refuses(make(tenantA, { ...oidc, groupRoleMap: ["ADMIN"] }), "SsoConnection_group_map_check")
     })
 
+    it("refuses a session lifetime outside 1..168 hours", async () => {
+      await refuses(make(tenantA, { ...oidc, sessionHours: 0 }), "SsoConnection_session_hours_check")
+      await refuses(make(tenantA, { ...oidc, sessionHours: 169 }), "SsoConnection_session_hours_check")
+    })
+
     it("refuses switching SSO on with no allowed email domains", async () => {
       await refuses(make(tenantA, { ...oidc, enabled: true, allowedEmailDomains: [] }), "SsoConnection_domains_needed_check")
     })
@@ -105,7 +111,7 @@ suite("SSO and OAuth (real database)", () => {
     const body = (extra: Record<string, unknown> = {}) => ({
       protocol: "SAML", enabled: true, allowedEmailDomains: ["test.invalid"],
       saml: { entityId: "urn:cf:a", idpEntityId: "https://idp.example.test/saml", idpSsoUrl: "https://idp.example.test/sso", idpCert: testCertificatePem() },
-      trustIdpMfa: true, ...extra,
+      ...extra,
     })
 
     it("stores the connection and its audit row together, with no secret in the row", async () => {
@@ -115,21 +121,10 @@ suite("SSO and OAuth (real database)", () => {
       expect(audit).toMatchObject({ userId: rootA, entity: "SsoConnection" })
       expect(JSON.stringify(audit)).not.toContain("BEGIN CERTIFICATE")
     })
-
-    it("lets revalidatePrincipal see the lender's trust in provider MFA, and only with the session's claim", async () => {
-      const lenderRequires = await db.tenantConfig.upsert({ where: { tenantId: tenantA }, create: { tenantId: tenantA, requireStaffTotp: true }, update: { requireStaffTotp: true } })
-      expect(lenderRequires.requireStaffTotp).toBe(true)
-      const claims = { audience: "staff" as const, totpVerified: false, totpEnrolmentRequired: false }
-      const trusted = await revalidatePrincipal(adminA, 0, { ...claims, idpMfa: true })
-      expect(trusted).toMatchObject({ totpEnrolmentRequired: false })
-      expect(await revalidatePrincipal(adminA, 0, claims)).toMatchObject({ totpEnrolmentRequired: true })
-      await saveConnection({ tenantId: tenantA, actor: { id: rootA, email: "root@test.invalid" }, body: body({ trustIdpMfa: false }) })
-      expect(await revalidatePrincipal(adminA, 0, { ...claims, idpMfa: true })).toMatchObject({ totpEnrolmentRequired: true })
-      await db.tenantConfig.delete({ where: { tenantId: tenantA } })
-    })
   })
 
   describe("SsoIdentity (subject binding)", () => {
+    beforeAll(async () => { await db.ssoIdentity.deleteMany({ where: { tenantId: tenantA } }) })
     const link = (userId: string, subject: string, tenantId = tenantA) => db.ssoIdentity.create({ data: { tenantId, userId, subject } })
 
     it("binds one subject per user and one user per subject within a lender", async () => {
@@ -151,10 +146,50 @@ suite("SSO and OAuth (real database)", () => {
         saml: { entityId: "urn:cf:a", idpEntityId, idpSsoUrl: "https://idp.example.test/sso", idpCert: testCertificatePem() }, ...extra,
       })
       await saveConnection({ tenantId: tenantA, actor, body: saml("https://idp.example.test/saml") })
-      await saveConnection({ tenantId: tenantA, actor, body: saml("https://idp.example.test/saml", { trustIdpMfa: true }) })
+      await saveConnection({ tenantId: tenantA, actor, body: saml("https://idp.example.test/saml", { sessionHours: 4 }) })
       expect(await db.ssoIdentity.count({ where: { tenantId: tenantA } })).toBe(1)
       await saveConnection({ tenantId: tenantA, actor, body: saml("https://other-idp.example.test/saml") })
       expect(await db.ssoIdentity.count({ where: { tenantId: tenantA } })).toBe(0)
+    })
+  })
+
+  describe("resolveStaffUser against the real database (tenant-scope extension, constraints, audit)", () => {
+    const conn = { tenantId: tenantA, allowedEmailDomains: [], groupRoleMap: {}, jitProvisioning: false, jitDefaultRole: null, allowUnverifiedEmail: false } as unknown as LoadedConnection
+    const who = (subject: string, email: string) => ({ subject, email, emailVerified: true, groups: [], mfaProven: false })
+    const email = `${adminA}@test.invalid`
+
+    it("binds the subject at the first sign-in (audited), then matches on it, and refuses another subject with the same email", async () => {
+      await db.ssoIdentity.deleteMany({ where: { tenantId: tenantA } })
+      expect(await resolveStaffUser(who(`https://idp|a-${t}`, email), conn)).toMatchObject({ ok: true, userId: adminA, created: false })
+      expect(await db.ssoIdentity.count({ where: { tenantId: tenantA, userId: adminA } })).toBe(1)
+      expect(await db.auditLog.count({ where: { tenantId: tenantA, action: "SSO_IDENTITY_LINKED", entityId: adminA } })).toBe(1)
+      expect(await resolveStaffUser(who(`https://idp|a-${t}`, "renamed@test.invalid"), conn)).toMatchObject({ ok: true, userId: adminA })
+      expect(await resolveStaffUser(who(`https://idp|attacker-${t}`, email), conn)).toEqual({ ok: false, reason: "subject_mismatch" })
+      expect(await db.auditLog.count({ where: { tenantId: tenantA, action: "SSO_IDENTITY_LINKED", entityId: adminA } })).toBe(1)
+    })
+
+    it("refuses a Super Admin and links nothing", async () => {
+      expect(await resolveStaffUser(who(`https://idp|root-${t}`, `${rootA}@test.invalid`), conn)).toEqual({ ok: false, reason: "super_admin_password_only" })
+      expect(await db.ssoIdentity.count({ where: { tenantId: tenantA, userId: rootA } })).toBe(0)
+    })
+
+    it("refuses an email that is look-alike Unicode and an empty subject id", async () => {
+      expect(await resolveStaffUser(who(`https://idp|u-${t}`, email.replace("u_", "\uFF55_")), conn)).toEqual({ ok: false, reason: "email_invalid" })
+      expect(await resolveStaffUser(who("https://idp|", email), conn)).toEqual({ ok: false, reason: "no_subject" })
+    })
+
+    it("provisions a user just in time with a bound subject, in one transaction with its audit rows", async () => {
+      const jit = { ...conn, jitProvisioning: true, jitDefaultRole: "READONLY" } as unknown as LoadedConnection
+      const fresh = `jit_${t}@test.invalid`
+      const out = await resolveStaffUser(who(`https://idp|jit-${t}`, fresh), jit)
+      expect(out).toMatchObject({ ok: true, created: true })
+      if (!out.ok) return
+      expect(await db.ssoIdentity.count({ where: { tenantId: tenantA, userId: out.userId } })).toBe(1)
+      const actions = (await db.auditLog.findMany({ where: { tenantId: tenantA, entityId: out.userId } })).map((a) => a.action).sort()
+      expect(actions).toEqual(["SSO_IDENTITY_LINKED", "SSO_USER_PROVISIONED"])
+      await db.ssoIdentity.deleteMany({ where: { userId: out.userId } })
+      await db.auditLog.deleteMany({ where: { entityId: out.userId } })
+      await db.user.delete({ where: { id: out.userId } })
     })
   })
 

@@ -20,6 +20,7 @@ export interface OauthClientRow {
   createdAt: string
   expiresAt: string
   lastUsedAt: string | null
+  ipAllowlist: string[]
 }
 
 interface Props {
@@ -38,6 +39,7 @@ export function OauthClientsCard({ clients, canManage }: Props) {
   const [scopes, setScopes] = useState<ApiScope[]>(["applications:read", "loans:read"])
   const [lifetimeDays, setLifetimeDays] = useState<number>(365)
   const [requireMtls, setRequireMtls] = useState(false)
+  const [allowlist, setAllowlist] = useState("")
   const [subjectDn, setSubjectDn] = useState("")
   const [sha256, setSha256] = useState("")
   const [busy, setBusy] = useState(false)
@@ -54,7 +56,7 @@ export function OauthClientsCard({ clients, canManage }: Props) {
       const res = await fetch("/api/settings/oauth-clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, scopes, lifetimeDays, requireMtls, mtlsSubjectDn: subjectDn, mtlsCertSha256: sha256 }),
+        body: JSON.stringify({ name, scopes, lifetimeDays, requireMtls, mtlsSubjectDn: subjectDn, mtlsCertSha256: sha256, ipAllowlist: allowlist }),
       })
       const data = (await res.json().catch(() => ({}))) as { clientId?: string; clientSecret?: string; error?: string }
       if (!res.ok || !data.clientId || !data.clientSecret) {
@@ -133,7 +135,7 @@ export function OauthClientsCard({ clients, canManage }: Props) {
                 <tr key={c.id} className="border-t border-[var(--cf-border-subtle)] align-top">
                   <td className="py-2 pr-3">{c.name}<div className="text-xs text-[var(--cf-text-muted)]">{c.createdAt}</div></td>
                   <td className="py-2 pr-3"><code className="break-all">{c.clientId}</code></td>
-                  <td className="py-2 pr-3 text-xs">{c.scopes.join(", ")}</td>
+                  <td className="py-2 pr-3 text-xs">{c.scopes.join(", ")}<div className="text-[var(--cf-text-muted)]">from {c.ipAllowlist.length > 0 ? c.ipAllowlist.join(", ") : "any address"}</div></td>
                   <td className="py-2 pr-3 text-xs break-all">{c.requireMtls ? (c.mtlsSubjectDn ?? `sha256 ${c.mtlsCertSha256}`) : "Not required"}</td>
                   <td className="py-2 pr-3">{c.expiresAt}</td>
                   <td className="py-2 pr-3">{c.lastUsedAt ?? "Never"}</td>
@@ -172,6 +174,14 @@ export function OauthClientsCard({ clients, canManage }: Props) {
               >
                 {LIFETIMES.map((d) => <option key={d} value={d}>{d} days</option>)}
               </select>
+            </div>
+            <div className="max-w-xl space-y-2">
+              <Label htmlFor="oauthClientAllowlist">Allowed source addresses (optional)</Label>
+              <textarea
+                id="oauthClientAllowlist" rows={3} value={allowlist} onChange={(e) => setAllowlist(e.target.value)} placeholder={"203.0.113.0/24\n198.51.100.7"}
+                className="w-full rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] px-3 py-2 text-sm text-[var(--cf-text)]"
+              />
+              <p className="text-xs text-[var(--cf-text-muted)]">One address or CIDR block per line, applied to the token request and to every API call. Empty means any address. Needs TRUSTED_PROXY set; otherwise a client with an allowlist is refused.</p>
             </div>
             <label className="flex items-start gap-2 text-sm text-[var(--cf-text)]">
               <input type="checkbox" className="mt-1 accent-[var(--cf-brand)]" checked={requireMtls} onChange={(e) => setRequireMtls(e.target.checked)} />

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextResponse } from "next/server"
 
 const h = vi.hoisted(() => ({
@@ -22,6 +22,11 @@ import { API_KEY_RATE_LIMIT, withApiKey } from "@/lib/lender-api/handler"
 import { getCurrentTenantId } from "@/lib/tenant-scope"
 import { _resetRateLimitStore } from "@/lib/rate-limit"
 import type { ApiScope } from "@/lib/lender-api/scopes"
+import { X509Certificate } from "node:crypto"
+import { testIdp } from "@/lib/sso/test-support/saml-fixture"
+
+const CERT_PEM = testIdp("oauth-client").certPem
+const CERT_FP = new X509Certificate(CERT_PEM).fingerprint256.replace(/:/g, "").toLowerCase()
 
 const creds = generateClientCredentials()
 const future = new Date(Date.now() + 86_400_000)
@@ -149,9 +154,8 @@ describe("POST /api/auth/oauth/token", () => {
   })
 
   describe("mutual TLS", () => {
-    const FP = "d".repeat(64)
-    const pinned = () => h.clientFindUnique.mockResolvedValue(row({ requireMtls: true, mtlsCertSha256: FP }))
-    const cert = { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-sha256": FP }
+    const pinned = () => h.clientFindUnique.mockResolvedValue(row({ requireMtls: true, mtlsCertSha256: CERT_FP }))
+    const cert = { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-cert": encodeURIComponent(CERT_PEM) }
 
     it("refuses a client that requires a certificate when the proxy is not trusted", async () => {
       pinned()
@@ -168,9 +172,39 @@ describe("POST /api/auth/oauth/token", () => {
     it("refuses another certificate subject or none", async () => {
       process.env.MTLS_TRUSTED_PROXY = "1"
       pinned()
-      expect((await tokenCall(grant, { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-sha256": "e".repeat(64) })).status).toBe(401)
+      expect((await tokenCall(grant, { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-cert": encodeURIComponent(testIdp("oauth-other").certPem) })).status).toBe(401)
       expect((await tokenCall(grant)).status).toBe(401)
     })
+  })
+})
+
+describe("OAuth client source-address allowlist", () => {
+  const allow = ["198.51.100.0/24"]
+  const viaProxy = (xff: string) => ({ "x-forwarded-for": xff })
+  afterEach(() => { delete process.env.TRUSTED_PROXY })
+
+  it("refuses a token request from outside the allowlist, and serves one from inside", async () => {
+    process.env.TRUSTED_PROXY = "1"
+    h.clientFindUnique.mockResolvedValue(row({ ipAllowlist: allow }))
+    expect((await tokenCall(grant, viaProxy("203.0.113.9"))).status).toBe(401)
+    expect((await tokenCall(grant, viaProxy("198.51.100.4"))).status).toBe(200)
+  })
+
+  it("refuses an API call with a valid token from outside the allowlist (403), and from an unknown address", async () => {
+    h.clientFindFirst.mockResolvedValue(row({ ipAllowlist: allow }))
+    const token = (await mintAccessToken({ clientRowId: "oc-A", tenantId: "tenant-A", scopes: ["clients:read"] })).token
+    const callFrom = (headers: Record<string, string>) => {
+      const handler = vi.fn(async () => NextResponse.json({}))
+      return withApiKey(new Request("http://localhost/api/v1/clients", { headers: { authorization: `Bearer ${token}`, ...headers } }), "clients:read", handler).then((res) => ({ res, handler }))
+    }
+    process.env.TRUSTED_PROXY = "1"
+    const outside = await callFrom(viaProxy("203.0.113.9"))
+    expect(outside.res.status).toBe(403)
+    expect((await outside.res.json()).error.code).toBe("ip_not_allowed")
+    expect(outside.handler).not.toHaveBeenCalled()
+    expect((await callFrom(viaProxy("198.51.100.4"))).res.status).toBe(200)
+    delete process.env.TRUSTED_PROXY
+    expect((await callFrom(viaProxy("198.51.100.4"))).res.status).toBe(403)
   })
 })
 
@@ -243,10 +277,10 @@ describe("/api/v1 with an access token", () => {
   })
 
   it("binds the token to the client certificate: a stolen token without it is refused", async () => {
-    h.clientFindFirst.mockResolvedValue(row({ requireMtls: true, mtlsCertSha256: "d".repeat(64) }))
+    h.clientFindFirst.mockResolvedValue(row({ requireMtls: true, mtlsCertSha256: CERT_FP }))
     process.env.MTLS_TRUSTED_PROXY = "1"
     expect((await call(await bearer())).res.status).toBe(401)
-    expect((await call(await bearer(), "clients:read", { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-sha256": "d".repeat(64) })).res.status).toBe(200)
+    expect((await call(await bearer(), "clients:read", { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-cert": encodeURIComponent(CERT_PEM) })).res.status).toBe(200)
   })
 
   it("rate limits per client, sharing nothing with API keys", async () => {

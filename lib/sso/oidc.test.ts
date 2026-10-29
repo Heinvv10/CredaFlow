@@ -67,6 +67,12 @@ describe("OIDC sign-in against a local provider", () => {
     expect((await run({ claims: { email: "ann@bank.example.test", email_verified: false } })).emailVerified).toBe(false)
   })
 
+  it("accepts email_verified sent as the string true, and treats the string false as false", async () => {
+    expect((await run({ claims: { email: "a@b.test", email_verified: "true" } })).emailVerified).toBe(true)
+    expect((await run({ claims: { email: "a@b.test", email_verified: "false" } })).emailVerified).toBe(false)
+    expect((await run({ claims: { email: "a@b.test", email_verified: "yes" } })).emailVerified).toBeUndefined()
+  })
+
   it("does not claim MFA when the provider did not prove it", async () => {
     expect((await run({ claims: { email: "ann@bank.example.test", amr: ["pwd"] } })).mfaProven).toBe(false)
     expect((await run({ claims: { email: "ann@bank.example.test" } })).mfaProven).toBe(false)

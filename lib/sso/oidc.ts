@@ -91,6 +91,13 @@ async function verifyIdTokenSignature(config: client.Configuration, idToken: str
   }
 }
 
+/** Some providers send email_verified as the string "true" / "false". Anything else is "does not say". */
+function verifiedFlag(value: unknown): boolean | undefined {
+  if (value === true || value === "true") return true
+  if (value === false || value === "false") return false
+  return undefined
+}
+
 const asStringList = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" && v ? [v] : []
 
@@ -115,7 +122,10 @@ export async function completeOidc(
   let claims: Record<string, unknown> = { ...idToken }
   // Some providers keep email and groups out of the ID token: userinfo fills the gaps (the ID token wins).
   if (claims[conn.emailClaim] === undefined || claims[conn.groupsClaim] === undefined) {
-    const info = await client.fetchUserInfo(config, tokens.access_token, idToken.sub).catch(() => ({}))
+    const info = await client.fetchUserInfo(config, tokens.access_token, idToken.sub).catch((error: unknown) => {
+      console.warn("[sso] userinfo request failed; continuing with the ID token's claims:", error instanceof Error ? error.message : "unknown error")
+      return {}
+    })
     claims = { ...info, ...claims }
   }
   const email = claims[conn.emailClaim]
@@ -123,7 +133,7 @@ export async function completeOidc(
   return {
     subject: `${idToken.iss}|${idToken.sub}`,
     email,
-    emailVerified: typeof claims.email_verified === "boolean" ? claims.email_verified : undefined,
+    emailVerified: verifiedFlag(claims.email_verified),
     name: typeof claims.name === "string" ? claims.name : null,
     groups: asStringList(claims[conn.groupsClaim]),
     mfaProven: oidcMfaProven({ amr: claims.amr, acr: claims.acr }, conn.mfaAcrValues),

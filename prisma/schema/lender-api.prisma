@@ -18,6 +18,7 @@ model ApiKey {
   expiresAt   DateTime
   lastUsedAt  DateTime?
   revokedAt   DateTime?
+  ipAllowlist String[]        @default([])
   revokedById String?
   revokedBy   User?           @relation("ApiKeysRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   requestLogs ApiRequestLog[]

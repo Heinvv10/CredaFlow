@@ -39,6 +39,8 @@ export interface TestAssertion {
   destination?: string
   inResponseTo?: string
   nameId?: string
+  /** NameID Format URI; default persistent. */
+  nameIdFormat?: string
   attributes?: Record<string, string | string[]>
   authnContext?: string
   assertionId?: string
@@ -86,7 +88,7 @@ export function samlResponse(opts: TestAssertion = {}): string {
   const assertion =
     `<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${assertionId}" Version="2.0" IssueInstant="${iso(new Date(now))}">` +
     `<saml:Issuer>${esc(issuer)}</saml:Issuer>` +
-    `<saml:Subject><saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">${esc(opts.nameId ?? "staff@bank.example.test")}</saml:NameID>` +
+    `<saml:Subject><saml:NameID Format="${esc(opts.nameIdFormat ?? "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent")}">${esc(opts.nameId ?? "staff@bank.example.test")}</saml:NameID>` +
     `<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><saml:SubjectConfirmationData${irt} NotOnOrAfter="${iso(notOnOrAfter)}" Recipient="${esc(destination)}"/></saml:SubjectConfirmation></saml:Subject>` +
     `<saml:Conditions NotBefore="${iso(notBefore)}" NotOnOrAfter="${iso(notOnOrAfter)}"><saml:AudienceRestriction><saml:Audience>${esc(audience)}</saml:Audience></saml:AudienceRestriction></saml:Conditions>` +
     `<saml:AuthnStatement AuthnInstant="${iso(new Date(now))}" SessionIndex="_s1"><saml:AuthnContext><saml:AuthnContextClassRef>${esc(opts.authnContext ?? "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport")}</saml:AuthnContextClassRef></saml:AuthnContext></saml:AuthnStatement>` +

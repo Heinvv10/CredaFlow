@@ -25,6 +25,10 @@ describe("SSO cookies", () => {
     expect(readCookie("xcf-sso-ticket=evil", "cf-sso-ticket")).toBeNull()
     expect(readCookie(null, "x")).toBeNull()
   })
+
+  it("treats a malformed percent-escape as no cookie instead of throwing", () => {
+    expect(readCookie("cf-sso-ticket=%E0%A4%A", "cf-sso-ticket")).toBeNull()
+  })
 })
 
 describe("same-origin write gate", () => {

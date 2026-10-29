@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { LoadedConnection } from "./connection"
-import { isMappableRole, roleFromGroups } from "./groups"
+import { isMappableRole, roleFromGroups, type MappableRole } from "./groups"
 
 /**
  * Who the identity provider says is signing in, mapped to a staff user of THIS
@@ -34,24 +34,41 @@ export interface IdpIdentity {
   mfaProven: boolean
 }
 
-export type ResolveRefusal = "no_account" | "email_unverified" | "domain_not_allowed" | "subject_mismatch" | "super_admin_password_only"
+export type ResolveRefusal =
+  | "no_account" | "email_unverified" | "email_invalid" | "no_subject" | "domain_not_allowed"
+  | "subject_mismatch" | "super_admin_password_only" | "no_mapped_group"
 
 export type ResolveOutcome =
-  | { ok: true; userId: string; created: boolean; roleChanged?: { from: string; to: string } }
+  /** `role` is what the provider's groups map to now; authorizeSso applies it once the sign-in has passed every other check. */
+  | { ok: true; userId: string; created: boolean; role: MappableRole | null }
   | { ok: false; reason: ResolveRefusal }
 
 const noAccount = { ok: false, reason: "no_account" } as const
 
 export async function resolveStaffUser(identity: IdpIdentity, conn: LoadedConnection): Promise<ResolveOutcome> {
-  const email = identity.email.trim().toLowerCase()
-  if (!email.includes("@") || !identity.subject) return noAccount
+  // Compared before lowercasing: Unicode look-alikes (fullwidth letters, a dotless i, a Kelvin sign) fold to ASCII
+  // under NFKC or toLowerCase and would collide with a real staff address. Only plain ASCII addresses are matched.
+  const raw = identity.email.trim()
+  if (raw !== raw.normalize("NFKC") || /[^\x21-\x7E]/.test(raw)) return { ok: false, reason: "email_invalid" }
+  const email = raw.toLowerCase()
+  if (!email.includes("@")) return noAccount
+  // The subject is "<issuer>|<id>": the id part must exist (an empty NameID / sub would bind every such person to one account).
+  const sep = identity.subject.lastIndexOf("|")
+  if (sep <= 0 || identity.subject.slice(sep + 1).trim() === "") return { ok: false, reason: "no_subject" }
   if (identity.emailVerified !== true && !conn.allowUnverifiedEmail) return { ok: false, reason: "email_unverified" }
   const domain = email.slice(email.lastIndexOf("@") + 1)
   if (conn.allowedEmailDomains.length > 0 && !conn.allowedEmailDomains.includes(domain)) return { ok: false, reason: "domain_not_allowed" }
 
   const mapped = roleFromGroups(identity.groups, conn.groupRoleMap)
+  // With a mapping in force, someone who has lost every mapped group is refused, not kept at their old role.
+  const mappingRequired = Object.keys(conn.groupRoleMap).length > 0
   const tenantId = conn.tenantId
   const source = { source: "sso" }
+  const linked = (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], userId: string, userEmail: string) =>
+    logAuditStrict({
+      tenantId, userId, userEmail, action: AuditAction.SSO_IDENTITY_LINKED, entity: "User", entityId: userId,
+      newValue: { subject: identity.subject, ...source },
+    }, tx)
 
   const attempt = () => prisma.$transaction(async (tx) => {
     const bound = await tx.ssoIdentity.findFirst({ where: { tenantId, subject: identity.subject }, select: { userId: true } })
@@ -61,24 +78,18 @@ export async function resolveStaffUser(identity: IdpIdentity, conn: LoadedConnec
     if (user) {
       if (user.tenantId !== tenantId || user.operatorId) return noAccount
       if (user.role === "SUPER_ADMIN") return { ok: false, reason: "super_admin_password_only" } as const
+      if (mappingRequired && !mapped) return { ok: false, reason: "no_mapped_group" } as const
       if (!bound) {
         // First sign-in of this person: the email names the user once, then the subject is bound.
         const already = await tx.ssoIdentity.findFirst({ where: { tenantId, userId: user.id }, select: { id: true } })
         if (already) return { ok: false, reason: "subject_mismatch" } as const
         await tx.ssoIdentity.create({ data: { tenantId, userId: user.id, subject: identity.subject } })
+        await linked(tx, user.id, user.email)
       }
-      if (mapped && user.role !== mapped) {
-        const from = user.role
-        await tx.user.update({ where: { id: user.id }, data: { role: mapped } })
-        await logAuditStrict({
-          tenantId, userId: user.id, userEmail: user.email, action: AuditAction.SSO_ROLE_SYNCED, entity: "User", entityId: user.id,
-          oldValue: { role: from }, newValue: { role: mapped, ...source },
-        }, tx)
-        return { ok: true, userId: user.id, created: false, roleChanged: { from, to: mapped } } as const
-      }
-      return { ok: true, userId: user.id, created: false } as const
+      return { ok: true, userId: user.id, created: false, role: mapped } as const
     }
     if (bound) return noAccount
+    if (mappingRequired && !mapped) return { ok: false, reason: "no_mapped_group" } as const
     const role = mapped ?? conn.jitDefaultRole
     if (!conn.jitProvisioning || !isMappableRole(role)) return noAccount
     // No password anyone knows: the account signs in through the provider (or a Super Admin sets one).
@@ -87,11 +98,12 @@ export async function resolveStaffUser(identity: IdpIdentity, conn: LoadedConnec
       data: { email, name: identity.name?.trim() || email.slice(0, email.lastIndexOf("@")), password, role, tenantId, active: true },
     })
     await tx.ssoIdentity.create({ data: { tenantId, userId: user.id, subject: identity.subject } })
+    await linked(tx, user.id, email)
     await logAuditStrict({
       tenantId, userId: user.id, userEmail: email, action: AuditAction.SSO_USER_PROVISIONED, entity: "User", entityId: user.id,
       newValue: { role, ...source },
     }, tx)
-    return { ok: true, userId: user.id, created: true } as const
+    return { ok: true, userId: user.id, created: true, role: mapped } as const
   })
 
   try {

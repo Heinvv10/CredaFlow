@@ -368,7 +368,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.totpVerified = user.totpVerified === true
         if (user.credentialStamp) token.credentialStamp = user.credentialStamp
         token.totpEnrolmentRequired = user.totpEnrolmentRequired === true
-        token.idpMfa = user.idpMfa === true
+        if (typeof user.ssoSessionExp === "number") token.ssoExp = user.ssoSessionExp
         return token
       }
 
@@ -376,6 +376,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // stamp (lib/client-session.ts); staff (any other role) against the User
       // table by tokenVersion.
       const tokenId = token.id
+      // An SSO session has an absolute life: past it the user signs in at the provider again (also catches deprovisioning there).
+      if (typeof token.ssoExp === "number" && Date.now() / 1000 > token.ssoExp) return null
       // DEALER first: the staff branch below would find no User row and sign
       // the dealer out (lib/dealer/session-token.ts).
       if (token.role === "DEALER") return refreshDealerToken(token)
@@ -394,7 +396,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const audience = audienceOf(token.role)
         const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion, {
           audience, totpVerified: token.totpVerified === true, totpEnrolmentRequired: token.totpEnrolmentRequired,
-          idpMfa: token.idpMfa === true,
         })
         if (freshPrincipal === "error") {
           // A transient failure may retain an already bound token, but must

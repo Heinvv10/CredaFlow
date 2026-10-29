@@ -37,7 +37,7 @@ import "@/lib/auth"
 import { generateTotpCode, generateTotpSecret } from "@/lib/totp"
 
 const SECRET = generateTotpSecret()
-const sso = (over: Record<string, unknown> = {}) => ({ enabled: true, passwordLoginDisabled: true, trustIdpMfa: true, ...over })
+const sso = (over: Record<string, unknown> = {}) => ({ enabled: true, passwordLoginDisabled: true, ...over })
 const row = (over: Record<string, unknown> = {}, ssoConnection: Record<string, unknown> | null = sso()) => ({
   id: "u1", email: "admin@lender.example", name: "Admin", password: "hash", role: "ADMIN", active: true,
   tenantId: "t1", operatorId: null, tokenVersion: 0, totpEnabled: true, totpSecret: SECRET,
@@ -92,44 +92,35 @@ describe("password sign-in turned off by the lender", () => {
   })
 })
 
-describe("provider MFA and the per-request revalidation", () => {
-  const revalidate = (r: Record<string, unknown>, claims: Record<string, unknown>) => {
-    h.row = r
-    return h.config!.callbacks.jwt({
-      token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false, totpEnrolmentRequired: false, ...claims },
-    })
+describe("SSO sessions in the JWT callback", () => {
+  const jwt = (token: Record<string, unknown>) => {
+    h.row = row({ totpEnabled: true })
+    return h.config!.callbacks.jwt({ token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false, totpEnrolmentRequired: false, ...token } })
   }
-  const unenrolled = { totpEnabled: false, totpSecret: null }
+  const now = () => Math.floor(Date.now() / 1000)
 
-  it("carries the claim from sign-in into the token", async () => {
+  it("carries the absolute expiry from sign-in into the token", async () => {
     const token = await h.config!.callbacks.jwt({
-      token: {}, user: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false, totpEnrolmentRequired: false, idpMfa: true },
+      token: {}, user: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false, totpEnrolmentRequired: false, ssoSessionExp: now() + 3600 },
     })
-    expect(token).toMatchObject({ idpMfa: true, totpVerified: false })
+    expect(token).toMatchObject({ ssoExp: expect.any(Number) })
   })
 
-  it("keeps an unenrolled provider-MFA session free while the lender still trusts it", async () => {
-    const token = await revalidate(row(unenrolled), { idpMfa: true })
-    expect(token).toMatchObject({ totpEnrolmentRequired: false })
+  it("ends the session once the SSO lifetime has passed, so the user signs in at the provider again", async () => {
+    expect(await jwt({ ssoExp: now() - 1 })).toBeNull()
   })
 
-  it("holds the session at enrolment once the lender stops trusting provider MFA", async () => {
-    const token = await revalidate(row(unenrolled, sso({ trustIdpMfa: false })), { idpMfa: true })
+  it("keeps a session inside its lifetime", async () => {
+    expect(await jwt({ ssoExp: now() + 3600 })).not.toBeNull()
+  })
+
+  it("does not touch password sessions (no expiry claim)", async () => {
+    expect(await jwt({})).not.toBeNull()
+  })
+
+  it("does not trust provider MFA: an unenrolled user stays held at enrolment on every request", async () => {
+    h.row = row({ totpEnabled: false, totpSecret: null })
+    const token = await h.config!.callbacks.jwt({ token: { id: "u1", role: "ADMIN", tenantId: "t1", tokenVersion: 0, totpVerified: false, totpEnrolmentRequired: true, idpMfa: true } })
     expect(token).toMatchObject({ totpEnrolmentRequired: true })
-  })
-
-  it("holds it when SSO is switched off", async () => {
-    const token = await revalidate(row(unenrolled, sso({ enabled: false })), { idpMfa: true })
-    expect(token).toMatchObject({ totpEnrolmentRequired: true })
-  })
-
-  it("never lets a session without the claim ride on the lender's trust", async () => {
-    expect(await revalidate(row(unenrolled), {})).toMatchObject({ totpEnrolmentRequired: true })
-    expect(await revalidate(row(unenrolled), { idpMfa: false })).toMatchObject({ totpEnrolmentRequired: true })
-  })
-
-  it("does not apply when the lender does not require 2FA at all", async () => {
-    h.policy = false
-    expect(await revalidate(row(unenrolled, null), {})).toMatchObject({ totpEnrolmentRequired: false })
   })
 })

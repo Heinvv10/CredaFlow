@@ -32,7 +32,7 @@ const ACS = "https://app.example.test/api/auth/sso/saml/acs"
 const IDP_ID = "https://idp.example.test/saml"
 const conn = (over: Partial<LoadedConnection> = {}) => ({
   tenantId: "t1", protocol: "SAML", enabled: true, samlEntityId: "urn:cf:t1", samlIdpEntityId: IDP_ID,
-  samlIdpSsoUrl: "https://idp.example.test/sso", samlIdpCert: testIdp().certPem, emailClaim: "email", groupsClaim: "groups", mfaAcrValues: [], ...over,
+  samlIdpSsoUrl: "https://idp.example.test/sso", samlIdpCert: testIdp().certPem, emailClaim: "email", groupsClaim: "groups", mfaAcrValues: [], samlSubjectAttribute: null, ...over,
 }) as LoadedConnection
 
 /** Begin a login so the request id is on record, as the browser leaving for the IdP would. */
@@ -40,7 +40,9 @@ async function begin(c = conn()) {
   const { url, stateToken } = await beginSaml(c, { acsUrl: ACS, returnTo: "/dashboard" })
   const requestXml = await inflate(new URL(url).searchParams.get("SAMLRequest")!)
   const requestId = /ID="([^"]+)"/.exec(requestXml)![1]
-  return { url, flow: (await readState(stateToken))!, requestId, relay: new URL(url).searchParams.get("RelayState")! }
+  const flow = (await readState(stateToken))!
+  expect(flow.requestId).toBe(requestId)
+  return { url, flow, requestId, relay: new URL(url).searchParams.get("RelayState")! }
 }
 
 import { inflateRaw } from "node:zlib"
@@ -68,13 +70,29 @@ describe("SAML sign-in", () => {
       acsUrl: ACS, flow, relayState: relay,
       samlResponse: samlResponse({ inResponseTo: requestId, attributes: attrs, authnContext: "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract" }),
     })
-    expect(who).toMatchObject({ email: "ann@bank.example.test", groups: ["admins", "staff"], mfaProven: true, subject: `${IDP_ID}|staff@bank.example.test` })
+    expect(who).toMatchObject({ email: "ann@bank.example.test", groups: ["admins", "staff"], subject: `${IDP_ID}|staff@bank.example.test` })
   })
 
   it("falls back to an email NameID and reports no MFA for password-only", async () => {
     const { flow, requestId, relay } = await begin()
     const who = await completeSaml(conn(), { acsUrl: ACS, flow, relayState: relay, samlResponse: samlResponse({ inResponseTo: requestId, nameId: "bob@bank.example.test" }) })
     expect(who).toMatchObject({ email: "bob@bank.example.test", groups: [], mfaProven: false })
+  })
+
+  it("uses a persistent NameID as the subject, with the IdP entity id", async () => {
+    const { flow, requestId, relay } = await begin()
+    const who = await completeSaml(conn(), { acsUrl: ACS, flow, relayState: relay, samlResponse: samlResponse({ inResponseTo: requestId, attributes: attrs, nameId: "persistent-id-77" }) })
+    expect(who.subject).toBe(`${IDP_ID}|persistent-id-77`)
+  })
+
+  it("uses the lender's immutable attribute as the subject when one is configured, whatever the NameID format", async () => {
+    const c = conn({ samlSubjectAttribute: "objectGUID" })
+    const { flow, requestId, relay } = await begin(c)
+    const who = await completeSaml(c, {
+      acsUrl: ACS, flow, relayState: relay,
+      samlResponse: samlResponse({ inResponseTo: requestId, attributes: { ...attrs, objectGUID: "guid-123" }, nameIdFormat: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" }),
+    })
+    expect(who.subject).toBe(`${IDP_ID}|guid-123`)
   })
 
   it("accepts a response signed on the Response element too", async () => {
@@ -94,7 +112,7 @@ describe("SAML sign-in", () => {
 
 describe("SAML refusals", () => {
   const attempt = async (over: Parameters<typeof samlResponse>[0], tweak: { relay?: string | null; flowTenant?: string; conn?: LoadedConnection } = {}) => {
-    const { flow, requestId, relay } = await begin()
+    const { flow, requestId, relay } = await begin(tweak.conn)
     return failure(completeSaml(tweak.conn ?? conn(), {
       acsUrl: ACS, flow: tweak.flowTenant ? { ...flow, tenantId: tweak.flowTenant } : flow,
       relayState: tweak.relay === undefined ? relay : tweak.relay,
@@ -168,6 +186,39 @@ describe("SAML refusals", () => {
 
   it("refuses a certificate the lender did not configure", async () => {
     expect((await attempt({}, { conn: conn({ samlIdpCert: testIdp("someone-else").certPem }) }))?.code).toBe("invalid_response")
+  })
+
+  it("refuses a response that answers a different request than this browser sent (login CSRF via a second pending request)", async () => {
+    const mine = await begin()
+    const theirs = await begin()
+    const e = await failure(completeSaml(conn(), {
+      acsUrl: ACS, flow: mine.flow, relayState: mine.relay,
+      samlResponse: samlResponse({ inResponseTo: theirs.requestId, attributes: attrs }),
+    }))
+    expect(e?.code).toBe("request_mismatch")
+  })
+
+  it("refuses a state with no request id", async () => {
+    const { flow, requestId, relay } = await begin()
+    const e = await failure(completeSaml(conn(), { acsUrl: ACS, flow: { ...flow, requestId: undefined }, relayState: relay, samlResponse: samlResponse({ inResponseTo: requestId, attributes: attrs }) }))
+    expect(e?.code).toBe("request_mismatch")
+  })
+
+  it.each([
+    ["an empty NameID", { nameId: "", nameIdFormat: "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent" }],
+    ["a blank NameID", { nameId: "   " }],
+    ["a transient NameID", { nameIdFormat: "urn:oasis:names:tc:SAML:2.0:nameid-format:transient", nameId: "_one-time-123" }],
+    ["an email-format NameID with no immutable attribute configured", { nameIdFormat: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress", nameId: "ann@bank.example.test" }],
+    ["an unspecified-format NameID", { nameIdFormat: "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified", nameId: "whatever" }],
+  ])("refuses %s as a subject", async (_l, over) => {
+    expect((await attempt({ ...over, attributes: attrs }))?.code).toBe("no_subject")
+  })
+
+  it("refuses a configured subject attribute that is missing, empty or multi-valued", async () => {
+    const c = conn({ samlSubjectAttribute: "objectGUID" })
+    for (const attributes of [attrs, { ...attrs, objectGUID: "" }, { ...attrs, objectGUID: ["a", "b"] }]) {
+      expect((await attempt({ attributes }, { conn: c }))?.code).toBe("no_subject")
+    }
   })
 
   it("refuses an identity with no email", async () => {

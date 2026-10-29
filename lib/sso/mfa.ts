@@ -1,7 +1,7 @@
 /**
- * Whether the identity provider proved a second factor for this sign-in. The
- * lender chooses whether that stands in for CredaFlow's own TOTP
- * (SsoConnection.trustIdpMfa); this module only reads the claim.
+ * Whether the identity provider REPORTED a second factor for this sign-in. This is
+ * recorded in the audit row and nothing more: it never stands in for CredaFlow's
+ * own TOTP (CLAUDE.md, "Staff TOTP 2FA"). This module only reads the claim.
  *
  * OIDC: `amr` (RFC 8176) proves it when it holds "mfa", or methods from two
  * different factor types (knowledge, possession, inherence). `acr` proves it
@@ -17,9 +17,6 @@ const INHERENCE = new Set(["fpt", "face", "iris", "retina", "vbm"])
 const SAML_MFA_CLASSES = [
   "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract",
   "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorUnregistered",
-  "urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken",
-  "urn:oasis:names:tc:SAML:2.0:ac:classes:Smartcard",
-  "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI",
 ]
 
 export function oidcMfaProven(claims: { amr?: unknown; acr?: unknown }, lenderAcrValues: readonly string[]): boolean {

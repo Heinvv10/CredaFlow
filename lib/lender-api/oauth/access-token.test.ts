@@ -34,6 +34,13 @@ describe("access tokens", () => {
     expect(await readAccessToken(other)).toBeNull()
   })
 
+  it("refuses a correctly signed token whose type is not at+jwt", async () => {
+    const wrongTyp = await new SignJWT({ tid: "t1", scope: "pii:read" })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" }).setSubject("oc1").setAudience("credaflow-lender-api").setIssuer("credaflow").setJti("j").setExpirationTime("5m")
+      .sign(new Uint8Array(derivedKey("oauth-access-token")))
+    expect(await readAccessToken(wrongTyp)).toBeNull()
+  })
+
   it("refuses an unsigned token", async () => {
     const part = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url")
     const none = `${part({ alg: "none", typ: "JWT" })}.${part({ sub: "oc1", tid: "t1", scope: "pii:read", aud: "credaflow-lender-api", iss: "credaflow", jti: "j", exp: 9999999999 })}.`

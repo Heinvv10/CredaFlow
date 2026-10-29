@@ -8,6 +8,10 @@ export default defineAuditActions({
   SSO_USER_PROVISIONED: "SSO_USER_PROVISIONED",
   // A staff user's role changed to match the identity provider's group mapping.
   SSO_ROLE_SYNCED: "SSO_ROLE_SYNCED",
+  // The provider's stable subject was bound to a staff user (first sign-in); newValue holds the subject, never a token.
+  SSO_IDENTITY_LINKED: "SSO_IDENTITY_LINKED",
+  // A successful SSO sign-in; newValue records whether the provider reported MFA (information only) and the session lifetime.
+  SSO_SIGN_IN_SUCCEEDED: "SSO_SIGN_IN_SUCCEEDED",
   // A refused SSO sign-in that named a real staff user (the reason is in newValue).
   SSO_SIGN_IN_REFUSED: "SSO_SIGN_IN_REFUSED",
   // A Super Admin signed in with password and a TOTP code while the lender had password sign-in turned off.

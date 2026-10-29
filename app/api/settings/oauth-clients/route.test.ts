@@ -67,6 +67,14 @@ describe("POST /api/settings/oauth-clients", () => {
     expect(h.create).toHaveBeenCalledWith(expect.objectContaining({ mtls: { subjectDn: "CN=core,O=Bank", certSha256: "a".repeat(64) } }))
   })
 
+  it("passes an allowlist through and refuses a malformed one", async () => {
+    await post({ ...valid, ipAllowlist: "198.51.100.0/24\n203.0.113.5" })
+    expect(h.create).toHaveBeenCalledWith(expect.objectContaining({ ipAllowlist: ["198.51.100.0/24", "203.0.113.5"] }))
+    h.create.mockClear()
+    expect((await post({ ...valid, ipAllowlist: ["bogus"] })).status).toBe(400)
+    expect(h.create).not.toHaveBeenCalled()
+  })
+
   it("passes the cap refusal through", async () => {
     h.create.mockResolvedValue({ ok: false, status: 409, error: "At most 20 active OAuth clients." })
     expect((await post(valid)).status).toBe(409)

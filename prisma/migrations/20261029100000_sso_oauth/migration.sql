@@ -2,6 +2,9 @@
 CREATE TYPE "SsoProtocol" AS ENUM ('OIDC', 'SAML');
 
 -- AlterTable
+ALTER TABLE "ApiKey" ADD COLUMN     "ipAllowlist" TEXT[] DEFAULT ARRAY[]::TEXT[];
+
+-- AlterTable
 ALTER TABLE "ApiRequestLog" ADD COLUMN     "oauthClientId" TEXT;
 
 -- CreateTable
@@ -16,6 +19,7 @@ CREATE TABLE "SsoConnection" (
     "oidcScopes" TEXT[],
     "samlEntityId" TEXT,
     "samlIdpEntityId" TEXT,
+    "samlSubjectAttribute" TEXT,
     "samlIdpSsoUrl" TEXT,
     "samlIdpCert" TEXT,
     "emailClaim" TEXT NOT NULL DEFAULT 'email',
@@ -25,9 +29,9 @@ CREATE TABLE "SsoConnection" (
     "allowUnverifiedEmail" BOOLEAN NOT NULL DEFAULT false,
     "jitProvisioning" BOOLEAN NOT NULL DEFAULT false,
     "jitDefaultRole" "UserRole",
-    "trustIdpMfa" BOOLEAN NOT NULL DEFAULT false,
     "mfaAcrValues" TEXT[],
     "passwordLoginDisabled" BOOLEAN NOT NULL DEFAULT false,
+    "sessionHours" INTEGER NOT NULL DEFAULT 10,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "updatedById" TEXT,
@@ -72,6 +76,7 @@ CREATE TABLE "OauthClient" (
     "requireMtls" BOOLEAN NOT NULL DEFAULT false,
     "mtlsSubjectDn" TEXT,
     "mtlsCertSha256" TEXT,
+    "ipAllowlist" TEXT[] DEFAULT ARRAY[]::TEXT[],
 
     CONSTRAINT "OauthClient_pkey" PRIMARY KEY ("id")
 );
@@ -146,6 +151,9 @@ ALTER TABLE "SsoConnection" ADD CONSTRAINT "SsoConnection_domains_needed_check" 
   "enabled" = false OR cardinality("allowedEmailDomains") > 0
 );
 
+-- An SSO session lasts at least an hour and at most a week.
+ALTER TABLE "SsoConnection" ADD CONSTRAINT "SsoConnection_session_hours_check" CHECK ("sessionHours" BETWEEN 1 AND 168);
+
 -- Password sign-in is turned off only while single sign-on is on.
 ALTER TABLE "SsoConnection" ADD CONSTRAINT "SsoConnection_password_off_needs_sso_check" CHECK (
   "passwordLoginDisabled" = false OR "enabled" = true
@@ -163,6 +171,9 @@ ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_expiry_check" CHECK ("expi
 ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_mtls_pin_check" CHECK (
   "requireMtls" = false OR ("mtlsCertSha256" IS NOT NULL AND "mtlsCertSha256" ~ '^[0-9a-f]{64}$')
 );
+-- Optional per-credential source-address allowlists (CIDR, validated in code); bounded here.
+ALTER TABLE "ApiKey" ADD CONSTRAINT "ApiKey_ip_allowlist_size_check" CHECK (cardinality("ipAllowlist") <= 50);
+ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_ip_allowlist_size_check" CHECK (cardinality("ipAllowlist") <= 50);
 ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_mtls_dn_form_check" CHECK (
   "mtlsSubjectDn" IS NULL OR ("mtlsSubjectDn" !~ '^/' AND "mtlsSubjectDn" LIKE '%=%')
 );

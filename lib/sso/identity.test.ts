@@ -50,7 +50,7 @@ const conn = (over: Partial<LoadedConnection> = {}) => ({
 }) as LoadedConnection
 
 const who = (over: Partial<IdpIdentity> = {}): IdpIdentity => ({
-  subject: "https://idp.example.test|sub-ann", email: "Ann@Bank.Example.test", emailVerified: true, groups: [], mfaProven: false, ...over,
+  subject: "https://idp.example.test|sub-ann", email: "Ann@Bank.Example.test", emailVerified: true, groups: ["staff"], mfaProven: false, ...over,
 })
 const seed = (u: Partial<U> = {}) => users.set("ann@bank.example.test", { id: "u1", email: "ann@bank.example.test", role: "CREDIT_OFFICER", tenantId: "t1", active: true, operatorId: null, name: "Ann", ...u })
 
@@ -78,6 +78,51 @@ describe("resolveStaffUser: email must be verified", () => {
     const jit = conn({ jitProvisioning: true, jitDefaultRole: "READONLY" })
     expect(await resolveStaffUser(who({ emailVerified: undefined }), jit)).toEqual({ ok: false, reason: "email_unverified" })
     expect(users.size).toBe(0)
+  })
+})
+
+describe("resolveStaffUser: email look-alikes and empty subjects", () => {
+  it.each([
+    ["fullwidth letters", "\uFF41nn@bank.example.test"],
+    ["a Kelvin sign", "\u212Aen@bank.example.test"],
+    ["a dotless i", "\u0131van@bank.example.test"],
+    ["a non-ASCII local part", "ann\u00E9@bank.example.test"],
+    ["a trailing zero-width space", "ann@bank.example.test\u200B"],
+    ["an embedded space", "an n@bank.example.test"],
+  ])("refuses %s, so it cannot collide with a real address", async (_l, email) => {
+    users.set("ken@bank.example.test", { id: "u7", email: "ken@bank.example.test", role: "READONLY", tenantId: "t1", active: true, operatorId: null, name: "Ken" })
+    seed()
+    expect(await resolveStaffUser(who({ email }), conn())).toEqual({ ok: false, reason: "email_invalid" })
+    expect(links).toHaveLength(0)
+  })
+
+  it.each([
+    ["no id after the separator", "https://idp.example.test|"],
+    ["a blank id", "https://idp.example.test|   "],
+    ["no issuer", "|abc"],
+    ["no separator", "abc"],
+    ["an empty subject", ""],
+  ])("refuses %s", async (_l, subject) => {
+    seed()
+    expect(await resolveStaffUser(who({ subject }), conn())).toEqual({ ok: false, reason: "no_subject" })
+    expect(links).toHaveLength(0)
+  })
+})
+
+describe("resolveStaffUser: audit", () => {
+  it("writes SSO_IDENTITY_LINKED in the same transaction as the link", async () => {
+    seed()
+    await resolveStaffUser(who(), conn())
+    expect(audits.filter((a) => a.action === "SSO_IDENTITY_LINKED")).toHaveLength(1)
+    expect(audits[0].newValue).toMatchObject({ subject: "https://idp.example.test|sub-ann" })
+  })
+
+  it("does not audit a link again at the next sign-in", async () => {
+    seed()
+    await resolveStaffUser(who(), conn())
+    audits.length = 0
+    await resolveStaffUser(who(), conn())
+    expect(audits).toEqual([])
   })
 })
 
@@ -170,19 +215,31 @@ describe("resolveStaffUser: existing users", () => {
     expect((await resolveStaffUser(who(), conn({ allowedEmailDomains: ["bank.example.test"] }))).ok).toBe(true)
   })
 
-  it("syncs the role to the highest mapped group and audits it", async () => {
+  it("reports the highest mapped role but does not apply it (authorizeSso does, after the other checks)", async () => {
     seed()
     const out = await resolveStaffUser(who({ groups: ["staff", "admins"] }), conn())
-    expect(out).toMatchObject({ ok: true, roleChanged: { from: "CREDIT_OFFICER", to: "ADMIN" } })
-    expect(users.get("ann@bank.example.test")!.role).toBe("ADMIN")
-    expect(audits.map((a) => a.action)).toEqual(["SSO_ROLE_SYNCED"])
+    expect(out).toMatchObject({ ok: true, role: "ADMIN" })
+    expect(users.get("ann@bank.example.test")!.role).toBe("CREDIT_OFFICER")
+    expect(audits.map((a) => a.action)).not.toContain("SSO_ROLE_SYNCED")
   })
 
-  it("leaves the role alone when no group is mapped", async () => {
+  it("refuses a user who has lost every mapped group while a mapping is in force", async () => {
     seed()
-    await resolveStaffUser(who({ groups: ["unmapped"] }), conn())
+    expect(await resolveStaffUser(who({ groups: ["unmapped"] }), conn())).toEqual({ ok: false, reason: "no_mapped_group" })
+    expect(await resolveStaffUser(who({ groups: [] }), conn())).toEqual({ ok: false, reason: "no_mapped_group" })
+    expect(links).toHaveLength(0)
+  })
+
+  it("refuses a bound user who has since lost every mapped group", async () => {
+    seed()
+    await resolveStaffUser(who({ groups: ["staff"] }), conn())
+    expect(await resolveStaffUser(who({ groups: [] }), conn())).toEqual({ ok: false, reason: "no_mapped_group" })
+  })
+
+  it("keeps the user's role when no mapping is configured", async () => {
+    seed()
+    expect(await resolveStaffUser(who({ groups: ["unmapped"] }), conn({ groupRoleMap: {} }))).toMatchObject({ ok: true, role: null })
     expect(users.get("ann@bank.example.test")!.role).toBe("CREDIT_OFFICER")
-    expect(audits).toEqual([])
   })
 })
 
@@ -194,7 +251,7 @@ describe("resolveStaffUser: just-in-time provisioning", () => {
     expect(out).toMatchObject({ ok: true, created: true })
     expect(users.get("ann@bank.example.test")).toMatchObject({ role: "READONLY", tenantId: "t1", active: true, name: "Ann Lee" })
     expect(links).toHaveLength(1)
-    expect(audits.map((a) => a.action)).toEqual(["SSO_USER_PROVISIONED"])
+    expect(audits.map((a) => a.action)).toEqual(["SSO_IDENTITY_LINKED", "SSO_USER_PROVISIONED"])
   })
 
   it("uses the mapped role over the default", async () => {
@@ -202,8 +259,13 @@ describe("resolveStaffUser: just-in-time provisioning", () => {
     expect(users.get("ann@bank.example.test")!.role).toBe("ADMIN")
   })
 
+  it("does not provision someone in no mapped group while a mapping is in force", async () => {
+    expect(await resolveStaffUser(who({ groups: ["unmapped"] }), jit)).toEqual({ ok: false, reason: "no_mapped_group" })
+    expect(users.size).toBe(0)
+  })
+
   it("never creates a SUPER_ADMIN, even if the stored map or default says so", async () => {
-    const hostile = conn({ jitProvisioning: true, jitDefaultRole: "SUPER_ADMIN" as never, groupRoleMap: { g: "SUPER_ADMIN" } as never })
+    const hostile = conn({ jitProvisioning: true, jitDefaultRole: "SUPER_ADMIN" as never, groupRoleMap: {} })
     expect(await resolveStaffUser(who({ groups: ["g"] }), hostile)).toEqual({ ok: false, reason: "no_account" })
     expect(users.size).toBe(0)
   })

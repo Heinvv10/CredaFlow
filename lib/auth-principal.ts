@@ -37,11 +37,7 @@ export type PrincipalRow = {
   operatorId?: string | null
   totpEnabled?: boolean
   totpSecret?: string | null
-  tenant?: {
-    status: string
-    config?: StaffAccessPolicyColumns | null
-    ssoConnection?: { enabled: boolean; trustIdpMfa: boolean } | null
-  } | null
+  tenant?: { status: string; config?: StaffAccessPolicyColumns | null } | null
 }
 
 export type PrincipalRefusal =
@@ -81,23 +77,10 @@ const PRINCIPAL_SELECT = {
   active: true, role: true, tenantId: true, operatorId: true, tokenVersion: true,
   totpEnabled: true, totpSecret: true,
   // The staff access policy columns ride on the same query (#82).
-  tenant: {
-    select: {
-      status: true,
-      config: { select: { staffAccessHours: true, staffIpAllowlist: true } },
-      // Whether the lender still trusts its identity provider's MFA (lib/sso/authorize.ts).
-      ssoConnection: { select: { enabled: true, trustIdpMfa: true } },
-    },
-  },
+  tenant: { select: { status: true, config: { select: { staffAccessHours: true, staffIpAllowlist: true } } } },
 } as const
 
-export type SessionClaims = {
-  audience: Audience
-  totpVerified: boolean
-  totpEnrolmentRequired: boolean
-  /** The session was minted relying on the identity provider's MFA instead of a CredaFlow code. */
-  idpMfa?: boolean
-}
+export type SessionClaims = { audience: Audience; totpVerified: boolean; totpEnrolmentRequired: boolean }
 
 export type FreshPrincipal = {
   role: string
@@ -124,10 +107,7 @@ export async function revalidatePrincipal(
     if (!row || principalRefusal(row, claims.audience) || row.tokenVersion !== tokenVersion) return null
     if (claims.totpVerified && !hasTotp(row)) return null
     if (claims.totpEnrolmentRequired && hasTotp(row)) return null
-    // Provider MFA keeps standing in for enrolment only while the lender still trusts it.
-    const sso = row.tenant?.ssoConnection
-    const idpMfaStands = claims.audience === "staff" && claims.idpMfa === true && sso?.enabled === true && sso.trustIdpMfa
-    held = idpMfaStands ? false : await enrolmentRequired(row, claims.audience)
+    held = await enrolmentRequired(row, claims.audience)
   } catch (err) {
     console.error("[auth] revalidatePrincipal DB error — retaining existing token:", err)
     return "error"

@@ -5,6 +5,7 @@ import { createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
 import { apiKeyMatches, apiKeyPrefix, apiKeyState, bearerToken, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
 import { apiError } from "@/lib/lender-api/api-error"
+import { sourceAddressAllowed } from "@/lib/lender-api/ip-restriction"
 import { authenticateAccessToken, looksLikeAccessToken } from "@/lib/lender-api/oauth/authenticate"
 
 /**
@@ -13,7 +14,8 @@ import { authenticateAccessToken, looksLikeAccessToken } from "@/lib/lender-api/
  *      of an ACTIVE tenant, whose creator is still an active ADMIN or above,
  *      or an OAuth2 access token (lib/lender-api/oauth) of a client that is
  *      active under the same rules; both are the same kind of caller below,
- *   2. must hold the route's scope,
+ *   2. must come from the credential's source-address allowlist when it has one,
+ *      and hold the route's scope,
  *   3. is rate limited per KEY (any request naming a real key counts, refused
  *      or not), so one key's traffic never spends another's allowance,
  *   4. runs inside runWithTenant(key.tenantId): the tenant comes from the key
@@ -58,7 +60,7 @@ const LAST_USED_RESOLUTION_MS = 60_000
 export { apiError }
 
 export type AuthOutcome =
-  | { ok: true; caller: ApiCaller; lastUsedAt: Date | null }
+  | { ok: true; caller: ApiCaller; lastUsedAt: Date | null; ipAllowlist: string[] }
   | { ok: false; response: NextResponse; tenantId: string | null; keyId: string | null; kind: CredentialKind }
 
 export async function authenticateApiKey(req: Request, now: Date = new Date()): Promise<AuthOutcome> {
@@ -77,7 +79,7 @@ export async function authenticateApiKey(req: Request, now: Date = new Date()): 
   const row = await withoutTenantScope(async () => await prisma.apiKey.findUnique({
     where: { prefix },
     select: {
-      id: true, tenantId: true, keyHash: true, scopes: true, createdById: true,
+      id: true, tenantId: true, keyHash: true, scopes: true, createdById: true, ipAllowlist: true,
       expiresAt: true, revokedAt: true, lastUsedAt: true,
       tenant: { select: { status: true } },
       createdBy: { select: { active: true, role: true } },
@@ -98,6 +100,7 @@ export async function authenticateApiKey(req: Request, now: Date = new Date()): 
     ok: true,
     caller: { keyId: row.id, kind: "api_key", tenantId: row.tenantId, scopes: row.scopes, createdById: row.createdById },
     lastUsedAt: row.lastUsedAt,
+    ipAllowlist: row.ipAllowlist ?? [],
   }
 }
 
@@ -173,6 +176,9 @@ export async function withApiKey(
       const ip = recordedCallerIp(req)
       const failLimit = ip ? failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
       response = failLimit.allowed ? auth.response : tooMany(failLimit.retryAfterSeconds, "Too many failed requests.")
+    } else if (!sourceAddressAllowed(req, auth.ipAllowlist)) {
+      // The key (or client) is real and valid but not from here: its allowlist, on the TRUSTED_PROXY-aware caller address.
+      response = apiError(403, "ip_not_allowed", `This ${kind === "oauth_client" ? "OAuth client" : "API key"} may not be used from this address.`)
     } else if (!hasScope(auth.caller.scopes, scope)) {
       response = apiError(403, "insufficient_scope", `This ${kind === "oauth_client" ? "access token" : "API key"} does not have the ${scope} scope.`)
     } else {

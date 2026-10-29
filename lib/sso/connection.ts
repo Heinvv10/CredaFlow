@@ -46,10 +46,10 @@ export function connectionView(c: LoadedConnection | null) {
   return {
     protocol: c.protocol, enabled: c.enabled,
     oidc: { issuer: c.oidcIssuer, clientId: c.oidcClientId, hasClientSecret: !!c.oidcClientSecretSealed, scopes: c.oidcScopes },
-    saml: { entityId: c.samlEntityId, idpEntityId: c.samlIdpEntityId, idpSsoUrl: c.samlIdpSsoUrl, hasIdpCert: !!c.samlIdpCert },
+    saml: { entityId: c.samlEntityId, idpEntityId: c.samlIdpEntityId, subjectAttribute: c.samlSubjectAttribute, idpSsoUrl: c.samlIdpSsoUrl, hasIdpCert: !!c.samlIdpCert },
     emailClaim: c.emailClaim, groupsClaim: c.groupsClaim, allowedEmailDomains: c.allowedEmailDomains, allowUnverifiedEmail: c.allowUnverifiedEmail,
     groupRoleMap: c.groupRoleMap, jitProvisioning: c.jitProvisioning, jitDefaultRole: c.jitDefaultRole,
-    trustIdpMfa: c.trustIdpMfa, mfaAcrValues: c.mfaAcrValues, passwordLoginDisabled: c.passwordLoginDisabled,
+    mfaAcrValues: c.mfaAcrValues, passwordLoginDisabled: c.passwordLoginDisabled, sessionHours: c.sessionHours,
     updatedAt: c.updatedAt.toISOString(),
   }
 }
@@ -98,15 +98,15 @@ export async function saveConnection(args: { tenantId: string; actor: Actor; bod
   })
 }
 
-const providerKey = (c: { protocol: string; oidcIssuer: string | null; samlIdpEntityId: string | null }) =>
-  c.protocol === "OIDC" ? `OIDC|${c.oidcIssuer}` : `SAML|${c.samlIdpEntityId}`
+const providerKey = (c: { protocol: string; oidcIssuer: string | null; samlIdpEntityId: string | null; samlSubjectAttribute: string | null }) =>
+  c.protocol === "OIDC" ? `OIDC|${c.oidcIssuer}` : `SAML|${c.samlIdpEntityId}|${c.samlSubjectAttribute ?? ""}`
 
 function auditShape(c: SsoConnection) {
   return {
     protocol: c.protocol, enabled: c.enabled, oidcIssuer: c.oidcIssuer, oidcClientId: c.oidcClientId,
     samlEntityId: c.samlEntityId, samlIdpEntityId: c.samlIdpEntityId, samlIdpSsoUrl: c.samlIdpSsoUrl,
     allowedEmailDomains: c.allowedEmailDomains, allowUnverifiedEmail: c.allowUnverifiedEmail, groupRoleMap: c.groupRoleMap,
-    jitProvisioning: c.jitProvisioning, jitDefaultRole: c.jitDefaultRole, trustIdpMfa: c.trustIdpMfa,
+    jitProvisioning: c.jitProvisioning, jitDefaultRole: c.jitDefaultRole, sessionHours: c.sessionHours, samlSubjectAttribute: c.samlSubjectAttribute,
     passwordLoginDisabled: c.passwordLoginDisabled,
   }
 }

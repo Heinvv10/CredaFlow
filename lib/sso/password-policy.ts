@@ -10,7 +10,7 @@ import { AuditAction, logAudit } from "@/lib/audit"
  */
 
 /** The `ssoConnection` select that rides on the sign-in's own user query (no extra round trip). */
-export const PASSWORD_POLICY_SELECT = { select: { enabled: true, trustIdpMfa: true, passwordLoginDisabled: true } } as const
+export const PASSWORD_POLICY_SELECT = { select: { enabled: true, passwordLoginDisabled: true } } as const
 
 export type PasswordPolicyRow = { tenant?: { ssoConnection?: { enabled: boolean; passwordLoginDisabled: boolean } | null } | null }
 

@@ -51,7 +51,8 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
   const [unverified, setUnverified] = useState(initial?.allowUnverifiedEmail ?? false)
   const [jit, setJit] = useState(initial?.jitProvisioning ?? false)
   const [jitRole, setJitRole] = useState<string>(initial?.jitDefaultRole ?? "READONLY")
-  const [trustMfa, setTrustMfa] = useState(initial?.trustIdpMfa ?? false)
+  const [subjectAttr, setSubjectAttr] = useState(initial?.saml.subjectAttribute ?? "")
+  const [sessionHours, setSessionHours] = useState(String(initial?.sessionHours ?? 10))
   const [acr, setAcr] = useState((initial?.mfaAcrValues ?? []).join(", "))
   const [passwordOff, setPasswordOff] = useState(initial?.passwordLoginDisabled ?? false)
   const [busy, setBusy] = useState(false)
@@ -67,9 +68,9 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
       protocol, enabled,
       ...(protocol === "OIDC"
         ? { oidc: { issuer, clientId, clientSecret, scopes: scopes.split(/\s+/).filter(Boolean) } }
-        : { saml: { entityId, idpEntityId, idpSsoUrl, idpCert } }),
+        : { saml: { entityId, idpEntityId, subjectAttribute: subjectAttr, idpSsoUrl, idpCert } }),
       emailClaim, groupsClaim, allowedEmailDomains: list(domains), allowUnverifiedEmail: unverified, groupRoleMap: textToMap(groupMap),
-      jitProvisioning: jit, jitDefaultRole: jit ? jitRole : null, trustIdpMfa: trustMfa, mfaAcrValues: list(acr), passwordLoginDisabled: passwordOff,
+      jitProvisioning: jit, jitDefaultRole: jit ? jitRole : null, mfaAcrValues: list(acr), passwordLoginDisabled: passwordOff, sessionHours: Number(sessionHours),
     }
     try {
       const res = await fetch("/api/settings/sso", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -132,6 +133,11 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
               <p className="text-sm text-[var(--cf-text-secondary)]">Give the provider this assertion consumer URL: <code className="break-all">{acsUrl}</code>. Sign-in starts from CredaFlow; provider-initiated sign-in is refused.</p>
               <div className="space-y-2"><Label htmlFor="ssoEntityId">Service provider entity id (audience)</Label><Input id="ssoEntityId" value={entityId} disabled={!canManage} placeholder="urn:credaflow:lender" onChange={(e) => setEntityId(e.target.value)} /></div>
               <div className="space-y-2"><Label htmlFor="ssoIdpEntityId">Identity provider entity id (issuer)</Label><Input id="ssoIdpEntityId" value={idpEntityId} disabled={!canManage} onChange={(e) => setIdpEntityId(e.target.value)} /></div>
+              <div className="space-y-2">
+                <Label htmlFor="ssoSubjectAttr">Immutable id attribute (optional)</Label>
+                <Input id="ssoSubjectAttr" value={subjectAttr} disabled={!canManage} placeholder="objectGUID / immutableId" onChange={(e) => setSubjectAttr(e.target.value)} />
+                <p className="text-xs text-[var(--cf-text-muted)]">Names a person for life. Without it only a persistent NameID is accepted; transient, email-address and unspecified NameIDs are refused.</p>
+              </div>
               <div className="space-y-2"><Label htmlFor="ssoIdpUrl">Identity provider sign-in URL</Label><Input id="ssoIdpUrl" value={idpSsoUrl} disabled={!canManage} placeholder="https://idp.example.com/saml/sso" onChange={(e) => setIdpSsoUrl(e.target.value)} /></div>
               <div className="space-y-2">
                 <Label htmlFor="ssoIdpCert">Identity provider signing certificate (PEM)</Label>
@@ -167,13 +173,16 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
                 </select>
               </div>
             )}
-            {check("ssoTrustMfa", trustMfa, setTrustMfa, "Trust the provider's multi-factor authentication", "A user without CredaFlow two-factor is let in only when the provider reports MFA for that sign-in. A user who enrolled CredaFlow two-factor is still asked for the code.")}
-            {trustMfa && (
-              <div className="max-w-xl space-y-2">
-                <Label htmlFor="ssoAcr">Extra values that mean MFA (acr / AuthnContext, comma separated)</Label>
-                <Input id="ssoAcr" value={acr} disabled={!canManage} onChange={(e) => setAcr(e.target.value)} />
-              </div>
-            )}
+            <div className="max-w-xl space-y-2">
+              <Label htmlFor="ssoAcr">Values that mean the provider used MFA (acr / AuthnContext, comma separated, optional)</Label>
+              <Input id="ssoAcr" value={acr} disabled={!canManage} onChange={(e) => setAcr(e.target.value)} />
+              <p className="text-xs text-[var(--cf-text-muted)]">Recorded in the sign-in audit row only. Staff two-factor is unchanged: a user who enrolled an authenticator is always asked for the code, and with 2FA required a user without one is held at enrolment, whatever the provider reports.</p>
+            </div>
+            <div className="max-w-xs space-y-2">
+              <Label htmlFor="ssoSessionHours">SSO session lifetime (hours, 1 to 168)</Label>
+              <Input id="ssoSessionHours" type="number" min={1} max={168} value={sessionHours} disabled={!canManage} onChange={(e) => setSessionHours(e.target.value)} />
+              <p className="text-xs text-[var(--cf-text-muted)]">After this the user signs in at the provider again. Disabling someone at the provider does not end their open session sooner, and does not disable their CredaFlow account: do that here too.</p>
+            </div>
             {check("ssoEnabled", enabled, setEnabled, "Single sign-on is on")}
             {check("ssoPasswordOff", passwordOff, setPasswordOff, "Turn off password sign-in", "Only while single sign-on is on. A Super Admin can still sign in with password and an authenticator code (break-glass).")}
           </div>

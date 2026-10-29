@@ -16,14 +16,22 @@ beforeEach(() => {
 
 describe("sign-in ticket", () => {
   it("round-trips the user, lender and MFA proof", async () => {
-    const token = await mintTicket({ userId: "u1", tenantId: "t1", idpMfa: true })
+    const token = await mintTicket({ userId: "u1", tenantId: "t1", mfaReported: true, role: null })
     const ticket = await readTicket(token)
-    expect(ticket).toMatchObject({ userId: "u1", tenantId: "t1", idpMfa: true })
+    expect(ticket).toMatchObject({ userId: "u1", tenantId: "t1", mfaReported: true, role: null })
     expect(ticket?.jti).toBeTruthy()
   })
 
+  it("carries the mapped role and refuses a role that is not mappable", async () => {
+    expect(await readTicket(await mintTicket({ userId: "u1", tenantId: "t1", mfaReported: false, role: "ADMIN" }))).toMatchObject({ role: "ADMIN" })
+    const forged = await new SignJWT({ tid: "t1", mfa: false, rl: "SUPER_ADMIN" })
+      .setProtectedHeader({ alg: "HS256" }).setSubject("u1").setAudience("sso-ticket").setJti("j").setExpirationTime("2m")
+      .sign(new Uint8Array(derivedKey("sso-ticket")))
+    expect(await readTicket(forged)).toBeNull()
+  })
+
   it("refuses an expired ticket", async () => {
-    const token = await mintTicket({ userId: "u1", tenantId: "t1", idpMfa: false }, { ttlSeconds: -10 })
+    const token = await mintTicket({ userId: "u1", tenantId: "t1", mfaReported: false, role: null }, { ttlSeconds: -10 })
     expect(await readTicket(token)).toBeNull()
   })
 
@@ -46,7 +54,7 @@ describe("sign-in ticket", () => {
   })
 
   it("is single use", async () => {
-    const ticket = await readTicket(await mintTicket({ userId: "u1", tenantId: "t1", idpMfa: false }))
+    const ticket = await readTicket(await mintTicket({ userId: "u1", tenantId: "t1", mfaReported: false, role: null }))
     expect(await claimTicket(ticket!)).toBe(true)
     expect(await claimTicket(ticket!)).toBe(false)
   })
@@ -63,12 +71,16 @@ describe("flow state", () => {
     expect(await readState(token)).toMatchObject({ tenantId: "t1", state: "abc", nonce: "n", codeVerifier: "v", returnTo: "/loans" })
   })
 
+  it("carries the SAML request id", async () => {
+    expect(await readState(await mintState({ tenantId: "t1", state: "r", requestId: "_abc", returnTo: "/" }))).toMatchObject({ requestId: "_abc" })
+  })
+
   it("refuses an expired state", async () => {
     expect(await readState(await mintState({ tenantId: "t1", state: "a", returnTo: "/" }, { ttlSeconds: -5 }))).toBeNull()
   })
 
   it("refuses a ticket presented as state", async () => {
-    expect(await readState(await mintTicket({ userId: "u", tenantId: "t", idpMfa: false }))).toBeNull()
+    expect(await readState(await mintTicket({ userId: "u", tenantId: "t", mfaReported: false, role: null }))).toBeNull()
   })
 
   it("refuses a tampered state", async () => {

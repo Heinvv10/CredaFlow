@@ -29,7 +29,7 @@ export default async function ApiSettingsPage() {
       where: { tenantId },
       orderBy: { createdAt: "desc" },
       select: {
-        id: true, name: true, prefix: true, scopes: true, createdAt: true, expiresAt: true,
+        id: true, name: true, prefix: true, scopes: true, ipAllowlist: true, createdAt: true, expiresAt: true,
         lastUsedAt: true, revokedAt: true, createdBy: { select: { email: true, active: true, role: true } },
       },
     }),
@@ -68,6 +68,7 @@ export default async function ApiSettingsPage() {
             name: k.name,
             prefix: k.prefix,
             scopes: k.scopes,
+            ipAllowlist: k.ipAllowlist,
             // A key whose creator is no longer an active ADMIN stops working (lib/lender-api/handler.ts).
             state: apiKeyState(k) === "active" && !keyIssuerStillAuthorised(k.createdBy) ? "suspended" : apiKeyState(k),
             createdBy: k.createdBy.email,
@@ -83,6 +84,7 @@ export default async function ApiSettingsPage() {
             name: c.name,
             clientId: c.clientId,
             scopes: c.scopes,
+            ipAllowlist: c.ipAllowlist,
             // A client whose creator is no longer an active ADMIN is refused (lib/lender-api/oauth/authenticate.ts).
             state: c.state === "active" && !keyIssuerStillAuthorised(c.createdBy) ? "suspended" : c.state,
             requireMtls: c.requireMtls,

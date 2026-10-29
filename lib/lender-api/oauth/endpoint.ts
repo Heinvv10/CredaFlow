@@ -4,6 +4,7 @@ import { withoutTenantScope } from "@/lib/tenant-scope"
 import { createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
 import { apiKeyMatches, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { logApiRequest } from "@/lib/lender-api/handler"
+import { sourceAddressAllowed } from "@/lib/lender-api/ip-restriction"
 import { isApiScope } from "@/lib/lender-api/scopes"
 import { mintAccessToken } from "./access-token"
 import { isClientId, oauthClientState } from "./clients"
@@ -97,7 +98,7 @@ export async function handleTokenRequest(req: Request, now: Date = new Date()): 
           where: { clientId },
           select: {
             id: true, tenantId: true, secretHash: true, scopes: true, expiresAt: true, revokedAt: true, lastUsedAt: true,
-            requireMtls: true, mtlsSubjectDn: true, mtlsCertSha256: true,
+            requireMtls: true, mtlsSubjectDn: true, mtlsCertSha256: true, ipAllowlist: true,
             tenant: { select: { status: true } }, createdBy: { select: { active: true, role: true } },
           },
         }))
@@ -118,6 +119,9 @@ export async function handleTokenRequest(req: Request, now: Date = new Date()): 
     if (state !== "active") return finish(oauthError("invalid_client", `The client is ${state}.`, viaBasic))
     if (!keyIssuerStillAuthorised(row.createdBy)) return finish(oauthError("invalid_client", "The client's creator is no longer an active admin.", viaBasic))
     if (row.tenant.status !== "ACTIVE") return finish(oauthError("invalid_client", "This lender is not active.", viaBasic))
+    if (!sourceAddressAllowed(req, row.ipAllowlist ?? [])) {
+      return finish(oauthError("invalid_client", "This client may not be used from this address.", viaBasic))
+    }
     if (checkClientCertificate(req.headers, row) !== "ok") {
       return finish(oauthError("invalid_client", "This client must present its pinned client certificate.", viaBasic))
     }

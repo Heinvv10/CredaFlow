@@ -97,7 +97,7 @@ describe("connectionView and openClientSecret", () => {
       protocol: "SAML", enabled: true, oidcIssuer: null, oidcClientId: null, oidcClientSecretSealed: "enc:v1:x", oidcScopes: [],
       samlEntityId: "urn:x", samlIdpEntityId: "https://idp", samlIdpSsoUrl: "https://idp/sso", samlIdpCert: "-----BEGIN CERTIFICATE-----",
       emailClaim: "email", groupsClaim: "groups", allowedEmailDomains: [], groupRoleMap: {}, jitProvisioning: false, jitDefaultRole: null,
-      trustIdpMfa: false, mfaAcrValues: [], passwordLoginDisabled: false, updatedAt: new Date(),
+      mfaAcrValues: [], passwordLoginDisabled: false, sessionHours: 10, updatedAt: new Date(),
     } as never)
     expect(view).toMatchObject({ oidc: { hasClientSecret: true }, saml: { hasIdpCert: true } })
     expect(JSON.stringify(view)).not.toContain("enc:v1")

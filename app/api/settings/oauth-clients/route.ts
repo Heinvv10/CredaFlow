@@ -4,6 +4,7 @@ import { recordedCallerIp } from "@/lib/rate-limit"
 import { requireSsoAdmin } from "@/lib/sso/admin-guard"
 import { parseScopes } from "@/lib/lender-api/scopes"
 import { isApiKeyLifetime } from "@/lib/lender-api/keys"
+import { parseCredentialAllowlist } from "@/lib/lender-api/ip-restriction"
 import { createOauthClient, parseMtlsPin } from "@/lib/lender-api/oauth/clients"
 
 // Register an OAuth client. The secret is in this response and nowhere else.
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     const body = (await req.json().catch(() => null)) as {
-      name?: unknown; scopes?: unknown; lifetimeDays?: unknown; requireMtls?: unknown; mtlsSubjectDn?: unknown; mtlsCertSha256?: unknown
+      name?: unknown; scopes?: unknown; lifetimeDays?: unknown; requireMtls?: unknown; mtlsSubjectDn?: unknown; mtlsCertSha256?: unknown; ipAllowlist?: unknown
     } | null
     const name = typeof body?.name === "string" ? body.name.trim() : ""
     if (!name || name.length > 80) return NextResponse.json({ error: "Name the client (at most 80 characters)." }, { status: 400 })
@@ -27,10 +28,13 @@ export async function POST(req: NextRequest) {
       if (!mtls) return NextResponse.json({ error: "Mutual TLS needs the certificate's SHA-256 fingerprint (64 hex characters). A subject DN is optional and must be in RFC 4514 form (CN=…,O=…), exactly as your gateway forwards it." }, { status: 400 })
     }
 
+    const allowlist = parseCredentialAllowlist(body?.ipAllowlist)
+    if (!allowlist.ok) return NextResponse.json({ error: allowlist.error }, { status: 400 })
+
     const outcome = await createOauthClient({
       tenantId: tenant.id,
       actor: { id: user.id, email: user.email, ipAddress: recordedCallerIp(req) ?? undefined },
-      name, scopes, lifetimeDays: body.lifetimeDays, mtls,
+      name, scopes, lifetimeDays: body.lifetimeDays, mtls, ipAllowlist: allowlist.entries,
     })
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status })
     return NextResponse.json(

@@ -14,13 +14,25 @@ describe("parseConnectionInput", () => {
       expect(out.value.oidcScopes).toEqual(["openid", "email", "profile"])
       expect(out.value.emailClaim).toBe("email")
       expect(out.value.groupsClaim).toBe("groups")
-      expect(out.value.trustIdpMfa).toBe(false)
       expect(out.value.jitProvisioning).toBe(false)
       expect(out.clientSecret).toBe("shh")
     }
   })
 
-  it("accepts a SAML connection", () => expect(parseConnectionInput(saml, null).ok).toBe(true))
+  it("accepts a SAML connection, with an optional immutable subject attribute", () => {
+    expect(parseConnectionInput(saml, null).ok).toBe(true)
+    const withAttr = parseConnectionInput({ ...saml, saml: { ...saml.saml, subjectAttribute: "objectGUID" } }, null)
+    expect(withAttr.ok && withAttr.value.samlSubjectAttribute).toBe("objectGUID")
+    expect(parseConnectionInput({ ...saml, saml: { ...saml.saml, subjectAttribute: "bad name\n" } }, null).ok).toBe(false)
+  })
+
+  it("defaults the session to 10 hours and bounds it to 1..168", () => {
+    const ok = parseConnectionInput(oidc, null)
+    expect(ok.ok && ok.value.sessionHours).toBe(10)
+    for (const hours of [0, 169, 1.5, "10", -1]) expect(parseConnectionInput({ ...oidc, sessionHours: hours }, null).ok).toBe(false)
+    const week = parseConnectionInput({ ...oidc, sessionHours: 168 }, null)
+    expect(week.ok && week.value.sessionHours).toBe(168)
+  })
 
   it.each([
     ["an http issuer", { ...oidc, oidc: { ...oidc.oidc, issuer: "http://idp.example.test" } }],

@@ -33,7 +33,7 @@ export async function authenticateAccessToken(req: Request, token: string, now: 
   const row = await withoutTenantScope(async () => await prisma.oauthClient.findFirst({
     where: { id: claims.clientRowId, tenantId: claims.tenantId },
     select: {
-      id: true, tenantId: true, scopes: true, createdById: true, expiresAt: true, revokedAt: true, lastUsedAt: true,
+      id: true, tenantId: true, scopes: true, createdById: true, expiresAt: true, revokedAt: true, lastUsedAt: true, ipAllowlist: true,
       requireMtls: true, mtlsSubjectDn: true, mtlsCertSha256: true,
       tenant: { select: { status: true } },
       createdBy: { select: { active: true, role: true } },
@@ -56,6 +56,7 @@ export async function authenticateAccessToken(req: Request, token: string, now: 
   return {
     ok: true,
     lastUsedAt: row.lastUsedAt,
+    ipAllowlist: row.ipAllowlist ?? [],
     caller: { keyId: row.id, kind: "oauth_client", tenantId: row.tenantId, scopes, createdById: row.createdById },
   }
 }

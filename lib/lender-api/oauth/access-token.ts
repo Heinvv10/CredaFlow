@@ -40,7 +40,7 @@ export async function mintAccessToken(claims: AccessTokenClaims, opts: { ttlSeco
 /** The token's claims if it is a valid, unexpired access token we issued; otherwise null. */
 export async function readAccessToken(token: string): Promise<AccessTokenClaims | null> {
   try {
-    const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"], issuer: ISSUER, audience: AUDIENCE, clockTolerance: 5 })
+    const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"], typ: "at+jwt", issuer: ISSUER, audience: AUDIENCE, clockTolerance: 5 })
     if (typeof payload.sub !== "string" || typeof payload.tid !== "string" || typeof payload.scope !== "string" || payload.scope === "") return null
     return { clientRowId: payload.sub, tenantId: payload.tid, scopes: payload.scope.split(" ") }
   } catch {

@@ -16,13 +16,15 @@ suites sign real XML with a throwaway key made by the `openssl` CLI.
   (`provider.ts`, registered in `lib/auth.ts`) trades it in `authorize.ts`. The
   ticket is spent only after every check passed; a code prompt does not spend it.
 - **The provider can only add.** `authorize.ts` re-applies `principalRefusal`,
-  the working-hours / IP rules and TOTP. `totpVerified` is set ONLY when a
-  CredaFlow code was checked at that sign-in: provider MFA never sets it. A user
-  who enrolled TOTP is always asked for the code. A user with none is held at
-  enrolment when the lender requires 2FA, unless `trustIdpMfa` is on AND the
-  provider proved MFA (`mfa.ts`); that session carries `idpMfa`, which
-  `revalidatePrincipal` (`lib/auth-principal.ts`) honours per request only while
-  the lender still trusts it. Do not add a path that skips this.
+  the working-hours / IP rules and TOTP exactly as a password sign-in. There is
+  NO provider-MFA exception (CLAUDE.md, "Staff TOTP 2FA"): an enrolled user always
+  gives a code, an unenrolled one is held at enrolment when the lender requires
+  2FA. `mfa.ts` only records what the provider reported, in the audit row. Do not
+  add a path that skips this.
+- **Order in `authorizeSso`:** every refusal first, then spend the ticket, then
+  apply the mapped role (`ticket.role`, audited) and audit the sign-in. A refused
+  or retried sign-in never changes a role. The session carries `ssoExp` (the
+  lender's `sessionHours`); the jwt callback ends it after that.
 - **Never SUPER_ADMIN.** The provider cannot create, map or change a SUPER_ADMIN
   or operator user (`groups.ts`, `identity.ts`, CHECKs on `SsoConnection`), and a
   SUPER_ADMIN cannot sign in through it at all (`identity.ts`, again in
@@ -36,6 +38,11 @@ suites sign real XML with a throwaway key made by the `openssl` CLI.
   `allowedEmailDomains` (CHECK + form).
 - **Password sign-in off** (`password-policy.ts`, used in `lib/auth.ts`): only a
   SUPER_ADMIN with a valid TOTP code still gets in (break-glass), audited.
+- **SAML binding.** `beginSaml` chooses the AuthnRequest id and puts it in the
+  signed flow state; `completeSaml` requires the assertion's `InResponseTo` to be
+  exactly it (node-saml only checks it is some request we issued). The subject is
+  a persistent NameID or the lender's immutable attribute, never an email-format,
+  transient or empty NameID.
 - **Replay.** SAML request and assertion ids and tickets live in `SsoCacheEntry`
   (`cache.ts`), shared by replicas; node-saml runs `validateInResponseTo: always`
   and `rejectReplayedAssertions`. The flow cookie ties the answer to the

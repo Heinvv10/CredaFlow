@@ -9,7 +9,7 @@ import { getEnabledConnection, type LoadedConnection } from "./connection"
 import { cookieOptions, flowCookieName, ssoFlowFromCookieHeader, ticketCookieName } from "./cookies"
 import { resolveStaffUser, type IdpIdentity } from "./identity"
 import { beginOidc, completeOidc, type OidcOptions } from "./oidc"
-import { beginSaml, completeSaml } from "./saml"
+import { beginSaml, completeSaml, samlServiceProviderMetadata } from "./saml"
 import { mintTicket, readState, STATE_TTL_SECONDS, TICKET_TTL_SECONDS, type SsoFlowState } from "./tokens"
 
 /**
@@ -85,7 +85,7 @@ async function flowFor(req: Request, tenantId: string): Promise<SsoFlowState | n
 async function finish(req: Request, r: Ready, flow: SsoFlowState, identity: IdpIdentity): Promise<Response> {
   const resolved = await resolveStaffUser(identity, r.conn)
   if (!resolved.ok) return refuse(req, resolved.reason)
-  const ticket = await mintTicket({ userId: resolved.userId, tenantId: r.tenantId, idpMfa: identity.mfaProven })
+  const ticket = await mintTicket({ userId: resolved.userId, tenantId: r.tenantId, mfaReported: identity.mfaProven, role: resolved.role })
   const res = toLogin({ sso: "1", callbackUrl: flow.returnTo }, true)
   res.cookies.set(ticketCookieName(), ticket, cookieOptions(TICKET_TTL_SECONDS, false))
   return res
@@ -126,4 +126,15 @@ export async function handleSamlAcs(req: Request): Promise<Response> {
   } catch (error) {
     return refuse(req, (error as { code?: string }).code ?? "saml_failed", error)
   }
+}
+
+/** GET /api/auth/sso/saml/metadata: the SP metadata XML, only while this lender has SAML switched on. */
+export async function handleSamlMetadata(req: Request): Promise<Response> {
+  if (process.env.APP_MODE === "client") return new NextResponse("Not found", { status: 404 })
+  const tenant = await getTenantFromRequest(req)
+  const conn = tenant ? await runWithTenant(tenant.id, () => getEnabledConnection(tenant.id)) : null
+  if (!conn || conn.protocol !== "SAML") return new NextResponse("Not found", { status: 404 })
+  return new NextResponse(samlServiceProviderMetadata(conn, appUrl(SAML_ACS_PATH)), {
+    headers: { "content-type": "application/samlmetadata+xml; charset=utf-8", "cache-control": "no-store" },
+  })
 }

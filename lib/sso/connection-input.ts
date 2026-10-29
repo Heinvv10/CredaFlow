@@ -18,6 +18,7 @@ export interface ConnectionFields {
   oidcScopes: string[]
   samlEntityId: string | null
   samlIdpEntityId: string | null
+  samlSubjectAttribute: string | null
   samlIdpSsoUrl: string | null
   samlIdpCert: string | null
   emailClaim: string
@@ -27,9 +28,9 @@ export interface ConnectionFields {
   groupRoleMap: GroupRoleMap
   jitProvisioning: boolean
   jitDefaultRole: MappableRole | null
-  trustIdpMfa: boolean
   mfaAcrValues: string[]
   passwordLoginDisabled: boolean
+  sessionHours: number
 }
 
 export type ConnectionInputResult =
@@ -80,7 +81,7 @@ export function parseConnectionInput(body: unknown, existing: Existing): Connect
 
   let oidcIssuer: string | null = null, oidcClientId: string | null = null, clientSecret: string | null = null
   let oidcScopes: string[] = []
-  let samlEntityId: string | null = null, samlIdpEntityId: string | null = null, samlIdpSsoUrl: string | null = null, samlIdpCert: string | null = null
+  let samlEntityId: string | null = null, samlSubjectAttribute: string | null = null, samlIdpEntityId: string | null = null, samlIdpSsoUrl: string | null = null, samlIdpCert: string | null = null
   if (protocol === "OIDC") {
     const o = isObj(body.oidc) ? body.oidc : {}
     oidcIssuer = httpsUrl(o.issuer, true)
@@ -103,6 +104,10 @@ export function parseConnectionInput(body: unknown, existing: Existing): Connect
     if (!samlEntityId) return fail("Enter the service provider entity id.")
     samlIdpEntityId = str(s.idpEntityId, 512)
     if (!samlIdpEntityId) return fail("Enter the identity provider's entity id (issuer).")
+    if (s.subjectAttribute !== undefined && s.subjectAttribute !== null && s.subjectAttribute !== "") {
+      samlSubjectAttribute = str(s.subjectAttribute, 200)
+      if (!samlSubjectAttribute || !CLAIM_NAME.test(samlSubjectAttribute)) return fail("The subject attribute name is not valid.")
+    }
     samlIdpSsoUrl = httpsUrl(s.idpSsoUrl, true)
     if (!samlIdpSsoUrl) return fail("The identity provider sign-in URL must be an https URL.")
     samlIdpCert = certificates(s.idpCert)
@@ -131,6 +136,9 @@ export function parseConnectionInput(body: unknown, existing: Existing): Connect
   const mfaAcrValues = body.mfaAcrValues === undefined ? [] : strList(body.mfaAcrValues, 20)
   if (!mfaAcrValues) return fail("MFA context values are not valid.")
 
+  const sessionHours = body.sessionHours === undefined ? 10 : body.sessionHours
+  if (typeof sessionHours !== "number" || !Number.isInteger(sessionHours) || sessionHours < 1 || sessionHours > 168) return fail("The session lifetime must be a whole number of hours from 1 to 168.")
+
   const passwordLoginDisabled = body.passwordLoginDisabled === true
   if (passwordLoginDisabled && !body.enabled) return fail("Password sign-in can be turned off only while single sign-on is enabled.")
 
@@ -138,9 +146,9 @@ export function parseConnectionInput(body: unknown, existing: Existing): Connect
     ok: true,
     clientSecret,
     value: {
-      protocol, enabled: body.enabled, oidcIssuer, oidcClientId, oidcScopes, samlEntityId, samlIdpEntityId, samlIdpSsoUrl, samlIdpCert,
+      protocol, enabled: body.enabled, oidcIssuer, oidcClientId, oidcScopes, samlEntityId, samlIdpEntityId, samlSubjectAttribute, samlIdpSsoUrl, samlIdpCert,
       emailClaim, groupsClaim, allowedEmailDomains, allowUnverifiedEmail: body.allowUnverifiedEmail === true, groupRoleMap, jitProvisioning, jitDefaultRole,
-      trustIdpMfa: body.trustIdpMfa === true, mfaAcrValues, passwordLoginDisabled,
+      mfaAcrValues, passwordLoginDisabled, sessionHours,
     },
   }
 }

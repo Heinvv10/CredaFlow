@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from "jose"
 import { randomUUID } from "node:crypto"
 import { derivedKey } from "@/lib/crypto/derived-key"
 import { claimOnce } from "./cache"
+import { isMappableRole, type MappableRole } from "./groups"
 
 /**
  * The two short-lived signed values of an SSO sign-in.
@@ -29,13 +30,15 @@ const key = (context: string) => new Uint8Array(derivedKey(context))
 export interface SsoTicket {
   userId: string
   tenantId: string
-  /** The identity provider proved a second factor for this sign-in. */
-  idpMfa: boolean
+  /** The provider reported a second factor for this sign-in. Recorded in the audit row only: it never replaces a CredaFlow code. */
+  mfaReported: boolean
+  /** The role the provider's groups map to now (applied in authorizeSso once the sign-in has passed every check); null keeps the user's role. */
+  role: MappableRole | null
 }
 
 export async function mintTicket(ticket: SsoTicket, opts: { ttlSeconds?: number } = {}): Promise<string> {
   const ttl = opts.ttlSeconds ?? TICKET_TTL_SECONDS
-  return new SignJWT({ tid: ticket.tenantId, mfa: ticket.idpMfa })
+  return new SignJWT({ tid: ticket.tenantId, mfa: ticket.mfaReported, rl: ticket.role })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(ticket.userId)
     .setAudience(TICKET_AUD)
@@ -51,7 +54,9 @@ export async function readTicket(token: string): Promise<(SsoTicket & { jti: str
     const { payload } = await jwtVerify(token, key("sso-ticket"), { algorithms: ["HS256"], audience: TICKET_AUD, clockTolerance: 5 })
     if (typeof payload.sub !== "string" || typeof payload.tid !== "string" || typeof payload.jti !== "string"
       || typeof payload.mfa !== "boolean" || typeof payload.exp !== "number") return null
-    return { userId: payload.sub, tenantId: payload.tid, idpMfa: payload.mfa, jti: payload.jti, exp: payload.exp }
+    const role = payload.rl === null || payload.rl === undefined ? null : isMappableRole(payload.rl) ? payload.rl : undefined
+    if (role === undefined) return null
+    return { userId: payload.sub, tenantId: payload.tid, mfaReported: payload.mfa, role, jti: payload.jti, exp: payload.exp }
   } catch {
     return null
   }
@@ -66,6 +71,8 @@ export interface SsoFlowState {
   tenantId: string
   /** The OAuth `state` (OIDC) or the RelayState nonce (SAML). */
   state: string
+  /** SAML: the id of the AuthnRequest this browser sent; the response must answer exactly it. */
+  requestId?: string
   nonce?: string
   codeVerifier?: string
   /** An internal path to land on after sign-in. */
@@ -74,7 +81,7 @@ export interface SsoFlowState {
 
 export async function mintState(state: SsoFlowState, opts: { ttlSeconds?: number } = {}): Promise<string> {
   const ttl = opts.ttlSeconds ?? STATE_TTL_SECONDS
-  return new SignJWT({ tid: state.tenantId, st: state.state, nc: state.nonce, cv: state.codeVerifier, rt: state.returnTo })
+  return new SignJWT({ tid: state.tenantId, st: state.state, nc: state.nonce, cv: state.codeVerifier, rt: state.returnTo, rq: state.requestId })
     .setProtectedHeader({ alg: "HS256" })
     .setAudience(STATE_AUD)
     .setIssuedAt()
@@ -92,6 +99,7 @@ export async function readState(token: string): Promise<SsoFlowState | null> {
       state: payload.st,
       nonce: typeof payload.nc === "string" ? payload.nc : undefined,
       codeVerifier: typeof payload.cv === "string" ? payload.cv : undefined,
+      requestId: typeof payload.rq === "string" ? payload.rq : undefined,
       returnTo: payload.rt,
     }
   } catch {
