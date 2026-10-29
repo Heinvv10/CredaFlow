@@ -72,7 +72,13 @@ a consumer loan (`contractType LOAN`): asset-finance interest stays in income an
   gross presentation. The cumulative sum is kept for good: nothing is given back to income on cure, which is the
   prospective treatment. The contractual rate stands in for the effective interest rate (no EIR is computed), the
   whole month's interest is adjusted at the month-end stage and coverage (a loan that entered Stage 3 mid-month is
-  adjusted for the whole month), and interest already collected is not reversed.
+  adjusted for the whole month), and interest already collected is not reversed. Two choices the lender's auditor
+  must accept: the ratio is ECL / EAD (about PD x LGD at Stage 3), not allowance / the ledger's gross receivable
+  (EAD also carries interest accrued since the last due date, which the ledger does not yet hold); and the adjustment
+  applies only where suspension applies (`suspensionEnabled`, `suspendOnStage3` / `suspensionDpd`, consumer loans), so a
+  Stage 3 loan outside those settings is provisioned on the gross exposure with no interest adjustment. That is a
+  deliberate deviation from 5.4.1(b), which covers every credit-impaired asset. Only months from `effectiveFromMonth`
+  count towards the cumulative adjustment.
 
 Which basis the **financial statements** use is the lender's and its auditor's call; a lender reporting to a central
 bank on the prudential basis keeps `FULL_SUSPENSION`. Either way the borrower's balance, schedule, charges and every
@@ -98,10 +104,18 @@ would sit beside the new one's).
   previous month (when IFRS 9 governs it) has no run (`PREVIOUS_MONTH_MISSING`), and a month whose run was made
   *before* an earlier month's run was made or replaced is **stale**: its close is refused (`IFRS9_RUN_STALE`) until
   its own run is superseded. Late-running October after November is therefore allowed, and November is then redone.
+  A run is also stale when it was made on a Stage 3 interest basis other than the lender's now, and the basis cannot
+  be changed while an open month's current run was made on the old one. A MONTHLY run for a month before
+  `effectiveFromMonth` is refused (`NOT_EFFECTIVE`), and the close posts nothing for a month IFRS 9 does not govern,
+  whatever runs are on record. A run that reads its prior stages, then finds an earlier month's run made or replaced
+  under the accounting lock, is refused (`CHAIN_CHANGED`): retry it.
 - The accounting close reads the latest MONTHLY run nothing supersedes for a month up to the period
   (`ECL_EXPENSE` / `ECL_ALLOWANCE`, `INTEREST_SUSPENSE`, appended to `ACCOUNT_ROLES`) and refuses
   (`IFRS9_RUN_MISSING`, naming the route) a month without its run once `Ifrs9Config.enabled` and
   `effectiveFromMonth` apply. Lenders without a config row post nothing of this.
+- A loan whose status says it was settled, cancelled or written off with no closed / write-off date refuses the close
+  (`IFRS9_EXIT_UNDATED`, listing the loans): the close cannot place its exit, and would otherwise keep or release its
+  allowance in the wrong month.
 - **Write-off** uses the allowance: Dr `ECL_ALLOWANCE` / Cr `BAD_DEBT_EXPENSE`, `ECL_EXPENSE` stays as
   charged, so the loss is the provision plus the bad debt and is not counted twice or released to income.
 - **Policy changes the ledger makes unsafe are refused** (`policyChangeRefusal`, under the accounting lock):
