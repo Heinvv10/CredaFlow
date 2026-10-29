@@ -40,9 +40,13 @@ app.kubernetes.io/component: {{ .component }}
 {{- include "credaflow.imageRef" (dict "repository" .Values.image.repository "tag" (include "credaflow.tag" .)) -}}
 {{- end -}}
 
-{{/* The migrator image defaults to the runner's tag: they are built together. */}}
+{{/* The migrator image defaults to the runner's tag (built together), except for a digest: that names one image. */}}
 {{- define "credaflow.migrateImage" -}}
-{{- include "credaflow.imageRef" (dict "repository" .Values.migrate.image.repository "tag" (default (include "credaflow.tag" .) .Values.migrate.image.tag)) -}}
+{{- $tag := include "credaflow.tag" . -}}
+{{- if and (hasPrefix "sha256:" $tag) (not .Values.migrate.image.tag) -}}
+{{- fail "image.tag is a digest, which names the runner image only: set migrate.image.tag to the migrator image's own tag or digest" -}}
+{{- end -}}
+{{- include "credaflow.imageRef" (dict "repository" .Values.migrate.image.repository "tag" (default $tag .Values.migrate.image.tag)) -}}
 {{- end -}}
 
 {{- define "credaflow.serviceAccountName" -}}

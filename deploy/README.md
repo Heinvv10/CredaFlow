@@ -90,8 +90,9 @@ kubectl create namespace credaflow
 # Also set in values (not secrets): config.NEXTAUTH_URL / AUTH_URL and config.TRUSTED_PROXY, see "Client IP".
 kubectl -n credaflow create secret generic credaflow-app --from-env-file=lender.secrets.env
 
+# image.tag is required and "latest" is refused. A digest ("sha256:...") also needs migrate.image.tag.
 helm upgrade --install credaflow deploy/helm/credaflow -n credaflow \
-  --set image.repository=registry.example/credaflow --set image.tag=$GIT_SHA \   # required; "latest" is refused
+  --set image.repository=registry.example/credaflow --set image.tag=$GIT_SHA \
   --set migrate.image.repository=registry.example/credaflow-migrate --set migrate.image.tag=$GIT_SHA \
   --set config.NEXTAUTH_URL=https://staff.lender.example --set config.AUTH_URL=https://staff.lender.example \
   --set ingress.enabled=true --set ingress.className=nginx \
@@ -107,12 +108,15 @@ Secrets, Vault agent...). The Secret must exist before the migration hook runs; 
 A separate client-portal host is a second release of the same chart, in the same namespace:
 
 ```bash
+# migrate.enabled=false: the staff release owns migrations.
+# persistence.existingClaim: the staff release's uploads claim.
+# existingSecrets: a Secret with its own AUTH_SECRET and the same DATABASE_URL.
 helm upgrade --install credaflow-portal deploy/helm/credaflow -n credaflow \
   --set image.repository=... --set image.tag=$GIT_SHA \
   --set web.appMode=client --set worker.enabled=false --set externalCrons.enabled=false \
-  --set migrate.enabled=false \                       # the staff release owns migrations
-  --set persistence.existingClaim=credaflow-credaflow-uploads \   # the staff release's claim
-  --set 'existingSecrets={credaflow-portal}' \        # own AUTH_SECRET, same DATABASE_URL
+  --set migrate.enabled=false \
+  --set persistence.existingClaim=credaflow-credaflow-uploads \
+  --set 'existingSecrets={credaflow-portal}' \
   --set config.NEXTAUTH_URL=https://portal.lender.example --set config.AUTH_URL=https://portal.lender.example
 ```
 
@@ -139,7 +143,7 @@ rows, no staff IP allowlist. Set it to the number of proxies **that append**:
 |---|---|---|
 | ingress-nginx, reached directly (bare metal, MetalLB) | 1 | |
 | ingress-nginx behind a cloud load balancer | 1 | Preserve the client address at the LB (`externalTrafficPolicy: Local`, or PROXY protocol with `use-proxy-protocol: "true"`), else nginx sees the LB's address for everyone |
-| CDN (Cloudflare, CloudFront) then ingress | 2 | The ingress must trust and append to the CDN's header (`use-forwarded-headers: "true"`) |
+| CDN (Cloudflare, CloudFront) then ingress | 2 | The ingress must trust and append to the CDN's header (`use-forwarded-headers: "true"`), **and accept connections only from the CDN's published IP ranges** (`networkPolicy.ingressFrom` / a load-balancer source-range allow-list): otherwise a client that reaches the ingress directly sends its own `X-Forwarded-For` and chooses the address CredaFlow records |
 | L7 cloud LB (ALB, GCLB) straight to the pods through the ingress | 2 | Verify with a request and read the audit row |
 
 Too low: the proxy's own address is used (everyone shares a bucket). Too high: the client can forge its address by
@@ -197,7 +201,7 @@ Collect with the cluster's log agent (Fluent Bit, Promtail, Vector) and index `t
 **Traces.** Set `observability.otlpEndpoint` (OTLP/HTTP, port 4318) to an OpenTelemetry Collector, Tempo or
 Jaeger. Next.js request, render and fetch spans are exported; `service.name` is `credaflow-web` or
 `credaflow-worker`. Sampling and headers use the standard `OTEL_*` variables via `observability.extraEnv`
-(`OTEL_TRACES_SAMPLER=parentbased_traceidratio`, `OTEL_TRACES_SAMPLER_ARG=0.1`). Database queries are not traced. Query strings are stripped from span names and URL attributes before export, and a path carrying a one-time token is replaced by its route template.
+(`OTEL_TRACES_SAMPLER=parentbased_traceidratio`, `OTEL_TRACES_SAMPLER_ARG=0.1`). Database queries are not traced. Before export every span is scrubbed (`lib/observability/span-scrub.ts`): query strings, fragments and `user:pass@` are removed from any URL-shaped value, header attributes are dropped, and the request path is replaced by its route template wherever it appears. That includes Next's middleware span, which carries the raw pathname: its path is mapped through the same route table as the metrics, so a one-time link token (`/pasq/<token>`) is exported as `/pasq/[token]` (as `unmatched` or `:id` shapes if the build has no routes manifest). The collector is reached through the `networkPolicy.otlpTo` rule, which defaults to a namespace called `observability`: set `networkPolicy.otlpTo` (and `otlpPort`) when the collector runs elsewhere, or outside the cluster add its address under `networkPolicy.egressExtra`; otherwise the NetworkPolicy blocks the export silently.
 
 **Metrics.** Add `METRICS_TOKEN` to the Secret; `GET /api/metrics` then answers a Prometheus scrape with
 `Authorization: Bearer <token>` (404 while unset, 401 on a wrong token). Series: `credaflow_http_requests_total`,

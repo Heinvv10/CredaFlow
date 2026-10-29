@@ -71,3 +71,18 @@ describe("route label without a manifest (dev, tests)", () => {
     expect(labels.size).toBeLessThanOrEqual(1001)
   })
 })
+
+describe("route label with a malformed manifest", () => {
+  it.each([
+    ["not an object", "oops"],
+    ["no route arrays", {}],
+    ["routes without a page", { staticRoutes: [{ regex: "^/$" }], dynamicRoutes: [] }],
+    ["routes that are not arrays", { staticRoutes: {}, dynamicRoutes: 3 }],
+    ["an invalid regex", { staticRoutes: [], dynamicRoutes: [{ page: "/a/[id]", regex: "([" }] }],
+  ])("%s: never throws, falls back to path shapes", (_name, manifest) => {
+    const label = createRouteLabeler(manifest as never)
+    expect(() => label("/api/health")).not.toThrow()
+    expect(label("/api/health")).toBe("/api/health")
+    expect(label("/api/loans/12345/statement")).toBe("/api/loans/:id/statement")
+  })
+})

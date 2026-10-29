@@ -47,6 +47,7 @@ jobs:
         run: |
           ! helm template rel deploy/helm/credaflow
           ! helm template rel deploy/helm/credaflow --set image.tag=latest
+          ! helm template rel deploy/helm/credaflow --set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000
       # Each variant is a release shape the README documents. The ServiceMonitor CRD has no schema here.
       - name: helm template | kubeconform
         run: |
@@ -54,7 +55,7 @@ jobs:
           kc() { kubeconform -strict -ignore-missing-schemas -summary -kubernetes-version 1.30.0 -; }
           helm template rel $chart -f $chart/ci/full-values.yaml | kc
           helm template rel $chart --set image.tag=v1 | kc
-          helm template rel $chart --set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000 | kc
+          helm template rel $chart --set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000 --set migrate.image.tag=v1 | kc
           helm template rel $chart --set image.tag=v1 --set autoscaling.enabled=false --set persistence.enabled=false --set networkPolicy.enabled=false | kc
           helm template rel $chart --set image.tag=v1 --set web.appMode=client --set worker.enabled=false --set externalCrons.enabled=false --set migrate.enabled=false --set persistence.existingClaim=uploads | kc
 

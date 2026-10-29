@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-node"
+import { createRouteLabeler } from "./route-label"
 import { scrubSpan, scrubbingExporter } from "./span-scrub"
 
 function span(name: string, attributes: Record<string, string | number>): ReadableSpan {
@@ -85,7 +86,7 @@ describe("scrubSpan", () => {
   it("scrubs the attributes of span events (exception messages quote URLs)", () => {
     const withEvent = { ...span("x", {}), events: [{ name: "exception", time: [0, 0], attributes: { "exception.message": "fetch https://u:p@h/x?token=SECRET failed" } }] } as unknown as ReadableSpan
     const [event] = scrubSpan(withEvent).events
-    expect(event!.attributes).toEqual({ "exception.message": "fetch https://h/x" })
+    expect(event!.attributes).toEqual({ "exception.message": "fetch https://h/x failed" })
   })
 
   it("replaces the concrete path with the route template in every string value and the span name", () => {
@@ -136,6 +137,82 @@ describe("scrubSpan", () => {
     expect(out).not.toContain("SECRET")
     expect(scrubSpan(full).status.code).toBe(2)
     expect(scrubSpan(full).status.message).toBe("failed calling https://h/p")
+  })
+
+  it("keeps the words around a URL: only URL-shaped tokens lose their query", () => {
+    const scrubbed = scrubSpan(
+      span("x", {
+        message: "did GET /a/b?token=SECRET twice; what? then (https://h/p?x=1#f) and \"/q?y=2\" done",
+        question: "is this ok? yes # no",
+      }),
+    )
+    expect(scrubbed.attributes.message).toBe("did GET /a/b twice; what? then (https://h/p and \"/q done")
+    expect(scrubbed.attributes.question).toBe("is this ok? yes # no")
+  })
+
+  it("rewrites the path and URL attributes to the template even when the concrete path is not found", () => {
+    const scrubbed = scrubSpan(
+      span("GET /api/pasq-link/[token]/acknowledge", {
+        "next.route": "/api/pasq-link/[token]/acknowledge",
+        "http.target": "/api/pasq-link/TOKEN%2DAB/acknowledge",
+        "url.path": "/api/pasq-link/TOKEN-AB/acknowledge",
+        "url.full": "https://u:p@h.example:8443/api/pasq-link/TOKEN%2dab/acknowledge?x=1",
+        "http.url": "not even a url TOKEN-AB",
+      }),
+    )
+    expect(scrubbed.attributes["http.target"]).toBe("/api/pasq-link/[token]/acknowledge")
+    expect(scrubbed.attributes["url.path"]).toBe("/api/pasq-link/[token]/acknowledge")
+    expect(scrubbed.attributes["url.full"]).toBe("https://h.example:8443/api/pasq-link/[token]/acknowledge")
+    expect(scrubbed.attributes["http.url"]).toBe("/api/pasq-link/[token]/acknowledge")
+    expect(JSON.stringify(scrubbed.attributes)).not.toMatch(/TOKEN(-|%2d)AB/i)
+  })
+
+  it("catches a token written percent-encoded in one attribute and decoded in another", () => {
+    const scrubbed = scrubSpan(
+      span("GET /api/files/[name]", {
+        "next.route": "/api/files/[name]",
+        "http.target": "/api/files/a%20secret%2Fname",
+        "url.full": "https://h.example/api/files/a secret/name",
+        "other": "opened /api/files/a%20secret%2Fname and /api/files/a secret/name",
+      }),
+    )
+    expect(JSON.stringify(scrubbed.attributes)).not.toMatch(/secret/i)
+  })
+
+  describe("a span with no next.route (Next's middleware span)", () => {
+    const manifest = {
+      staticRoutes: [{ page: "/", regex: "^/(?:/)?$" }],
+      dynamicRoutes: [
+        { page: "/pasq/[token]", regex: "^/pasq/([^/]+?)(?:/)?$" },
+        { page: "/api/pasq-link/[token]/acknowledge", regex: "^/api/pasq\\-link/([^/]+?)/acknowledge(?:/)?$" },
+      ],
+    }
+    const middleware = (target: string) =>
+      span("middleware GET", { "http.method": "GET", "http.target": target, "next.span_name": "middleware GET", "next.span_type": "Middleware.execute" })
+
+    it("maps the raw pathname through the route labeler", () => {
+      const scrubbed = scrubSpan(middleware("/pasq/Zk3-OneTimeLinkToken_9aF?src=sms"), createRouteLabeler(manifest))
+      expect(scrubbed.attributes["http.target"]).toBe("/pasq/[token]")
+      expect(JSON.stringify(scrubbed)).not.toContain("OneTimeLinkToken")
+    })
+
+    it("does the same for a token in the middle of the path, and in the URL attributes", () => {
+      const raw = middleware("/api/pasq-link/OneTimeLinkToken/acknowledge")
+      raw.attributes["url.full"] = "https://staff.lender.example/api/pasq-link/OneTimeLinkToken/acknowledge"
+      const scrubbed = scrubSpan(raw, createRouteLabeler(manifest))
+      expect(scrubbed.attributes["url.full"]).toBe("https://staff.lender.example/api/pasq-link/[token]/acknowledge")
+      expect(JSON.stringify(scrubbed)).not.toContain("OneTimeLinkToken")
+    })
+
+    it("labels a path no route matches as unmatched, never as itself", () => {
+      const scrubbed = scrubSpan(middleware("/wp-admin/Secret-Probe"), createRouteLabeler(manifest))
+      expect(scrubbed.attributes["http.target"]).toBe("unmatched")
+    })
+
+    it("without a manifest falls back to the path-shape allowlist", () => {
+      const scrubbed = scrubSpan(middleware("/pasq/4f3a9c1d5e7b2a60f8d4c3b2a1e0f9d8"), createRouteLabeler(null))
+      expect(scrubbed.attributes["http.target"]).toBe("/pasq/:id")
+    })
   })
 
   it("leaves the span's other behaviour (methods) intact", () => {

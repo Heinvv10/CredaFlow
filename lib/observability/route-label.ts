@@ -13,6 +13,23 @@ export interface RoutesManifest {
   dynamicRoutes: ManifestRoute[]
 }
 
+function isRouteList(value: unknown): value is ManifestRoute[] {
+  return Array.isArray(value) && value.every((route) => typeof route === "object" && route !== null && typeof route.page === "string" && typeof route.regex === "string")
+}
+
+/** The shape this module reads, and nothing it would throw on: route arrays whose regexes compile. */
+function validManifest(manifest: unknown): RoutesManifest | null {
+  if (typeof manifest !== "object" || manifest === null) return null
+  const { staticRoutes, dynamicRoutes } = manifest as Partial<RoutesManifest>
+  if (!isRouteList(staticRoutes) || !isRouteList(dynamicRoutes)) return null
+  try {
+    for (const route of dynamicRoutes) new RegExp(route.regex)
+  } catch {
+    return null
+  }
+  return { staticRoutes, dynamicRoutes }
+}
+
 // Without a manifest the label is built from the path; this bounds how many it may mint.
 const MAX_FALLBACK_LABELS = 1000
 
@@ -42,7 +59,10 @@ function stripQuery(pathname: string): string {
  * if it reads as a name, else it becomes `:id`, and at most MAX_FALLBACK_LABELS
  * labels are minted before the rest are `other`.
  */
-export function createRouteLabeler(manifest: RoutesManifest | null): (pathname: string) => string {
+export function createRouteLabeler(candidate: RoutesManifest | null): (pathname: string) => string {
+  // A manifest of an unexpected shape (a Next upgrade) is no manifest: labelling runs on
+  // every request and must not throw.
+  const manifest = validManifest(candidate)
   if (manifest) {
     const exact = new Map(manifest.staticRoutes.map((route) => [route.page, route.page]))
     const dynamic = manifest.dynamicRoutes.map((route) => ({ page: route.page, regex: new RegExp(route.regex) }))
@@ -66,19 +86,24 @@ export function createRouteLabeler(manifest: RoutesManifest | null): (pathname: 
   }
 }
 
-function readManifest(): RoutesManifest | null {
+let manifestOnDisk: RoutesManifest | null | undefined
+
+/** The build's routes manifest, read once; null when there is none or it is malformed. */
+export function loadRoutesManifest(): RoutesManifest | null {
+  if (manifestOnDisk !== undefined) return manifestOnDisk
   try {
-    return JSON.parse(readFileSync(path.join(process.cwd(), ".next", "routes-manifest.json"), "utf8")) as RoutesManifest
+    manifestOnDisk = validManifest(JSON.parse(readFileSync(path.join(process.cwd(), ".next", "routes-manifest.json"), "utf8")))
   } catch {
     // No build output here (dev server, unit tests): the path-shape fallback applies.
-    return null
+    manifestOnDisk = null
   }
+  return manifestOnDisk
 }
 
 let labeler: ((pathname: string) => string) | undefined
 
 /** The process's labeler, built on first use from the manifest on disk. */
 export function routeLabel(pathname: string): string {
-  labeler ??= createRouteLabeler(readManifest())
+  labeler ??= createRouteLabeler(loadRoutesManifest())
   return labeler(pathname)
 }

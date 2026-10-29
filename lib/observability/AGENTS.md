@@ -21,9 +21,12 @@ stack behaves as before.
   every 404 are `unmatched`. Without a manifest (dev, tests) it falls back to path
   shapes with a cap. Never put a client id, loan id, token or any request-derived free
   text in a metric label.
-- `span-scrub.ts` is deny-by-default: every string attribute, the span name and event
-  attributes lose `?query`, `#fragment` and `user:pass@`; `http.*.header.*` are dropped.
-  Do not turn it into a key allow-list; attribute names change between Next versions.
+- `span-scrub.ts` is deny-by-default: URL-shaped tokens (`://`, a leading `/`, a bare `?x`)
+  in any string value, the span name, event and link attributes and the status message are
+  cut at `?`/`#` and lose `user:pass@`; other text, including `what?`, is kept so exception
+  messages stay readable. `http.*.header.*` are dropped. The request path becomes the route
+  template everywhere; a span with no `next.route` (Next's middleware span) gets it from
+  the route labeler. Do not turn it into a key allow-list.
 - `/api/metrics` is 404 until `METRICS_TOKEN` is set, then bearer-only. It is in
   `lib/public-routes.ts` because it authenticates itself, like `/api/cron/*`.
 - DB-backed gauges (`metrics-collectors.ts`) read only tables without row-level
