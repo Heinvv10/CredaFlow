@@ -35,7 +35,7 @@ function baseLayout(identity: PortalEmailIdentity, header: string, body: string)
 
       <!-- Footer -->
       <tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-        <p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)} &middot; <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;text-decoration:none;">${escapeHtml(identity.publicEmail)}</a></p>
+        <p style="margin:0;color:#888;font-size:11px;">${identity.ncrNumber ? `NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)} &middot; ` : ""}<a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;text-decoration:none;">${escapeHtml(identity.publicEmail)}</a></p>
       </td></tr>
 
     </table>

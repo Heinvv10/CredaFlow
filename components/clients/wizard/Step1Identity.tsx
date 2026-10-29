@@ -5,8 +5,10 @@ import type { ClientWizardData, WizardMode } from "./types"
 import {
   deriveDobFromSaId,
   deriveGenderFromSaId,
+  idNumberCopy,
   type ClientWizardErrors,
 } from "@/lib/validation/client-wizard"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
 
 interface StepProps {
   data: ClientWizardData
@@ -40,18 +42,23 @@ export function Step1Identity({ data, patch, errors, mode }: StepProps) {
       </div>
 
       <FieldGroup
-        label="SA ID number"
+        label={idNumberCopy().label}
         required
         error={errors.idNumber}
-        hint="13-digit South African ID. DOB and gender will be derived if matched."
+        hint={idNumberCopy().hint}
       >
         <input
           className={INP}
           value={data.idNumber}
           onChange={(e) => {
-            const next = e.target.value.replace(/\D/g, "").slice(0, 13)
+            // A Lesotho ID's layout is unconfirmed (lib/jurisdiction/national-id.ts):
+            // keep letters, derive nothing.
+            const lesotho = activeJurisdiction() === "LS"
+            const next = lesotho
+              ? e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 15)
+              : e.target.value.replace(/\D/g, "").slice(0, 13)
             const updates: Partial<ClientWizardData> = { idNumber: next }
-            if (next.length === 13) {
+            if (!lesotho && next.length === 13) {
               const derivedDob = deriveDobFromSaId(next)
               if (derivedDob && !data.dateOfBirth) {
                 updates.dateOfBirth = derivedDob
@@ -63,7 +70,7 @@ export function Step1Identity({ data, patch, errors, mode }: StepProps) {
             }
             patch(updates)
           }}
-          inputMode="numeric"
+          inputMode={activeJurisdiction() === "LS" ? "text" : "numeric"}
           autoComplete="off"
         />
         <DuplicateIdWarning idNumber={data.idNumber} enabled={mode === "staff"} />

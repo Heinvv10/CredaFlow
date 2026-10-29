@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import type { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate } from "@/lib/asset-finance/dates"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { repoRateIsPlausible } from "@/lib/asset-finance/reference-rate-input"
 import {
   checkNcaInterestRate,
@@ -112,7 +113,7 @@ type CapApplication = ShortTermSubject & {
 
 /** Regulation 42's 3% a month on a short-term transaction after an earlier one this calendar year. */
 export async function checkRepeatShortTermFor(db: ShortTermDb, tenantId: string, application: CapApplication, on: Date): Promise<InterestRateCapResult> {
-  if (application.ncaRegime === "NON_NCA" || !application.clientId) return { ok: true }
+  if (!isNcaJurisdiction() || application.ncaRegime === "NON_NCA" || !application.clientId) return { ok: true }
   if (ncaCreditType(application.appliedAmount, application.appliedTermDays) !== "SHORT_TERM") return { ok: true }
   const earlier = await earlierShortTermCreditThisYear(db, tenantId, application.clientId, on, application)
   return checkRepeatShortTermRate(application.product.interestRatePm, earlier)
@@ -121,7 +122,8 @@ export async function checkRepeatShortTermFor(db: ShortTermDb, tenantId: string,
 /**
  * The 422 an approval answers when the product's rate exceeds the NCA cap for
  * this transaction (lib/loan/nca-interest-cap.ts), or null. A NON_NCA
- * (asset-finance) agreement is outside Regulation 42. A short-term transaction
+ * (asset-finance) agreement is outside Regulation 42, and so is every
+ * agreement of a lender outside the NCA's jurisdiction (lib/jurisdiction). A short-term transaction
  * after an earlier one this calendar year is held to 3% a month; it is
  * refused, never re-priced: repeat pricing is a product decision. The payout
  * re-checks the repeat rule (lib/affordability/current-approval.ts).
@@ -148,7 +150,7 @@ export async function approvalInterestCapCheck(
   application: CapApplication,
   on: Date = new Date(),
 ): Promise<InterestRateCapResult> {
-  if (application.ncaRegime === "NON_NCA") return { ok: true }
+  if (!isNcaJurisdiction() || application.ncaRegime === "NON_NCA") return { ok: true }
   const creditType = ncaCreditType(application.appliedAmount, application.appliedTermDays)
   const { interestRatePm, interestModel } = application.product
   const result = await checkNcaInterestRateFor(db, tenantId, { creditType, interestRatePm, interestModel }, on)

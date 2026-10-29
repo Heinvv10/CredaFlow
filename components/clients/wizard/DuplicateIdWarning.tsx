@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { isValidSaIdNumber } from "@/lib/validation/client-wizard"
+import { isValidIdNumber } from "@/lib/validation/client-wizard"
 import { duplicateNotice, type ClientLookupResult } from "@/lib/clients/duplicate-notice"
 
 interface Props {
@@ -32,7 +32,7 @@ export function DuplicateIdWarning({ idNumber, enabled }: Props) {
   const [entry, setEntry] = useState<{ idNumber: string; result: ClientLookupResult } | null>(null)
 
   useEffect(() => {
-    if (!enabled || !isValidSaIdNumber(idNumber)) return
+    if (!enabled || !isValidIdNumber(idNumber)) return
 
     let live = true
     const timer = setTimeout(async () => {

@@ -24,7 +24,7 @@ export const VALID_LENDER_COLUMNS: LenderIdentityColumns = {
 /** `VALID_LENDER_COLUMNS` as `parseLenderIdentity` returns it (a test pins the
  *  equality). Literal rather than computed so this file imports no runtime
  *  module: tests load it from inside `vi.mock` factories of identity.ts. */
-export const ACME_LENDER: LenderIdentity = {
+export const ACME_LENDER: LenderIdentity & { ncrNumber: string } = {
   legalName: "Acme Lending (Pty) Ltd",
   tradingName: "Acme Lending",
   ncrNumber: "NCRCP99999",

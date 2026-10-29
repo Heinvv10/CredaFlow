@@ -1,8 +1,10 @@
+import { notFound } from "next/navigation"
 import { Header } from "@/components/layout/Header"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { prisma } from "@/lib/prisma"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { canDo, requireMinRole } from "@/lib/auth-guards"
 import { formatDateTime } from "@/lib/utils"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
@@ -21,6 +23,7 @@ const STATUS_TONE: Record<string, Tone> = { PENDING: "warning", APPROVED: "succe
  */
 export default async function RepoRatePage() {
   const user = await requireMinRole("LOAN_ADMIN")
+  if (!isNcaJurisdiction()) notFound()
   const canManage = canDo(user.role, "manage_repo_rate")
   const rows = await prisma.referenceRate.findMany({
     where: { tenantId: user.tenantId, basis: "REPO" },

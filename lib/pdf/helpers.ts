@@ -1,5 +1,7 @@
 import { PDFDocument, PDFImage, PDFPage, PDFFont, rgb, RGB } from "pdf-lib"
 import { SAST_TIME_ZONE } from "@/lib/utils"
+import { activeCurrency } from "@/lib/jurisdiction/active"
+import { formatMoney } from "@/lib/jurisdiction/money"
 
 export const A4_WIDTH = 595.28
 export const A4_HEIGHT = 841.89
@@ -83,7 +85,7 @@ export function drawLogoChip(
 }
 
 export function formatZarPdf(cents: number): string {
-  return `R ${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
+  return formatMoney(cents, activeCurrency())
 }
 
 export function formatDatePdf(date: Date): string {

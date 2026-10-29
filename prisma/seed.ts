@@ -25,9 +25,10 @@ import { calculateLoan } from "../lib/loan-calculator"
 import { seedDefaultMessageTemplates } from "../lib/messaging/default-templates"
 import { provisionContactForClient } from "../lib/contact/provision"
 import { generateTotpSecret, generateTotpUri } from "../lib/totp"
-import { demoLender } from "./demo-lender"
+import { demoLender, lenderJurisdiction } from "./demo-lender"
 import { catalogueHash } from "../lib/i18n/catalogue-hash"
 import { seedEnvPassword } from "./seed/env-password"
+import { CLIENTS_LS } from "./seed/lesotho-clients"
 
 // Demo data with known passwords must never reach a production database.
 // Checked before any client exists; ./seed-document-templates is imported
@@ -49,6 +50,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS)
 
 const LENDER = demoLender()
+const { jurisdiction: JURISDICTION, currency: CURRENCY } = lenderJurisdiction(LENDER)
 const BRAND = LENDER.identity.brandName
 const STAFF_DOMAIN = LENDER.staffDomain
 // Demo passwords are never in source. SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD,
@@ -129,7 +131,10 @@ async function main() {
     featureLms: true,
     featurePortal: true,
     featureReports: true,
-    featureAssetFinance: true,
+    // Asset finance is an NCA product (regimes, s127, recovery): South African lenders only.
+    featureAssetFinance: JURISDICTION === "ZA",
+    jurisdiction: JURISDICTION,
+    currency: CURRENCY,
     requireSegregationOfDuties: LENDER.requireSegregationOfDuties,
     // This seed only ever creates a synthetic demo lender. The marker lets a
     // DEMO_MODE stack simulate a Section 129 email to its undeliverable
@@ -184,7 +189,7 @@ async function main() {
   const portalHash = await bcrypt.hash(portalPassword, 12)
   let portalPasswordUsed = false
   const clients: { id: string; income: number; expenses: number }[] = []
-  for (const [i, c] of CLIENTS.entries()) {
+  for (const [i, c] of (JURISDICTION === "LS" ? CLIENTS_LS : CLIENTS).entries()) {
     const email = `${c.firstName}.${c.lastName}@${LENDER.clientDomain}`.toLowerCase()
     const row = await prisma.client.upsert({
       // idNumber is the stable identifier across seed revisions. It is unique
@@ -243,10 +248,12 @@ async function main() {
 
   await seedLoan(tenant.id, clients[3].id, products.PERSONAL.id)
 
-  // Imported here, not at the top: it imports lib/prisma (see seed-document-templates above).
-  const { seedAssetFinance } = await import("./seed/asset-finance")
-  const actor = (s: { user: { id: string; email: string } }) => ({ id: s.user.id, email: s.user.email })
-  await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
+  if (JURISDICTION === "ZA") {
+    // Imported here, not at the top: it imports lib/prisma (see seed-document-templates above).
+    const { seedAssetFinance } = await import("./seed/asset-finance")
+    const actor = (s: { user: { id: string; email: string } }) => ({ id: s.user.id, email: s.user.email })
+    await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
+  }
 
   console.log(`\nSeed complete: tenant "${LENDER.slug}" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {

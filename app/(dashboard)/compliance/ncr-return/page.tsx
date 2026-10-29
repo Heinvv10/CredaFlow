@@ -1,4 +1,6 @@
+import { notFound } from "next/navigation"
 import { requireMinRole, hasMinRole } from "@/lib/auth-guards"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import type { AppRole } from "@/lib/auth-guards"
 import { auth } from "@/lib/auth"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -17,6 +19,7 @@ export default async function NcrReturnPage({
   searchParams: Promise<{ quarter?: string }>
 }) {
   await requireMinRole("READONLY")
+  if (!isNcaJurisdiction()) notFound()
 
   const params = await searchParams
   const now = new Date()

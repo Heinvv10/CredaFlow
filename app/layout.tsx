@@ -6,6 +6,8 @@ import { DeploymentConfigError, requireAppBaseUrl } from "@/lib/config/deploymen
 import { DemoBanner } from "@/components/demo/DemoBanner";
 import { isDemoMode } from "@/lib/config/demo-mode";
 import { connection } from "next/server";
+import { JurisdictionProvider } from "@/components/JurisdictionProvider";
+import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -49,11 +51,12 @@ export async function generateMetadata(): Promise<Metadata> {
   return isDemoMode() ? { ...metadata, robots: { index: false, follow: false } } : metadata;
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { jurisdiction, currency } = await ensureActiveJurisdiction();
   return (
     <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
       <head>
@@ -62,10 +65,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ThemeProvider>
-          <DemoBanner />
-          {children}
-        </ThemeProvider>
+        <JurisdictionProvider jurisdiction={jurisdiction} currency={currency}>
+          <ThemeProvider>
+            <DemoBanner />
+            {children}
+          </ThemeProvider>
+        </JurisdictionProvider>
       </body>
     </html>
   );

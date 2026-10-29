@@ -1,6 +1,7 @@
 // Content shared by the deal documents: the letterhead, the party and asset
 // particulars, and how a rate is described. Real data only; no legal wording.
 import { Prisma } from "@prisma/client"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { ENTITY_TYPE_LABELS } from "../labels"
 import { RATE_BASIS_LABELS } from "../deal-labels"
@@ -41,7 +42,7 @@ export function lenderRows(data: Pick<DealDocumentData, "lender">): [string, str
   return [
     ["Name", l.legalName],
     ["Registration number", l.companyRegNumber],
-    ["NCR registration", l.ncrNumber],
+    ["NCR registration", requireNcrNumber(l)],
     ["Registered office", l.registeredOfficeLines.join(", ")],
   ]
 }

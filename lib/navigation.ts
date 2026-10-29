@@ -101,6 +101,8 @@ export type NavItem = {
   badgeKey?: StaffBadgeKey
   external?: boolean
   minRole?: UserRole
+  /** NCA-only (lib/jurisdiction): left out for a lender outside the NCA's jurisdiction. */
+  ncaOnly?: boolean
 }
 
 export type NavGroup = {
@@ -187,7 +189,7 @@ export const staffNavigation: NavGroup[] = [
     label: "Compliance",
     items: [
       { href: "/compliance", label: "Compliance", icon: Scale },
-      { href: "/compliance/ncr-return", label: "NCR Return", icon: Landmark },
+      { href: "/compliance/ncr-return", label: "NCR Return", icon: Landmark, ncaOnly: true },
       { href: "/compliance/complaints", label: "Complaints", icon: MessageSquare, minRole: "LOAN_ADMIN" },
       { href: "/compliance/dsar", label: "DSAR", icon: Lock, minRole: "ADMIN" },
       { href: "/compliance/screening", label: "Screening", icon: ShieldCheck, minRole: "BRANCH_MANAGER" },
@@ -215,7 +217,7 @@ export const staffNavigation: NavGroup[] = [
       { href: "/settings/support-access", label: "Support access", icon: ShieldCheck, minRole: "ADMIN" },
       { href: "/settings/users", label: "Users", icon: Users, minRole: "BRANCH_MANAGER" },
       // The NCA interest-rate cap reads it (lib/loan/nca-interest-cap.ts): every lender, asset finance or not.
-      { href: "/settings/repo-rate", label: "Repo rate", icon: Percent, minRole: "LOAN_ADMIN" },
+      { href: "/settings/repo-rate", label: "Repo rate", icon: Percent, minRole: "LOAN_ADMIN", ncaOnly: true },
       { href: "/settings/audit-log", label: "Audit Trail", icon: History, minRole: "LOAN_ADMIN" },
       { href: "/settings/login-log", label: "Login Activity", icon: Activity, minRole: "LOAN_ADMIN" },
     ],

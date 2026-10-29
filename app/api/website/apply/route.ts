@@ -8,7 +8,8 @@ import { verifyTurnstile } from "@/lib/turnstile"
 import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/referrals"
 import { AuditAction } from "@/lib/audit"
 import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
-import { isValidSaIdNumber } from "@/lib/validation/client-wizard"
+import { isValidIdNumber } from "@/lib/validation/client-wizard"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
 import { generateReference, maskEmail, maskIdNumber } from "@/lib/utils"
 import {
   ContactPromotionConflictError,
@@ -156,9 +157,14 @@ export async function POST(req: NextRequest) {
     // direct POST could otherwise persist a client + application under an
     // invalid ID (which then can't be KYC-verified). Only enforced when an ID
     // is supplied — a lead-only capture (no ID) is still allowed.
-    if (idNumber && !isValidSaIdNumber(String(idNumber).trim())) {
+    if (idNumber && !isValidIdNumber(String(idNumber).trim())) {
       return NextResponse.json(
-        { success: false, error: "Please enter a valid 13-digit South African ID number." },
+        {
+          success: false,
+          error: activeJurisdiction() === "LS"
+            ? "Please enter a valid Lesotho national ID number."
+            : "Please enter a valid 13-digit South African ID number.",
+        },
         { status: 400 },
       )
     }

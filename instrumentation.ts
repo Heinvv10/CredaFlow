@@ -4,6 +4,11 @@ export async function register() {
     const { assertSmileIdentityRuntimeSafety } = await import("@/lib/integrations/smileidentity")
     assertSmileIdentityRuntimeSafety()
 
+    // Before anything formats an amount or checks an NCA gate: the lender's
+    // jurisdiction and currency (lib/jurisdiction). Never throws.
+    const { ensureActiveJurisdiction } = await import("@/lib/jurisdiction/load.server")
+    await ensureActiveJurisdiction()
+
     const APP_MODE = process.env.APP_MODE || "all"
     console.log(`[boot] APP_MODE=${APP_MODE} GIT_SHA=${process.env.GIT_SHA ?? "unknown"}`)
 

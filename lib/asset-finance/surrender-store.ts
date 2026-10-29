@@ -1,4 +1,5 @@
 import type { ValuationSource } from "@prisma/client"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { getLenderIdentity } from "@/lib/config/identity"
@@ -199,7 +200,7 @@ async function noticeData(tenantId: string, row: NoticeRow, documentDate: Date):
   return {
     ...((row.refundCents ?? 0) > 0 ? await ncaSurplusNoticeDetails(tenantId, row.loanId) : {}),
     legalWordingApproved: approved, reference: row.loan.reference, documentDate,
-    lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines }, borrower,
+    lender: { legalName: lender.legalName, ncrNumber: requireNcrNumber(lender), registeredOfficeLines: lender.registeredOfficeLines }, borrower,
     asset: { description: `${row.asset.year} ${row.asset.make} ${row.asset.model}`, serialNumber: row.asset.vin ?? row.asset.serialNumber, condition: row.assetCondition },
     requestDate: isoOfDbDate(row.requestedOn), valuationDueDate: isoOfDbDate(row.valuationDueOn),
     valuation: row.valuation ? { valuedOn: isoOfDbDate(row.valuation.valuedOn), valuerName: row.valuation.valuerName, amountCents: row.valuation.amountCents } : undefined,

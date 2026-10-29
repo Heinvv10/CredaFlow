@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { pasqEvidenceIsIntact } from "@/lib/compliance/pasq"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { providerCountersignatureEnvelopeSha256, providerCountersignatureSha256 } from "@/lib/compliance/provider-countersign"
@@ -74,7 +75,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
   const generatedAt = new Date(evidence.calculator.startDate)
   const ncaData: NcaAssetDocumentData = {
     legalWordingApproved: approved, reference: app.reference, documentDate: generatedAt, contractType: deal.contractType,
-    lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
+    lender: { legalName: lender.legalName, ncrNumber: requireNcrNumber(lender), registeredOfficeLines: lender.registeredOfficeLines },
     borrower: { name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber, addressLines: [deal.client.addressLine1, deal.client.city, deal.client.province, deal.client.postalCode].filter((v): v is string => !!v) },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
     dealer: documentDealer(deal.dealer),

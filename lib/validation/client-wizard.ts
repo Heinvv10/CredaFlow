@@ -11,6 +11,9 @@ import {
   normaliseDebtAccountType,
 } from "@/lib/credit/debt-account-types"
 import { sastParts } from "@/lib/date/sast"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import { isValidLesothoNationalId } from "@/lib/jurisdiction/national-id"
+import { LESOTHO_DISTRICTS, isValidLesothoMobile } from "@/lib/jurisdiction/phone-region"
 
 export type ValidationErrors<T> = Partial<Record<keyof T, string>>
 
@@ -93,6 +96,15 @@ export function isValidSaIdNumber(id: string): boolean {
   return luhnCheck(id)
 }
 
+/**
+ * The national ID check for the lender's jurisdiction: the SA ID (13 digits,
+ * Luhn) for ZA, the Lesotho shape check for LS. Capture goes through this; the
+ * SA-only integrations (Experian, insurance quotes) keep isValidSaIdNumber.
+ */
+export function isValidIdNumber(id: string): boolean {
+  return activeJurisdiction() === "LS" ? isValidLesothoNationalId(id) : isValidSaIdNumber(id)
+}
+
 export function deriveDobFromSaId(id: string): string {
   if (!isValidSaIdNumber(id)) return ""
   const yy = Number(id.slice(0, 2))
@@ -135,6 +147,38 @@ export function isValidSaPhone(p: string): boolean {
   return false
 }
 
+/** Field copy for the national ID, by jurisdiction. */
+export function idNumberCopy(): { label: string; hint: string; refusal: string } {
+  return activeJurisdiction() === "LS"
+    ? {
+        label: "National ID number",
+        hint: "Lesotho national ID. Date of birth and gender are entered by hand.",
+        refusal: "A valid Lesotho national ID number is required",
+      }
+    : {
+        label: "SA ID number",
+        hint: "13-digit South African ID. DOB and gender will be derived if matched.",
+        refusal: "A valid 13-digit SA ID number is required",
+      }
+}
+
+/** The mobile check for the lender's jurisdiction (see isValidIdNumber). */
+export function isValidPhone(p: string): boolean {
+  return activeJurisdiction() === "LS" ? isValidLesothoMobile(p) : isValidSaPhone(p)
+}
+
+/** "a South African mobile number (e.g. …)" for an API error, by jurisdiction. */
+export function mobileExamples(): string {
+  return activeJurisdiction() === "LS"
+    ? "a Lesotho mobile number (e.g. 58123456 or +26658123456)"
+    : "a South African mobile number (e.g. 0821234567 or +27821234567)"
+}
+
+/** The hint under a phone field, and the error for one that fails isValidPhone. */
+export function phoneFormatMessage(): string {
+  return activeJurisdiction() === "LS" ? "Use +266… or 8-digit mobile format" : "Use +27… or 0… mobile format"
+}
+
 // --- Step 1 Identity ---
 
 export function validateStep1Identity(
@@ -147,13 +191,16 @@ export function validateStep1Identity(
 
   if (!d.idNumber.trim()) {
     errs.idNumber = "Required"
-  } else if (!isValidSaIdNumber(d.idNumber)) {
-    errs.idNumber = "Not a valid 13-digit SA ID number"
+  } else if (!isValidIdNumber(d.idNumber)) {
+    errs.idNumber = activeJurisdiction() === "LS"
+      ? "Not a valid Lesotho national ID number"
+      : "Not a valid 13-digit SA ID number"
   }
 
   if (!d.dateOfBirth) {
     errs.dateOfBirth = "Required"
-  } else if (isValidSaIdNumber(d.idNumber)) {
+  } else if (activeJurisdiction() === "ZA" && isValidSaIdNumber(d.idNumber)) {
+    // Only an SA ID encodes the date of birth; a Lesotho ID is not cross-checked.
     const derived = deriveDobFromSaId(d.idNumber)
     if (derived && derived !== d.dateOfBirth) {
       errs.dateOfBirth = "Does not match the ID number"
@@ -170,13 +217,13 @@ export function validateStep1Identity(
 
   if (!d.phone.trim()) {
     errs.phone = "Required"
-  } else if (!isValidSaPhone(d.phone)) {
-    errs.phone = "Use +27… or 0… mobile format"
+  } else if (!isValidPhone(d.phone)) {
+    errs.phone = phoneFormatMessage()
   }
 
   // whatsapp optional — validate format only if provided
-  if (d.whatsapp.trim() && !isValidSaPhone(d.whatsapp)) {
-    errs.whatsapp = "Use +27… or 0… mobile format"
+  if (d.whatsapp.trim() && !isValidPhone(d.whatsapp)) {
+    errs.whatsapp = phoneFormatMessage()
   }
 
   return errs
@@ -196,12 +243,19 @@ export function validateStep2Address(
 
   if (!d.province) {
     errs.province = "Required"
+  } else if (activeJurisdiction() === "LS") {
+    if (!(LESOTHO_DISTRICTS as readonly string[]).includes(d.province)) {
+      errs.province = `Use a Lesotho district code (${LESOTHO_DISTRICTS.join(", ")})`
+    }
   } else if (!SA_PROVINCES.includes(d.province as (typeof SA_PROVINCES)[number])) {
     errs.province = "Use a SA province code (EC, FS, GP, KZN, LP, MP, NC, NW, WC)"
   }
 
   if (!d.postalCode.trim()) {
     errs.postalCode = "Required"
+  } else if (activeJurisdiction() === "LS") {
+    // Lesotho postcodes are three digits (Maseru 100). MEDIUM confidence.
+    if (!/^\d{3}$/.test(d.postalCode)) errs.postalCode = "Use a 3-digit Lesotho postal code"
   } else if (!/^\d{4}$/.test(d.postalCode)) {
     errs.postalCode = "Use a 4-digit SA postal code"
   }
@@ -418,8 +472,8 @@ export function validateStep3Employment(d: ClientWizardData): ClientWizardErrors
   if (!d.nextOfKinName.trim()) errs.nextOfKinName = "Required"
   if (!d.nextOfKinPhone.trim()) {
     errs.nextOfKinPhone = "Required"
-  } else if (!isValidSaPhone(d.nextOfKinPhone)) {
-    errs.nextOfKinPhone = "Use +27… or 0… mobile format"
+  } else if (!isValidPhone(d.nextOfKinPhone)) {
+    errs.nextOfKinPhone = phoneFormatMessage()
   }
   if (!d.nextOfKinRelationship.trim()) errs.nextOfKinRelationship = "Required"
 
