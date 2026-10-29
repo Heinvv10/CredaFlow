@@ -208,6 +208,24 @@ suite.sequential("IFRS 9 monthly runs (real Postgres)", () => {
     expect(await db.ifrs9Run.count({ where: { tenantId: e.tenantId } })).toBe(0)
   })
 
+  it("defaults the report to the latest month-end run and its previous month, however many analysis runs follow; an analysis run compares with the latest month-end", async () => {
+    const d2 = await lender()
+    await configure(d2)
+    const sep = await monthly(d2, "2026-09", monthEnd("2026-09-30"))
+    const oct = await monthly(d2, "2026-10", monthEnd("2026-10-31"))
+    const analysis: string[] = []
+    for (let i = 0; i < 30; i++) analysis.push((await onDemand(d2, at("2026-11-05"))).runId)
+    const report = await asTenant(d2, () => loadRunReport(prisma, d2.tenantId))
+    expect(report?.run.id).toBe(oct.runId)
+    expect(report?.previousRun?.id).toBe(sep.runId)
+    // an old analysis run is still found by id, far outside the display window
+    const old = await asTenant(d2, () => loadRunReport(prisma, d2.tenantId, analysis[0]))
+    expect(old?.run).toMatchObject({ id: analysis[0], kind: "ON_DEMAND" })
+    expect(old?.previousRun?.id).toBe(oct.runId)
+    expect((await asTenant(d2, () => loadOfficialMonthly(prisma, d2.tenantId))).map((r) => r.id)).toEqual([oct.runId, sep.runId])
+    expect((await asTenant(d2, () => listRuns(prisma, d2.tenantId, 5))).find((r) => r.id === oct.runId)).toBeUndefined()
+  })
+
   it("carries the restructured marker from one month's run to the next through the database", async () => {
     const k = await lender()
     await configure(k)
