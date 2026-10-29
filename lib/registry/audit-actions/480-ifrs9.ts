@@ -11,4 +11,6 @@ export default defineAuditActions({
   IFRS9_RUN_CREATED: "IFRS9_RUN_CREATED",
   // The loan-level ECL export downloaded (it lists every loan's exposure).
   IFRS9_REPORT_EXPORTED: "IFRS9_REPORT_EXPORTED",
+  // An operator recorded the missing closed / written-off date of a loan in a terminal status (scripts/lender/set-exit-date.ts).
+  IFRS9_LOAN_EXIT_DATE_SET: "IFRS9_LOAN_EXIT_DATE_SET",
 })

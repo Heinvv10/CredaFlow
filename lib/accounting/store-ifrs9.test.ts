@@ -166,6 +166,22 @@ describe("loadIfrs9Positions: who has left the book", () => {
     }))
   })
 
+  it("with no first month set, sums net-basis adjustments only from the accounting go-live month", async () => {
+    const groupBy = vi.fn(async () => [])
+    const db = {
+      ifrs9Config: { findUnique: vi.fn(async () => config({ enabled: true, effectiveFromMonth: null })) },
+      ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
+      ifrs9LoanSnapshot: { findMany: vi.fn(async () => []), groupBy }, loan: { findMany: vi.fn(async () => []) },
+    } as never
+    await loadIfrs9Positions(db, "t", oct, new Set(), "2026-08")
+    expect(groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ run: expect.objectContaining({ periodKey: { gte: "2026-08", lte: "2026-10" } }) }) }))
+    groupBy.mockClear()
+    // the later of the two bounds wins
+    const later = { ...(db as object), ifrs9Config: { findUnique: vi.fn(async () => config({ enabled: true, effectiveFromMonth: "2026-09" })) } } as never
+    await loadIfrs9Positions(later, "t", oct, new Set(), "2026-08")
+    expect(groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ run: expect.objectContaining({ periodKey: { gte: "2026-09", lte: "2026-10" } }) }) }))
+  })
+
   it("flags a loan whose status says it left the book without the date it did so", async () => {
     const db = dbFor([snap("a", 500)], [{ ...snap("w", 300), run: { periodKey: "2026-09" } }, { ...snap("c", 200), run: { periodKey: "2026-09" } }], [
       loanRow({ id: "a" }), loanRow({ id: "w", status: "WRITTEN_OFF" }), loanRow({ id: "c", status: "COMPLETED" }),

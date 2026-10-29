@@ -77,8 +77,8 @@ a consumer loan (`contractType LOAN`): asset-finance interest stays in income an
   (EAD also carries interest accrued since the last due date, which the ledger does not yet hold); and the adjustment
   applies only where suspension applies (`suspensionEnabled`, `suspendOnStage3` / `suspensionDpd`, consumer loans), so a
   Stage 3 loan outside those settings is provisioned on the gross exposure with no interest adjustment. That is a
-  deliberate deviation from 5.4.1(b), which covers every credit-impaired asset. Only months from `effectiveFromMonth`
-  count towards the cumulative adjustment.
+  deliberate deviation from 5.4.1(b), which covers every credit-impaired asset. Only months from `effectiveFromMonth` (or, when none is
+  set, from the accounting go-live month) count towards the cumulative adjustment.
 
 Which basis the **financial statements** use is the lender's and its auditor's call; a lender reporting to a central
 bank on the prudential basis keeps `FULL_SUSPENSION`. Either way the borrower's balance, schedule, charges and every
@@ -115,13 +115,17 @@ would sit beside the new one's).
   `effectiveFromMonth` apply. Lenders without a config row post nothing of this.
 - A loan whose status says it was settled, cancelled or written off with no closed / write-off date refuses the close
   (`IFRS9_EXIT_UNDATED`, listing the loans): the close cannot place its exit, and would otherwise keep or release its
-  allowance in the wrong month.
+  allowance in the wrong month. The fix is an operator command, `npm run lender:set-exit-date -- --tenant <slug>
+  --loan <reference> --date <yyyy-mm-dd> --reason "..."` (`scripts/lender/set-exit-date.ts`): it fills only a missing
+  `closedAt` / `writeOffAt`, never into a closed month or the future, and is audited (`IFRS9_LOAN_EXIT_DATE_SET`).
 - **Write-off** uses the allowance: Dr `ECL_ALLOWANCE` / Cr `BAD_DEBT_EXPENSE`, `ECL_EXPENSE` stays as
   charged, so the loss is the provision plus the bad debt and is not counted twice or released to income.
 - **Policy changes the ledger makes unsafe are refused** (`policyChangeRefusal`, under the accounting lock):
-  switching off while an allowance or interest in suspense is held (it would never be released); moving
-  `effectiveFromMonth` forward over a held position (later months would close on a frozen one); changing
-  `stage3InterestBasis` once anything has posted; and an `effectiveFromMonth` earlier than the first unclosed month.
+  once IFRS 9 has posted anything (any allowance, expense or suspense line, even when the balances are nil after a
+  write-off) it cannot be switched off, have `effectiveFromMonth` moved forward, or change `stage3InterestBasis`
+  (the next close would reverse posted keys, freeze a position, or mix two bases). Before the first close the basis
+  may change: a run made on the old basis is then refused at the close as stale and superseded on the new one. An
+  `effectiveFromMonth` earlier than the first unclosed month is refused too.
 
 ## Reports
 

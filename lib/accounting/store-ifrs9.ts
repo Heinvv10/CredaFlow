@@ -30,6 +30,7 @@ export async function loadIfrs9Positions(
   tenantId: string,
   period: AccountingPeriod,
   postedKeys: ReadonlySet<string>,
+  goLiveMonth: string | null = null,
 ): Promise<Ifrs9Position[]> {
   // A month IFRS 9 does not govern (off, or before its first month) posts nothing, whatever runs are on record.
   const settings = await loadSettings(db, tenantId)
@@ -48,8 +49,9 @@ export async function loadIfrs9Positions(
   })
   const lastById = new Map(last.map((r) => [r.loanId, r]))
   // Net basis: each Stage 3 month's adjustment summed over the current runs up to the period (none is given back).
-  // Only months IFRS 9 governs count, and only rows that adjusted something.
-  const governed = { ...current, ...(settings.effectiveFromMonth !== null ? { periodKey: { gte: settings.effectiveFromMonth, lte: period.key } } : {}) }
+  // Only months IFRS 9 governs count (from its first month, never before the ledger's go-live), and only rows that adjusted something.
+  const first = [settings.effectiveFromMonth, goLiveMonth].filter((m): m is string => m !== null).sort().at(-1) ?? null
+  const governed = { ...current, ...(first !== null ? { periodKey: { gte: first, lte: period.key } } : {}) }
   const netSums = await db.ifrs9LoanSnapshot.groupBy({
     by: ["loanId"], where: { tenantId, run: governed, OR: [{ netInterestAdjustmentCents: { gt: 0 } }, { netDefaultInterestAdjustmentCents: { gt: 0 } }] },
     _sum: { netInterestAdjustmentCents: true, netDefaultInterestAdjustmentCents: true },

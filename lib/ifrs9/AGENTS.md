@@ -36,7 +36,7 @@ Design and limits: `docs/ifrs9/DESIGN.md`.
   `FULL_SUSPENSION` is the regulatory basis (suspense account, exposure net of it);
   `NET_BASIS` the IFRS 9 one (gross exposure and allowance, month's interest x
   ECL/EAD moved from income to the ECL expense, never given back). The basis
-  cannot change once posted, nor while an open month's run was made on the old basis.
+  cannot change once posted (before the first close a run on the old basis is held stale at the close and superseded).
   Reports default to the latest MONTHLY run (`loadRunReport`), never an analysis run.
 - **Write-off uses the allowance** (Dr allowance / Cr bad debt); never credit
   `ECL_EXPENSE` on a write-off.

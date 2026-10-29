@@ -12,6 +12,7 @@ import { closePeriod } from "./generate"
 import { parsePeriodKey } from "./period"
 import { planPeriod } from "./plan"
 import { actorOf, asTenant, at, configure, db, lender, monthEnd, monthly, type Lender } from "@/lib/ifrs9/ifrs9.integration-fixture"
+import { setLoanExitDate } from "../../scripts/lender/set-exit-date"
 import { saveSettings } from "@/lib/ifrs9/store"
 import { DEFAULT_SETTINGS } from "@/lib/ifrs9/types"
 import { prisma } from "@/lib/prisma"
@@ -176,5 +177,49 @@ suite.sequential("IFRS 9 run chain at the close (real Postgres)", () => {
     const refused = await plan(u, "2026-11")
     expect(refused.refusal).toMatchObject({ code: "IFRS9_EXIT_UNDATED" })
     expect(refused.refusal?.message).toContain("LN-")
+    expect(refused.refusal?.message).toContain("lender:set-exit-date")
+
+    // the operator fix path: audited, only fills a missing date, never inside a closed month
+    const slug = (await db.tenant.findUniqueOrThrow({ where: { id: u.tenantId } })).slug
+    const reference = (await db.loan.findUniqueOrThrow({ where: { id: u.loanId } })).reference
+    const input = { tenantSlug: slug, loanReference: reference, date: "2026-11-10", reason: "settled by the bank file", operator: "ops@host", now: NOW }
+    await expect(setLoanExitDate(db, { ...input, date: "2026-10-10" })).rejects.toMatchObject({ code: "PERIOD_CLOSED" })
+    await expect(setLoanExitDate(db, { ...input, date: "2027-02-01" })).rejects.toMatchObject({ code: "FUTURE_DATE" })
+    await expect(setLoanExitDate(db, { ...input, reason: "x" })).rejects.toMatchObject({ code: "REASON_REQUIRED" })
+    await setLoanExitDate(db, input)
+    expect((await db.loan.findUniqueOrThrow({ where: { id: u.loanId } })).closedAt?.toISOString()).toBe(new Date("2026-11-10T12:00:00+02:00").toISOString())
+    expect(await db.auditLog.count({ where: { tenantId: u.tenantId, action: "IFRS9_LOAN_EXIT_DATE_SET", entityId: u.loanId } })).toBe(1)
+    await expect(setLoanExitDate(db, input)).rejects.toMatchObject({ code: "NOT_UNDATED" })
+    expect((await plan(u, "2026-11")).refusal).toBeNull()
+  })
+
+  // Round 4 item 1: the basis may change before the first close; the close then holds the old-basis run as stale.
+  it("lets the basis change before the first close, refuses the old-basis run at the close, and closes on a superseding run", async () => {
+    const w = await netLender()
+    for (const key of ["2026-08", "2026-09"]) await close(w, key)
+    const oct = await monthly(w, "2026-10", monthEnd("2026-10-31"))
+    expect(await asTenant(w, () => saveSettings(prisma, w.tenantId, { ...DEFAULT_SETTINGS, enabled: true, effectiveFromMonth: "2026-10", stage3InterestBasis: "NET_BASIS" }, actorOf(w)))).toMatchObject({ ok: true })
+    expect((await plan(w, "2026-10")).refusal).toMatchObject({ code: "IFRS9_RUN_STALE" })
+    await expect(close(w, "2026-10")).rejects.toMatchObject({ code: "IFRS9_RUN_STALE" })
+    const fresh = await monthly(w, "2026-10", at("2026-11-03"), { supersede: { runId: oct.runId, reason: "restated on the net basis" } })
+    expect((await db.ifrs9Run.findUniqueOrThrow({ where: { id: fresh.runId } })).settings).toMatchObject({ stage3InterestBasis: "NET_BASIS" })
+    expect((await plan(w, "2026-10")).refusal).toBeNull()
+    await close(w, "2026-10")
+  })
+
+  // Round 4 item 2 (breaker 4): a written-off loan's allowance is nil but its posted keys would be reversed by switching off.
+  it("refuses switching off and moving the first month forward once anything has posted, though the balances are nil", async () => {
+    const z = await netLender()
+    for (const key of ["2026-08", "2026-09"]) await close(z, key)
+    await monthly(z, "2026-10", monthEnd("2026-10-31"))
+    await close(z, "2026-10")
+    await db.loan.update({ where: { id: z.loanId }, data: { status: "WRITTEN_OFF", writeOffAt: at("2026-11-10"), closedAt: at("2026-11-10") } })
+    await monthly(z, "2026-11", monthEnd("2026-11-30"))
+    await close(z, "2026-11")
+    const t = await totals(z.tenantId)
+    expect(t.ECL_ALLOWANCE ?? 0).toBe(0)
+    const save = (over: Partial<typeof DEFAULT_SETTINGS>) => asTenant(z, () => saveSettings(prisma, z.tenantId, { ...DEFAULT_SETTINGS, enabled: true, effectiveFromMonth: "2026-10", ...over }, actorOf(z)))
+    expect(await save({ enabled: false })).toMatchObject({ ok: false, error: expect.stringContaining("switched off") })
+    expect(await save({ effectiveFromMonth: "2026-12" })).toMatchObject({ ok: false, error: expect.stringContaining("cannot move forward") })
   })
 })

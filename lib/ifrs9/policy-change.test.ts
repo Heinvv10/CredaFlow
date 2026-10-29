@@ -18,8 +18,10 @@ describe("policyChangeRefusal", () => {
     expect(policyChangeRefusal(on({ enabled: false }), on({ enabled: false }), held)).toBeNull()
   })
 
-  it("lets it be switched off once both balances are nil", () => {
-    expect(policyChangeRefusal(on(), on({ enabled: false }), position({ posted: true }))).toBeNull()
+  // Breaker 4 (PR #255 round 3): a zero balance after a write-off still has posted keys that switching off would reverse.
+  it("refuses switching off once anything has posted, even when both balances are nil", () => {
+    expect(policyChangeRefusal(on(), on({ enabled: false }), position({ posted: true }))).toContain("switched off")
+    expect(policyChangeRefusal(on(), on({ enabled: false }), position())).toBeNull()
   })
 
   // Review breaker 5 (PR #255 round 2): moving the first month forward left later months closing on a frozen position.
@@ -28,18 +30,12 @@ describe("policyChangeRefusal", () => {
     expect(policyChangeRefusal(on({ effectiveFromMonth: null }), on({ effectiveFromMonth: "2027-01" }), held)).toContain("cannot move forward")
     expect(policyChangeRefusal(on(), on({ effectiveFromMonth: "2026-10" }), held)).toBeNull()
     expect(policyChangeRefusal(on({ effectiveFromMonth: "2027-01" }), on({ effectiveFromMonth: "2026-11" }), held)).toBeNull()
-    expect(policyChangeRefusal(on(), on({ effectiveFromMonth: "2027-01" }), position({ posted: true }))).toBeNull()
+    expect(policyChangeRefusal(on(), on({ effectiveFromMonth: "2027-01" }), position({ posted: true }))).toContain("cannot move forward")
+    expect(policyChangeRefusal(on(), on({ effectiveFromMonth: "2027-01" }), position())).toBeNull()
   })
 
   it("refuses changing the Stage 3 interest basis once anything has been posted, even with nothing held now", () => {
     expect(policyChangeRefusal(on(), on({ stage3InterestBasis: "NET_BASIS" }), position({ posted: true }))).toContain("stage3InterestBasis")
     expect(policyChangeRefusal(on(), on({ stage3InterestBasis: "FULL_SUSPENSION" }), position({ posted: true }))).toBeNull()
-  })
-
-  it("refuses changing the basis while an open month's run was made on the old one, and names the months", () => {
-    const msg = policyChangeRefusal(on(), on({ stage3InterestBasis: "NET_BASIS" }), position(), ["2026-10", "2026-11"])
-    expect(msg).toContain("2026-10, 2026-11")
-    expect(policyChangeRefusal(on(), on({ stage3InterestBasis: "NET_BASIS" }), position(), [])).toBeNull()
-    expect(policyChangeRefusal(on(), on(), position(), ["2026-10"])).toBeNull()
   })
 })
