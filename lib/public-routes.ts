@@ -1,5 +1,9 @@
 export function isPublicOperationalRoute(pathname: string) {
   if (pathname === "/api/health") return true
+  // Kubernetes probes (deploy/helm): no session, no secret, a bare status.
+  if (pathname === "/api/health/live" || pathname === "/api/health/ready") return true
+  // Prometheus scrape: the handler is off without METRICS_TOKEN and bearer-only with it.
+  if (pathname === "/api/metrics") return true
   // Cron routes authenticate via x-cron-secret in their handler (lib/cron-auth.ts).
   // They bypass NextAuth's session gate so the in-app scheduler (instrumentation.ts)
   // and any external scheduler can reach them.
