@@ -314,7 +314,7 @@ suite("tamper-evident audit", () => {
     it("starts an incremental walk at the latest checkpoint, detects a cut tail and a forged checkpoint, and a full walk still sees what is before it", async () => {
       const L = await tenant("l")
       for (let i = 1; i <= 6; i++) await write(L, i)
-      const first = await runAuditChainVerification({ db, mode: "full" })
+      const first = await runAuditChainVerification({ db, mode: "full", only: [L] })
       expect(first.breaks.filter((b) => b.chainKey === L)).toEqual([])
       expect(first.verifiedKeys).toContain(L)
       const [cp] = await db.$queryRaw<Array<{ seq: number; rowHash: string }>>`SELECT "seq", "rowHash" FROM "AuditChainCheckpoint" WHERE "chainKey" = ${L} ORDER BY "seq" DESC LIMIT 1`
@@ -347,7 +347,7 @@ suite("tamper-evident audit", () => {
       await chain(M)
       const [row] = await rows(M)
       await tamper(`UPDATE "AuditLog" SET "action" = 'EDITED' WHERE id = '${row.id}'`)
-      const job = await runAuditChainVerification({ db, mode: "full" })
+      const job = await runAuditChainVerification({ db, mode: "full", only: [M] })
       expect(job.breaks.filter((b) => b.chainKey === M)).toEqual([expect.objectContaining({ kind: "row_hash_mismatch", chainSeq: 1 })])
       expect(job.verifiedKeys).not.toContain(M)
       expect(await db.auditLog.count({ where: { tenantId: M, action: "AUDIT_CHAIN_BROKEN" } })).toBe(1)

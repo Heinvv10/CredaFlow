@@ -26,12 +26,12 @@ export function modeFor(now: Date): VerifyMode {
   return weekday === "Sun" ? "full" : "incremental"
 }
 
-export async function runAuditChainVerification(opts: { db?: PrismaClient; now?: Date; mode?: VerifyMode } = {}): Promise<VerifyJobResult> {
+export async function runAuditChainVerification(opts: { db?: PrismaClient; now?: Date; mode?: VerifyMode; only?: readonly string[] } = {}): Promise<VerifyJobResult> {
   const db = (opts.db ?? prisma) as unknown as PrismaClient
   const now = opts.now ?? new Date()
   return withoutTenantScope(async () => {
-    await runChainer({ db, now, deep: true, budgetMs: 10 * 60_000 })
-    const result = await verifyAuditChains(db, { mode: opts.mode ?? modeFor(now), now })
+    await runChainer({ db, now, deep: true, budgetMs: 10 * 60_000, only: opts.only })
+    const result = await verifyAuditChains(db, { mode: opts.mode ?? modeFor(now), now, chainKeys: opts.only })
 
     for (const b of result.breaks) {
       console.error("[audit-chain] BROKEN", b)

@@ -114,15 +114,15 @@ async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Pr
 
 /**
  * Verifies every chain, or only `chainKey` (a tenant id; "" for the platform
- * chain). A tenant with no audit rows has no chain and passes.
+ * chain) or `chainKeys` (for a test sharing a database). A tenant with no audit rows has no chain and passes.
  */
 export async function verifyAuditChains(
   db: Db,
-  opts: { chainKey?: string; mode?: VerifyMode; now?: Date } = {},
+  opts: { chainKey?: string; chainKeys?: readonly string[]; mode?: VerifyMode; now?: Date } = {},
 ): Promise<ChainVerification> {
   const mode = opts.mode ?? "full"
   const now = opts.now ?? new Date()
-  const keys = await chainKeys(db, opts.chainKey)
+  const keys = opts.chainKeys ? [...opts.chainKeys] : await chainKeys(db, opts.chainKey)
   const breaks: ChainBreak[] = []
   const verifiedKeys: string[] = []
   let rowsChecked = 0
