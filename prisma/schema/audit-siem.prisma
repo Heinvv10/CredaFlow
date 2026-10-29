@@ -1,0 +1,56 @@
+// ── Tamper-evident audit: chain head, per-lender policy, SIEM outbox ──────────
+// Spec: lib/audit/.claude.md. The AuditLog hash chain, its append-only trigger
+// and the outbox trigger are hand-written SQL (migration 20261029100000).
+
+enum AuditSiemTransport {
+  SYSLOG_TLS
+  HTTPS_JSON
+}
+
+/// Last link of one AuditLog chain (chainKey = tenantId, '' for platform rows).
+/// Written only by the AuditLog_zz_chain trigger, which row-locks it to
+/// serialise concurrent inserts; the verifier compares it with the table to
+/// catch a truncated tail.
+model AuditChainHead {
+  chainKey  String   @id
+  lastSeq   Int
+  lastHash  String
+  updatedAt DateTime @default(now())
+}
+
+/// A lender's audit retention and SIEM forwarding. No row = 12 months retained,
+/// 3 hot, nothing forwarded. Secrets are sealed (lib/crypto/secret-box.ts).
+model AuditPolicy {
+  id              String             @id @default(cuid())
+  tenantId        String             @unique
+  tenant          Tenant             @relation(fields: [tenantId], references: [id])
+  retentionMonths Int                @default(12)
+  hotMonths       Int                @default(3)
+  siemEnabled     Boolean            @default(false)
+  siemTransport   AuditSiemTransport @default(HTTPS_JSON)
+  siemHost        String?
+  siemPort        Int?
+  siemUrl         String?
+  siemSealedToken String?
+  siemCaCertPem   String?
+  siemClientCert  String?
+  siemSealedKey   String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @default(now())
+}
+
+/// One AuditLog row waiting to be (or already) shipped. Filled by the
+/// AuditLog_siem_enqueue trigger in the audit row's own transaction. At-least-once:
+/// sentAt is set after the SIEM acknowledges; the event id is the AuditLog id.
+model AuditSiemOutbox {
+  auditLogId    String    @id
+  tenantId      String
+  chainSeq      Int
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, sentAt, nextAttemptAt])
+}

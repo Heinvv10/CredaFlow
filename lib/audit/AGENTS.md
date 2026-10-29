@@ -1,0 +1,56 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: lib/audit/ (tamper-evident audit, SIEM)
+<!-- summary: AuditLog is append-only and hash-chained in Postgres; verifier, SIEM forwarding, retention -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Append-only, chained, in the database (migration 20261029100000)
+- `AuditLog` refuses UPDATE, DELETE and TRUNCATE (`AuditLog_a_append_only*`). The
+  user/tenant FKs are RESTRICT, not SET NULL (that was an UPDATE): a user or
+  lender with audit rows is deactivated, never deleted.
+- `AuditLog_zz_chain` (BEFORE INSERT, last by name, after the content guards that
+  rewrite NEW) sets `chainSeq`, `prevHash`, `rowHash` = `audit_log_row_hash(row)`.
+  One chain per tenant, `''` = rows with no tenant. Callers cannot supply them.
+- Concurrency: the trigger row-locks the chain's `AuditChainHead`, **until the
+  surrounding transaction ends**. A transaction that writes an audit row early and
+  then waits on a row another audit-writing transaction holds can deadlock
+  (Postgres aborts one). Write the audit row last in a transaction.
+- Tests purge audit rows with `audit-rows.test-helpers.ts` (superuser, triggers off).
+- A superuser editing rows with the triggers off is found by `chain-verify.ts`
+  (`row_hash_mismatch`, `prev_hash_mismatch`, `seq_gap`, `head_mismatch`, `head_missing`);
+  one who recomputes the whole chain and head is caught only by the SIEM's copy.
+
+## Verifying
+`npm run audit:verify`; `GET /api/admin/audit/verify` (ADMIN, own lender); daily cron
+`audit-chain-verify` (500 on a break; writes `AUDIT_CHAIN_BROKEN`/`_VERIFIED` rows).
+
+## SIEM (`siem/`)
+- `AuditPolicy` (one per lender, no TenantConfig change). Secrets sealed with
+  `WABA_ENC_KEY`. `PUT /api/settings/audit-policy` (ADMIN, TOTP where required),
+  `POST` sends a test event.
+- `AuditLog_siem_enqueue` (AFTER INSERT) fills `AuditSiemOutbox` in the audit
+  row's transaction while the lender's `siemEnabled`. Rows with no tenant are not
+  forwarded. Cron `audit-siem-deliver` (2 min) ships oldest first: claim with
+  SKIP LOCKED and a 2 min lease, 30 s doubling to 1 h backoff, never dropped.
+  At-least-once; the receiver de-duplicates on `eventId` (= AuditLog id).
+- Transports: RFC 5424 over TLS (octet-counting, message body is CEF) and HTTPS
+  JSON batch (`{source, events[]}`, bearer token, 2xx = ack). Syslog has no
+  application ack: "sent" = written and closed cleanly. TLS 1.2+, certificate verified.
+- Destinations: public addresses only; `AUDIT_SIEM_ALLOW_PRIVATE=1` (operator) admits
+  RFC 1918/ULA/CGNAT; loopback, link-local, multicast never. Checked in the dial.
+
+Field mapping (JSON / CEF / RFC 5424) and the PRI rule: `docs/ARCHITECTURE.md`, "Tamper-evident audit".
+
+## Security events
+`security-events.ts` writes `SECURITY_*` rows for staff sign-in and failure (lib/auth.ts),
+TOTP failure, and `requireApiRole` role denials. Failures resolve the staff account by
+email so they land on that lender's chain. Not covered: client-portal, operator and
+dealer sign-ins, and denials from guards other than `requireApiRole`.
+
+## Retention
+`AuditPolicy.retentionMonths >= 12` and `3 <= hotMonths <= retentionMonths` are CHECKs.
+Nothing deletes audit rows: all history stays in `AuditLog` (hot = the last 3 months by
+the `createdAt` index). Moving older rows to a chained archive table is not built.

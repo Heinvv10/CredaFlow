@@ -11,6 +11,7 @@ import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import type { StatementTransaction } from "@/lib/statement-analysis/types"
 import { PARSER_VERSION } from "@/lib/statement-analysis/analyse"
 import { syntheticTransactions } from "./synthetic.test-helpers"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 export const FIXTURE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "LOAN_ADMIN", "CREDIT_OFFICER", "READONLY"]
 
@@ -83,7 +84,7 @@ export async function dropAiFixture(f: AiFixture): Promise<void> {
   await prisma.statementAiOutput.deleteMany({ where })
   await prisma.statementAiUsage.deleteMany({ where })
   await prisma.documentAccessLog.deleteMany({ where: { documentId: f.documentId } })
-  await prisma.auditLog.deleteMany({ where })
+  await purgeAuditRowsForTest(prisma, where)
   await prisma.$transaction([
     prisma.$executeRawUnsafe(`ALTER TABLE "ApplicationCheckFlag" DISABLE TRIGGER "ApplicationCheckFlag_guard_record"`),
     prisma.$executeRawUnsafe(`DELETE FROM "ApplicationCheckFlag" WHERE "tenantId" = '${f.tenantId}'`),

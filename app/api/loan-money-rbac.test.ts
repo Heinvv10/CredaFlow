@@ -152,7 +152,8 @@ describe.each(ROWS)("$name ($layer)", ({ allowedRole, call, past }) => {
     session.role = "INSURANCE_OFFICER"
     const res = await call()
     expect(res.status).toBe(403)
-    expect(db.touched).toEqual([])
+    // The refusal's own security audit row (SECURITY_PERMISSION_DENIED) is the one write allowed.
+    expect(db.touched.filter((model) => model !== "auditLog")).toEqual([])
     expect(receipt).not.toHaveBeenCalled()
   })
 

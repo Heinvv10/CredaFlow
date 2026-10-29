@@ -16,6 +16,7 @@ vi.mock("./alert", async (orig) => ({ ...(await orig<object>()), sendChatAlertEm
 import { sweepHandoffs } from "./handoff-sweep"
 import { joinChat, sendStaffChatReply, STAFF_IDLE_RELEASE_MS } from "./staff"
 import { loadChat, recordAssistantReply, recordVisitorMessageToStaff, startChat } from "./store"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -49,7 +50,7 @@ suite("sweepHandoffs: abandoned takeovers", () => {
 
   afterAll(async () => {
     const where = { tenantId: { in: tenants } }
-    await db.auditLog.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where)
     await db.message.deleteMany({ where })
     await db.conversation.deleteMany({ where })
     await db.contactConsent.deleteMany({ where })

@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma"
 import { stampThread } from "./rows"
 import { joinChat, releaseIdleChats, sendStaffChatReply } from "./staff"
 import { recordAssistantReply, recordVisitorMessage, recordVisitorMessageToStaff, startChat } from "./store"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -41,7 +42,7 @@ suite("website chat thread stamps", () => {
 
   afterAll(async () => {
     const where = { tenantId }
-    await db.auditLog.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where)
     await db.message.deleteMany({ where })
     await db.conversation.deleteMany({ where })
     await db.contactConsent.deleteMany({ where })

@@ -24,6 +24,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 import { POST as classify } from "../applications/[id]/classify/route"
 import { POST as requestOverride } from "../applications/[id]/nca-overrides/route"
 import { POST as decideOverride } from "./[overrideId]/decide/route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_ASSET_FINANCE_OVERRIDE_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -111,7 +112,7 @@ suite.sequential("NCA regime override four-eyes (real Postgres, real routes)", (
 
   afterAll(async () => {
     if (!db) return
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     // Overrides are never deleted (guardNcaRegimeOverrideLifecycle); only this
     // test's own rows are removed, with triggers off for the transaction.
     await db.$transaction([

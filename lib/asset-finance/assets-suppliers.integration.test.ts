@@ -22,6 +22,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 import { POST as createAsset } from "@/app/api/asset-finance/assets/route"
 import { POST as decideAccount } from "@/app/api/asset-finance/suppliers/bank-accounts/[accountId]/decide/route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_ASSET_FINANCE_ASSETS_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -75,7 +76,7 @@ suite.sequential("asset register and supplier bank accounts (real Postgres)", ()
 
   afterAll(async () => {
     if (!db) return
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.supplierBankAccount.deleteMany({ where: { tenantId } })
     await db.supplier.deleteMany({ where: { tenantId } })
     await db.assetValuation.deleteMany({ where: { tenantId } })

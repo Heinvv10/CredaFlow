@@ -8,6 +8,7 @@ import { withoutTenantScope } from "@/lib/tenant-scope"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
 import { claimTotpCounter } from "./totp-claim"
+import { recordSecurityEvent } from "./audit/security-events"
 import { signInTotpOutcome } from "./auth-totp-step"
 import { dealerAppHost, normaliseHost, operatorAppHost } from "@/lib/config/deployment-urls"
 import { isOperatorRole } from "@/lib/operator/roles"
@@ -100,10 +101,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ip = callerIp(request as Request)
         const userAgent = (request as Request).headers.get("user-agent")
 
-        const recordFailure = (reason: string) =>
-          prisma.failedLoginAttempt
+        const recordFailure = async (reason: string) => {
+          await prisma.failedLoginAttempt
             .create({ data: { email, ip, userAgent, reason } })
             .catch((err: unknown) => { console.error("[auth] failedLoginAttempt insert failed:", err) })
+          // The immutable audit trail takes failures against a real staff account only: an unknown
+          // email, a refused audience and a rate-limited retry stay in FailedLoginAttempt, which
+          // can be pruned, so an unauthenticated caller cannot grow the audit log.
+          if (reason !== "wrong_audience" && reason !== "rate_limited") {
+            await recordSecurityEvent({ kind: reason.startsWith("totp_") ? "totp_failed" : "login_failed", email, ipAddress: ip, reason })
+          }
+        }
 
         // Three-bucket rate gate — any one tripping blocks the attempt.
         // All three are evaluated so each records the attempt in its own bucket;
@@ -246,6 +254,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             .catch((err: unknown) => { console.error("[auth] lastLoginAt update failed:", err) })
           await prisma.loginLog.create({ data: { tenantId: loginTenantId, userId: user.id, ip, userAgent, success: true } })
             .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) })
+          await recordSecurityEvent({ kind: "login_succeeded", tenantId: loginTenantId, userId: user.id, email: user.email, ipAddress: ip })
           return {
             id: user.id,
             email: user.email,

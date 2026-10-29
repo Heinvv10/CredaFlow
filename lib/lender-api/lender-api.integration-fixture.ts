@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
 import { generateApiKey } from "@/lib/lender-api/keys"
 import type { ApiScope } from "@/lib/lender-api/scopes"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 // Real-Postgres fixture for lender-api.integration.test.ts: one lender with a
 // staff admin, a product, a client (with income, so a draft application
@@ -87,7 +88,7 @@ export async function deleteApiTenant(db: PrismaClient, t: ApiTenant): Promise<v
   await db.webhookEndpoint.deleteMany({ where })
   await db.apiRequestLog.deleteMany({ where })
   await db.apiKey.deleteMany({ where })
-  await db.auditLog.deleteMany({ where })
+  await purgeAuditRowsForTest(db, where)
   await db.payment.deleteMany({ where })
   await db.repaymentSchedule.deleteMany({ where })
   await db.loan.deleteMany({ where })

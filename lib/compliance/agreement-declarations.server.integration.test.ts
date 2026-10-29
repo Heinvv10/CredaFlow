@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { createApprovedPasqV3Application } from "./pasq-v3-application.integration-fixture"
 import { declarationEvidenceData, signatureDigest, assertDeclarationEvidence } from "./agreement-declarations.server"
+import { updateAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 suite("declaration evidence binding in PostgreSQL", () => {
   it("allows absent historical evidence, validates new rows, freezes them, and ignores mutable audit JSON", async () => {
@@ -22,7 +23,7 @@ suite("declaration evidence binding in PostgreSQL", () => {
     await expect(prisma.agreementDeclarationAcceptance.update({ where: { id: record.id, tenantId: app.tenantId }, data: { acceptedIds: [] } })).rejects.toThrow(/immutable/)
     await expect(prisma.agreementDeclarationAcceptance.delete({ where: { id: record.id, tenantId: app.tenantId } })).rejects.toThrow(/immutable/)
     const audit = await prisma.auditLog.create({ data: { tenantId: app.tenantId, userEmail: "synthetic@example.test", action: "AGREEMENT_SIGNED", entity: "LoanApplication", entityId: app.id, newValue: { declarationAcceptanceId: record.id } } })
-    await prisma.auditLog.update({ where: { id: audit.id, tenantId: app.tenantId }, data: { newValue: { acceptedIds: [] } } })
+    await updateAuditRowsForTest(prisma, { id: audit.id, tenantId: app.tenantId }, { newValue: { acceptedIds: [] } })
     expect(await prisma.agreementDeclarationAcceptance.findUniqueOrThrow({ where: { id: record.id, tenantId: app.tenantId } })).toMatchObject({ acceptedIds: data.acceptedIds, signatureSha256: binding.signatureSha256 })
   })
   it("isolates actual receipts with FORCE RLS under a non-bypass role", async () => {

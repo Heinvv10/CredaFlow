@@ -26,6 +26,7 @@ import { PrismaClient } from "@prisma/client"
 import { decode, encode } from "next-auth/jwt"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { syntheticSaId } from "@/lib/bureau-submission/bureau.integration-fixture"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const SECRET = "route-order-it-secret"
 const COOKIE = "authjs.session-token"
@@ -108,7 +109,7 @@ suite("password change under the real proxy: the route's session cookie is the l
     }
     if (readFileSync(TSCONFIG, "utf8") !== tsconfigBefore) writeFileSync(TSCONFIG, tsconfigBefore)
     await db.client.deleteMany({ where: { tenantId } })
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.tenant.delete({ where: { id: tenantId } }).catch(() => undefined)
     await db.$disconnect()
   })

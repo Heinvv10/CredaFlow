@@ -33,6 +33,7 @@ vi.mock("@/lib/turnstile", () => ({ verifyTurnstile: async () => ({ ok: true }) 
 import { POST as reset } from "./route"
 import { POST as forgot } from "../forgot-password/route"
 import bcrypt from "bcryptjs"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -51,14 +52,14 @@ suite("portal recovery credential, code and audit commit together", () => {
       await db.tenant.create({ data: { id: tenantId, slug: `recovery-${suffix}`, name: "Synthetic Recovery IT" } })
       clientId = (await db.client.create({ data: { tenantId, email, firstName: "Synthetic", lastName: "Recovery", phone: "0820000000", idNumber: syntheticSaId(), portalPassword: "synthetic-old-hash" } })).id
     }
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.clientOtp.deleteMany({ where: { email } })
     await db.client.update({ where: { id: clientId }, data: { portalPassword: "synthetic-old-hash" } })
     await db.clientOtp.create({ data: { email, otp, expiresAt: new Date(Date.now() + 60_000) } })
   })
   afterAll(async () => {
     if (clientId) {
-      await db.auditLog.deleteMany({ where: { tenantId } }); await db.clientOtp.deleteMany({ where: { email } }); await db.client.delete({ where: { id: clientId } }); await db.tenant.delete({ where: { id: tenantId } })
+      await purgeAuditRowsForTest(db, { tenantId }); await db.clientOtp.deleteMany({ where: { email } }); await db.client.delete({ where: { id: clientId } }); await db.tenant.delete({ where: { id: tenantId } })
     }
     await db.$disconnect()
   })

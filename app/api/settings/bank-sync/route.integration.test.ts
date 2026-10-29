@@ -31,6 +31,7 @@ vi.mock("@/lib/auth-guards", () => ({
 vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: userId, tenantId } }) }))
 
 import { PATCH } from "./route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -67,7 +68,7 @@ suite("PATCH /api/settings/bank-sync — switch and audit commit together", () =
 
   beforeEach(async () => {
     await db.tenantConfig.update({ where: { tenantId }, data: { bankSyncEnabled: false } })
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
   })
 
   afterEach(() => {
@@ -75,7 +76,7 @@ suite("PATCH /api/settings/bank-sync — switch and audit commit together", () =
   })
 
   afterAll(async () => {
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.tenantConfig.deleteMany({ where: { tenantId } })
     await db.user.deleteMany({ where: { tenantId } })
     await db.tenant.delete({ where: { id: tenantId } })

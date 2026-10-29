@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { applyManualReceipt, type PaymentDb } from "./apply-payment"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -103,7 +104,7 @@ suite("applyManualReceipt — concurrent receipts do not lose updates (issue #42
 
   beforeEach(async () => {
     // Reset to a clean, unpaid loan before each run.
-    await prisma.auditLog.deleteMany({ where: { tenantId: id.tenant, entityId: id.loan } })
+    await purgeAuditRowsForTest(prisma, { tenantId: id.tenant, entityId: id.loan })
     await prisma.payment.deleteMany({ where: { loanId: id.loan } })
     await prisma.repaymentSchedule.updateMany({
       where: { loanId: id.loan },

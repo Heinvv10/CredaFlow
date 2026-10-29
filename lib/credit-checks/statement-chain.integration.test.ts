@@ -18,6 +18,7 @@ import { syntheticStatement } from "@/lib/statement-analysis/fixtures/dataset"
 import { balances } from "@/lib/statement-analysis/fixtures/synthetic"
 import { buildStatement } from "@/lib/statement-analysis/fixtures/synthetic-banks"
 import { recomputeApplicationFlags } from "./recompute"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_CREDIT_CHECKS_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -73,7 +74,7 @@ suite("boundary rows chained across statements, against Postgres", () => {
   })
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(prisma, { tenantId })
     // Flags are records the database refuses to delete; the test's own rows go with its guard lifted.
     await prisma.$transaction([
       prisma.$executeRawUnsafe(`ALTER TABLE "ApplicationCheckFlag" DISABLE TRIGGER "ApplicationCheckFlag_guard_record"`),

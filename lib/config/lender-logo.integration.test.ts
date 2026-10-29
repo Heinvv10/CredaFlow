@@ -17,6 +17,7 @@ import { getLenderLogo, removeLenderLogo, setLenderLogo, type LogoWriteDb } from
 import { buildSection129Attachments } from "@/lib/email/section129-attachments"
 import { ACME_LENDER } from "./__fixtures__/lender-identity"
 import { makePng } from "./__fixtures__/png"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -50,7 +51,7 @@ suite("lender logo (real DB)", () => {
 
   afterAll(async () => {
     if (tenantId) {
-      await db.auditLog.deleteMany({ where: { tenantId } })
+      await purgeAuditRowsForTest(db, { tenantId })
       await db.tenantConfig.deleteMany({ where: { tenantId } })
       await db.user.deleteMany({ where: { tenantId } })
       await db.tenant.delete({ where: { id: tenantId } })

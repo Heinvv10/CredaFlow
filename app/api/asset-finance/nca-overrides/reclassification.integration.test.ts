@@ -31,6 +31,7 @@ import { POST as requestOverride } from "../applications/[id]/nca-overrides/rout
 import { POST as decideOverride } from "./[overrideId]/decide/route"
 import { STALE_OVERRIDE_NOTE } from "@/lib/asset-finance/classification"
 import { SUPERSEDED_OVERRIDE_NOTE } from "@/lib/asset-finance/override-snapshot"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_ASSET_FINANCE_OVERRIDE_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -99,7 +100,7 @@ suite.sequential("NCA approvals bound to the application (real Postgres, real ro
 
   afterAll(async () => {
     if (!db) return
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     // Overrides are never deleted; only this test's rows go, with triggers off.
     await db.$transaction([
       db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),

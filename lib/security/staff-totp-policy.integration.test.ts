@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { applyStaffTotpRequired, getStaffTotpPolicyState, isStaffTotpRequired } from "./staff-totp-policy"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -49,7 +50,7 @@ suite("staff two-factor policy (real database)", () => {
   })
 
   afterAll(async () => {
-    await db.auditLog.deleteMany({ where: { tenantId: { in: [tenantId, bareTenantId] } } })
+    await purgeAuditRowsForTest(db, { tenantId: { in: [tenantId, bareTenantId] } })
     await db.user.deleteMany({ where: { id: { in: Object.values(ids) } } })
     await db.tenantConfig.deleteMany({ where: { tenantId: { in: [tenantId, bareTenantId] } } })
     await db.tenant.deleteMany({ where: { id: { in: [tenantId, bareTenantId] } } })
@@ -122,7 +123,7 @@ suite("staff two-factor policy (real database)", () => {
       expect(await db.auditLog.count({ where: { tenantId: raceTenant, action: "STAFF_TOTP_POLICY_UPDATED" } })).toBe(1)
       expect(await isStaffTotpRequired(raceTenant)).toBe(false)
     } finally {
-      await db.auditLog.deleteMany({ where: { tenantId: raceTenant } })
+      await purgeAuditRowsForTest(db, { tenantId: raceTenant })
       await db.tenantConfig.deleteMany({ where: { tenantId: raceTenant } })
       await db.tenant.deleteMany({ where: { id: raceTenant } })
     }

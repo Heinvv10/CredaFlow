@@ -235,6 +235,43 @@ enforcement (`pg_trigger`, `pg_constraint`; the queries are in `CLAUDE.md`),
 and `npm run db:drift` compares a live database's objects with what the
 migrations declare.
 
+## Tamper-evident audit and SIEM forwarding
+
+`AuditLog` is the record of every state change (`lib/audit.ts`). Postgres makes
+it append-only and hash-chained, so neither the application nor a query typed
+into a console can alter or delete a row unnoticed; module rules in
+`lib/audit/.claude.md`.
+
+- **Append-only.** Triggers refuse UPDATE, DELETE and TRUNCATE. Integration
+  suites purge their own rows with `lib/audit/audit-rows.test-helpers.ts`
+  (superuser, triggers off).
+- **Chain.** Each row stores `chainSeq`, `prevHash` and `rowHash`
+  (SHA-256 over a canonical JSON array of its content and `prevHash`), set by a
+  trigger under a row lock on the chain's head (`AuditChainHead`), one chain per
+  lender. `npm run audit:verify`, `GET /api/admin/audit/verify` and the daily
+  `audit-chain-verify` cron walk it and name the first broken link.
+- **SIEM.** A lender's `AuditPolicy` turns forwarding on; a trigger queues each
+  new row in `AuditSiemOutbox` in the audit row's transaction and the
+  `audit-siem-deliver` cron ships it as RFC 5424 syslog over TLS (CEF body) or an
+  HTTPS JSON batch, at least once, with retry and backoff.
+- **Retention.** At least 12 months (a CHECK on `AuditPolicy`), the latest 3
+  "hot". No row is ever deleted; an archive table is not built.
+
+| AuditLog | JSON | CEF | RFC 5424 |
+|---|---|---|---|
+| id | eventId | externalId | SD eventId |
+| createdAt | timestamp | rt (ms) | TIMESTAMP |
+| action | action | signature, name | MSGID |
+| userEmail / userId | actor.email / userId | suser / suid | SD user / userId |
+| ipAddress | sourceIp | src | SD ip |
+| entity / entityId | entity / entityId | cs1 / cs2 | SD entity / entityId |
+| chainSeq / rowHash | chain.seq / rowHash | cn1 / cs3 | SD seq / rowHash |
+| oldValue / newValue | oldValue / newValue | cs4 / cs5 (1000 chars) | in the CEF body |
+
+Syslog PRI is facility 13 (log audit) * 8 + severity (CEF 9 = 2, 5 = 4, else 6).
+The structured-data id `cf@32473` uses the documentation enterprise number;
+replace it with the deployment's own.
+
 ## Row-level security: activation checklist
 
 The policies (`prisma/migrations/20261014130000_tenant_rls`) are in every

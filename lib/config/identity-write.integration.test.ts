@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { updateLenderIdentity, type IdentityWriteDb } from "./identity-write"
 import { getLenderIdentity, LenderIdentityError } from "./identity"
 import { VALID_LENDER_COLUMNS } from "./__fixtures__/lender-identity"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -38,7 +39,7 @@ suite("lender identity write path (real DB)", () => {
 
   afterAll(async () => {
     if (tenantId) {
-      await db.auditLog.deleteMany({ where: { tenantId } })
+      await purgeAuditRowsForTest(db, { tenantId })
       await db.tenantConfig.deleteMany({ where: { tenantId } })
       await db.user.deleteMany({ where: { tenantId } })
       await db.tenant.delete({ where: { id: tenantId } })

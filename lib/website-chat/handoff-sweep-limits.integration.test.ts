@@ -18,6 +18,7 @@ vi.mock("./alert", async (orig) => ({ ...(await orig<object>()), sendChatAlertEm
 import { setConversationStatus } from "@/lib/inbox/thread-actions"
 import { sweepHandoffs } from "./handoff-sweep"
 import { recordAssistantReply, startChat } from "./store"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -63,6 +64,7 @@ suite("sweepHandoffs: limits", () => {
     await db.contact.deleteMany({ where })
     await db.crmActivity.deleteMany({ where })
     await db.lead.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where) // AuditLog is append-only and its user FK no longer SETs NULL
     await db.user.deleteMany({ where })
     await db.commsSettings.deleteMany({ where })
     await db.tenant.deleteMany({ where: { id: { in: tenants } } })

@@ -27,6 +27,7 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
 }))
 
 import { PATCH } from "./route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -82,7 +83,7 @@ suite("PATCH /api/insurance/claims/[id] approve — bounded on a real database",
   afterAll(async () => {
     if (ctx.tenantId) {
       const tenantId = ctx.tenantId
-      await db.auditLog.deleteMany({ where: { tenantId } })
+      await purgeAuditRowsForTest(db, { tenantId })
       await db.insuranceClaim.deleteMany({ where: { tenantId } })
       await db.insurancePolicy.deleteMany({ where: { tenantId } })
       await db.client.deleteMany({ where: { tenantId } })

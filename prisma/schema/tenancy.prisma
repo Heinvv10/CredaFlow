@@ -71,6 +71,7 @@ model Tenant {
   assetTheftReports          AssetTheftReport[]
   attorneyFirms              AttorneyFirm[]
   auditLogs                  AuditLog[]
+  auditPolicy                AuditPolicy?
   automationLogs             AutomationLog[]
   automationPauses           AutomationPause[]
   automationRules            AutomationRule[]
@@ -485,9 +486,9 @@ model IntegrationLog {
 model AuditLog {
   id        String   @id @default(cuid())
   tenantId  String?
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
   userEmail String?
   action    String
   entity    String
@@ -496,6 +497,11 @@ model AuditLog {
   newValue  Json?
   ipAddress String?
   createdAt DateTime @default(now())
+  // Hash chain (lib/audit/.claude.md): set by the AuditLog_zz_chain trigger,
+  // never by the application. One chain per tenant; rows with no tenant are one more.
+  chainSeq  Int?
+  prevHash  String?
+  rowHash   String?
 
   @@index([entity, entityId])
   @@index([userId])

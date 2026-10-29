@@ -15,6 +15,7 @@ import { bootstrapSuperAdmin, BootstrapRefusal } from "./bootstrap-admin"
 import { bootstrapTenant } from "./bootstrap-tenant"
 import { parseTenantConfig } from "./tenant-config"
 import { validFile } from "./tenant-config.test-helpers"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -31,7 +32,7 @@ suite("lender bootstrap (real DB)", () => {
   afterAll(async () => {
     const t = await db.tenant.findUnique({ where: { slug } })
     if (t) {
-      await db.auditLog.deleteMany({ where: { tenantId: t.id } })
+      await purgeAuditRowsForTest(db, { tenantId: t.id })
       await db.user.deleteMany({ where: { tenantId: t.id } })
       await db.tenantConfig.deleteMany({ where: { tenantId: t.id } })
       await db.tenant.delete({ where: { id: t.id } })

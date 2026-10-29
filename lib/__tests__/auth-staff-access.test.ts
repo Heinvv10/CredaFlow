@@ -86,13 +86,16 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-const auditActions = () => mocks.auditCreate.mock.calls.map((c) => (c[0] as { data: { action: string } }).data.action)
+const allAuditActions = () => mocks.auditCreate.mock.calls.map((c) => (c[0] as { data: { action: string } }).data.action)
+// The staff-access policy's own rows; the sign-in's SECURITY_* rows (lib/audit/security-events.ts) are asserted apart.
+const auditActions = () => allAuditActions().filter((a) => !a.startsWith("SECURITY_"))
 
 describe("sign-in", () => {
   it("lets an in-hours staff member from an allowed network sign in", async () => {
     mocks.userFindUnique.mockResolvedValue(staffRow())
     await expect(signInFrom("192.0.2.10")).resolves.toMatchObject({ id: "u1" })
     expect(auditActions()).toEqual([])
+    expect(allAuditActions()).toEqual(["SECURITY_LOGIN_SUCCEEDED"])
   })
 
   it("refuses outside working hours and records the reason everywhere a failed sign-in goes", async () => {

@@ -16,6 +16,7 @@ import { HANDOFF_WAIT_MS } from "./mode"
 import { MAX_STAFF_REPLY_CHARS } from "./constants"
 import { joinChat, sendStaffChatReply } from "./staff"
 import { recordAssistantReply, recordVisitorMessage, startChat } from "./store"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -73,7 +74,7 @@ suite("website chat staff join and reply", () => {
 
   afterAll(async () => {
     const where = { tenantId: { in: tenants } }
-    await db.auditLog.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where)
     await db.notification.deleteMany({ where })
     await db.message.deleteMany({ where })
     await db.conversation.deleteMany({ where }) // cascades WebsiteChatHandoff

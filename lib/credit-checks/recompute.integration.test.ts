@@ -17,6 +17,7 @@ import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { syntheticStatement } from "@/lib/statement-analysis/fixtures/dataset"
 import { buildCapitecStatement } from "@/lib/statement-analysis/fixtures/synthetic"
 import { recomputeApplicationFlags, recomputeClientApplications } from "./recompute"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_CREDIT_CHECKS_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -62,7 +63,7 @@ suite("recomputeApplicationFlags against Postgres", () => {
   })
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(prisma, { tenantId })
     // Flags are records the database refuses to delete; the test's own rows go with its guard lifted.
     await prisma.$transaction([
       prisma.$executeRawUnsafe(`ALTER TABLE "ApplicationCheckFlag" DISABLE TRIGGER "ApplicationCheckFlag_guard_record"`),

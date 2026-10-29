@@ -35,6 +35,7 @@ import { POST as bulkSection129 } from "@/app/api/loans/section129/bulk/route"
 import { evaluateCollectionsEligibility, SECTION129_NON_NCA_REASON } from "@/lib/collections/section129-eligibility"
 import { dailyCandidateIds, monthlyCandidateIds } from "@/lib/bureau-submission/population"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_ASSET_FINANCE_REGIME_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -141,7 +142,7 @@ suite.sequential("NCA regime gates (real Postgres)", () => {
 
   afterAll(async () => {
     const where = { tenantId }
-    await db.auditLog.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where)
     await db.complianceRecord.deleteMany({ where })
     await db.loanCharge.deleteMany({ where })
     await db.repaymentSchedule.deleteMany({ where })
