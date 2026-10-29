@@ -8,6 +8,14 @@ describe("isPublicOperationalRoute", () => {
     expect(isPublicOperationalRoute("/api/clients")).toBe(false)
   })
 
+  it("allows the Kubernetes probes and the Prometheus scrape (each handler gates itself)", () => {
+    expect(isPublicOperationalRoute("/api/health/live")).toBe(true)
+    expect(isPublicOperationalRoute("/api/health/ready")).toBe(true)
+    expect(isPublicOperationalRoute("/api/metrics")).toBe(true)
+    expect(isPublicOperationalRoute("/api/metrics/extra")).toBe(false)
+    expect(isPublicOperationalRoute("/api/health/ready/extra")).toBe(false)
+  })
+
   it("allows the cron route family (handler enforces x-cron-secret)", () => {
     expect(isPublicOperationalRoute("/api/cron/messaging-retry")).toBe(true)
     expect(isPublicOperationalRoute("/api/cron/")).toBe(true)

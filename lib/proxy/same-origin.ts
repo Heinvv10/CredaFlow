@@ -29,6 +29,8 @@ const EXEMPT_PATHS = new Set([
   "/api/notifications/application",
   "/api/notifications/payment",
   "/api/health",
+  // The SAML ACS: the identity provider POSTs the browser here from its own origin.
+  "/api/auth/sso/saml/acs",
 ])
 
 export function isCrossOriginExempt(path: string): boolean {

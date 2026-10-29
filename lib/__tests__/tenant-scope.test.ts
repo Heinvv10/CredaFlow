@@ -207,6 +207,10 @@ describe("tenant-scope — ALS primitives", () => {
       "Ifrs9SicrFlag",
       "Ifrs9Run",
       "Ifrs9LoanSnapshot",
+      // Enterprise sign-in and API OAuth (lib/sso, lib/lender-api/oauth) — non-null tenantId.
+      "SsoConnection",
+      "OauthClient",
+      "SsoIdentity",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

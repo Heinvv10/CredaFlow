@@ -18,6 +18,7 @@ export interface ApiKeyRow {
   createdAt: string
   expiresAt: string
   lastUsedAt: string | null
+  ipAllowlist: string[]
 }
 
 interface Props {
@@ -38,6 +39,7 @@ export function ApiKeysCard({ keys, canManage }: Props) {
   const [name, setName] = useState("")
   const [scopes, setScopes] = useState<ApiScope[]>(["applications:read", "loans:read"])
   const [lifetimeDays, setLifetimeDays] = useState<number>(365)
+  const [allowlist, setAllowlist] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<{ name: string; key: string } | null>(null)
@@ -54,7 +56,7 @@ export function ApiKeysCard({ keys, canManage }: Props) {
       const res = await fetch("/api/settings/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, scopes, lifetimeDays }),
+        body: JSON.stringify({ name, scopes, lifetimeDays, ipAllowlist: allowlist }),
       })
       const data = (await res.json().catch(() => ({}))) as { key?: string; error?: string }
       if (!res.ok || !data.key) {
@@ -128,6 +130,7 @@ export function ApiKeysCard({ keys, canManage }: Props) {
               <p className="break-all"><code>cfk_{k.prefix}_…</code></p>
               <p className="text-xs text-[var(--cf-text-secondary)] break-words">{k.scopes.join(", ")}</p>
               <p className="text-xs text-[var(--cf-text-muted)]">Expires {k.expiresAt} · last used {k.lastUsedAt ?? "never"} · by {k.createdBy}</p>
+              <p className="text-xs text-[var(--cf-text-muted)]">Allowed from {k.ipAllowlist.length > 0 ? k.ipAllowlist.join(", ") : "any address"}</p>
             </li>
           ))}
         </ul>
@@ -153,7 +156,7 @@ export function ApiKeysCard({ keys, canManage }: Props) {
                 <tr key={k.id} className="border-t border-[var(--cf-border-subtle)] align-top">
                   <td className="py-2 pr-3">{k.name}<div className="text-xs text-[var(--cf-text-muted)]">by {k.createdBy}, {k.createdAt}</div></td>
                   <td className="py-2 pr-3"><code>cfk_{k.prefix}_…</code></td>
-                  <td className="py-2 pr-3 text-xs">{k.scopes.join(", ")}</td>
+                  <td className="py-2 pr-3 text-xs">{k.scopes.join(", ")}<div className="text-[var(--cf-text-muted)]">from {k.ipAllowlist.length > 0 ? k.ipAllowlist.join(", ") : "any address"}</div></td>
                   <td className="py-2 pr-3">{k.expiresAt}</td>
                   <td className="py-2 pr-3">{k.lastUsedAt ?? "Never"}</td>
                   <td className={`py-2 pr-3 ${stateClass(k.state)}`} title={k.state === "suspended" ? "Its creator is no longer an active admin: the key is refused. Revoke it and create a new one." : undefined}>{k.state}</td>
@@ -193,6 +196,14 @@ export function ApiKeysCard({ keys, canManage }: Props) {
               >
                 {LIFETIMES.map((d) => <option key={d} value={d}>{d} days</option>)}
               </select>
+            </div>
+            <div className="max-w-xl space-y-2">
+              <Label htmlFor="apiKeyAllowlist">Allowed source addresses (optional)</Label>
+              <textarea
+                id="apiKeyAllowlist" rows={3} value={allowlist} onChange={(e) => setAllowlist(e.target.value)} placeholder={"203.0.113.0/24\n198.51.100.7"}
+                className="w-full rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] px-3 py-2 text-sm text-[var(--cf-text)]"
+              />
+              <p className="text-xs text-[var(--cf-text-muted)]">One address or CIDR block per line. Empty means any address. Needs the server to know the caller&apos;s address (TRUSTED_PROXY); otherwise a key with an allowlist is refused.</p>
             </div>
             {/* Enabled while the form is incomplete: the browser's own required-field
                 prompt and the server's message explain what is missing, where a

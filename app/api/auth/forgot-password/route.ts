@@ -7,6 +7,7 @@ import { getLenderBrandName } from "@/lib/config/identity"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import crypto from "crypto"
 import { STAFF_RESET_LINK_MINUTES } from "@/lib/password-reset"
+import { SSO_BOUND_SELECT, passwordBlockedBySso } from "@/lib/sso/password-policy"
 
 const EXPIRY_MINUTES = STAFF_RESET_LINK_MINUTES
 
@@ -33,10 +34,11 @@ export async function POST(req: NextRequest) {
   // Always return success to prevent email enumeration
   const user = await prisma.user.findUnique({
     where: { email: email.toLowerCase().trim() },
-    select: { id: true, tenantId: true, name: true, email: true, active: true },
+    select: { id: true, tenantId: true, name: true, email: true, active: true, ...SSO_BOUND_SELECT },
   })
 
-  if (user && user.active) {
+  // An SSO-bound user (SSO on) has no password way in, so no reset is issued; the answer is the same either way.
+  if (user && user.active && !passwordBlockedBySso(user)) {
     const token = crypto.randomBytes(32).toString("hex")
     const expiry = new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000)
 

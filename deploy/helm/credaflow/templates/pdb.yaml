@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "credaflow.fullname" . }}-web
+  labels:
+    {{- include "credaflow.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "credaflow.selectorLabels" (dict "root" . "component" "web") | nindent 6 }}
+{{- end }}
