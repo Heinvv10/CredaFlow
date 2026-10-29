@@ -44,7 +44,7 @@ jobs:
     # emits ready_for_review and runs the complete gate. Scheduled runs need
     # only the real-DB integration job below.
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     # Unit + build took 29.5 min on 2026-10-21 (run 39611551763), and 30
     # cancelled the next run (39633530189) with no failure.
     timeout-minutes: 45
@@ -136,7 +136,7 @@ jobs:
   unit:
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 30
     strategy:
       # Report every shard's failures, as the single run did.
@@ -183,7 +183,7 @@ jobs:
   quality:
     needs: [checks, unit]
     if: always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 5
     steps:
       - name: Checks and every unit shard succeeded
@@ -198,7 +198,7 @@ jobs:
     # Main is tested as a candidate merge by the PR event and again nightly.
     # Avoid paying for the same integration suite immediately after each merge.
     if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
     # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
     # (440 gated) it was still running, with no failure, when 45 cancelled it
@@ -214,39 +214,22 @@ jobs:
       matrix:
         shard: [1, 2, 3]
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ituser
-          POSTGRES_PASSWORD: itpass
-          POSTGRES_DB: credaflow_it
-        # An ephemeral host port, not 5432:5432: shards sharing one
-        # self-hosted machine would collide, and velo already binds 5432.
-        ports:
-          - 5432
-        options: >-
-          --health-cmd "pg_isready -U ituser -d credaflow_it"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
     env:
       TZ: UTC
       IT_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
 
     steps:
-      # Disposable service container. These suites create and delete real rows.
-      # The job context (the mapped port) is not available in job-level env.
-      - name: Point DATABASE_URL at this shard's database
-        env:
-          PG_PORT: ${{ job.services.postgres.ports['5432'] }}
-        run: echo "DATABASE_URL=postgresql://ituser:itpass@127.0.0.1:${PG_PORT}/credaflow_it" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The baseline ratchet needs the merge base with the target branch.
           fetch-depth: 0
+
+      # A throwaway PostgreSQL 16 cluster of this job's own (the runner has no
+      # docker): own directory, OS-assigned loopback port, never shared with the
+      # other shard on this machine. These suites create and delete real rows.
+      # scripts/ci/pg-cluster.sh exports DATABASE_URL and CI_PG_DIR.
+      - name: Start PostgreSQL
+        run: bash scripts/ci/pg-cluster.sh start
 
       # The integration baseline is a debt register and may only shrink.
       # Once per run: the check reads only git, so shard 1 carries it.
@@ -312,6 +295,10 @@ jobs:
       - name: Integration gate
         run: bash scripts/run-integration-tests.sh
 
+      - name: Stop PostgreSQL
+        if: always()
+        run: bash scripts/ci/pg-cluster.sh stop "${CI_PG_DIR:-}"
+
   # Branch protection requires a check named exactly `integration`. It passes
   # only when every shard passed. always(), because a skipped required check
   # counts as passing: without it a failed or cancelled shard would skip this
@@ -320,7 +307,7 @@ jobs:
   integration:
     needs: integration-shard
     if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 5
     steps:
       - name: Every shard passed
