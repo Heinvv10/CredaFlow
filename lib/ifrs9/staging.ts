@@ -79,8 +79,11 @@ export function classifyStage(input: StagingInput, settings: Ifrs9Settings, prio
   if (!prior) return { stage: triggerStage, triggerStage, reasons, stageSince: runDate, cureStartedOn: null, inProbation: false, restructured: restructuredNow }
 
   if (triggerStage >= prior.stage) {
+    // A trigger that wins the stage does not serve the restructure probation: the marker is kept while the loan is
+    // still in a stage it has to cure from, and only a loan back at Stage 1 sheds it.
     return {
-      stage: triggerStage, triggerStage, reasons, cureStartedOn: null, inProbation: false, restructured: restructuredNow,
+      stage: triggerStage, triggerStage, reasons, cureStartedOn: null, inProbation: false,
+      restructured: restructuredNow || (prior.restructured && triggerStage >= 2),
       stageSince: triggerStage === prior.stage ? prior.stageSince : runDate,
     }
   }

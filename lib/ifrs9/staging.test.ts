@@ -194,6 +194,17 @@ describe("the restructured marker", () => {
       .toMatchObject({ stage: 3, inProbation: true, restructured: true })
   })
 
+  it("is kept when a default trigger wins again on a loan that is RESTRUCTURED, or that carried the marker and is ACTIVE again", () => {
+    const prior = { stage: 3 as const, stageSince: "2026-09-30", cureStartedOn: null, restructured: true }
+    expect(classifyStage(loan({ dpd: 120, status: "RESTRUCTURED" }), p, { ...prior, restructured: false }, "2026-10-31")).toMatchObject({ stage: 3, restructured: true })
+    expect(classifyStage(loan({ dpd: 120 }), p, prior, "2026-10-31")).toMatchObject({ stage: 3, inProbation: false, restructured: true })
+    expect(classifyStage(loan({ dpd: 120 }), p, { ...prior, restructured: false }, "2026-10-31")).toMatchObject({ stage: 3, restructured: false })
+  })
+
+  it("is shed by a loan whose triggers have all cleared at Stage 1", () => {
+    expect(classifyStage(loan(), p, { stage: 1, stageSince: "2026-01-31", cureStartedOn: null, restructured: true }, "2026-10-31")).toMatchObject({ stage: 1, restructured: false })
+  })
+
   it("a loan leaving debt review cures on the probation of the stage the lender mapped it to", () => {
     const s3 = policy({ debtReviewStage: 3 })
     const a = classifyStage(loan({ debtReview: true }), s3, null, "2026-09-30")

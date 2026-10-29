@@ -22,8 +22,8 @@ Deterioration is immediate. Improvement waits out a probation per stage
 calendar months from the first run whose triggers were clear, one stage at a time.
 A loan that is, or was, RESTRUCTURED serves the longer of each stage's probation and
 `restructuredProbationMonths` (default 12) at every step down. The snapshot stores a
-`restructured` flag (true while RESTRUCTURED and until the probation is served, even when a
-default trigger wins the stage), which the next run reads back; the reasons show
+`restructured` flag (true while RESTRUCTURED, and kept until the probation is served even when a
+default trigger wins the stage; a loan back at Stage 1 sheds it), which the next run reads back; the reasons show
 `RESTRUCTURE_PROBATION` while it is being served. Because every step takes the longer figure, a
 restructured loan that defaulted needs 12 months in Stage 3 and 12 more in Stage 2.
 
@@ -116,6 +116,11 @@ suspense) and the transition matrix against the previous run (default: the lates
 against the one before it); `GET /api/reports/export?type=ifrs9-ecl` the workbook (loan ECL, stage summary,
 transitions). Settings, parameters, flags and runs: `/api/ifrs9/*` (ADMIN + TOTP to write).
 
+Reports -> IFRS 9 (`/reports/ifrs9`, LOAN_ADMIN and up, as the other finance reports) shows the stage summary, the
+movement between stages, the run list (official, late, replaced, stale, analysis) and the Excel export; an ADMIN
+there can also run an analysis, add a late month-end run, or replace a month's run (a reason is required). The
+server authorizes every write (ADMIN, second factor when the lender requires one).
+
 ## Known limits
 
 - No discounting at the effective interest rate and no macro-economic overlay: a lender folds both into its
@@ -135,4 +140,4 @@ transitions). Settings, parameters, flags and runs: `/api/ifrs9/*` (ADMIN + TOTP
   off is possible: exposure includes interest accrued since the last due date, which is not in the ledger until the
   instalment falls due, so ECL can exceed the receivable by a small amount and the write-off month would credit
   `BAD_DEBT_EXPENSE` net by that amount.
-- No UI page: API and workbook only. PD/LGD and settings changes are audited but not yet maker-checked.
+- PD/LGD and settings changes are audited but not yet maker-checked.
