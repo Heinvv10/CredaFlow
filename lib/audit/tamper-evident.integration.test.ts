@@ -204,8 +204,24 @@ suite("tamper-evident", () => {
     /** Plants committed rows with chosen times behind the triggers (the insert trigger would stamp the clock). */
     const plant = (tenantId: string, label: string, count: number, startSecondsAgo: number, stepSeconds: number) =>
       tamper(`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "entityId", "createdAt")
-        SELECT '${label}-' || g || '-${token}', '${tenantId}', 'AUDIT_IT', 'Thing', 'p' || g, now() - make_interval(secs => ${startSecondsAgo} - g * ${stepSeconds}) FROM generate_series(1, ${count}) g`)
-    const shallow = (tenantId: string) => runChainer({ db, deep: false, only: [tenantId] })
+        SELECT '${label}-' || g || '-${token}-${tenantId}', '${tenantId}', 'AUDIT_IT', 'Thing', 'p' || g, now() - make_interval(secs => ${startSecondsAgo} - g * ${stepSeconds}) FROM generate_series(1, ${count}) g`)
+    const shallow = (tenantId: string) => runChainer({ db, mode: "shallow", only: [tenantId] })
+
+    it("chains a row with a huge, compressible value without the worker ever receiving it (the database hashes it)", async () => {
+      const K = await tenant("huge")
+      await write(K, 1)
+      // 30 MB of one character: a few KB on disk (TOAST compresses it), 30 MB in memory if it were sent to the worker.
+      await tamper(`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "newValue") VALUES ('huge-${token}', '${K}', 'AUDIT_IT', 'Thing', jsonb_build_object('k', repeat('a', 30000000)))`)
+      const [sent] = await db.$queryRaw<Array<{ widest: number; n: number }>>`
+        SELECT max(greatest(length("userEmailSha"), length("ipAddressSha"), length("oldValueSha"), length("newValueSha"))) AS widest, count(*)::int AS n
+        FROM audit_chain_unlinked(${K}, 'full', 3600, 500)`
+      expect(sent).toEqual({ widest: 64, n: 2 })
+      expect((await chain(K)).linked).toBe(2)
+      expect(await verify(K)).toMatchObject({ ok: true, rowsChecked: 2 })
+      // The SIEM's source query replaces a value over 64 KB with a stub instead of sending 30 MB through the worker.
+      const [src] = await db.$queryRaw<Array<{ newValue: { truncated?: boolean; bytes?: number } }>>`SELECT "newValue" FROM audit_outbox_sources(ARRAY[${`huge-${token}`}]::text[])`
+      expect(src.newValue).toEqual({ truncated: true, bytes: expect.any(Number) })
+    }, 120_000)
 
     it("stamps an audit row with the database clock whatever createdAt the caller sent", async () => {
       await db.auditLog.create({ data: { id: `clock-${token}`, tenantId: H, action: "AUDIT_IT", entity: "Thing", createdAt: new Date("2001-01-01T00:00:00Z") } })
@@ -239,13 +255,52 @@ suite("tamper-evident", () => {
       expect(await verify(K)).toMatchObject({ ok: true, rowsChecked: 10 })
     })
 
+    const deep = (tenantId: string) => runChainer({ db, mode: "deep", only: [tenantId] })
+
+    it("looks seven days back on the deep pass and everywhere only on the full sweep", async () => {
+      const K = await tenant("sweeps")
+      await plant(K, "now", 3, 60, 5)
+      await chain(K)
+      await plant(K, "wk", 1, 3 * 86_400, 0) // three days back: the deep pass reaches it
+      await plant(K, "old", 1, 30 * 86_400, 0) // thirty days back: only the full sweep does
+      expect((await shallow(K)).linked).toBe(0)
+      expect((await deep(K)).linked).toBe(1)
+      expect((await links(K)).at(-1)?.auditLogId.startsWith("wk-")).toBe(true)
+      expect((await deep(K)).linked).toBe(0)
+      expect((await chain(K)).linked).toBe(1)
+      expect(await verify(K)).toMatchObject({ ok: true, rowsChecked: 5 })
+    })
+
+    it("takes a chain's lock in the database: a second chainer skips the chain while the first holds it, and the lock needs no advisory lock", async () => {
+      const K = await tenant("mutex")
+      await write(K, 1)
+      await chain(K) // the pass makes the chain's mutex row, committed, as it does in service
+      await write(K, 2)
+      let release!: () => void
+      const gate = new Promise<void>((r) => { release = r })
+      let held!: () => void
+      const holding = new Promise<void>((r) => { held = r })
+      const first = db.$transaction(async (tx) => {
+        expect((await tx.$queryRaw<Array<{ ok: boolean }>>`SELECT audit_chain_lock(${K}) AS ok`)[0].ok).toBe(true)
+        held()
+        await gate
+      })
+      await holding
+      const second = await chain(K)
+      expect(second).toMatchObject({ linked: 0, busy: 1 })
+      expect((await db.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory'`)[0].n).toBe(0)
+      release()
+      await first
+      expect((await chain(K)).linked).toBe(1)
+    })
+
     it("finds a row that committed long after it was made only on the deep pass, and links it in order of observation", async () => {
       const K = await tenant("late")
       await plant(K, "now", 5, 60, 5)
       await chain(K)
       await plant(K, "slow", 1, 3 * 3600, 0) // made three hours before the mark, committed only now
       expect((await shallow(K)).linked).toBe(0)
-      expect((await chain(K)).linked).toBe(1)
+      expect((await deep(K)).linked).toBe(1)
       const l = await links(K)
       expect(l).toHaveLength(6)
       expect(l[5].auditLogId.startsWith("slow-")).toBe(true)
@@ -255,7 +310,7 @@ suite("tamper-evident", () => {
     it("puts rows with no tenant on their own chain", async () => {
       await write(undefined, 1)
       const [row] = await db.auditLog.findMany({ where: { tenantId: null, entityId: "e1" }, orderBy: { createdAt: "desc" }, take: 1 })
-      await runChainer({ db, deep: true, only: [""] })
+      await runChainer({ db, mode: "full", only: [""] })
       const [l] = await db.$queryRaw<Array<{ chainKey: string; tenantId: string | null }>>`SELECT "chainKey", "tenantId" FROM "AuditChainLink" WHERE "auditLogId" = ${row.id}`
       expect(l).toEqual({ chainKey: "", tenantId: null })
     })

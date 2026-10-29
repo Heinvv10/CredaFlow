@@ -98,6 +98,18 @@ async function literalRefusal(host: string, deps: TransportDeps): Promise<SendRe
   return resolveSiemHost(bare, deps.resolve, deps.allowPrivate).then(() => null, (error: unknown) => fail(error))
 }
 
+/**
+ * The acknowledgement id an HTTPS delivery's receipt carries: the SIEM's own request id when its answer has
+ * one, otherwise the status and the answer's Date header (every HTTP/1.1 origin server sends one), so a
+ * receipt always records something the SIEM said, and the database requires it for HTTPS.
+ */
+export function ackIdOf(status: number, headers: Record<string, string | string[] | undefined>): string {
+  const id = headers["x-request-id"] ?? headers["x-amzn-requestid"]
+  if (typeof id === "string" && id.trim() !== "") return id.trim().slice(0, 200)
+  const date = headers.date
+  return `${status}@${typeof date === "string" && date !== "" ? date.slice(0, 100) : "no-date"}`
+}
+
 export async function sendSyslogTls(t: SiemTarget, events: SiemEvent[], deps: TransportDeps = {}): Promise<SendResult> {
   const timeoutMs = deps.timeoutMs ?? TIMEOUT_MS
   const hostname = deps.hostname ?? process.env.HOSTNAME ?? "-"
@@ -174,8 +186,7 @@ export async function sendHttpsJson(t: SiemTarget, events: SiemEvent[], deps: Tr
       res.on("data", (chunk: Buffer) => { kept += chunk.length; if (kept > RESPONSE_BYTES_KEPT) res.destroy() })
       res.on("close", () => {
         const result = classifyStatus(res.statusCode ?? 0)
-        const ack = res.headers["x-request-id"] ?? res.headers["x-amzn-requestid"]
-        done(result.ok && typeof ack === "string" && ack.length > 0 ? { ...result, ackId: ack.slice(0, 200) } : result)
+        done(result.ok ? { ...result, ackId: ackIdOf(res.statusCode ?? 0, res.headers) } : result)
       })
       res.on("error", (error) => done(fail(error)))
     })

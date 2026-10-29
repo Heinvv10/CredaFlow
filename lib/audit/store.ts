@@ -21,7 +21,8 @@ const ts = (d: Date) => Prisma.sql`${d.toISOString()}::timestamp`
 export interface ChainHead { seq: number; rowHash: string }
 export interface NewLink { seq: number; auditLogId: string; prevHash: string; rowHash: string }
 export interface CheckpointRow { id: string; seq: number; rowHash: string; hmac: string; createdAt: Date }
-export interface RepairRow { id: string; seq: number; kind: string; reason: string; operator: string; hmac: string }
+export interface RepairRow { id: string; seq: number; kind: string; auditLogId: string; linkRowHash: string; observedHash: string; reason: string; operator: string; hmac: string }
+export type ScanMode = "shallow" | "deep" | "full"
 export type LinkRow = Partial<RowInputs> & { seq: number; linkAuditLogId: string; prevHash: string; rowHash: string; present: boolean }
 
 export async function chainHead(db: AuditDb, key: string): Promise<ChainHead | null> {
@@ -35,14 +36,23 @@ export async function chainStatus(db: AuditDb, key: string): Promise<{ headSeq: 
   return r ?? { headSeq: 0, checkpointSeq: null, checkpointAt: null }
 }
 
-/** Chains with committed unlinked rows: after each chain's high-water mark less the margin, or all of them when `deep`. */
-export async function candidateChains(db: AuditDb, deep: boolean, marginSeconds: number): Promise<string[]> {
-  const rows = await db.$queryRaw<Array<{ k: string }>>`SELECT audit_chain_candidates(${deep}, ${marginSeconds}::int) AS k`
+/**
+ * Chains with committed unlinked rows, looking where a pass of this mode looks: shallow = after each chain's
+ * high-water mark less the margin; deep = the last seven days; full = everywhere.
+ */
+export async function candidateChains(db: AuditDb, mode: ScanMode, marginSeconds: number): Promise<string[]> {
+  const rows = await db.$queryRaw<Array<{ k: string }>>`SELECT audit_chain_candidates(${mode}, ${marginSeconds}::int) AS k`
   return rows.map((r) => r.k)
 }
 
-export function unlinkedRows(db: AuditDb, key: string, deep: boolean, marginSeconds: number, limit: number): Promise<RowInputs[]> {
-  return db.$queryRaw<RowInputs[]>`SELECT * FROM audit_chain_unlinked(${key}, ${deep}, ${marginSeconds}::int, ${limit}::int)`
+export function unlinkedRows(db: AuditDb, key: string, mode: ScanMode, marginSeconds: number, limit: number): Promise<RowInputs[]> {
+  return db.$queryRaw<RowInputs[]>`SELECT * FROM audit_chain_unlinked(${key}, ${mode}, ${marginSeconds}::int, ${limit}::int)`
+}
+
+/** Takes the chain's mutual exclusion until the transaction ends; false when another chainer holds it. */
+export async function lockChain(db: AuditDb, key: string): Promise<boolean> {
+  const [r] = await db.$queryRaw<Array<{ ok: boolean }>>`SELECT audit_chain_lock(${key}) AS ok`
+  return r.ok
 }
 
 /** Appends links in order; the database refuses a link that does not continue the chain. */
@@ -157,15 +167,15 @@ export function outboxSources(db: AuditDb, auditLogIds: readonly string[]): Prom
 }
 
 /**
- * Marks entries of one lender after a delivery attempt. The database accepts only that
+ * Marks entries of one lender after a delivery attempt, as the holder of its lease. The database accepts only that
  * lender's pending entries whose backoff has elapsed, and only a transition a delivery attempt
  * can end in; 'sent' records a receipt naming `destination` (host or origin, never a credential)
  * and the SIEM's own acknowledgement id when its answer carried one.
  */
 export async function markOutbox(
-  db: AuditDb, tenantId: string, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string, ackId: string | null = null,
+  db: AuditDb, tenantId: string, holder: string, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string, ackId: string | null = null,
 ): Promise<void> {
-  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${tenantId}, ${[...ids]}::int[], ${state}, ${error}, ${ts(at)}, ${destination}, ${ackId})`)
+  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${tenantId}, ${holder}, ${[...ids]}::int[], ${state}, ${error}, ${ts(at)}, ${destination}, ${ackId})`)
 }
 
 /**

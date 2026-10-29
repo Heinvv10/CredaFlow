@@ -28,6 +28,7 @@ export type AuditSetupWarning =
   | "audit_web_holds_worker_functions"
   | "audit_chain_key_missing"
   | "audit_chain_key_on_web"
+  | "audit_privileged_role_allowed"
 
 /** Warnings that make a production process refuse to start. */
 const REFUSED = new Set<AuditSetupWarning>([
@@ -60,15 +61,27 @@ export async function auditSetupWarnings(db: Queryable = prisma, env: Partial<Re
   if (row?.privileged === true) warnings.push("audit_runtime_role_privileged")
   if (row?.writes === true) warnings.push("audit_runtime_role_can_write_evidence")
   if (!worker && row?.workerFns === true) warnings.push("audit_web_holds_worker_functions")
+  if (warnings.some((w) => REFUSED.has(w)) && privilegedRoleAllowance(env) !== null) warnings.push("audit_privileged_role_allowed")
   return warnings
 }
 
 /**
+ * Why a production process may run although its database role could undo the audit protections, or null
+ * when nothing allows it: AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 (a demo or a legacy stack, never a real lender)
+ * or DEMO_MODE=true (the demo stacks, which the demo scripts already require to carry it).
+ */
+export function privilegedRoleAllowance(env: Partial<Record<string, string>> = process.env): string | null {
+  if (env.AUDIT_ALLOW_PRIVILEGED_DB_ROLE === "1") return "AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1"
+  if (env.DEMO_MODE === "true") return "DEMO_MODE=true"
+  return null
+}
+
+/**
  * The warnings that must stop a production process from starting: null when it may start (not
- * production, nothing serious, or AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1).
+ * production, nothing serious, or the privileged role is allowed on purpose).
  */
 export function auditSetupRefusal(warnings: readonly AuditSetupWarning[], env: Partial<Record<string, string>> = process.env): AuditSetupWarning[] | null {
-  if (env.NODE_ENV !== "production" || env.AUDIT_ALLOW_PRIVILEGED_DB_ROLE === "1") return null
+  if (env.NODE_ENV !== "production" || privilegedRoleAllowance(env) !== null) return null
   const serious = warnings.filter((w) => REFUSED.has(w))
   return serious.length > 0 ? serious : null
 }
@@ -83,12 +96,14 @@ const MESSAGE: Record<AuditSetupWarning, string> = {
   audit_web_holds_worker_functions:
     "This web process's database login can call the audit chainer and outbox functions. Give the web login audit_grant_web and the worker its own login with audit_grant_worker (docs/ARCHITECTURE.md); a single login for both is the weaker single-process shape.",
   audit_chain_key_missing: "AUDIT_CHAIN_KEY is not set (32+ characters) on the process that runs the crons: the audit hash chain cannot be written or verified.",
+  audit_privileged_role_allowed:
+    "This process is allowed to run with a database role that could undo the audit protections (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 or DEMO_MODE=true). That is for demo and legacy stacks only, never a real lender: the audit trail on this stack is not tamper-evident against whoever holds its database login.",
   audit_chain_key_on_web: "AUDIT_CHAIN_KEY is set on a process that does not run the crons. Only the worker needs it; leaving it on the web process lets a compromised web server forge the chain.",
 }
 
 let logged = false
 
-/** Logs each setup problem once per process (called at boot and from /api/health). Never throws. */
+/** Logs each setup problem once per process (called from /api/health). Never throws. */
 export async function warnAuditSetupOnce(): Promise<AuditSetupWarning[]> {
   try {
     const warnings = await auditSetupWarnings()
@@ -101,12 +116,43 @@ export async function warnAuditSetupOnce(): Promise<AuditSetupWarning[]> {
   }
 }
 
-/** At boot: warn, and exit where a production process must not run with this role (see auditSetupRefusal). */
-export async function enforceAuditSetupAtBoot(): Promise<void> {
-  const warnings = await warnAuditSetupOnce()
-  const refused = auditSetupRefusal(warnings)
+const BOOT_ATTEMPTS = 4
+const BOOT_RETRY_MS = 3_000
+
+/**
+ * At boot: warn, and exit where a production process must not run (see auditSetupRefusal). A check that cannot
+ * run is not a pass: in production it is retried, and if it still fails the process refuses to start (unless
+ * the privileged role is allowed on purpose, in which case it says so and goes on). An allowance is logged at
+ * every boot, loudly.
+ */
+export async function enforceAuditSetupAtBoot(env: Partial<Record<string, string>> = process.env): Promise<void> {
+  const production = env.NODE_ENV === "production"
+  const allowance = privilegedRoleAllowance(env)
+  if (production && allowance !== null) {
+    logger.error(`[audit] PRIVILEGED DATABASE ROLE ALLOWED (${allowance}): the audit protections are not enforced on this stack. Demo and legacy stacks only, never a real lender.`, { allowance })
+  }
+  let warnings: AuditSetupWarning[] | null = null
+  let failure: unknown
+  for (let attempt = 1; attempt <= BOOT_ATTEMPTS && warnings === null; attempt++) {
+    try {
+      warnings = await auditSetupWarnings(prisma, env)
+    } catch (error) {
+      failure = error
+      if (attempt < BOOT_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, BOOT_RETRY_MS))
+    }
+  }
+  if (warnings === null) {
+    logger.error("[audit] the audit setup check could not run", { error: failure })
+    if (production && allowance === null) {
+      logger.error("[audit] refusing to start: a production process does not run unchecked")
+      process.exit(1)
+    }
+    return
+  }
+  for (const w of warnings) logger.warn(`[audit] ${MESSAGE[w]}`, { warning: w })
+  const refused = auditSetupRefusal(warnings, env)
   if (refused) {
-    logger.error("[audit] refusing to start: the database role could undo the audit protections (set AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 only on a stack that accepts that)", { warnings: refused })
+    logger.error("[audit] refusing to start: the database role could undo the audit protections (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 only on a stack that accepts that)", { warnings: refused })
     process.exit(1)
   }
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import type { AuditPolicy } from "@prisma/client"
 import { isSealed } from "@/lib/crypto/secret-box"
-import { AuditPolicyError, buildPolicyWrite, policyView } from "./policy"
+import { AuditPolicyError, buildPolicyWrite, normaliseSiemUrl, policyView } from "./policy"
 
 const publicHost = async () => [{ address: "8.8.8.8", family: 4 }]
 
@@ -48,6 +48,22 @@ describe("buildPolicyWrite", () => {
     expect(second.siemSealedToken).toBe(first.siemSealedToken)
     const cleared = await buildPolicyWrite({ siemToken: null }, row, publicHost)
     expect(cleared.siemSealedToken).toBeNull()
+  })
+
+  it("normalises the SIEM URL and hands the database the origin and path flag WHATWG parsing gives", async () => {
+    const data = await buildPolicyWrite({ siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: "HTTPS://SIEM.Example.invalid:443/ingest/KEY?token=S" }, null, publicHost)
+    expect(data).toMatchObject({ siemUrl: "https://siem.example.invalid/ingest/KEY?token=S", siemOrigin: "https://siem.example.invalid", siemUrlHasPathOrQuery: true })
+    expect(await buildPolicyWrite({ siemUrl: "https://siem.example.invalid" }, null, publicHost)).toMatchObject({ siemUrl: "https://siem.example.invalid/", siemUrlHasPathOrQuery: false })
+  })
+
+  it("refuses a URL a regex and a browser would read differently: backslash, tab, newline, other whitespace and control characters", () => {
+    for (const url of [
+      "https://siem.example\\@evil.invalid/x?token=S", "https://siem.example.invalid\\x?token=S", "https://siem.example.invalid/in\tgest?t=S",
+      "https://siem.example.invalid/a\nb", "https://siem.example.invalid/a b", "https://siem.example.invalid/a\u0000b", "https://siem.example.invalid/a\u007fb", " https://siem.example.invalid/x\r",
+    ]) expect(() => normaliseSiemUrl(url), JSON.stringify(url)).toThrow(AuditPolicyError)
+    expect(() => normaliseSiemUrl("http://siem.example.invalid/x")).toThrow(/https/)
+    expect(() => normaliseSiemUrl("https://u:p@siem.example.invalid/x")).toThrow(/credentials/)
+    expect(() => normaliseSiemUrl("https://@siem.example.invalid/x")).not.toThrow()
   })
 
   it("requires a client certificate and its key together", async () => {

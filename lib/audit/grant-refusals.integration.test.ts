@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto"
 import { afterAll, describe, expect, it } from "vitest"
 import { PrismaClient } from "@prisma/client"
+import { ddl } from "./roles.test-helpers"
 import { auditSetupWarnings } from "./deployment-check"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
@@ -19,7 +20,7 @@ suite("audit grants refuse a login that could undo the protections", () => {
 
   const role = async (suffix: string, attrs = "") => {
     const name = `cf_gr_${suffix}_${token}`
-    await owner.$executeRawUnsafe(`CREATE ROLE "${name}" LOGIN PASSWORD 'x' ${attrs}`)
+    await ddl(owner, `CREATE ROLE "${name}" LOGIN PASSWORD 'x' ${attrs}`)
     made.push(name)
     return name
   }
@@ -37,8 +38,8 @@ suite("audit grants refuse a login that could undo the protections", () => {
 
   afterAll(async () => {
     for (const name of made) {
-      await owner.$executeRawUnsafe(`DROP OWNED BY "${name}"`).catch(() => undefined)
-      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS "${name}"`)
+      await ddl(owner, `DROP OWNED BY "${name}"`).catch(() => undefined)
+      await ddl(owner, `DROP ROLE IF EXISTS "${name}"`)
     }
     await owner.$disconnect()
   })
@@ -52,13 +53,13 @@ suite("audit grants refuse a login that could undo the protections", () => {
 
   it("refuses a role that holds CREATE on schema public, and a role that owns a table", async () => {
     const creator = await role("create")
-    await owner.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${creator}"`)
+    await ddl(owner, `GRANT CREATE ON SCHEMA public TO "${creator}"`)
     for (const grant of grants(creator)) await expect(grant()).rejects.toThrow(/CREATE on schema public/)
-    await owner.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${creator}"`)
+    await ddl(owner, `REVOKE CREATE ON SCHEMA public FROM "${creator}"`)
 
     const holder = await role("owns")
     await owner.$executeRawUnsafe(`CREATE TABLE public."cf_gr_t_${token}" (id int)`)
-    await owner.$executeRawUnsafe(`ALTER TABLE public."cf_gr_t_${token}" OWNER TO "${holder}"`)
+    await ddl(owner, `ALTER TABLE public."cf_gr_t_${token}" OWNER TO "${holder}"`)
     try {
       for (const grant of grants(holder)) await expect(grant()).rejects.toThrow(/owns tables/)
     } finally {
@@ -70,7 +71,7 @@ suite("audit grants refuse a login that could undo the protections", () => {
     const [me] = await owner.$queryRaw<Array<{ owner: string }>>`SELECT tableowner AS owner FROM pg_tables WHERE tablename = 'AuditLog'`
     for (const parent of ["audit_redactor", me.owner]) {
       const member = await role(`m${parent.length}`)
-      await owner.$executeRawUnsafe(`GRANT "${parent}" TO "${member}"`)
+      await ddl(owner, `GRANT "${parent}" TO "${member}"`)
       for (const grant of grants(member)) await expect(grant(), parent).rejects.toThrow(/is, or is a member of/)
       const connected = asRole(member)
       try {

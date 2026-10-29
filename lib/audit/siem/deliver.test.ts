@@ -6,6 +6,8 @@ const state = vi.hoisted(() => ({
   rows: [] as Array<{ id: number; kind: string; auditLogId: string | null; checkpointId: string | null; seq: number | null; targetSnapshot: unknown; attempts: number; nextAttemptAt: Date; createdAt: Date; sentAt: Date | null; deadAt: Date | null; lastError: string | null }>,
   lockHeld: false,
   leased: [] as string[],
+  leaseCalls: 0,
+  loseLeaseAt: 0,
   policy: { siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest", siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null } as Record<string, unknown> | undefined,
   pruned: 0,
   receipts: [] as string[],
@@ -30,7 +32,7 @@ vi.mock("@/lib/audit/store", () => ({
     id, tenantId: "t1", userId: null, action: "LOAN_NOTE_ADDED", entity: "Loan", entityId: "l1", oldValue: null, newValue: null, ipAddress: null,
     createdAt: new Date("2026-10-29T10:00:00Z"), linkSeq: Number(id.slice(1)), linkRowHash: "a".repeat(64), linkPrevHash: "b".repeat(64),
   })),
-  markOutbox: async (_db: unknown, _tenant: string, ids: number[], mark: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string) => {
+  markOutbox: async (_db: unknown, _tenant: string, _holder: string, ids: number[], mark: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string) => {
     if (mark === "sent") state.receipts.push(destination)
     for (const r of state.rows.filter((x) => ids.includes(x.id))) {
       if (mark === "sent") r.sentAt = at
@@ -44,7 +46,8 @@ vi.mock("@/lib/audit/store", () => ({
   linkHashAt: async () => "c".repeat(64),
   chainHead: async () => null,
   takeLease: async (_db: unknown, _t: string, holder: string) => {
-    if (state.lockHeld) return false
+    state.leaseCalls++
+    if (state.lockHeld || (state.loseLeaseAt > 0 && state.leaseCalls >= state.loseLeaseAt)) return false
     state.leased.push(holder)
     return true
   },
@@ -82,14 +85,16 @@ beforeEach(() => {
   state.pruned = 0
   state.receipts = []
   state.leased = []
+  state.leaseCalls = 0
+  state.loseLeaseAt = 0
   state.released = 0
   state.policy = { siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest", siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null }
   vi.spyOn(console, "error").mockImplementation(() => undefined)
 })
 
 describe("SIEM delivery backoff", () => {
-  it("doubles from 30 seconds and stops at an hour", () => {
-    expect([1, 2, 3, 4].map(backoffSeconds)).toEqual([30, 60, 120, 240])
+  it("doubles from a minute (the database refuses sooner) and stops at an hour", () => {
+    expect([1, 2, 3, 4].map(backoffSeconds)).toEqual([60, 120, 240, 480])
     expect(backoffSeconds(20)).toBe(3600)
   })
 })
@@ -118,12 +123,12 @@ describe("deliverSiemOutbox", () => {
     expect(rec.calls).toEqual([[1, 2, 3]])
     expect(result.failedBatches).toBe(1)
     expect(state.rows.map((r) => [r.attempts, r.sentAt])).toEqual([[1, null], [1, null], [1, null]])
-    expect(state.rows[0].nextAttemptAt.getTime()).toBe(NOW.getTime() + 30_000)
+    expect(state.rows[0].nextAttemptAt.getTime()).toBe(NOW.getTime() + 60_000)
 
     const later = recorder()
     await deliverSiemOutbox({ db, send: later.send, now: new Date(NOW.getTime() + 10_000) })
     expect(later.calls).toEqual([]) // still backing off
-    await deliverSiemOutbox({ db, send: later.send, now: new Date(NOW.getTime() + 31_000) })
+    await deliverSiemOutbox({ db, send: later.send, now: new Date(NOW.getTime() + 61_000) })
     expect(later.calls).toEqual([[1, 2, 3]]) // the same rows again, same order
   })
 
@@ -151,6 +156,16 @@ describe("deliverSiemOutbox", () => {
     const rec = recorder(() => ({ ok: false, error: "siem_unavailable" }))
     for (let pass = 0; pass < 4; pass++) await deliverSiemOutbox({ db, send: rec.send, now: new Date(NOW.getTime() + pass * 4_000_000) })
     expect(state.rows[0]).toMatchObject({ sentAt: null, deadAt: null, attempts: 4 })
+  })
+
+  it("stops sending the moment the lease is no longer its own (it expired and another deliverer took it)", async () => {
+    queue(250)
+    state.loseLeaseAt = 4 // acquire, the snapshot pass, the first batch's renewal succeed; the second batch's does not
+    const rec = recorder()
+    const result = await deliverSiemOutbox({ db, send: rec.send, now: NOW })
+    expect(result.sent).toBe(100)
+    expect(rec.calls).toHaveLength(1)
+    expect(state.rows.filter((r) => r.sentAt)).toHaveLength(100)
   })
 
   it("skips a lender another deliverer holds", async () => {

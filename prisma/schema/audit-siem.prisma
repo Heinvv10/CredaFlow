@@ -130,19 +130,23 @@ model AuditSiemDelivery {
   @@index([tenantId, outboxId])
 }
 
-/// An operator's signed acceptance of a break the verifier reported at a link, so verification
-/// continues past it (audit_chain_accept_break). hmac = HMAC(AUDIT_CHAIN_KEY, chain, seq, kind,
-/// reason, operator): a repair without the key is ignored. Insert-only.
+/// An operator's signed acceptance of ONE break the verifier reported at a link, so verification
+/// continues past it (audit_chain_accept_break). hmac = HMAC(AUDIT_CHAIN_KEY, chain, seq, kind, the audit
+/// row, the link's hash, the hash the row recomputes to, reason, operator): a repair without the key, or for
+/// a row edited again since, is ignored. Insert-only.
 model AuditChainRepair {
-  id        String   @id @default(cuid())
-  chainKey  String
-  tenantId  String?
-  seq       Int
-  kind      String
-  reason    String
-  operator  String
-  hmac      String
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  chainKey     String
+  tenantId     String?
+  seq          Int
+  kind         String
+  auditLogId   String   @default("")
+  linkRowHash  String   @default("")
+  observedHash String   @default("")
+  reason       String
+  operator     String
+  hmac         String
+  createdAt    DateTime @default(now())
 
   @@index([chainKey, seq])
 }
@@ -152,4 +156,10 @@ model AuditSiemLease {
   tenantId  String   @id
   holder    String
   expiresAt DateTime
+}
+
+/// A chain's mutual exclusion: the chainer locks its row FOR UPDATE SKIP LOCKED for the length of its
+/// transaction (audit_chain_lock). Only that function touches it.
+model AuditChainMutex {
+  chainKey String @id
 }

@@ -43,6 +43,10 @@ export interface ChainBreak {
   auditLogId: string | null
   chainSeq: number | null
   detail: string
+  /** The link's own hash at that place ("" where there is no link). */
+  linkRowHash: string
+  /** For a content mismatch: the hash the row recomputes to now; otherwise "". */
+  observedHash: string
 }
 
 export interface ChainVerification {
@@ -77,22 +81,27 @@ async function chainKeys(db: Db, only?: string): Promise<string[]> {
   return rows.map((r) => r.k)
 }
 
-function brk(key: string, kind: ChainBreakKind, detail: string, auditLogId: string | null = null, chainSeq: number | null = null): ChainBreak {
-  return { chainKey: key, kind, auditLogId, chainSeq, detail }
+function brk(key: string, kind: ChainBreakKind, detail: string, auditLogId: string | null = null, chainSeq: number | null = null, linkRowHash = "", observedHash = ""): ChainBreak {
+  return { chainKey: key, kind, auditLogId, chainSeq, detail, linkRowHash, observedHash }
 }
+
+/** What an operator's acceptance names: it matches a break only if all of it still holds. */
+const subjectKey = (r: { seq: number | null; kind: string; auditLogId: string | null; linkRowHash: string; observedHash: string }) =>
+  JSON.stringify([r.seq, r.kind, r.auditLogId ?? "", r.linkRowHash, r.observedHash])
 
 async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Promise<ChainWalk> {
   const breaks: ChainBreak[] = []
   const accepted: ChainBreak[] = []
 
-  // Operator-accepted breaks, kept only where the signature verifies.
+  // Operator-accepted breaks, kept only where the signature verifies; each names exactly what was seen.
   const signed = new Set<string>()
   for (const rp of await chainRepairs(db, key)) {
-    if (rp.hmac === repairHmac(key, rp.seq, rp.kind, rp.reason, rp.operator)) signed.add(`${rp.seq}|${rp.kind}`)
+    const subject = { chainKey: key, seq: rp.seq, kind: rp.kind, auditLogId: rp.auditLogId, linkRowHash: rp.linkRowHash, observedHash: rp.observedHash }
+    if (rp.hmac === repairHmac(subject, rp.reason, rp.operator)) signed.add(subjectKey(subject))
     else breaks.push(brk(key, "repair_invalid", `the accepted-break record ${rp.id} (seq ${rp.seq}) does not verify`, null, rp.seq))
   }
   const report = (b: ChainBreak): boolean => {
-    if (b.chainSeq !== null && signed.has(`${b.chainSeq}|${b.kind}`)) { accepted.push(b); return true }
+    if (signed.has(subjectKey({ seq: b.chainSeq, kind: b.kind, auditLogId: b.auditLogId, linkRowHash: b.linkRowHash, observedHash: b.observedHash }))) { accepted.push(b); return true }
     if (breaks.length < MAX_BREAKS_PER_CHAIN) breaks.push(b)
     return false
   }
@@ -119,14 +128,17 @@ async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Pr
     if (page.length === 0) break
     for (const r of page) {
       rows++
-      const at = (kind: ChainBreakKind, detail: string) => report(brk(key, kind, detail, r.linkAuditLogId, r.seq))
-      if (r.seq !== seq + 1) at("seq_gap", `expected seq ${seq + 1}, found ${r.seq}`)
-      else if (r.prevHash !== hash) at("prev_hash_mismatch", "prevHash does not match the previous link's rowHash")
+      const at = (kind: ChainBreakKind, detail: string, observed = "") => report(brk(key, kind, detail, r.linkAuditLogId, r.seq, r.rowHash, observed))
+      if (r.seq !== seq + 1) at("seq_gap", `expected seq ${seq + 1}, found ${r.seq}`, String(seq + 1))
+      else if (r.prevHash !== hash) at("prev_hash_mismatch", "prevHash does not match the previous link's rowHash", r.prevHash)
       else if (!r.present) at("row_missing", "the AuditLog row this link names is gone")
-      else if (r.rowHash !== linkHash(key, r.seq, r.prevHash, r as RowInputs)) at("row_hash_mismatch", "the row's content no longer hashes to the link's rowHash")
       else {
-        const cp = byseq.get(r.seq)
-        if (cp && cp.rowHash !== r.rowHash) at("checkpoint_mismatch", `the link no longer matches its checkpoint ${cp.id}`)
+        const recomputed = linkHash(key, r.seq, r.prevHash, r as RowInputs)
+        if (r.rowHash !== recomputed) at("row_hash_mismatch", "the row's content no longer hashes to the link's rowHash", recomputed)
+        else {
+          const cp = byseq.get(r.seq)
+          if (cp && cp.rowHash !== r.rowHash) at("checkpoint_mismatch", `the link no longer matches its checkpoint ${cp.id}`)
+        }
       }
       // Resynchronise on this link whatever was found, so the walk reports what follows.
       seq = r.seq

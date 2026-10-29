@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { PrismaClient } from "@prisma/client"
+import { ddl } from "./roles.test-helpers"
 import { purgeAuditPolicyForTest, purgeAuditRowsForTest } from "./audit-rows.test-helpers"
 import { savePolicy } from "./store"
 import { columnDigest } from "./chain-hash"
@@ -34,18 +35,26 @@ suite("the database functions trust nothing they are given", () => {
     url.password = "it-password"
     return new PrismaClient({ datasourceUrl: url.toString() })
   }
-  const policy = (over: Record<string, unknown> = {}) => ({
-    retentionMonths: 12, hotMonths: 3, siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest",
-    siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null, ...over,
-  })
+  const policy = (over: Record<string, unknown> = {}) => {
+    const url = String(over.siemUrl ?? "https://siem.example.invalid/ingest")
+    const u = new URL(url)
+    return {
+      retentionMonths: 12, hotMonths: 3, siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null,
+      siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null,
+      siemOrigin: u.origin, siemUrlHasPathOrQuery: (u.pathname !== "/" && u.pathname !== "") || u.search !== "" || u.hash !== "", ...over, siemUrl: u.href,
+    }
+  }
   const auditRow = (id = `row-${randomUUID().slice(0, 8)}`, t = tenantId) => owner.auditLog.create({ data: { id, tenantId: t, action: "AUDIT_IT", entity: "Thing", userEmail: "p@it.invalid", ipAddress: "10.0.0.9" } })
   const queued = async () => {
     const r = await auditRow()
     await owner.$executeRaw`INSERT INTO "AuditChainLink" ("chainKey", "seq", "auditLogId", "tenantId", "prevHash", "rowHash") VALUES (${tenantId}, (SELECT COALESCE(max("seq"), 0) + 1 FROM "AuditChainLink" WHERE "chainKey" = ${tenantId}), ${r.id}, ${tenantId}, ${"0".repeat(64)}, ${"1".repeat(64)})`
     return owner.auditSiemOutbox.create({ data: { tenantId, kind: "EVENT", auditLogId: r.id } })
   }
-  const mark = (t: string, ids: number[], state: string, error: string | null = null, at = new Date(Date.now() + 60_000), destination = "https://x.invalid", ack: string | null = null) =>
-    worker.$queryRaw`SELECT audit_outbox_mark(${t}, ${ids}::int[], ${state}, ${error}, ${at.toISOString()}::timestamp, ${destination}, ${ack})`
+  const HOLDER = "it-holder"
+  /** The deliverer holds the lender's lease (as deliverTenant does) before it marks anything. */
+  const lease = (t = tenantId, holder = HOLDER, seconds = 600) => worker.$queryRaw`SELECT audit_outbox_lease(${t}, ${holder}, ${seconds}::int)`
+  const mark = (t: string, ids: number[], state: string, error: string | null = null, at = new Date(Date.now() + 120_000), destination = "https://x.invalid", ack: string | null = "ack-1", holder = HOLDER) =>
+    worker.$queryRaw`SELECT audit_outbox_mark(${t}, ${holder}, ${ids}::int[], ${state}, ${error}, ${at.toISOString()}::timestamp, ${destination}, ${ack})`
   const clear = () => owner.$executeRawUnsafe(`DELETE FROM "AuditSiemOutbox" WHERE "tenantId" = '${tenantId}'`)
   /** The backoff of a row has elapsed (the database enforces it against its own clock). */
   const elapse = (id: number) => owner.$executeRawUnsafe(`UPDATE "AuditSiemOutbox" SET "nextAttemptAt" = now() - interval '1 second' WHERE id = ${id}`)
@@ -55,15 +64,17 @@ suite("the database functions trust nothing they are given", () => {
     await owner.tenant.createMany({ data: [tenantId, other].map((id) => ({ id, slug: id, name: id })) })
     await owner.user.create({ data: { id: actor, email: `${actor}@it.invalid`, password: "x", tenantId, role: "SUPER_ADMIN" } })
     for (const [name, grant] of [[workerRole, "audit_grant_worker"], [webRole, "audit_grant_web"]] as const) {
-      await owner.$executeRawUnsafe(`CREATE ROLE "${name}" LOGIN PASSWORD 'it-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`)
-      await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${name}"`)
-      await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${name}"`)
-      await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${name}"`)
-      await owner.$executeRawUnsafe(`SELECT ${grant}('${name}')`)
+      await ddl(owner, `CREATE ROLE "${name}" LOGIN PASSWORD 'it-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`)
+      await ddl(owner, `GRANT USAGE ON SCHEMA public TO "${name}"`)
+      await ddl(owner, `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${name}"`)
+      await ddl(owner, `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${name}"`)
+      await ddl(owner, `SELECT ${grant}('${name}')`)
     }
     worker = login(workerRole)
     web = login(webRole)
     await savePolicy(web, tenantId, policy(), { id: actor })
+    await lease()
+    await lease(other)
   })
 
   afterAll(async () => {
@@ -73,8 +84,8 @@ suite("the database functions trust nothing they are given", () => {
     await owner.user.deleteMany({ where: { id: actor } })
     await owner.tenant.deleteMany({ where: { id: { in: [tenantId, other] } } })
     for (const name of [workerRole, webRole]) {
-      await owner.$executeRawUnsafe(`DROP OWNED BY "${name}"`).catch(() => undefined)
-      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS "${name}"`)
+      await ddl(owner, `DROP OWNED BY "${name}"`).catch(() => undefined)
+      await ddl(owner, `DROP ROLE IF EXISTS "${name}"`)
     }
     await owner.$disconnect()
   })
@@ -89,17 +100,38 @@ suite("the database functions trust nothing they are given", () => {
       expect(await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ sentAt: null, deadAt: null, attempts: 0 })
     })
 
-    it("will not mark an entry whose backoff has not elapsed, and only schedules a retry in the future (within two hours)", async () => {
+    it("is for the lease holder only: no lease, an expired lease or another holder is refused", async () => {
       await clear()
       const row = await queued()
-      await expect(mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() - 1000))).rejects.toThrow(/in the future/)
-      await expect(mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() + 3 * 3_600_000))).rejects.toThrow(/in the future/)
-      await mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() + 30_000))
+      await expect(mark(tenantId, [row.id], "sent", null, undefined, "https://x.invalid", "a", "someone-else")).rejects.toThrow(/does not hold/)
+      await owner.$executeRawUnsafe(`UPDATE "AuditSiemLease" SET "expiresAt" = now() - interval '1 second' WHERE "tenantId" = '${tenantId}'`)
+      await expect(mark(tenantId, [row.id], "sent")).rejects.toThrow(/does not hold/)
+      await lease()
+      await mark(tenantId, [row.id], "sent")
+    })
+
+    it("wants the SIEM's ack id on an HTTPS delivery, and takes none from syslog, which has none", async () => {
+      await clear()
+      const [a, b] = [await queued(), await queued()]
+      await expect(mark(tenantId, [a.id], "sent", null, undefined, "https://siem.example.invalid", null)).rejects.toThrow(/acknowledgement id/)
+      await expect(mark(tenantId, [a.id], "sent", null, undefined, "https://siem.example.invalid", "  ")).rejects.toThrow(/acknowledgement id/)
+      await mark(tenantId, [a.id], "sent", null, undefined, "syslog+tls://siem.example.invalid:6514", null)
+      await mark(tenantId, [b.id], "sent", null, undefined, "https://siem.example.invalid", "200@Thu, 29 Oct 2026 22:00:00 GMT")
+      expect((await owner.auditSiemDelivery.findMany({ where: { outboxId: { in: [a.id, b.id] } }, orderBy: { outboxId: "asc" } })).map((d) => d.ackId)).toEqual([null, "200@Thu, 29 Oct 2026 22:00:00 GMT"])
+    })
+
+    it("will not mark an entry whose backoff has not elapsed, and only schedules a retry at least a minute ahead (within two hours)", async () => {
+      await clear()
+      const row = await queued()
+      await expect(mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() - 1000))).rejects.toThrow(/a minute ahead/)
+      await expect(mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() + 20_000))).rejects.toThrow(/a minute ahead/) // too soon: a rogue loop could burn the attempts
+      await expect(mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() + 3 * 3_600_000))).rejects.toThrow(/a minute ahead/)
+      await mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() + 90_000))
       expect(await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ attempts: 1 })
       // Backing off: neither another retry, nor sent, nor dead, until the window has elapsed.
-      for (const state of ["retry", "sent", "dead"]) await expect(mark(tenantId, [row.id], state, "siem_unavailable", new Date(Date.now() + 30_000)), state).rejects.toThrow(/still backing off/)
+      for (const state of ["retry", "sent", "dead"]) await expect(mark(tenantId, [row.id], state, "siem_unavailable", new Date(Date.now() + 90_000)), state).rejects.toThrow(/still backing off/)
       await elapse(row.id)
-      await mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() + 60_000))
+      await mark(tenantId, [row.id], "retry", "siem_unavailable", new Date(Date.now() + 120_000))
       expect((await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).attempts).toBe(2)
     })
 
@@ -110,7 +142,7 @@ suite("the database functions trust nothing they are given", () => {
       await expect(mark(tenantId, [row.id], "dead", null)).rejects.toThrow(/needs a reason/)
       await expect(mark(tenantId, [row.id], "dead", "row_missing")).rejects.toThrow(/before three attempts/) // its AuditLog row exists
       for (let attempt = 1; attempt <= 2; attempt++) {
-        await mark(tenantId, [row.id], "retry", "siem_rejected", new Date(Date.now() + 30_000))
+        await mark(tenantId, [row.id], "retry", "siem_rejected", new Date(Date.now() + 90_000))
         await expect(mark(tenantId, [row.id], "dead", "siem_rejected")).rejects.toThrow(/backing off/)
         await elapse(row.id)
       }
@@ -175,6 +207,7 @@ suite("the database functions trust nothing they are given", () => {
     })
 
     it("a lease is held by one deliverer at a time, renewed by its holder, and expires by itself", async () => {
+      await worker.$queryRaw`SELECT audit_outbox_release(${tenantId}, ${HOLDER})::text`
       const take = (holder: string, seconds = 60) => worker.$queryRaw<Array<{ ok: boolean }>>`SELECT audit_outbox_lease(${tenantId}, ${holder}, ${seconds}::int) AS ok`
       expect(await take("a")).toEqual([{ ok: true }])
       expect(await take("b")).toEqual([{ ok: false }])
@@ -199,8 +232,39 @@ suite("the database functions trust nothing they are given", () => {
       await expect(web.$executeRawUnsafe(`UPDATE "AuditPolicy" SET "siemUrl" = 'https://evil.example.invalid' WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(/permission denied/)
     })
 
+    it("refuses an actor who is not a user of the lender, and a session bound to another lender", async () => {
+      await expect(savePolicy(web, tenantId, policy(), { id: `nobody-${token}` })).rejects.toThrow(/actor must be a user of this lender/)
+      const stranger = await owner.user.create({ data: { id: `of-s-${token}`, email: `of-s-${token}@it.invalid`, password: "x", tenantId: other, role: "SUPER_ADMIN" } })
+      await expect(savePolicy(web, tenantId, policy(), { id: stranger.id })).rejects.toThrow(/actor must be a user of this lender/)
+      // A session the application bound to lender `other` (app.tenant_id, as inside a tenant frame) cannot save, or read the status of, lender `tenantId`.
+      for (const call of [
+        (tx: PrismaClient) => savePolicy(tx, tenantId, policy(), { id: actor }),
+        (tx: PrismaClient) => tx.$queryRaw`SELECT * FROM audit_chain_status(${tenantId})`,
+      ]) {
+        await expect(web.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.tenant_id', ${other}, true)`
+          await call(tx as unknown as PrismaClient)
+        })).rejects.toThrow(/bound to another lender/)
+      }
+      await web.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`
+        await savePolicy(tx as unknown as PrismaClient, tenantId, policy(), { id: actor })
+      })
+      await owner.user.delete({ where: { id: stranger.id } })
+    })
+
+    it("checks the URL against the origin the application parsed: a disagreement, a backslash or a control character is refused", async () => {
+      const bad = (over: Record<string, unknown>) => savePolicy(web, tenantId, { ...policy(), ...over }, { id: actor })
+      await expect(bad({ siemOrigin: "https://other.example.invalid" })).rejects.toThrow(/URL and its origin disagree/)
+      await expect(bad({ siemUrlHasPathOrQuery: false, siemUrl: "https://siem.example.invalid/ingest?token=S", siemOrigin: "https://siem.example.invalid" })).rejects.toThrow(/URL and its origin disagree/)
+      await expect(bad({ siemUrl: "https://siem.example.invalid\\@evil.invalid/x?token=S", siemOrigin: "https://siem.example.invalid" })).rejects.toThrow(/siem_url_clean|disagree/)
+      await expect(bad({ siemUrl: "https://siem.example.invalid/in\tgest", siemOrigin: "https://siem.example.invalid" })).rejects.toThrow(/siem_url_clean|disagree/)
+      // And the table refuses such a URL however it got there.
+      await expect(owner.$executeRawUnsafe(`UPDATE "AuditPolicy" SET "siemUrl" = E'https://siem.example.invalid/a\\nb' WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(/siem_url_clean/)
+    })
+
     it("refuses a lender that does not exist, an invalid policy, and a deleted policy row (even for a superuser)", async () => {
-      await expect(savePolicy(web, `no-such-${token}`, policy(), { id: actor })).rejects.toThrow(/no such lender/)
+      await expect(savePolicy(web, `no-such-${token}`, policy(), { id: actor })).rejects.toThrow(/no such lender|actor must be a user of this lender/)
       await expect(savePolicy(web, tenantId, policy({ retentionMonths: 6 }), { id: actor })).rejects.toThrow(/retention_floor/)
       await expect(owner.$executeRawUnsafe(`DELETE FROM "AuditPolicy" WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(/never deleted/)
       await expect(owner.$executeRawUnsafe(`TRUNCATE "AuditPolicy"`)).rejects.toThrow(/never deleted/)

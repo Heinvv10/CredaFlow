@@ -62,8 +62,8 @@ export const DEFAULT_VIEW: AuditPolicyView = {
 function urlView(url: string | null): { siemOrigin: string | null; siemUrlHasPathOrQuery: boolean } {
   if (!url) return { siemOrigin: null, siemUrlHasPathOrQuery: false }
   try {
-    const u = new URL(url)
-    return { siemOrigin: u.origin, siemUrlHasPathOrQuery: (u.pathname !== "/" && u.pathname !== "") || u.search !== "" || u.hash !== "" }
+    const n = normaliseSiemUrl(url)
+    return { siemOrigin: n.origin, siemUrlHasPathOrQuery: n.hasPathOrQuery }
   } catch {
     return { siemOrigin: null, siemUrlHasPathOrQuery: false }
   }
@@ -86,7 +86,11 @@ export interface PolicyWrite {
   siemTransport: "SYSLOG_TLS" | "HTTPS_JSON"
   siemHost: string | null
   siemPort: number | null
+  /** Normalised (`new URL(url).href`): https, no credentials, no backslash, whitespace or control character. */
   siemUrl: string | null
+  /** The URL's origin and whether it has a path or query, as WHATWG parsing says; the database checks them against the URL. */
+  siemOrigin: string | null
+  siemUrlHasPathOrQuery: boolean
   siemSealedToken: string | null
   siemCaCertPem: string | null
   siemClientCert: string | null
@@ -123,6 +127,23 @@ function pem(value: unknown, name: string): string | null {
   return v
 }
 
+const URL_FORBIDDEN = /[\\\s\u0000-\u001f\u007f]/
+
+/**
+ * A SIEM URL as the application and the database will both read it. A browser, a SIEM and a regex disagree about
+ * a backslash (WHATWG treats it as a slash), tabs and newlines (stripped), so none of them is accepted; what is
+ * stored is `new URL(url).href`, https only, with no credentials. The origin and whether a path or query is
+ * set come from the same parse, and go to the database with the URL.
+ */
+export function normaliseSiemUrl(url: string): { href: string; origin: string; hasPathOrQuery: boolean } {
+  if (URL_FORBIDDEN.test(url)) throw new AuditPolicyError("siemUrl must not contain a backslash, whitespace or a control character.")
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw new AuditPolicyError("siemUrl is not a valid URL.") }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) throw new AuditPolicyError("siemUrl must be https with no credentials in it.")
+  const hasPathOrQuery = (parsed.pathname !== "/" && parsed.pathname !== "") || parsed.search !== "" || parsed.hash !== ""
+  return { href: parsed.href, origin: parsed.origin, hasPathOrQuery }
+}
+
 /** Validates the input against the current row and returns the columns to write. */
 export async function buildPolicyWrite(
   input: AuditPolicyInput,
@@ -146,15 +167,11 @@ export async function buildPolicyWrite(
   const clientCert = input.siemClientCert === undefined ? cur.siemClientCert : pem(input.siemClientCert, "siemClientCert")
 
   if (host !== null && !HOSTNAME.test(host) && isIP(host) === 0) throw new AuditPolicyError("siemHost is not a valid host name or address.")
-  if (url !== null) {
-    let parsed: URL
-    try { parsed = new URL(url) } catch { throw new AuditPolicyError("siemUrl is not a valid URL.") }
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) throw new AuditPolicyError("siemUrl must be https with no credentials in it.")
-  }
+  const normalised = url === null ? null : normaliseSiemUrl(url)
   if (siemEnabled) {
     if (transport === "SYSLOG_TLS" && (!host || !port)) throw new AuditPolicyError("SYSLOG_TLS needs siemHost and siemPort.")
-    if (transport === "HTTPS_JSON" && !url) throw new AuditPolicyError("HTTPS_JSON needs siemUrl.")
-    const dialled = transport === "SYSLOG_TLS" ? host! : new URL(url!).hostname
+    if (transport === "HTTPS_JSON" && !normalised) throw new AuditPolicyError("HTTPS_JSON needs siemUrl.")
+    const dialled = transport === "SYSLOG_TLS" ? host! : new URL(normalised!.href).hostname
     await resolveSiemHost(dialled, resolve).catch((error: unknown) => {
       // The detail names an address; the admin gets the reason class only.
       logger.warn("[audit-policy] SIEM destination refused", { host: dialled, reason: error instanceof Error ? error.message : String(error) })
@@ -173,7 +190,8 @@ export async function buildPolicyWrite(
   if ((clientCert === null) !== (sealedKey === null)) throw new AuditPolicyError("siemClientCert and siemClientKey go together.")
 
   return {
-    retentionMonths, hotMonths, siemEnabled, siemTransport: transport, siemHost: host, siemPort: port, siemUrl: url,
+    retentionMonths, hotMonths, siemEnabled, siemTransport: transport, siemHost: host, siemPort: port,
+    siemUrl: normalised?.href ?? null, siemOrigin: normalised?.origin ?? null, siemUrlHasPathOrQuery: normalised?.hasPathOrQuery ?? false,
     siemSealedToken: sealedToken, siemCaCertPem: ca, siemClientCert: clientCert, siemSealedKey: sealedKey,
   }
 }

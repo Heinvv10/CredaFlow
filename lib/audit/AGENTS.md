@@ -13,7 +13,8 @@
 - Chainer (`chainer.ts`, cron `audit-chainer`, a pass every 5 s): an `AuditChainLink` per COMMITTED row,
   `rowHash` = HMAC(`AUDIT_CHAIN_KEY`, position + prevHash + ids + KEYED digests of email/ip/old/newValue,
   `chain-hash.ts`). One chain per tenant, `''` = none. No wall-clock window: a per-chain high-water mark less an
-  hour, plus a deep pass (boot, hourly, daily job) for late commits; a backfill continues in batches of 500.
+  hour, a deep pass (7 days; boot, hourly) and a full sweep (daily job) for late commits; backfill in batches of 500.
+  Chain lock = `audit_chain_lock` (SKIP LOCKED row). The DB returns SHA-256 per value; the worker HMACs it.
 - Only the worker holds `AUDIT_CHAIN_KEY` (32+ chars) and the worker login. Web: `audit_grant_web`.
 - Tests purge with `audit-rows.test-helpers.ts` on the OWNER connection; shared fixture `it-fixture.test-helpers.ts`.
 
@@ -21,13 +22,14 @@
 - Everything on the evidence tables is an `audit_*` SECURITY DEFINER function (`store.ts`): a new query on them is
   a new function, never a grant. Web = INSERT/SELECT AuditLog + `audit_policy_save` + `audit_chain_status`.
   Worker = chainer, verifier, checkpoints, outbox (`audit_grant_worker`). One login for both: `audit_grant_runtime`.
-- `deployment-check.ts` warns at boot and on /api/health; production refuses to start on an owner/superuser/
-  CREATEROLE role (`AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` opts out). After a restore run `audit_reassert_protections()`.
+- `deployment-check.ts`: production refuses to start on an owner/superuser/CREATEROLE role, or if its own check cannot
+  run; `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` / `DEMO_MODE=true` allow it, loudly (demo/legacy only). After a restore run
+  `audit_reassert_protections()`. Helm renders only with two logins unless `audit.singleLogin=true`.
 
 ## Verifying (`chain-verify.ts`)
 Reports EVERY break: `seq_gap`, `prev_hash_mismatch`, `row_hash_mismatch`, `row_missing`, `unchained_row`,
 `checkpoint_invalid` (skipped, not relied on), `checkpoint_mismatch`, `repair_invalid`. Operator-signed
-`audit:accept-break` (HMAC) moves a break to `accepted`. A checkpoint signs the (seq, hash) the walk verified.
+`audit:accept-break` (HMAC over the audit row, link hash and observed hash) moves that one break to `accepted`. A checkpoint signs the (seq, hash) the walk verified.
 Daily cron `audit-chain-verify` (02:30, worker): chain, verify (full on Sundays SAST), checkpoint, results rows.
 `npm run audit:verify`; the web only reports status. Database AND key can rewrite everything: the SIEM copy defends.
 

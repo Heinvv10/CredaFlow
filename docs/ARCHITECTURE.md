@@ -255,9 +255,12 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   an address). A rolled-back transaction leaves no link; a Serializable one never
   waits on a chain. There is no wall-clock window: each chain has a high-water mark
   (newest `createdAt` among its last 1000 links), a pass looks past the mark less an
-  hour, and a deep pass with no floor (at boot, hourly, in the daily job) finds a
-  row that committed long after it was made. A backfill or an outage of any length
-  resumes from the mark, in batches of 500, until done.
+  hour (never further back than the 5000th newest link); a deep pass (seven days back; at
+  boot and hourly) and a daily full sweep (no floor) find a row that committed long after it
+  was made. A backfill or an outage of any length resumes from the mark, in batches of 500,
+  until done. Each chain is locked by a row only `audit_chain_lock` touches (FOR UPDATE SKIP
+  LOCKED), not an advisory lock any login could take; the database hands the worker a SHA-256
+  of each value (the worker keys it), so a huge row costs it nothing.
 - **Verification.** `npm run audit:verify` and the daily `audit-chain-verify` cron
   (the worker, which holds the key) walk every chain, report **every** break (not
   the first), skip a checkpoint whose signature fails, and list the breaks an operator
@@ -284,7 +287,9 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   suites. `deploy/helm/credaflow/files/app-role.sql` creates the logins and grants them (re-run
   after every migration: compose `db-roles`, `scripts/lender` `ensure_app_role`, the chart's
   `app-role` Job). In production a process whose role owns a table, is a superuser or can
-  create roles refuses to start unless `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1`. The owner login never
+  create roles refuses to start (as does one whose setup check cannot run), unless
+  `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` or `DEMO_MODE=true` (demo/legacy stacks; logged loudly at every boot and
+  shown in `/api/health`). The Helm chart renders only with two logins unless `audit.singleLogin=true`. The owner login never
   reaches the app containers (compose blanks it; the chart keeps it in a Secret no pod
   mounts). A restore with `--no-owner --no-acl` loses ownership and ACLs: the restore scripts
   run `audit_reassert_protections()` and the grants again.

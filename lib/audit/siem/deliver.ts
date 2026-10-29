@@ -5,8 +5,8 @@
  * pending rows in batches and stops at the first batch that fails, so a lender's SIEM never sees
  * seq 9 before seq 8. A batch is marked sent only after the SIEM acknowledges it (and a receipt
  * naming the destination and the SIEM's ack id is written); one whose answer was lost is sent again
- * (the receiver de-duplicates on eventId). A failure backs the batch off exponentially (30 s
- * doubling to 1 h) and never drops it, except a row the SIEM rejects with a 4xx that retrying
+ * (the receiver de-duplicates on eventId). A failure backs the batch off exponentially (a minute
+ * doubling to 1 h; the database refuses a retry sooner) and never drops it, except a row the SIEM rejects with a 4xx that retrying
  * cannot fix: the batch is split until the bad row stands alone, and that row is marked dead
  * after PERMANENT_ATTEMPTS. The database refuses a mark that is not a delivery attempt's outcome
  * (a backoff not yet elapsed, a dead row before three attempts).
@@ -33,7 +33,7 @@ import { sendToSiem, type SendResult, type SiemTarget, type TransportDeps } from
 const BATCH = 100
 const MAX_BATCHES_PER_TENANT = 20
 const MAX_BATCH_BYTES = 256 * 1024
-const BACKOFF_BASE_SECONDS = 30
+const BACKOFF_BASE_SECONDS = 60
 const BACKOFF_CAP_SECONDS = 3600
 const PERMANENT_ATTEMPTS = 3
 
@@ -54,7 +54,7 @@ export function backoffSeconds(attempts: number): number {
 }
 
 type OutboxRow = StoredRow<TargetSnapshot>
-interface Ctx { tx: AuditDb; tenantId: string; now: Date; send: SiemSender; deps: TransportDeps; result: DeliveryResult }
+interface Ctx { tx: AuditDb; tenantId: string; holder: string; now: Date; send: SiemSender; deps: TransportDeps; result: DeliveryResult }
 interface Item { row: OutboxRow; event: SiemEvent }
 
 /** The destination a receipt names: a host or origin, never a credential or a path (which may carry a key). */
@@ -64,7 +64,7 @@ function destinationOf(t: SiemTarget): string {
 }
 
 async function markDead(ctx: Ctx, row: OutboxRow, error: string) {
-  await markOutbox(ctx.tx, ctx.tenantId, [row.id], "dead", error, ctx.now, "-")
+  await markOutbox(ctx.tx, ctx.tenantId, ctx.holder, [row.id], "dead", error, ctx.now, "-")
   ctx.result.dead++
 }
 
@@ -117,7 +117,7 @@ async function sendItems(ctx: Ctx, target: SiemTarget, items: Item[]): Promise<b
   const rows = items.map((i) => i.row)
   const ids = rows.map((x) => x.id)
   if (r.ok) {
-    await markOutbox(ctx.tx, ctx.tenantId, ids, "sent", null, ctx.now, destinationOf(target), r.ackId ?? null)
+    await markOutbox(ctx.tx, ctx.tenantId, ctx.holder, ids, "sent", null, ctx.now, destinationOf(target), r.ackId ?? null)
     ctx.result.sent += rows.length
     return true
   }
@@ -129,10 +129,10 @@ async function sendItems(ctx: Ctx, target: SiemTarget, items: Item[]): Promise<b
   const dead = r.permanent === true && attempts >= PERMANENT_ATTEMPTS
   const error = r.error ?? "send_failed"
   if (dead) {
-    await markOutbox(ctx.tx, ctx.tenantId, ids, "dead", error, ctx.now, destinationOf(target))
+    await markOutbox(ctx.tx, ctx.tenantId, ctx.holder, ids, "dead", error, ctx.now, destinationOf(target))
     ctx.result.dead += rows.length
   } else {
-    await markOutbox(ctx.tx, ctx.tenantId, ids, "retry", error, new Date(ctx.now.getTime() + backoffSeconds(attempts) * 1000), destinationOf(target))
+    await markOutbox(ctx.tx, ctx.tenantId, ctx.holder, ids, "retry", error, new Date(ctx.now.getTime() + backoffSeconds(attempts) * 1000), destinationOf(target))
   }
   ctx.result.failedBatches++
   logger.error("[audit-siem] delivery failed", { tenantId: ctx.tenantId, rows: rows.length, error: r.error, dead })
@@ -166,6 +166,7 @@ function duePrefix(rows: OutboxRow[], now: Date): OutboxRow[] {
  */
 async function drainSnapshots(ctx: Ctx): Promise<void> {
   for (let n = 0; n < MAX_BATCHES_PER_TENANT; n++) {
+    if (!(await renewLease(ctx))) return
     const groups = new Map<string, OutboxRow[]>()
     for (const row of await snapshotRows<TargetSnapshot>(ctx.tx, ctx.tenantId, BATCH)) {
       const key = JSON.stringify(row.targetSnapshot)
@@ -180,7 +181,7 @@ async function drainSnapshots(ctx: Ctx): Promise<void> {
         target = siemTarget(group[0].targetSnapshot as TargetSnapshot)
       } catch (error) {
         logger.error("[audit-siem] snapshot target unusable", { tenantId: ctx.tenantId, error })
-        await markOutbox(ctx.tx, ctx.tenantId, due.map((r) => r.id), "retry", "config_invalid", new Date(ctx.now.getTime() + backoffSeconds(1) * 1000), "-")
+        await markOutbox(ctx.tx, ctx.tenantId, ctx.holder, due.map((r) => r.id), "retry", "config_invalid", new Date(ctx.now.getTime() + backoffSeconds(1) * 1000), "-")
         continue
       }
       const items = withinSize(await eventsFor(ctx, due))
@@ -192,9 +193,15 @@ async function drainSnapshots(ctx: Ctx): Promise<void> {
 
 const LEASE_SECONDS = 300
 
+/** Renews the lease; false when it is no longer ours (it expired and another deliverer took it): stop sending. */
+async function renewLease(ctx: Ctx): Promise<boolean> {
+  const held = await takeLease(ctx.tx, ctx.tenantId, ctx.holder, LEASE_SECONDS)
+  if (!held) logger.error("[audit-siem] lost the delivery lease; stopping", { tenantId: ctx.tenantId })
+  return held
+}
+
 async function deliverTenant(ctx: Ctx): Promise<void> {
-  const { tx, tenantId, now } = ctx
-  const holder = `${process.pid}:${randomUUID()}`
+  const { tx, tenantId, now, holder } = ctx
   if (!(await takeLease(tx, tenantId, holder, LEASE_SECONDS))) return
   try {
     const policy = await deliveryPolicy<{ siemEnabled: boolean } & TargetSnapshot>(tx, tenantId)
@@ -207,7 +214,7 @@ async function deliverTenant(ctx: Ctx): Promise<void> {
     }
     const target = siemTarget(policy)
     for (let n = 0; n < MAX_BATCHES_PER_TENANT; n++) {
-      await takeLease(tx, tenantId, holder, LEASE_SECONDS) // renew
+      if (!(await renewLease(ctx))) return
       const due = duePrefix((await streamRows(tx, tenantId, BATCH)) as OutboxRow[], now)
       if (due.length === 0) return
       const items = withinSize(await eventsFor(ctx, due))
@@ -230,7 +237,7 @@ export async function deliverSiemOutbox(opts: { db?: PrismaClient; now?: Date; s
     result.tenants = due.length
     for (const tenantId of due) {
       try {
-        await deliverTenant({ tx: db, tenantId, now, send, deps: opts.deps ?? {}, result })
+        await deliverTenant({ tx: db, tenantId, holder: `${process.pid}:${randomUUID()}`, now, send, deps: opts.deps ?? {}, result })
       } catch (error) {
         // A sealed secret that no longer opens, a database fault: this lender's feed waits, the others go on.
         result.failedTenants++

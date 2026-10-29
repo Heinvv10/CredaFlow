@@ -117,12 +117,22 @@ CREATE TABLE "AuditChainRepair" (
     "tenantId" TEXT,
     "seq" INTEGER NOT NULL,
     "kind" TEXT NOT NULL,
+    "auditLogId" TEXT NOT NULL DEFAULT '',
+    "linkRowHash" TEXT NOT NULL DEFAULT '',
+    "observedHash" TEXT NOT NULL DEFAULT '',
     "reason" TEXT NOT NULL,
     "operator" TEXT NOT NULL,
     "hmac" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AuditChainRepair_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AuditChainMutex" (
+    "chainKey" TEXT NOT NULL,
+
+    CONSTRAINT "AuditChainMutex_pkey" PRIMARY KEY ("chainKey")
 );
 
 -- CreateTable
@@ -201,6 +211,9 @@ ALTER TABLE "AuditPolicy" ADD CONSTRAINT "AuditPolicy_siem_target" CHECK (
   OR ("siemTransport" = 'SYSLOG_TLS' AND "siemHost" IS NOT NULL AND "siemPort" BETWEEN 1 AND 65535)
   OR ("siemTransport" = 'HTTPS_JSON' AND "siemUrl" LIKE 'https://%')
 );
+-- A SIEM URL carries no backslash, whitespace or control character: WHATWG URL parsing and a regex
+-- disagree about those, and the audit row shows only the origin (audit_policy_save).
+ALTER TABLE "AuditPolicy" ADD CONSTRAINT "AuditPolicy_siem_url_clean" CHECK ("siemUrl" IS NULL OR "siemUrl" !~ '[\\[:space:][:cntrl:]]');
 ALTER TABLE "AuditPolicy" ADD CONSTRAINT "AuditPolicy_siem_secrets_sealed" CHECK (
   ("siemSealedToken" IS NULL OR "siemSealedToken" LIKE 'enc:v1:%')
   AND ("siemSealedKey" IS NULL OR "siemSealedKey" LIKE 'enc:v1:%')
@@ -403,6 +416,10 @@ ALTER TABLE "AuditRedaction" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AuditRedaction" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "AuditRedaction" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
 
+ALTER TABLE "AuditChainMutex" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditChainMutex" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "only_the_definer" ON "AuditChainMutex" USING (public.cf_rls_unrestricted()) WITH CHECK (public.cf_rls_unrestricted());
+
 ALTER TABLE "AuditChainRepair" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AuditChainRepair" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "AuditChainRepair" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
@@ -429,18 +446,20 @@ CREATE POLICY "tenant_isolation" ON "AuditSiemDelivery" USING (public.cf_rls_unr
 -- evidence tables, FORCEd on the owner, do not hide rows from these functions.
 -- Not callable by PUBLIC: audit_grant_runtime() grants EXECUTE to the app role.
 
--- What the worker hashes of an AuditLog row: the ids and time, and the raw personal-data
--- columns (jsonb as canonical text), plus, per column, the keyed digest a documented
--- redaction kept (non-NULL only where the column was redacted). The worker (the only holder
--- of AUDIT_CHAIN_KEY) turns each column into a keyed digest; the database never hashes them.
+-- What the worker hashes of an AuditLog row: the ids and time, and the SHA-256 of each personal-data
+-- column (jsonb as canonical text), computed here so that a row with a huge value costs the worker
+-- nothing to receive, plus, per column, the keyed digest a documented redaction kept (non-NULL only
+-- where the column was redacted). The worker (the only holder of AUDIT_CHAIN_KEY) turns each into the
+-- keyed digest that enters the link; the database never stores the plain SHA-256.
 CREATE FUNCTION public.audit_hash_inputs(a "AuditLog")
 RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
-               "userEmail" text, "ipAddress" text, "oldValueText" text, "newValueText" text,
+               "userEmailSha" text, "ipAddressSha" text, "oldValueSha" text, "newValueSha" text,
                "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
   SELECT a."id", a."tenantId", a."userId", a."action", a."entity", a."entityId",
     to_char(a."createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS'),
-    a."userEmail", a."ipAddress", a."oldValue"::text, a."newValue"::text,
+    encode(sha256(convert_to(a."userEmail", 'UTF8')), 'hex'), encode(sha256(convert_to(a."ipAddress", 'UTF8')), 'hex'),
+    encode(sha256(convert_to(a."oldValue"::text, 'UTF8')), 'hex'), encode(sha256(convert_to(a."newValue"::text, 'UTF8')), 'hex'),
     (SELECT r."userEmailDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'userEmail' = ANY(r."columns") LIMIT 1),
     (SELECT r."ipAddressDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'ipAddress' = ANY(r."columns") LIMIT 1),
     (SELECT r."oldValueDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'oldValue' = ANY(r."columns") LIMIT 1),
@@ -458,9 +477,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   SELECT l."seq", l."rowHash" FROM "AuditChainLink" l WHERE l."chainKey" = p_key ORDER BY l."seq" DESC LIMIT 1
 $$;
 
--- The newest createdAt among a chain's last 1000 linked rows: its high-water mark. Rows made
--- after the mark are scanned for cheaply; a row that committed long after it was made (a long
--- transaction) can sit behind it, which the periodic deep sweep (no floor) finds.
+-- The newest createdAt among a chain's last 1000 linked rows: its high-water mark. Rows made after the
+-- mark are scanned for cheaply; a row that committed long after it was made (a long transaction) can sit
+-- behind it, which the deep pass finds (seven days back) and the full sweep (everything, daily).
 CREATE FUNCTION public.audit_chain_floor(p_key text) RETURNS timestamp
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
   SELECT max(a."createdAt") FROM (
@@ -468,44 +487,71 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   ) x JOIN "AuditLog" a ON a."id" = x."auditLogId"
 $$;
 
--- Chains with committed rows that have no link. A chain with no link yet is chained from its
--- first row (the backfill). Otherwise only rows after the chain's high-water mark minus a
--- margin are looked for, unless p_deep, which looks at every row (the sweep for late commits).
-CREATE FUNCTION public.audit_chain_candidates(p_deep boolean, p_margin_seconds int) RETURNS SETOF text
+-- Where a pass of the given mode starts looking: NULL (no floor) while the chain has no link (it is chained
+-- from its first row) and for the full sweep; seven days back for the deep pass; otherwise the high-water mark
+-- less a margin, but never further back than the 5000th newest linked row (a dense hour is not rescanned).
+CREATE FUNCTION public.audit_chain_scan_floor(p_key text, p_mode text, p_margin_seconds int) RETURNS timestamp
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
-  k text;
   hw timestamp;
+  floor_at timestamp;
+  cap timestamp;
+BEGIN
+  IF p_mode NOT IN ('shallow', 'deep', 'full') THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit: the chainer mode is shallow, deep or full';
+  END IF;
+  IF p_mode = 'full' THEN
+    RETURN NULL;
+  END IF;
+  hw := public.audit_chain_floor(p_key);
+  IF hw IS NULL THEN
+    RETURN NULL;
+  END IF;
+  IF p_mode = 'deep' THEN
+    RETURN now() - interval '7 days';
+  END IF;
+  floor_at := hw - make_interval(secs => p_margin_seconds);
+  SELECT min(a."createdAt") INTO cap FROM (
+    SELECT l."auditLogId" FROM "AuditChainLink" l WHERE l."chainKey" = p_key ORDER BY l."seq" DESC LIMIT 5000
+  ) x JOIN "AuditLog" a ON a."id" = x."auditLogId";
+  RETURN GREATEST(floor_at, cap);
+END;
+$$;
+
+-- Chains with committed rows that have no link, looking where a pass of this mode looks. It also makes sure each
+-- returned chain has its row in AuditChainMutex, committed on its own (this call is not inside the chainer's
+-- transaction), so the chainer's lock never has to create it and wait on another chainer's uncommitted insert.
+CREATE FUNCTION public.audit_chain_candidates(p_mode text, p_margin_seconds int) RETURNS SETOF text
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+DECLARE
+  k text;
+  floor_at timestamp;
 BEGIN
   FOR k IN SELECT t."id" FROM "Tenant" t UNION SELECT '' LOOP
-    hw := public.audit_chain_floor(k);
+    floor_at := public.audit_chain_scan_floor(k, p_mode, p_margin_seconds);
     IF EXISTS (
       SELECT 1 FROM "AuditLog" a
-      WHERE public.audit_in_chain(k, a."tenantId")
-        AND (p_deep OR hw IS NULL OR a."createdAt" >= hw - make_interval(secs => p_margin_seconds))
+      WHERE public.audit_in_chain(k, a."tenantId") AND (floor_at IS NULL OR a."createdAt" >= floor_at)
         AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id")
     ) THEN
+      INSERT INTO "AuditChainMutex" ("chainKey") VALUES (k) ON CONFLICT DO NOTHING;
       RETURN NEXT k;
     END IF;
   END LOOP;
 END;
 $$;
 
--- The oldest committed rows of a chain that have no link, with what the worker hashes of each.
--- Not deep: only rows after the chain's high-water mark minus the margin (all rows while the
--- chain has no link yet, which is the backfill; it then continues from the mark, not from the
--- start, so a long backfill is not quadratic).
-CREATE FUNCTION public.audit_chain_unlinked(p_key text, p_deep boolean, p_margin_seconds int, p_limit int)
+-- The oldest committed rows of a chain that have no link, with what the worker hashes of each, looking
+-- where a pass of this mode looks (audit_chain_scan_floor): a backfill then continues from the mark, not
+-- from the start, so it is not quadratic.
+CREATE FUNCTION public.audit_chain_unlinked(p_key text, p_mode text, p_margin_seconds int, p_limit int)
 RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
-               "userEmail" text, "ipAddress" text, "oldValueText" text, "newValueText" text,
+               "userEmailSha" text, "ipAddressSha" text, "oldValueSha" text, "newValueSha" text,
                "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
-  floor_at timestamp;
+  floor_at timestamp := public.audit_chain_scan_floor(p_key, p_mode, p_margin_seconds);
 BEGIN
-  IF NOT p_deep THEN
-    floor_at := public.audit_chain_floor(p_key) - make_interval(secs => p_margin_seconds);
-  END IF;
   RETURN QUERY
   SELECT h.* FROM (
     SELECT a FROM "AuditLog" a
@@ -514,6 +560,18 @@ BEGIN
     ORDER BY a."createdAt", a."id" LIMIT p_limit
   ) x, LATERAL public.audit_hash_inputs(x.a) h
   ORDER BY h."createdAt", h."auditLogId";
+END;
+$$;
+
+-- The chain's mutual exclusion: the chainer calls this first in its transaction. A row of AuditChainMutex per
+-- chain is locked FOR UPDATE SKIP LOCKED until that transaction ends, so a second chainer skips the chain. A
+-- table only this function can touch, not an advisory lock, which any login could take to starve the chainer.
+CREATE FUNCTION public.audit_chain_lock(p_key text) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+BEGIN
+  INSERT INTO "AuditChainMutex" ("chainKey") VALUES (p_key) ON CONFLICT DO NOTHING;
+  PERFORM 1 FROM "AuditChainMutex" m WHERE m."chainKey" = p_key FOR UPDATE SKIP LOCKED;
+  RETURN FOUND;
 END;
 $$;
 
@@ -618,12 +676,12 @@ $$;
 CREATE FUNCTION public.audit_verify_links(p_key text, p_after int, p_limit int)
 RETURNS TABLE ("seq" int, "linkAuditLogId" text, "prevHash" text, "rowHash" text, "present" boolean,
                "auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
-               "userEmail" text, "ipAddress" text, "oldValueText" text, "newValueText" text,
+               "userEmailSha" text, "ipAddressSha" text, "oldValueSha" text, "newValueSha" text,
                "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
   SELECT p."seq", p."auditLogId", p."prevHash", p."rowHash", (p."row")."id" IS NOT NULL,
          h."auditLogId", h."tenantId", h."userId", h."action", h."entity", h."entityId", h."createdAt",
-         h."userEmail", h."ipAddress", h."oldValueText", h."newValueText",
+         h."userEmailSha", h."ipAddressSha", h."oldValueSha", h."newValueSha",
          h."userEmailRed", h."ipAddressRed", h."oldValueRed", h."newValueRed"
   FROM (
     SELECT l."seq", l."auditLogId", l."prevHash", l."rowHash", a AS "row"
@@ -642,27 +700,43 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
     AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id") LIMIT 1
 $$;
 
--- What the web login may see of a chain: how far it is chained and the latest checkpoint
--- (no hashes).
+-- A login bound to one lender (app.tenant_id set, as the application does inside a tenant frame) may act only for
+-- that lender: the database does not take the caller's word for which lender it is acting for.
+CREATE FUNCTION public.audit_require_tenant(p_tenant text) RETURNS void
+LANGUAGE plpgsql STABLE SET search_path = public, pg_temp AS $$
+BEGIN
+  IF public.cf_rls_tenant() IS NOT NULL AND public.cf_rls_tenant() IS DISTINCT FROM p_tenant THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: this session is bound to another lender';
+  END IF;
+END;
+$$;
+
+-- What the web login may see of a chain: how far it is chained and the latest checkpoint (no hashes).
 CREATE FUNCTION public.audit_chain_status(p_key text) RETURNS TABLE ("headSeq" int, "checkpointSeq" int, "checkpointAt" timestamp)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
-  SELECT COALESCE((SELECT max(l."seq") FROM "AuditChainLink" l WHERE l."chainKey" = p_key), 0),
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+BEGIN
+  PERFORM public.audit_require_tenant(p_key);
+  RETURN QUERY SELECT COALESCE((SELECT max(l."seq") FROM "AuditChainLink" l WHERE l."chainKey" = p_key), 0),
          (SELECT c."seq" FROM "AuditChainCheckpoint" c WHERE c."chainKey" = p_key ORDER BY c."seq" DESC LIMIT 1),
-         (SELECT c."createdAt" FROM "AuditChainCheckpoint" c WHERE c."chainKey" = p_key ORDER BY c."seq" DESC LIMIT 1)
+         (SELECT c."createdAt" FROM "AuditChainCheckpoint" c WHERE c."chainKey" = p_key ORDER BY c."seq" DESC LIMIT 1);
+END;
 $$;
 
 -- The operator-accepted breaks of a chain (see audit_chain_accept_break).
-CREATE FUNCTION public.audit_chain_repairs(p_key text) RETURNS TABLE ("id" text, "seq" int, "kind" text, "reason" text, "operator" text, "hmac" text)
+CREATE FUNCTION public.audit_chain_repairs(p_key text)
+RETURNS TABLE ("id" text, "seq" int, "kind" text, "auditLogId" text, "linkRowHash" text, "observedHash" text, "reason" text, "operator" text, "hmac" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
-  SELECT r."id", r."seq", r."kind", r."reason", r."operator", r."hmac" FROM "AuditChainRepair" r WHERE r."chainKey" = p_key ORDER BY r."seq", r."createdAt"
+  SELECT r."id", r."seq", r."kind", r."auditLogId", r."linkRowHash", r."observedHash", r."reason", r."operator", r."hmac"
+  FROM "AuditChainRepair" r WHERE r."chainKey" = p_key ORDER BY r."seq", r."createdAt"
 $$;
 
--- An operator accepts a break the verifier reported at link p_seq (a link lost to a restore, a
--- documented redaction made wrongly...) so verification continues past it. The accepting is signed
--- by the caller (HMAC under AUDIT_CHAIN_KEY over chain, seq, kind, reason and operator), which the
--- verifier checks: a repair without the key is ignored. It writes its own audit row. Operator
--- role only: granted to nobody by default.
-CREATE FUNCTION public.audit_chain_accept_break(p_key text, p_seq int, p_kind text, p_reason text, p_operator text, p_hmac text) RETURNS void
+-- An operator accepts ONE break the verifier reported at link p_seq of a chain: a link lost to a restore, a
+-- redaction made wrongly. The acceptance names exactly what was seen (the audit row, the link's hash and, for
+-- a content mismatch, the hash the row recomputes to now) and is signed by the caller (HMAC under
+-- AUDIT_CHAIN_KEY), which the verifier checks: a repair without the key is ignored, and the same row edited
+-- again after the acceptance is a new break. It writes its own audit row. Operator role only.
+CREATE FUNCTION public.audit_chain_accept_break(p_key text, p_seq int, p_kind text, p_audit_log_id text, p_link_hash text, p_observed text,
+                                                p_reason text, p_operator text, p_hmac text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 BEGIN
   IF p_reason IS NULL OR length(btrim(p_reason)) < 10 THEN
@@ -674,8 +748,14 @@ BEGIN
   IF p_hmac IS NULL OR p_hmac !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_chain_accept_break: the signature is missing';
   END IF;
-  INSERT INTO "AuditChainRepair" ("id", "chainKey", "tenantId", "seq", "kind", "reason", "operator", "hmac")
-  VALUES ('rp_' || replace(gen_random_uuid()::text, '-', ''), p_key, NULLIF(p_key, ''), p_seq, btrim(p_kind), btrim(p_reason), btrim(p_operator), p_hmac);
+  IF COALESCE(p_link_hash, '') <> '' AND NOT EXISTS (
+    SELECT 1 FROM "AuditChainLink" l WHERE l."chainKey" = p_key AND l."seq" = p_seq AND l."rowHash" = p_link_hash AND l."auditLogId" = COALESCE(p_audit_log_id, '')
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_chain_accept_break: no such link';
+  END IF;
+  INSERT INTO "AuditChainRepair" ("id", "chainKey", "tenantId", "seq", "kind", "auditLogId", "linkRowHash", "observedHash", "reason", "operator", "hmac")
+  VALUES ('rp_' || replace(gen_random_uuid()::text, '-', ''), p_key, NULLIF(p_key, ''), p_seq, btrim(p_kind), COALESCE(p_audit_log_id, ''), COALESCE(p_link_hash, ''),
+          COALESCE(p_observed, ''), btrim(p_reason), btrim(p_operator), p_hmac);
   INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "newValue")
   VALUES ('aud_' || replace(gen_random_uuid()::text, '-', ''), NULLIF(p_key, ''), 'AUDIT_CHAIN_BREAK_ACCEPTED', 'AuditLog',
           jsonb_build_object('seq', p_seq, 'kind', btrim(p_kind), 'operator', btrim(p_operator), 'databaseRole', session_user::text));
@@ -723,26 +803,30 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   ORDER BY o."id" LIMIT p_limit
 $$;
 
--- The audit rows and links behind queued events.
+-- The audit rows and links behind queued events. A value larger than 64 KB is replaced by a stub saying so
+-- (the SIEM sends values only for a few configuration actions, and bounded memory matters more than a huge value).
 CREATE FUNCTION public.audit_outbox_sources(p_ids text[])
 RETURNS TABLE ("id" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "oldValue" jsonb, "newValue" jsonb,
                "ipAddress" text, "createdAt" timestamp, "linkSeq" int, "linkRowHash" text, "linkPrevHash" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
-  SELECT a."id", a."tenantId", a."userId", a."action", a."entity", a."entityId", a."oldValue", a."newValue", a."ipAddress", a."createdAt",
-         l."seq", l."rowHash", l."prevHash"
+  SELECT a."id", a."tenantId", a."userId", a."action", a."entity", a."entityId",
+         CASE WHEN octet_length(a."oldValue"::text) > 65536 THEN jsonb_build_object('truncated', true, 'bytes', octet_length(a."oldValue"::text)) ELSE a."oldValue" END,
+         CASE WHEN octet_length(a."newValue"::text) > 65536 THEN jsonb_build_object('truncated', true, 'bytes', octet_length(a."newValue"::text)) ELSE a."newValue" END,
+         a."ipAddress", a."createdAt", l."seq", l."rowHash", l."prevHash"
   FROM "AuditLog" a JOIN "AuditChainLink" l ON l."auditLogId" = a."id" WHERE a."id" = ANY(p_ids)
 $$;
 
--- Marks entries of ONE lender after a delivery attempt. Only that lender's still-pending entries
--- whose backoff has elapsed can be marked (anything else raises), and only in a way a delivery
--- attempt can end:
---   'sent'  : the SIEM acknowledged the batch. Stamped with the database clock; a receipt per
---             entry goes to AuditSiemDelivery (append-only) naming the destination and the
---             SIEM's own acknowledgement id when its answer carried one.
---   'retry' : attempts + 1, next try at p_at, which must be in the future (and within two hours).
---   'dead'  : attempts + 1 and given up: only after three attempts, or when the AuditLog row
---             (or checkpoint) the entry names is really gone (p_error 'row_missing').
-CREATE FUNCTION public.audit_outbox_mark(p_tenant text, p_ids int[], p_state text, p_error text, p_at timestamp, p_destination text, p_ack text DEFAULT NULL) RETURNS int
+-- Marks entries of ONE lender after a delivery attempt, by the deliverer that holds the lender's lease. Only
+-- that lender's still-pending entries whose backoff has elapsed can be marked (anything else raises), and only
+-- in a way a delivery attempt can end:
+--   'sent'  : the SIEM acknowledged the batch. Stamped with the database clock; a receipt per entry goes to
+--             AuditSiemDelivery (append-only) naming the destination and the SIEM's own acknowledgement id,
+--             which an HTTPS delivery must have (the transport falls back to status + the answer's Date) and
+--             a syslog delivery cannot (it has none).
+--   'retry' : attempts + 1, next try at p_at: at least ~a minute ahead, and within two hours.
+--   'dead'  : attempts + 1 and given up: only after three attempts, or when the AuditLog row (or checkpoint)
+--             the entry names is really gone (p_error 'row_missing').
+CREATE FUNCTION public.audit_outbox_mark(p_tenant text, p_holder text, p_ids int[], p_state text, p_error text, p_at timestamp, p_destination text, p_ack text DEFAULT NULL) RETURNS int
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
   n int;
@@ -750,6 +834,9 @@ DECLARE
 BEGIN
   IF p_state NOT IN ('sent', 'retry', 'dead') THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: unknown state';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM "AuditSiemLease" z WHERE z."tenantId" = p_tenant AND z."holder" = p_holder AND z."expiresAt" > now()) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_mark: the caller does not hold this lender''s delivery lease';
   END IF;
   SELECT count(*)::int INTO matched FROM "AuditSiemOutbox" o
   WHERE o."id" = ANY(p_ids) AND o."tenantId" = p_tenant AND o."sentAt" IS NULL AND o."deadAt" IS NULL;
@@ -764,12 +851,15 @@ BEGIN
     IF p_destination IS NULL OR btrim(p_destination) = '' THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: a delivery names its destination';
     END IF;
+    IF COALESCE(btrim(p_ack), '') = '' AND p_destination NOT LIKE 'syslog+tls://%' THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: an HTTPS delivery carries the SIEM''s acknowledgement id';
+    END IF;
     INSERT INTO "AuditSiemDelivery" ("outboxId", "tenantId", "kind", "seq", "destination", "ackId")
     SELECT o."id", o."tenantId", o."kind", o."seq", left(p_destination, 300), left(p_ack, 200) FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids);
     UPDATE "AuditSiemOutbox" SET "sentAt" = now(), "lastError" = NULL WHERE "id" = ANY(p_ids);
   ELSIF p_state = 'retry' THEN
-    IF p_at IS NULL OR p_at <= now() OR p_at > now() + interval '2 hours' THEN
-      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: a retry is scheduled in the future, within two hours';
+    IF p_at IS NULL OR p_at < now() + interval '50 seconds' OR p_at > now() + interval '2 hours' THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: a retry is scheduled at least a minute ahead, within two hours';
     END IF;
     UPDATE "AuditSiemOutbox" SET "attempts" = "attempts" + 1, "nextAttemptAt" = p_at, "lastError" = left(p_error, 200) WHERE "id" = ANY(p_ids);
   ELSE
@@ -800,8 +890,10 @@ $$;
 -- starts at a new one, an anchor (the chain position at the change). The audit row records the
 -- policy as an origin only, never a path or query (it may carry a key) or a secret.
 -- p_data keys: retentionMonths, hotMonths, siemEnabled, siemTransport, siemHost, siemPort, siemUrl,
--- siemSealedToken, siemCaCertPem, siemClientCert, siemSealedKey (a JSON null clears one).
--- Returns the policy id.
+-- siemSealedToken, siemCaCertPem, siemClientCert, siemSealedKey (a JSON null clears one), plus the origin and
+-- path-or-query flag of siemUrl as the application parsed them (siemOrigin, siemUrlHasPathOrQuery), which this
+-- function checks against the URL it stores. A session bound to one lender can save only that lender's policy,
+-- and the actor must be a user of that lender. Returns the policy id.
 CREATE FUNCTION public.audit_policy_save(p_tenant text, p_data jsonb, p_actor_id text, p_actor_email text, p_ip text) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
@@ -810,7 +902,22 @@ DECLARE
   had boolean;
   audit_id text := 'aud_' || replace(gen_random_uuid()::text, '-', '');
   rev "AuditPolicyRevision";
+  url text;
+  origin text;
 BEGIN
+  PERFORM public.audit_require_tenant(p_tenant);
+  IF p_actor_id IS NULL OR NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = p_actor_id AND u."tenantId" = p_tenant) THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit_policy_save: the actor must be a user of this lender';
+  END IF;
+  IF p_data->>'siemUrl' IS NOT NULL THEN
+    url := p_data->>'siemUrl';
+    origin := p_data->>'siemOrigin';
+    IF url ~ '[\\[:space:][:cntrl:]]' OR origin IS NULL OR left(url, length(origin)) <> origin
+       OR substring(url from length(origin) + 1) !~ '^([/?#]|$)'
+       OR COALESCE((p_data->>'siemUrlHasPathOrQuery')::boolean, NOT (substring(url from length(origin) + 1) IN ('', '/'))) <> NOT (substring(url from length(origin) + 1) IN ('', '/')) THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_policy_save: the SIEM URL and its origin disagree';
+    END IF;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM "Tenant" t WHERE t."id" = p_tenant) THEN
     RAISE EXCEPTION USING ERRCODE = '23503', MESSAGE = 'audit_policy_save: no such lender';
   END IF;
@@ -832,7 +939,7 @@ BEGIN
 
   INSERT INTO "AuditLog" ("id", "tenantId", "userId", "userEmail", "action", "entity", "entityId", "oldValue", "newValue", "ipAddress")
   VALUES (audit_id, p_tenant, p_actor_id, p_actor_email, 'AUDIT_POLICY_UPDATED', 'AuditPolicy', cur."id",
-          CASE WHEN had THEN public.audit_policy_view(old) ELSE NULL END, public.audit_policy_view(cur), p_ip);
+          CASE WHEN had THEN public.audit_policy_view(old) ELSE NULL END, public.audit_policy_view(cur, p_data->>'siemOrigin', (p_data->>'siemUrlHasPathOrQuery')::boolean), p_ip);
 
   SELECT * INTO rev FROM "AuditPolicyRevision" r WHERE r."tenantId" = p_tenant AND r."txid" = txid_current() ORDER BY r."id" DESC LIMIT 1;
   IF FOUND THEN
@@ -849,14 +956,17 @@ BEGIN
 END;
 $$;
 
--- What the audit row of a policy change records: no secret, no certificate, and a URL as its
--- origin only.
-CREATE FUNCTION public.audit_policy_view(p "AuditPolicy") RETURNS jsonb
+-- What the audit row of a policy change records: no secret, no certificate, and a URL as its origin only. The
+-- application (which parses URLs the way a browser and a SIEM do) passes the origin and whether a path or query
+-- is set; the regexes here are the backstop for a row the function did not write (they exclude a backslash,
+-- whitespace and control characters, which the policy CHECK refuses anyway).
+CREATE FUNCTION public.audit_policy_view(p "AuditPolicy", p_origin text DEFAULT NULL, p_has_path boolean DEFAULT NULL) RETURNS jsonb
 LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$
   SELECT jsonb_build_object(
     'retentionMonths', p."retentionMonths", 'hotMonths', p."hotMonths", 'siemEnabled', p."siemEnabled", 'siemTransport', p."siemTransport"::text,
-    'siemHost', p."siemHost", 'siemPort', p."siemPort", 'siemOrigin', substring(p."siemUrl" from '^(https://[^/?#]+)'),
-    'siemUrlHasPathOrQuery', COALESCE(p."siemUrl" ~ '^https://[^/?#]+[/?#]', false),
+    'siemHost', p."siemHost", 'siemPort', p."siemPort",
+    'siemOrigin', COALESCE(p_origin, substring(p."siemUrl" from '^(https://[^/?#\\[:space:][:cntrl:]]+)')),
+    'siemUrlHasPathOrQuery', COALESCE(p_has_path, COALESCE(p."siemUrl" ~ '^https://[^/?#\\[:space:][:cntrl:]]+(/[^?#]+|[?#])', false)),
     'siemTokenSet', p."siemSealedToken" IS NOT NULL, 'siemClientKeySet', p."siemSealedKey" IS NOT NULL)
 $$;
 
@@ -1045,8 +1155,10 @@ CREATE FUNCTION public.audit_grant_base(p_role text) RETURNS void
 LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   PERFORM public.audit_check_login_role(p_role);
-  EXECUTE format('REVOKE ALL ON TABLE "AuditLog", "AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox", "AuditPolicy", "AuditPolicyRevision", "AuditSiemDelivery", "AuditChainRepair", "AuditSiemLease" FROM %I', p_role);
+  EXECUTE format('REVOKE ALL ON TABLE "AuditLog", "AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox", "AuditPolicy", "AuditPolicyRevision", "AuditSiemDelivery", "AuditChainRepair", "AuditSiemLease", "AuditChainMutex" FROM %I', p_role);
   EXECUTE format('REVOKE ALL ON SEQUENCE "AuditSiemOutbox_id_seq", "AuditPolicyRevision_id_seq", "AuditSiemDelivery_id_seq" FROM %I', p_role);
+  -- A transaction left open does not hold a chain's late commit back for long: the sweeps bound the rest.
+  EXECUTE format('ALTER ROLE %I SET idle_in_transaction_session_timeout = ''15min''', p_role);
   EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', p_role);
   EXECUTE format('GRANT INSERT, SELECT ON TABLE "AuditLog" TO %I', p_role);
   EXECUTE format('GRANT SELECT ON TABLE "AuditPolicy" TO %I', p_role);
@@ -1066,7 +1178,7 @@ LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   PERFORM public.audit_grant_base(p_role);
   PERFORM public.audit_grant_functions(p_role, ARRAY[
-    'audit_chain_head', 'audit_chain_candidates', 'audit_chain_unlinked', 'audit_chain_append', 'audit_checkpoint_write',
+    'audit_chain_head', 'audit_chain_candidates', 'audit_chain_unlinked', 'audit_chain_lock', 'audit_chain_append', 'audit_checkpoint_write',
     'audit_checkpoints', 'audit_checkpoint_get', 'audit_link_hash_at', 'audit_verify_links', 'audit_unchained_old',
     'audit_unchained_pending', 'audit_chain_repairs',
     'audit_outbox_due_tenants', 'audit_outbox_snapshot_rows', 'audit_outbox_stream_rows', 'audit_outbox_sources',

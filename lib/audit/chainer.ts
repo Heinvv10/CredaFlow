@@ -12,14 +12,15 @@
  *
  * Finding the unlinked rows has no wall-clock window. A chain has a high-water mark (the
  * newest createdAt among its last 1000 linked rows; an insert's createdAt is the database
- * clock, set by a trigger), and a pass looks at rows after the mark less a margin: an outage of
- * any length just resumes from the mark, and a backfill proceeds from the mark, not from the
- * start. A row that committed more than the margin after it was made (a long transaction) sits
- * behind the mark; the DEEP pass (no floor) finds it, at boot, hourly and in the daily job.
+ * clock, set by a trigger), and a SHALLOW pass looks at rows after the mark less a margin (never
+ * further back than the 5000th newest link): an outage of any length just resumes from the mark,
+ * and a backfill proceeds from the mark, not from the start. A row that committed long after it was
+ * made (a long transaction) sits behind the mark; the DEEP pass (the last seven days; at boot and
+ * hourly) finds it, and the FULL sweep (no floor; the daily job) finds anything.
  *
- * One chainer works a chain at a time: pg_try_advisory_xact_lock per chain key
- * (a second replica skips that chain), taken in the same transaction that reads
- * the head and inserts the links. The links go in through audit_chain_append
+ * One chainer works a chain at a time: audit_chain_lock, a FOR UPDATE SKIP LOCKED row only that
+ * function touches (a second replica skips the chain), taken first in the transaction that reads
+ * the head and inserts the links. (Not an advisory lock: any login could take one to starve it.) The links go in through audit_chain_append
  * (lib/audit/store.ts): the application's roles have no privilege on the table, and
  * the function refuses a link that does not continue the chain. Only the worker, which
  * holds AUDIT_CHAIN_KEY, runs it.
@@ -29,7 +30,7 @@ import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/observability/logger"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { GENESIS_HASH, linkHash } from "./chain-hash"
-import { appendLinks, candidateChains, chainHead, unlinkedRows, type NewLink } from "./store"
+import { appendLinks, candidateChains, chainHead, lockChain, unlinkedRows, type NewLink, type ScanMode } from "./store"
 
 export const BATCH = 500
 /** A pass looks this far behind a chain's high-water mark; a commit later than this waits for the deep pass. */
@@ -38,7 +39,7 @@ export const MARGIN_SECONDS = 3600
 export const UNCHAINED_GRACE_MS = 24 * 3_600_000
 const DEEP_EVERY_MS = 3_600_000
 /** A chain another chainer has held this many passes in a row is reported. */
-const BUSY_ALERT_PASSES = 12
+export const BUSY_ALERT_PASSES = 12
 
 export interface ChainerResult {
   chains: number
@@ -53,14 +54,12 @@ const busyStreak = new Map<string, number>()
 type Tx = Prisma.TransactionClient
 
 /** Links up to BATCH rows of one chain. Returns the rows linked, or null if another chainer holds the chain. */
-async function chainBatch(db: PrismaClient, key: string, deep: boolean): Promise<number | null> {
+async function chainBatch(db: PrismaClient, key: string, mode: ScanMode): Promise<number | null> {
   return db.$transaction(async (tx: Tx) => {
-    const [lock] = await tx.$queryRaw<Array<{ ok: boolean }>>`
-      SELECT pg_try_advisory_xact_lock(hashtextextended(${`audit-chain:${key}`}, 0)) AS ok`
-    if (!lock.ok) return null
+    if (!(await lockChain(tx, key))) return null
 
     const head = await chainHead(tx, key)
-    const rows = await unlinkedRows(tx, key, deep, MARGIN_SECONDS, BATCH)
+    const rows = await unlinkedRows(tx, key, mode, MARGIN_SECONDS, BATCH)
     if (rows.length === 0) return 0
 
     let seq = head?.seq ?? 0
@@ -76,7 +75,8 @@ async function chainBatch(db: PrismaClient, key: string, deep: boolean): Promise
   }, { timeout: 60_000 })
 }
 
-function noteBusy(key: string, busy: boolean): void {
+/** Counts the passes in a row a chain was held by another chainer, and says so once it has been too many. */
+export function noteBusy(key: string, busy: boolean): void {
   if (!busy) { busyStreak.delete(key); return }
   const n = (busyStreak.get(key) ?? 0) + 1
   busyStreak.set(key, n)
@@ -84,23 +84,24 @@ function noteBusy(key: string, busy: boolean): void {
 }
 
 /**
- * One pass over every chain with committed, unchained rows (or only the chains in `only`: for a
- * test sharing a database). `deep` looks at every row with no link; by default it is deep at the
- * first pass of the process and then hourly.
+ * One pass over every chain with committed, unchained rows (or only the chains in `only`: for a test sharing
+ * a database). `mode` is where it looks (shallow, deep, full: see above); by default deep at the first pass of
+ * the process and then hourly, shallow otherwise.
  */
-export async function runChainer(opts: { db?: PrismaClient; deep?: boolean; budgetMs?: number; only?: readonly string[] } = {}): Promise<ChainerResult> {
+export async function runChainer(opts: { db?: PrismaClient; mode?: ScanMode; budgetMs?: number; only?: readonly string[] } = {}): Promise<ChainerResult> {
   const db = (opts.db ?? prisma) as unknown as PrismaClient
   const started = Date.now()
-  const deep = opts.deep ?? (Date.now() - lastDeepScan >= DEEP_EVERY_MS)
-  if (deep) lastDeepScan = Date.now()
+  const dueDeep = Date.now() - lastDeepScan >= DEEP_EVERY_MS
+  const mode: ScanMode = opts.mode ?? (dueDeep ? "deep" : "shallow")
+  if (mode !== "shallow") lastDeepScan = Date.now()
   const result: ChainerResult = { chains: 0, linked: 0, busy: 0 }
 
   return withoutTenantScope(async () => {
-    const keys = (await candidateChains(db, deep, MARGIN_SECONDS)).sort().filter((k) => !opts.only || opts.only.includes(k))
+    const keys = (await candidateChains(db, mode, MARGIN_SECONDS)).sort().filter((k) => !opts.only || opts.only.includes(k))
     for (const key of keys) {
       result.chains++
       for (;;) {
-        const n = await chainBatch(db, key, deep)
+        const n = await chainBatch(db, key, mode)
         noteBusy(key, n === null)
         if (n === null) { result.busy++; break }
         result.linked += n

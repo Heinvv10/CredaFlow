@@ -10,7 +10,7 @@
  * keep the operator-computed keyed digest in AuditRedaction, and the link still
  * verifies; the database never holds an unkeyed digest of an email or an address.
  */
-import { createHmac } from "node:crypto"
+import { createHash, createHmac } from "node:crypto"
 
 export const GENESIS_HASH = "0".repeat(64)
 /** The chain key of AuditLog rows that have no tenant. */
@@ -35,9 +35,10 @@ export function auditChainKeyConfigured(): boolean {
 }
 
 /**
- * What the database hands the worker for an AuditLog row (audit_hash_inputs): the ids and time,
- * and the raw personal-data columns (jsonb as canonical text), plus, for a column a documented
- * redaction removed, the keyed digest the redaction kept.
+ * What the database hands the worker for an AuditLog row (audit_hash_inputs): the ids and time, the
+ * SHA-256 of each personal-data column (jsonb as canonical text; NULL for a NULL column; computed in the
+ * database so a row with a huge value costs the worker nothing to receive), and, for a column a
+ * documented redaction removed, the keyed digest the redaction kept.
  */
 export interface RowInputs {
   auditLogId: string
@@ -48,10 +49,10 @@ export interface RowInputs {
   entityId: string | null
   /** "YYYY-MM-DDTHH:MI:SS.MS" (UTC), as audit_hash_inputs prints it. */
   createdAt: string
-  userEmail: string | null
-  ipAddress: string | null
-  oldValueText: string | null
-  newValueText: string | null
+  userEmailSha: string | null
+  ipAddressSha: string | null
+  oldValueSha: string | null
+  newValueSha: string | null
   userEmailRed: string | null
   ipAddressRed: string | null
   oldValueRed: string | null
@@ -61,26 +62,34 @@ export interface RowInputs {
 export const HASHED_COLUMNS = ["userEmail", "ipAddress", "oldValue", "newValue"] as const
 export type HashedColumn = (typeof HASHED_COLUMNS)[number]
 
+export const sha256Hex = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex")
+
 /**
- * The keyed digest of one personal-data column: HMAC(AUDIT_CHAIN_KEY, label + value), "-" for NULL.
- * Keyed so the database (which holds the digest of a redacted column for good) cannot be used to
- * test guesses of an email, an address or a value; only the key holder can.
+ * The keyed digest of one personal-data column given the SHA-256 of its value ("-" for NULL):
+ * HMAC(AUDIT_CHAIN_KEY, label + sha). Keyed so the database (which holds the digest of a redacted
+ * column for good) cannot be used to test guesses of an email, an address or a value; only the key
+ * holder can.
  */
+export function columnDigestOfSha(column: HashedColumn, sha: string | null): string {
+  if (sha === null) return "-"
+  return createHmac("sha256", key()).update(`d1|${column}|${sha}`).digest("hex")
+}
+
+/** The same from the value itself (what the redaction tool, which reads the value, computes). */
 export function columnDigest(column: HashedColumn, value: string | null): string {
-  if (value === null) return "-"
-  return createHmac("sha256", key()).update(`d1|${column}|${value}`).digest("hex")
+  return columnDigestOfSha(column, value === null ? null : sha256Hex(value))
 }
 
 /** What a link hashes of a column: the digest a redaction kept, else the keyed digest of the value. */
-function digestOf(column: HashedColumn, value: string | null, redacted: string | null): string {
-  return redacted ?? columnDigest(column, value)
+function digestOf(column: HashedColumn, sha: string | null, redacted: string | null): string {
+  return redacted ?? columnDigestOfSha(column, sha)
 }
 
 export function linkHash(chainKey: string, seq: number, prevHash: string, r: RowInputs): string {
   const canonical = JSON.stringify([
     "v3", chainKey, seq, prevHash, r.auditLogId, r.tenantId, r.userId, r.action, r.entity, r.entityId, r.createdAt,
-    digestOf("userEmail", r.userEmail, r.userEmailRed), digestOf("ipAddress", r.ipAddress, r.ipAddressRed),
-    digestOf("oldValue", r.oldValueText, r.oldValueRed), digestOf("newValue", r.newValueText, r.newValueRed),
+    digestOf("userEmail", r.userEmailSha, r.userEmailRed), digestOf("ipAddress", r.ipAddressSha, r.ipAddressRed),
+    digestOf("oldValue", r.oldValueSha, r.oldValueRed), digestOf("newValue", r.newValueSha, r.newValueRed),
   ])
   return createHmac("sha256", key()).update(canonical).digest("hex")
 }
@@ -89,7 +98,23 @@ export function checkpointHmac(chainKey: string, seq: number, rowHash: string): 
   return createHmac("sha256", key()).update(JSON.stringify(["cp1", chainKey, seq, rowHash])).digest("hex")
 }
 
-/** The signature of an operator's acceptance of a break (audit_chain_accept_break). */
-export function repairHmac(chainKey: string, seq: number, kind: string, reason: string, operator: string): string {
-  return createHmac("sha256", key()).update(JSON.stringify(["rp1", chainKey, seq, kind, reason.trim(), operator.trim()])).digest("hex")
+/**
+ * The signature of an operator's acceptance of ONE break (audit_chain_accept_break): the chain, the link's
+ * position and kind, the audit row and the link's hash it was seen on, and, for a content mismatch, the hash
+ * the row recomputes to (the state the operator accepted), then the reason and who. Anything else about
+ * that place changing later makes the break a new one.
+ */
+export interface RepairSubject {
+  chainKey: string
+  seq: number
+  kind: string
+  auditLogId: string
+  linkRowHash: string
+  observedHash: string
+}
+
+export function repairHmac(r: RepairSubject, reason: string, operator: string): string {
+  return createHmac("sha256", key())
+    .update(JSON.stringify(["rp2", r.chainKey, r.seq, r.kind, r.auditLogId, r.linkRowHash, r.observedHash, reason.trim(), operator.trim()]))
+    .digest("hex")
 }

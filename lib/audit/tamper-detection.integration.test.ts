@@ -108,8 +108,12 @@ suite("tamper-detection", () => {
   })
 
   describe("an operator accepting a break", () => {
-    const accept = (key: string, seq: number, kind: string, reason = "restored from the 03:00 backup, row lost", operator = "it-operator", hmac = repairHmac(key, seq, kind, reason, operator)) =>
-      db.$executeRaw`SELECT public.audit_chain_accept_break(${key}, ${seq}::int, ${kind}, ${reason}, ${operator}, ${hmac})`
+    /** What scripts/audit-accept-break.ts does: find the break, sign exactly what it shows, hand it to the database. */
+    const accept = async (key: string, seq: number, kind: string, reason = "restored from the 03:00 backup, row lost", operator = "it-operator", forged?: string) => {
+      const found = (await verify(key)).breaks.find((b) => b.chainSeq === seq && b.kind === kind)
+      const subject = { chainKey: key, seq, kind, auditLogId: found?.auditLogId ?? "", linkRowHash: found?.linkRowHash ?? "", observedHash: found?.observedHash ?? "" }
+      return db.$executeRaw`SELECT public.audit_chain_accept_break(${key}, ${seq}::int, ${kind}, ${subject.auditLogId}, ${subject.linkRowHash}, ${subject.observedHash}, ${reason}, ${operator}, ${forged ?? repairHmac(subject, reason, operator)})`
+    }
 
     it("lets verification pass a signed-off break, lists it as accepted, writes its own audit row, and still fails any other", async () => {
       const K = await tenant("repair")
@@ -137,11 +141,29 @@ suite("tamper-detection", () => {
       const [first] = await rows(K)
       await tamper(`UPDATE "AuditLog" SET "action" = 'EDITED' WHERE id = '${first.id}'`)
       await accept(K, 1, "row_hash_mismatch", "forged by someone without the key", "attacker", "a".repeat(64))
-      await accept(K, 1, "seq_gap")
+      await accept(K, 1, "seq_gap") // validly signed, but for a kind that is not what is broken there
       const result = await verify(K)
       expect(result.ok).toBe(false)
       expect(result.breaks.map((b) => b.kind).sort()).toEqual(["repair_invalid", "row_hash_mismatch"])
       expect(result.accepted).toEqual([])
+    })
+
+    it("accepts exactly what was seen: the same row edited again afterwards is a new break, and so is another row at that place", async () => {
+      const K = await tenant("exact")
+      for (let i = 1; i <= 3; i++) await write(K, i)
+      await chain(K)
+      const [first, second] = await rows(K)
+      await tamper(`UPDATE "AuditLog" SET "action" = 'EDITED' WHERE id = '${first.id}'`)
+      await accept(K, 1, "row_hash_mismatch")
+      expect(await verify(K)).toMatchObject({ ok: true, accepted: [expect.objectContaining({ chainSeq: 1 })] })
+      // Edited AGAIN (a different state than the one accepted): not covered by the acceptance.
+      await tamper(`UPDATE "AuditLog" SET "action" = 'EDITED_AGAIN' WHERE id = '${first.id}'`)
+      const again = await verify(K)
+      expect(again.ok).toBe(false)
+      expect(again.breaks).toEqual([expect.objectContaining({ kind: "row_hash_mismatch", chainSeq: 1 })])
+      // A break of the same kind at another place is not covered either.
+      await tamper(`UPDATE "AuditLog" SET "action" = 'EDITED' WHERE id = '${second.id}'`)
+      expect((await verify(K)).breaks.map((b) => b.chainSeq)).toEqual([1, 2])
     })
 
     it("is refused without a reason, an operator or a signature", async () => {

@@ -34,14 +34,14 @@ export function siemFixture() {
     })
   const write = (tenantId: string, n: number, action = "LOAN_NOTE_ADDED", client: unknown = db) =>
     logAuditStrict({ tenantId, action, entity: "Thing", entityId: `e${n}`, userEmail: `p${n}@it.invalid`, ipAddress: "10.0.0.1", oldValue: { n }, newValue: { n, idNumber: "8001015009087" } }, client as Writer)
-  const chain = (tenantId: string) => runChainer({ db, deep: true, only: [tenantId] })
+  const chain = (tenantId: string) => runChainer({ db, mode: "full", only: [tenantId] })
   const outbox = (tenantId: string) => db.auditSiemOutbox.findMany({ where: { tenantId }, orderBy: { id: "asc" } })
   const recorder = (answer: (events: SiemEvent[], url: string | null) => { ok: boolean; error?: string; permanent?: boolean } = () => ({ ok: true })) => {
     const calls: Array<{ url: string | null; events: SiemEvent[] }> = []
     const send: SiemSender = async (target, events) => {
       calls.push({ url: target.url, events })
       const r = answer(events, target.url)
-      return r.ok ? { ok: true, error: null } : { ok: false, error: (r.error ?? "siem_unavailable") as never, ...(r.permanent ? { permanent: true } : {}) }
+      return r.ok ? { ok: true, error: null, ackId: "ack-it" } : { ok: false, error: (r.error ?? "siem_unavailable") as never, ...(r.permanent ? { permanent: true } : {}) }
     }
     return { calls, send, seqs: () => calls.flatMap((c) => c.events.map((e) => e.chain.seq)) }
   }

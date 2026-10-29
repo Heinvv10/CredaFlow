@@ -27,7 +27,7 @@ export function auditFixture(labels: readonly string[]) {
     logAuditStrict({ tenantId, action: "AUDIT_IT", entity: "Thing", entityId: `e${n}`, oldValue: { n }, newValue: { n: n + 1 }, userEmail: `p${n}@it.invalid`, ipAddress: "10.0.0.1" }, client as Writer)
   const rows = (tenantId: string) => db.auditLog.findMany({ where: { tenantId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
   const links = (tenantId: string) => db.$queryRaw<Array<{ seq: number; auditLogId: string; rowHash: string }>>`SELECT "seq", "auditLogId", "rowHash" FROM "AuditChainLink" WHERE "chainKey" = ${tenantId} ORDER BY "seq"`
-  const chain = (...only: string[]) => runChainer({ db, deep: true, only })
+  const chain = (...only: string[]) => runChainer({ db, mode: "full", only })
   const verify = (key: string, mode: "full" | "incremental" = "full") => verifyAuditChains(db, { chainKey: key, mode })
   const tamper = (sql: string) => tamperAuditRowsForTest(db, sql)
   const tenant = async (label: string) => {
@@ -40,7 +40,7 @@ export function auditFixture(labels: readonly string[]) {
   const redact = async (id: string, cols: HashedColumn[], reason = "POPIA erasure request ref 42", op = "it-operator") => {
     const [row] = await db.$queryRaw<Array<Record<HashedColumn, string | null>>>`
       SELECT "userEmail", "ipAddress", "oldValue"::text AS "oldValue", "newValue"::text AS "newValue" FROM "AuditLog" WHERE "id" = ${id}`
-    const digests = Object.fromEntries(cols.map((c) => [c, columnDigest(c, row ? row[c] : "")]))
+    const digests = Object.fromEntries(cols.map((c) => [c, columnDigest(c, (row ? row[c] : "") ?? null)]))
     return db.$executeRaw`SELECT public.audit_log_redact(${id}, ${cols}::text[], ${reason}, ${op}, ${JSON.stringify(digests)}::jsonb)`
   }
   const setup = async () => { await db.tenant.createMany({ data: tenantIds.map((id) => ({ id, slug: id, name: id })) }) }
