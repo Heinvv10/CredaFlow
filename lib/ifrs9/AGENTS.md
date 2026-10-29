@@ -27,12 +27,16 @@ Design and limits: `docs/ifrs9/DESIGN.md`.
   `/api/cron/ifrs9-run` on the last SAST day (make-up days 1-5), or added late /
   superseded (reason, ADMIN + TOTP) while the month is open
   (`POST /api/ifrs9/runs/monthly`). ON_DEMAND is analysis and feeds nothing.
-  While IFRS 9 is enabled a month cannot close without its run.
+  While IFRS 9 is enabled a month cannot close without its run, nor on a run
+  made before an earlier month's run was made or replaced (stale).
 - **Suspension is an accounting classification.** It never changes what the
   borrower owes, the schedule, a charge or any NCA document: only the ledger
   moves interest from income to `INTEREST_SUSPENSE`. Do not read it anywhere
   borrower-facing. Stage 3 and consumer loans (`journalsSuspense`) only.
-  `FULL_SUSPENSION` is the regulatory basis, `NET_BASIS` the IFRS 9 one.
+  `FULL_SUSPENSION` is the regulatory basis (suspense account, exposure net of it);
+  `NET_BASIS` the IFRS 9 one (gross exposure and allowance, month's interest x
+  ECL/EAD moved from income to the ECL expense, never given back). The basis
+  cannot change once posted.
 - **Write-off uses the allowance** (Dr allowance / Cr bad debt); never credit
   `ECL_EXPENSE` on a write-off.
 - **DPD is the product's** (`recomputeLoanBalances`, `>= 90` = Stage 3; Stage 2

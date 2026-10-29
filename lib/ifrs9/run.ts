@@ -20,14 +20,14 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { loadLoanCharges } from "@/lib/loan/charges-summary"
-import { loadPriorStaging, loadRunLoans } from "./loan-input"
+import { loadDefaultInterestRaised, loadPriorStaging, loadRunLoans } from "./loan-input"
 import { missingDefaults } from "./parameters"
-import { monthlyInstants, periodEndDate } from "./period"
+import { monthlyInstants, periodEndDate, previousMonthKey } from "./period"
 import { assessLoan, buildSnapshot, type RunContext, type SnapshotData } from "./snapshot"
 import { loadParameters, loadSettings } from "./store"
 import type { Stage } from "./types"
 
-export type RunRefusal = "PARAMETERS_MISSING" | "NOT_ENABLED" | "INVALID_PERIOD" | "PERIOD_NOT_ENDED" | "PERIOD_CLOSED" | "SUPERSEDE_STALE"
+export type RunRefusal = "PARAMETERS_MISSING" | "NOT_ENABLED" | "INVALID_PERIOD" | "PERIOD_NOT_ENDED" | "PERIOD_CLOSED" | "SUPERSEDE_STALE" | "PREVIOUS_MONTH_MISSING"
 
 export class Ifrs9RunError extends Error {
   constructor(readonly code: RunRefusal, message: string) {
@@ -75,18 +75,31 @@ async function periodClosed(tenantId: string, periodKey: string): Promise<boolea
   return (await prisma.accountingExportBatch.count({ where: { tenantId, periodKey } })) > 0
 }
 
-async function snapshotRows(tenantId: string, ctx: RunContext, receiptsBefore: Date | null, runDate: string): Promise<SnapshotData[]> {
-  const [loans, priors] = await Promise.all([loadRunLoans(prisma, tenantId, ctx.runAt, receiptsBefore), loadPriorStaging(prisma, tenantId, runDate)])
+async function snapshotRows(tenantId: string, ctx: RunContext, asOf: Date | null, runDate: string): Promise<SnapshotData[]> {
+  const [loans, priors] = await Promise.all([loadRunLoans(prisma, tenantId, ctx.runAt, asOf), loadPriorStaging(prisma, tenantId, runDate)])
+  const net = ctx.settings.stage3InterestBasis === "NET_BASIS" && ctx.periodStart != null && ctx.chargesLive
+  const raised = net ? await loadDefaultInterestRaised(prisma, tenantId, loans.map((l) => l.id), ctx.periodStart!, runDate) : new Map<string, number>()
   const rows: SnapshotData[] = []
   for (const loan of loans) {
     const assessment = assessLoan(loan, ctx, priors.get(loan.id) ?? null)
-    // Default interest is replayed only for a loan whose interest is suspended and which owes charges.
-    const defaultInterest = assessment.suspended && ctx.chargesLive && loan.chargesOutstanding > 0
+    // Default interest owed is replayed only for a Stage 3 loan on the full basis which owes charges.
+    const owed = assessment.suspended && !net && ctx.chargesLive && loan.chargesOutstanding > 0
       ? (await loadLoanCharges(prisma, { tenantId, loanId: loan.id }, ctx.runAt))?.buckets.DEFAULT_INTEREST.outstanding ?? 0
       : 0
-    rows.push(buildSnapshot(loan, ctx, assessment, defaultInterest))
+    rows.push(buildSnapshot(loan, ctx, assessment, owed, raised.get(loan.id) ?? 0))
   }
   return rows
+}
+
+/** A month's first run needs the month before it to have one, when that month is one IFRS 9 governs: each stage starts from the last. */
+async function requirePreviousMonth(tenantId: string, periodKey: string, effectiveFromMonth: string | null): Promise<void> {
+  const previous = previousMonthKey(periodKey)
+  const governed = effectiveFromMonth !== null
+    ? previous >= effectiveFromMonth
+    : (await prisma.ifrs9Run.count({ where: { tenantId, kind: "MONTHLY", periodKey: { lte: previous } } })) > 0
+  if (governed && !(await currentMonthlyRun(prisma, tenantId, previous))) {
+    throw new Ifrs9RunError("PREVIOUS_MONTH_MISSING", `${previous} has no monthly run: make it first, because ${periodKey} starts from its stages`)
+  }
 }
 
 export async function executeRun(tenantId: string, options: RunOptions): Promise<RunSummary> {
@@ -102,6 +115,7 @@ export async function executeRun(tenantId: string, options: RunOptions): Promise
     if (await periodClosed(tenantId, monthly.periodKey)) throw new Ifrs9RunError("PERIOD_CLOSED", `${monthly.periodKey} is closed: its run can no longer change`)
     const current = await currentMonthlyRun(prisma, tenantId, monthly.periodKey)
     if (current && !monthly.supersede) return summaryOf(current, false)
+    if (!current) await requirePreviousMonth(tenantId, monthly.periodKey, settings.effectiveFromMonth)
     if (monthly.supersede && current?.id !== monthly.supersede.runId) {
       throw new Ifrs9RunError("SUPERSEDE_STALE", "That is not the month's current run: reload and try again")
     }
@@ -115,9 +129,11 @@ export async function executeRun(tenantId: string, options: RunOptions): Promise
   const instants = periodKey ? monthlyInstants(periodKey, today) : null
   const runDate = instants?.runDate ?? today
   const backdated = instants?.receiptsBefore != null
-  const ctx: RunContext = { settings, parameters, runAt: instants?.runAt ?? now, chargesLive: await chargesLiveForTenant(prisma, tenantId) }
-  const receiptsBefore = instants?.receiptsBefore ?? null
-  const rows = await snapshotRows(tenantId, ctx, receiptsBefore, runDate)
+  const ctx: RunContext = {
+    settings, parameters, runAt: instants?.runAt ?? now, chargesLive: await chargesLiveForTenant(prisma, tenantId),
+    periodStart: periodKey ? `${periodKey}-01` : null,
+  }
+  const rows = await snapshotRows(tenantId, ctx, instants?.receiptsBefore ?? null, runDate)
   const totalEad = rows.reduce((sum, r) => sum + r.eadCents, 0)
   const totalEcl = rows.reduce((sum, r) => sum + r.eclCents, 0)
   const late = monthly !== null && backdated
@@ -157,7 +173,9 @@ export async function executeRun(tenantId: string, options: RunOptions): Promise
   } catch (error) {
     if (periodKey) {
       // A concurrent replica won the month's run, or the month closed while this one was being worked out.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && !monthly?.supersede) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        // A concurrent supersede of the same run won: this request named a run that is no longer the month's.
+        if (monthly?.supersede) throw new Ifrs9RunError("SUPERSEDE_STALE", "That is not the month's current run: reload and try again")
         const existing = await currentMonthlyRun(prisma, tenantId, periodKey)
         if (existing) return summaryOf(existing, false)
       }

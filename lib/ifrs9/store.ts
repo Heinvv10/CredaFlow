@@ -31,13 +31,22 @@ export async function loadSettings(db: Pick<Db, "ifrs9Config">, tenantId: string
   }
 }
 
-/** The allowance the ledger holds now for the lender: the net of every closed month's ECL_ALLOWANCE lines (a credit is negative). */
-export async function postedAllowanceCents(db: Pick<typeof prisma, "$queryRaw">, tenantId: string): Promise<number> {
-  const rows = await db.$queryRaw<Array<{ net: bigint | null }>>(Prisma.sql`
-    SELECT SUM("debitCents" - "creditCents")::bigint AS "net" FROM "AccountingJournalLine"
-    WHERE "tenantId" = ${tenantId} AND COALESCE("sourceRole", "role") = 'ECL_ALLOWANCE'
+export interface LedgerPosition {
+  /** Net of every closed month's ECL_ALLOWANCE lines and INTEREST_SUSPENSE lines (a credit is negative). */
+  allowanceCents: number
+  suspenseCents: number
+  /** Any IFRS 9 line has been posted (a net-basis adjustment too), whatever the balances now. */
+  posted: boolean
+}
+
+export async function ledgerPosition(db: Pick<typeof prisma, "$queryRaw">, tenantId: string): Promise<LedgerPosition> {
+  const rows = await db.$queryRaw<Array<{ role: string; net: bigint }>>(Prisma.sql`
+    SELECT COALESCE("sourceRole", "role") AS "role", SUM("debitCents" - "creditCents")::bigint AS "net" FROM "AccountingJournalLine"
+    WHERE "tenantId" = ${tenantId} AND COALESCE("sourceRole", "role") IN ('ECL_ALLOWANCE', 'ECL_EXPENSE', 'INTEREST_SUSPENSE')
+    GROUP BY 1
   `)
-  return Number(rows[0]?.net ?? 0)
+  const net = (role: string) => Number(rows.find((r) => r.role === role)?.net ?? 0)
+  return { allowanceCents: net("ECL_ALLOWANCE"), suspenseCents: net("INTEREST_SUSPENSE"), posted: rows.length > 0 }
 }
 
 /** The first accounting month not yet closed, or null when none is knowable yet (no go-live month, nothing closed). */
@@ -49,18 +58,40 @@ async function firstUnclosedMonth(tx: Pick<Tx, "accountingExportBatch" | "accoun
 
 export type SaveSettingsResult = { ok: true } | { ok: false; error: string }
 
+const rand = (cents: number) => `R${(Math.abs(cents) / 100).toFixed(2)}`
+
 /**
- * Under the accounting lock, so a close cannot interleave. IFRS 9 cannot be switched off while the ledger holds an
- * allowance (it would never be released), and its first month cannot be a month that has already closed.
+ * Why a change of policy must wait, given what the ledger already holds, or null. A closed month is final and each month
+ * posts only the movement from what was posted, so a change that would strand or double a posted position is refused:
+ * switching off while an allowance or interest in suspense is held (it would never be released), moving the first month
+ * forward over a held position (the close would carry a frozen one), and changing the Stage 3 interest basis once anything
+ * has been posted (the old basis's postings would sit beside the new basis's).
+ */
+export function policyChangeRefusal(before: Ifrs9Settings, next: Ifrs9Settings, position: LedgerPosition): string | null {
+  const held = position.allowanceCents !== 0 || position.suspenseCents !== 0
+  if (before.enabled && !next.enabled && held) {
+    return `IFRS 9 cannot be switched off while the ledger holds an allowance of ${rand(position.allowanceCents)} and interest in suspense of ${rand(position.suspenseCents)}: they would never be released`
+  }
+  const forward = next.effectiveFromMonth !== null && (before.effectiveFromMonth === null || next.effectiveFromMonth > before.effectiveFromMonth)
+  if (before.enabled && next.enabled && forward && held) {
+    return `effectiveFromMonth cannot move forward while the ledger holds an allowance of ${rand(position.allowanceCents)} and interest in suspense of ${rand(position.suspenseCents)}: later months would close on a frozen position`
+  }
+  if (position.posted && before.stage3InterestBasis !== next.stage3InterestBasis) {
+    return "stage3InterestBasis cannot change once IFRS 9 has posted to the ledger: the old basis's entries would sit beside the new one's"
+  }
+  return null
+}
+
+/**
+ * Under the accounting lock, so a close cannot interleave. See policyChangeRefusal; and the first month cannot be a
+ * month that has already closed.
  */
 export async function saveSettings(db: Db2, tenantId: string, next: Ifrs9Settings, actor: Actor): Promise<SaveSettingsResult> {
   return db.$transaction(async (tx) => {
     await lockAccounting(tx, tenantId)
     const before = await loadSettings(tx, tenantId)
-    if (before.enabled && !next.enabled) {
-      const held = await postedAllowanceCents(tx, tenantId)
-      if (held !== 0) return { ok: false, error: `IFRS 9 cannot be switched off while the ledger holds an allowance of R${(Math.abs(held) / 100).toFixed(2)}: it would never be released` }
-    }
+    const refusal = policyChangeRefusal(before, next, await ledgerPosition(tx, tenantId))
+    if (refusal) return { ok: false, error: refusal }
     if (next.enabled && next.effectiveFromMonth !== null && next.effectiveFromMonth !== before.effectiveFromMonth) {
       const first = await firstUnclosedMonth(tx, tenantId)
       if (first !== null && next.effectiveFromMonth < first) return { ok: false, error: `effectiveFromMonth must be ${first} or later: earlier months are closed` }

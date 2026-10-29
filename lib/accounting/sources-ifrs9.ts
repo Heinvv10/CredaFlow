@@ -10,13 +10,17 @@
  *               it is debited and BAD_DEBT_EXPENSE credited by the same amount (the write-off source
  *               debits BAD_DEBT_EXPENSE for the whole book), and ECL_EXPENSE stays as charged.
  *   suspense    Dr INTEREST_INCOME (and DEFAULT_INTEREST_INCOME) / Cr INTEREST_SUSPENSE for the
- *               interest raised and uncollected while the loan is Stage 3 (on the net basis, the share
- *               the allowance covers). The loan book is untouched: the borrower owes the same. As it
+ *               interest raised and uncollected while the loan is Stage 3 (full-suspension basis only).
+ *               The loan book is untouched: the borrower owes the same. As it
  *               is collected, or the loan cures, the figure falls and the next run's delta puts it back
  *               into income. On write-off the suspended interest is not a loss: it reduces
  *               BAD_DEBT_EXPENSE instead.
+ *   net basis   (IFRS 9 5.4.1(b), when the lender chose it) Dr INTEREST_INCOME (and DEFAULT_INTEREST_INCOME) /
+ *               Cr ECL_EXPENSE for the cumulative sum of each Stage 3 month's interest times ECL / gross exposure.
+ *               The allowance stays the ECL on the gross exposure, there is no suspense, and nothing is given back
+ *               on cure or write-off: the adjustment is prospective (5.4.2) and only moves income between lines.
  *
- * Both are cumulative vectors, so derive.ts posts the movement each month and
+ * All are cumulative vectors, so derive.ts posts the movement each month and
  * a correction after the fact is next month's adjustment, as for every source.
  */
 import { sastDayStart } from "@/lib/date/sast-period"
@@ -31,6 +35,9 @@ export interface Ifrs9Position {
   eclCents: number
   suspendedInterestCents: number
   suspendedDefaultInterestCents: number
+  /** Net basis, summed over the current monthly runs up to the period: interest income taken out against the ECL expense. */
+  netInterestAdjustmentCents: number
+  netDefaultInterestAdjustmentCents: number
   /** Whether interest suspension is journalled for this contract (consumer loans; asset finance is left in income). */
   journalsSuspense: boolean
   /** The loan was written off before the period ended. */
@@ -58,6 +65,14 @@ function suspenseOf(p: Ifrs9Position, posted: boolean): Vector {
   return vector
 }
 
+function netBasisOf(p: Ifrs9Position): Vector {
+  const vector: Vector = {}
+  addTo(vector, "INTEREST_INCOME", p.netInterestAdjustmentCents)
+  addTo(vector, "DEFAULT_INTEREST_INCOME", p.netDefaultInterestAdjustmentCents)
+  addTo(vector, "ECL_EXPENSE", -(p.netInterestAdjustmentCents + p.netDefaultInterestAdjustmentCents))
+  return vector
+}
+
 export function ifrs9Sources(positions: readonly Ifrs9Position[], period: AccountingPeriod): DesiredSource[] {
   return positions.flatMap((p) => {
     const posted = p.periodKey <= period.key
@@ -73,6 +88,11 @@ export function ifrs9Sources(positions: readonly Ifrs9Position[], period: Accoun
         baseKey: `ifrs9:suspense:${p.loanId}`, loanId: p.loanId, reference: p.reference, vector: suspenseOf(p, posted),
         origin: { type: "INTEREST_SUSPENSE", date, description: `Interest on ${p.reference} held in suspense` },
         change: { type: "INTEREST_SUSPENSE", date: null, description: `Interest in suspense on ${p.reference} re-stated` },
+      },
+      {
+        baseKey: `ifrs9:netint:${p.loanId}`, loanId: p.loanId, reference: p.reference, vector: netBasisOf(p),
+        origin: { type: "ECL_PROVISION", date, description: `Interest on ${p.reference} taken off against the credit loss expense (net basis)` },
+        change: { type: "ECL_PROVISION", date: null, description: `Net-basis interest adjustment on ${p.reference} re-stated` },
       },
     ]
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { addMonthsIso, classifyStage, stageTriggers, wasRestructured, type StagingInput } from "./staging"
+import { addMonthsIso, classifyStage, stageTriggers, type PriorStaging, type StagingInput } from "./staging"
 import { DEFAULT_SETTINGS, type Ifrs9Settings } from "./types"
 
 const loan = (over: Partial<StagingInput> = {}): StagingInput => ({
@@ -136,12 +136,6 @@ describe("restructure probation", () => {
   it("uses only the ordinary probation for a loan that was never restructured", () => {
     expect(classifyStage(loan(), p, { stage: 2, stageSince: "2026-01-31", cureStartedOn: "2026-06-30", restructured: false }, "2026-09-30").stage).toBe(1)
   })
-
-  it("reads the restructured mark back from a snapshot's reasons, also while the probation is being served", () => {
-    expect(wasRestructured(["RESTRUCTURED"])).toBe(true)
-    expect(wasRestructured(["PROBATION_FROM_STAGE_2", "RESTRUCTURE_PROBATION"])).toBe(true)
-    expect(wasRestructured(["PROBATION_FROM_STAGE_2"])).toBe(false)
-  })
 })
 
 describe("partial relapse in Stage 3 probation", () => {
@@ -156,5 +150,55 @@ describe("partial relapse in Stage 3 probation", () => {
   it("restarts it when a Stage 3 trigger fires again", () => {
     const prior = { stage: 3 as const, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }
     expect(classifyStage(loan({ dpd: 95 }), p, prior, "2026-08-31")).toMatchObject({ stage: 3, cureStartedOn: null, inProbation: false })
+  })
+})
+
+// Review breaker 6 (PR #255 round 2): the restructure marker is stored on the snapshot, so a Stage 3 trigger winning the
+// stage no longer loses it, and the longer probation applies to a loan that is RESTRUCTURED now whatever its prior said.
+describe("the restructured marker", () => {
+  const p = policy({ stage3ProbationMonths: 6, stage2ProbationMonths: 3, restructuredProbationMonths: 12 })
+  const next = (prior: PriorStaging, result: ReturnType<typeof classifyStage>): PriorStaging => ({
+    stage: result.stage, stageSince: result.stageSince, cureStartedOn: result.cureStartedOn, restructured: result.restructured,
+  })
+  const monthEnd = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
+
+  it("is kept when a default trigger wins the stage, so the loan still serves the longer probation once it is ACTIVE again", () => {
+    const sep = classifyStage(loan({ dpd: 120, status: "RESTRUCTURED" }), p, null, "2026-09-30")
+    expect(sep).toMatchObject({ stage: 3, restructured: true })
+    // October: arrears capitalised by the restructure, 0 days past due, still RESTRUCTURED (Stage 2 by default mapping)
+    const oct = classifyStage(loan({ status: "RESTRUCTURED" }), p, { stage: 3, stageSince: "2026-09-30", cureStartedOn: null, restructured: sep.restructured }, "2026-10-31")
+    expect(oct).toMatchObject({ stage: 3, inProbation: true, restructured: true, reasons: ["PROBATION_FROM_STAGE_3", "RESTRUCTURE_PROBATION"] })
+    // from November the status is ACTIVE; walk month by month: Stage 3 is held 12 months from the cure start (31 Oct), not 6
+    let prior: PriorStaging = { stage: oct.stage, stageSince: oct.stageSince, cureStartedOn: oct.cureStartedOn, restructured: oct.restructured }
+    const path: string[] = []
+    for (let i = 0; i < 14; i++) {
+      const date = monthEnd(2026 + Math.floor((10 + i) / 12), ((10 + i) % 12) + 1)
+      const r = classifyStage(loan(), p, prior, date)
+      path.push(`${date}:S${r.stage}`)
+      prior = next(prior, r)
+    }
+    // Stage 3 ends 12 months after 31 Oct 2026 (not 6), then 12 more in Stage 2: each step serves the longer of the two
+    expect(path).toContain("2027-09-30:S3")
+    expect(path).toContain("2027-10-31:S2")
+    expect(path).toContain("2027-11-30:S2")
+  })
+
+  it("is dropped once the loan has served it and is back at its trigger stage", () => {
+    const back = classifyStage(loan(), p, { stage: 2, stageSince: "2026-01-31", cureStartedOn: "2026-06-30", restructured: true }, "2027-06-30")
+    expect(back).toMatchObject({ stage: 1, restructured: false })
+  })
+
+  it("applies to a loan that is RESTRUCTURED now even when its prior snapshot did not carry the marker", () => {
+    const prior = { stage: 3 as const, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }
+    expect(classifyStage(loan({ status: "RESTRUCTURED" }), policy({ stage3ProbationMonths: 6, restructuredProbationMonths: 12 }), prior, "2026-09-30"))
+      .toMatchObject({ stage: 3, inProbation: true, restructured: true })
+  })
+
+  it("a loan leaving debt review cures on the probation of the stage the lender mapped it to", () => {
+    const s3 = policy({ debtReviewStage: 3 })
+    const a = classifyStage(loan({ debtReview: true }), s3, null, "2026-09-30")
+    expect(a.stage).toBe(3)
+    const b = classifyStage(loan(), s3, { stage: 3, stageSince: a.stageSince, cureStartedOn: a.cureStartedOn, restructured: false }, "2026-10-31")
+    expect(b).toMatchObject({ stage: 3, inProbation: true, restructured: false })
   })
 })

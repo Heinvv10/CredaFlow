@@ -59,6 +59,11 @@ export function unpaidScheduleAmounts(rows: readonly ScheduleRow[], runDate: str
   return { interestCents, feesCents }
 }
 
+/** Contractual interest on instalments falling due from `from` to `to`, both inclusive (yyyy-mm-dd). */
+export function interestRaisedBetween(rows: readonly ScheduleRow[], from: string, to: string): number {
+  return rows.filter((r) => r.dueDate >= from && r.dueDate <= to).reduce((sum, r) => sum + r.interestDue, 0)
+}
+
 const dayNumber = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86_400_000)
 
 /**

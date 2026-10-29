@@ -35,13 +35,12 @@ export interface StagingResult {
   stageSince: string
   cureStartedOn: string | null
   inProbation: boolean
+  /** RESTRUCTURED now, or still serving the longer probation after it: stored on the snapshot and read back as `PriorStaging.restructured`. */
+  restructured: boolean
 }
 
-/** Carried in a snapshot's reasons while a formerly restructured loan serves its longer probation. */
+/** Shown in a snapshot's reasons while a formerly restructured loan serves its longer probation. */
 export const RESTRUCTURE_PROBATION = "RESTRUCTURE_PROBATION"
-
-/** Whether a snapshot's reasons say the loan was restructured (or is still serving the probation after it). */
-export const wasRestructured = (reasons: readonly string[]): boolean => reasons.includes("RESTRUCTURED") || reasons.includes(RESTRUCTURE_PROBATION)
 
 export function addMonthsIso(iso: string, months: number): string {
   const [y, m, d] = iso.split("-").map(Number)
@@ -76,27 +75,31 @@ export function stageTriggers(input: StagingInput, settings: Ifrs9Settings): { s
  */
 export function classifyStage(input: StagingInput, settings: Ifrs9Settings, prior: PriorStaging | null, runDate: string): StagingResult {
   const { stage: triggerStage, reasons } = stageTriggers(input, settings)
-  if (!prior) return { stage: triggerStage, triggerStage, reasons, stageSince: runDate, cureStartedOn: null, inProbation: false }
+  const restructuredNow = input.status === "RESTRUCTURED"
+  if (!prior) return { stage: triggerStage, triggerStage, reasons, stageSince: runDate, cureStartedOn: null, inProbation: false, restructured: restructuredNow }
 
   if (triggerStage >= prior.stage) {
     return {
-      stage: triggerStage, triggerStage, reasons, cureStartedOn: null, inProbation: false,
+      stage: triggerStage, triggerStage, reasons, cureStartedOn: null, inProbation: false, restructured: restructuredNow,
       stageSince: triggerStage === prior.stage ? prior.stageSince : runDate,
     }
   }
 
+  // The longer restructure probation applies to a loan that is RESTRUCTURED now (whatever stage it was put in) or was
+  // and has not yet served it.
+  const restructured = restructuredNow || prior.restructured
   let stage = prior.stage
   let stageSince = prior.stageSince
   let cureStartedOn = prior.cureStartedOn ?? runDate
   while (stage > triggerStage) {
     const base = stage === 3 ? settings.stage3ProbationMonths : settings.stage2ProbationMonths
-    const months = prior.restructured ? Math.max(base, settings.restructuredProbationMonths) : base
+    const months = restructured ? Math.max(base, settings.restructuredProbationMonths) : base
     if (addMonthsIso(cureStartedOn, months) > runDate) break
     stage = (stage - 1) as Stage
     stageSince = runDate
     cureStartedOn = runDate
   }
-  if (stage === triggerStage) return { stage, triggerStage, reasons, stageSince, cureStartedOn: null, inProbation: false }
-  const reasonsInProbation = [`PROBATION_FROM_STAGE_${stage}`, ...(prior.restructured ? [RESTRUCTURE_PROBATION] : [])]
-  return { stage, triggerStage, reasons: reasonsInProbation, stageSince, cureStartedOn, inProbation: true }
+  if (stage === triggerStage) return { stage, triggerStage, reasons, stageSince, cureStartedOn: null, inProbation: false, restructured: restructuredNow }
+  const reasonsInProbation = [`PROBATION_FROM_STAGE_${stage}`, ...(restructured ? [RESTRUCTURE_PROBATION] : [])]
+  return { stage, triggerStage, reasons: reasonsInProbation, stageSince, cureStartedOn, inProbation: true, restructured }
 }

@@ -11,7 +11,7 @@ import type { Ifrs9Position } from "./sources-ifrs9"
 
 export type Ifrs9AccountingDb = Pick<typeof prisma, "ifrs9Run" | "ifrs9LoanSnapshot" | "ifrs9Config" | "loan">
 
-const KEY = /^ifrs9:(?:ecl|suspense):(.+)$/
+const KEY = /^ifrs9:(?:ecl|suspense|netint):(.+)$/
 
 /** Loan ids the ledger already holds an IFRS 9 position for. */
 export function carriedLoanIds(postedKeys: ReadonlySet<string>): Set<string> {
@@ -44,7 +44,13 @@ export async function loadIfrs9Positions(
     select: { ...SNAPSHOT_SELECT, run: { select: { periodKey: true } } },
   })
   const lastById = new Map(last.map((r) => [r.loanId, r]))
-  const ids = [...listed.keys(), ...carried]
+  // Net basis: each Stage 3 month's adjustment summed over the current runs up to the period (none is given back).
+  const netSums = await db.ifrs9LoanSnapshot.groupBy({
+    by: ["loanId"], where: { tenantId, run: current },
+    _sum: { netInterestAdjustmentCents: true, netDefaultInterestAdjustmentCents: true },
+  })
+  const netById = new Map(netSums.map((r) => [r.loanId, r._sum]))
+  const ids = [...new Set([...listed.keys(), ...carried, ...netById.keys()])]
   if (ids.length === 0 || !run) return []
   const loans = await db.loan.findMany({
     where: { tenantId, id: { in: ids } },
@@ -60,19 +66,44 @@ export async function loadIfrs9Positions(
       eclCents: snapshot?.eclCents ?? 0,
       suspendedInterestCents: snapshot?.suspendedInterestCents ?? 0,
       suspendedDefaultInterestCents: snapshot?.suspendedDefaultInterestCents ?? 0,
+      netInterestAdjustmentCents: netById.get(loan.id)?.netInterestAdjustmentCents ?? 0,
+      netDefaultInterestAdjustmentCents: netById.get(loan.id)?.netDefaultInterestAdjustmentCents ?? 0,
       journalsSuspense: journalsSuspense(loan.contractType),
       writtenOff,
-      // Not in this run and not written off: it has left the book.
-      closed: !writtenOff && (settled || !listed.has(loan.id)),
+      // Left the book only by an exit dated before the period ended; one the run does not list for any other reason keeps its last position.
+      closed: !writtenOff && settled,
     }
   })
 }
 
-/** Why a period cannot close for want of its monthly run, or null (IFRS 9 off, not yet effective, or the run exists). */
-export async function ifrs9RunRefusal(db: Ifrs9AccountingDb, tenantId: string, period: AccountingPeriod): Promise<string | null> {
+export interface RunRefusal {
+  code: "IFRS9_RUN_MISSING" | "IFRS9_RUN_STALE"
+  message: string
+}
+
+/**
+ * Why a period cannot close for want of its monthly run, or null (IFRS 9 off, not yet effective, or the run is there
+ * and current). A run is stale when a run of an earlier month was made or replaced after it: each month's stages start
+ * from the month before, so the later run no longer follows from it.
+ */
+export async function ifrs9RunRefusal(db: Ifrs9AccountingDb, tenantId: string, period: AccountingPeriod): Promise<RunRefusal | null> {
   const settings = await loadSettings(db, tenantId)
   if (!settings.enabled) return null
   if (settings.effectiveFromMonth && period.key < settings.effectiveFromMonth) return null
-  const run = await db.ifrs9Run.findFirst({ where: { tenantId, kind: "MONTHLY", periodKey: period.key, supersededBy: null }, select: { id: true } })
-  return run ? null : `IFRS 9 is on and ${period.label} has no monthly staging run. It is made on the last day of the month; an administrator can add it for the ended month with POST /api/ifrs9/runs/monthly { periodKey: "${period.key}", reason }`
+  const run = await db.ifrs9Run.findFirst({ where: { tenantId, kind: "MONTHLY", periodKey: period.key, supersededBy: null }, select: { id: true, createdAt: true } })
+  if (!run) {
+    return {
+      code: "IFRS9_RUN_MISSING",
+      message: `IFRS 9 is on and ${period.label} has no monthly staging run. It is made on the last day of the month; an administrator can add it for the ended month with POST /api/ifrs9/runs/monthly { periodKey: "${period.key}", reason }`,
+    }
+  }
+  const newer = await db.ifrs9Run.findFirst({
+    where: { tenantId, kind: "MONTHLY", supersededBy: null, periodKey: { lt: period.key }, createdAt: { gt: run.createdAt } },
+    orderBy: { periodKey: "asc" }, select: { periodKey: true },
+  })
+  if (!newer) return null
+  return {
+    code: "IFRS9_RUN_STALE",
+    message: `The ${period.label} IFRS 9 run was made before the ${newer.periodKey} run was made or replaced, so its stages no longer follow from it: replace it with POST /api/ifrs9/runs/monthly { periodKey: "${period.key}", supersedesRunId: "${run.id}", reason }`,
+  }
 }

@@ -8,7 +8,7 @@ const oct = parsePeriodKey("2026-10")!
 const nov = parsePeriodKey("2026-11")!
 const position = (over: Partial<Ifrs9Position> = {}): Ifrs9Position => ({
   loanId: "l1", reference: "L-1", periodKey: "2026-10", eclCents: 316_800, suspendedInterestCents: 40_000,
-  suspendedDefaultInterestCents: 4_000, journalsSuspense: true, writtenOff: false, closed: false, ...over,
+  suspendedDefaultInterestCents: 4_000, netInterestAdjustmentCents: 0, netDefaultInterestAdjustmentCents: 0, journalsSuspense: true, writtenOff: false, closed: false, ...over,
 })
 const byKey = (positions: Ifrs9Position[], period = oct) => Object.fromEntries(ifrs9Sources(positions, period).map((s) => [s.baseKey, s.vector]))
 
@@ -21,7 +21,7 @@ describe("ifrs9Sources", () => {
   })
 
   it("releases both once the loan is closed", () => {
-    expect(byKey([position({ closed: true })])).toEqual({ "ifrs9:ecl:l1": {}, "ifrs9:suspense:l1": {} })
+    expect(byKey([position({ closed: true })])).toEqual({ "ifrs9:ecl:l1": {}, "ifrs9:suspense:l1": {}, "ifrs9:netint:l1": {} })
   })
 
   it("on write-off uses the allowance against the bad debt: ECL_EXPENSE stays charged, nothing is credited to the expense", () => {
@@ -37,11 +37,19 @@ describe("ifrs9Sources", () => {
   })
 
   it("posts nothing for a run of a month after the period", () => {
-    expect(byKey([position({ periodKey: "2026-11" })])).toEqual({ "ifrs9:ecl:l1": {}, "ifrs9:suspense:l1": {} })
+    expect(byKey([position({ periodKey: "2026-11" })])).toEqual({ "ifrs9:ecl:l1": {}, "ifrs9:suspense:l1": {}, "ifrs9:netint:l1": {} })
+  })
+
+  it("net basis: income and the ECL expense both fall by the cumulative adjustment; no suspense, and none of it given back", () => {
+    const net = { suspendedInterestCents: 0, suspendedDefaultInterestCents: 0, netInterestAdjustmentCents: 6_000, netDefaultInterestAdjustmentCents: 2_400 }
+    for (const over of [{}, { writtenOff: true }, { closed: true }]) {
+      expect(byKey([position({ ...net, ...over })])["ifrs9:netint:l1"]).toEqual({ INTEREST_INCOME: 6_000, DEFAULT_INTEREST_INCOME: 2_400, ECL_EXPENSE: -8_400 })
+    }
+    expect(byKey([position(net)])["ifrs9:suspense:l1"]).toEqual({})
   })
 
   it("every vector sums to zero", () => {
-    for (const p of [position(), position({ writtenOff: true }), position({ closed: true })]) {
+    for (const p of [position(), position({ writtenOff: true }), position({ closed: true }), position({ netInterestAdjustmentCents: 6_000, netDefaultInterestAdjustmentCents: 2_400 })]) {
       for (const source of ifrs9Sources([p], oct)) expect(Object.values(source.vector).reduce((a, b) => a + b, 0)).toBe(0)
     }
   })
@@ -83,6 +91,24 @@ describe("through derive.ts month by month", () => {
     expect(cured[0].lines.map((l) => [l.role, l.debitCents, l.creditCents])).toEqual([
       ["INTEREST_SUSPENSE", 44_000, 0], ["INTEREST_INCOME", 0, 40_000], ["DEFAULT_INTEREST_INCOME", 0, 4_000],
     ])
+  })
+
+  it("net basis month by month: the allowance is the ECL on the gross exposure, the expense is lower by the interest taken off", () => {
+    const stage3 = { eclCents: 142_140, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0, netInterestAdjustmentCents: 6_000 }
+    const entries = derive(nov, [position({ periodKey: "2026-11", ...stage3 })], new Map())
+    expect(net(entries, "ECL_ALLOWANCE")).toBe(-142_140)
+    expect(net(entries, "ECL_EXPENSE")).toBe(142_140 - 6_000)
+    expect(net(entries, "INTEREST_INCOME")).toBe(6_000)
+    expect(net(entries, "INTEREST_SUSPENSE")).toBe(0)
+    // a later cured month adds nothing to the adjustment, and so gives nothing back
+    const posted: PostedLedger = new Map([
+      ["ifrs9:ecl:l1", { ECL_EXPENSE: 142_140, ECL_ALLOWANCE: -142_140 }],
+      ["ifrs9:netint:l1", { INTEREST_INCOME: 6_000, ECL_EXPENSE: -6_000 }],
+    ])
+    const dec = parsePeriodKey("2026-12")!
+    const cured = deriveEntries({ loans: [], period: dec, posted, postedKeys: new Set(posted.keys()), postedLoans: new Map(), accounts, extraSources: ifrs9Sources([position({ periodKey: "2026-12", eclCents: 60_000, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0, netInterestAdjustmentCents: 6_000 })], dec) })
+    expect(net(cured, "INTEREST_INCOME")).toBe(0)
+    expect(net(cured, "ECL_ALLOWANCE")).toBe(82_140)
   })
 
   // Review breaker 1a (PR #255): a month's run made late (days 1-5 of the next month, or by an administrator) used to be

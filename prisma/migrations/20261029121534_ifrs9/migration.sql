@@ -93,6 +93,7 @@ CREATE TABLE "Ifrs9LoanSnapshot" (
     "reasons" TEXT[],
     "stageSince" DATE NOT NULL,
     "cureStartedOn" DATE,
+    "restructured" BOOLEAN NOT NULL DEFAULT false,
     "outstandingPrincipalCents" INTEGER NOT NULL,
     "unpaidInterestCents" INTEGER NOT NULL,
     "unpaidFeesCents" INTEGER NOT NULL,
@@ -102,6 +103,8 @@ CREATE TABLE "Ifrs9LoanSnapshot" (
     "suspensionBasis" "Ifrs9InterestBasis" NOT NULL,
     "suspendedInterestCents" INTEGER NOT NULL,
     "suspendedDefaultInterestCents" INTEGER NOT NULL,
+    "netInterestAdjustmentCents" INTEGER NOT NULL DEFAULT 0,
+    "netDefaultInterestAdjustmentCents" INTEGER NOT NULL DEFAULT 0,
     "eadCents" INTEGER NOT NULL,
     "parameterScope" TEXT NOT NULL,
     "pdBps" INTEGER NOT NULL,
@@ -241,30 +244,30 @@ CREATE TRIGGER "Ifrs9Run_monthly_guard"
   BEFORE INSERT ON "Ifrs9Run"
   FOR EACH ROW EXECUTE FUNCTION public."guardIfrs9MonthlyRun"();
 
--- A snapshot is internally consistent whatever wrote it: the stage is 1-3 and only a Stage 3 loan is suspended;
--- the exposure is the sum of its parts (less the interest in suspense on the full-suspension basis); on that basis
--- all the raised, unpaid interest is suspended, on the net basis the share the allowance covers
--- (round half up of unpaid interest x ECL / EAD); and the ECL is EAD x PD x LGD to the nearest cent, half up
--- (lib/ifrs9/ecl.ts).
+-- A snapshot is internally consistent whatever wrote it: the stage is 1-3, and only a Stage 3 loan has its interest
+-- suspended or adjusted; interest is suspended only on the full-suspension basis (all the raised, unpaid interest, and
+-- the exposure is the sum of its parts less what is in suspense) and adjusted only on the net basis (no suspense, the
+-- exposure stays gross); and the ECL is EAD x PD x LGD to the nearest cent, half up (lib/ifrs9/ecl.ts).
 ALTER TABLE "Ifrs9LoanSnapshot" ADD CONSTRAINT "Ifrs9LoanSnapshot_stage_bounds" CHECK (
   "stage" IN (1, 2, 3) AND "triggerStage" IN (1, 2, 3) AND ("previousStage" IS NULL OR "previousStage" IN (1, 2, 3))
   AND "triggerStage" <= "stage" AND "daysPastDue" >= 0
   AND (NOT "interestSuspended" OR "stage" = 3)
+  AND ("stage" = 3 OR ("netInterestAdjustmentCents" = 0 AND "netDefaultInterestAdjustmentCents" = 0))
 );
 
 ALTER TABLE "Ifrs9LoanSnapshot" ADD CONSTRAINT "Ifrs9LoanSnapshot_figures" CHECK (
   "outstandingPrincipalCents" >= 0 AND "unpaidInterestCents" >= 0 AND "unpaidFeesCents" >= 0
   AND "chargesOutstandingCents" >= 0 AND "accruedInterestCents" >= 0
   AND "suspendedInterestCents" >= 0 AND "suspendedDefaultInterestCents" >= 0
+  AND "netInterestAdjustmentCents" >= 0 AND "netDefaultInterestAdjustmentCents" >= 0
   AND "pdBps" BETWEEN 0 AND 10000 AND "lgdBps" BETWEEN 0 AND 10000
   AND "suspendedInterestCents" <= "unpaidInterestCents" AND "suspendedDefaultInterestCents" <= "chargesOutstandingCents"
   AND ("interestSuspended" OR ("suspendedInterestCents" = 0 AND "suspendedDefaultInterestCents" = 0))
-  AND (NOT "interestSuspended" OR "suspensionBasis" <> 'FULL_SUSPENSION' OR "suspendedInterestCents" = "unpaidInterestCents")
-  AND (NOT "interestSuspended" OR "suspensionBasis" <> 'NET_BASIS' OR "suspendedInterestCents" =
-    CASE WHEN "eadCents" = 0 THEN 0 ELSE div(2 * "unpaidInterestCents"::numeric * "eclCents" + "eadCents", 2 * "eadCents"::numeric) END)
+  AND (NOT "interestSuspended" OR ("suspensionBasis" = 'FULL_SUSPENSION' AND "suspendedInterestCents" = "unpaidInterestCents"))
+  AND ("suspensionBasis" = 'NET_BASIS' OR ("netInterestAdjustmentCents" = 0 AND "netDefaultInterestAdjustmentCents" = 0))
   AND "eadCents" = GREATEST(
     "outstandingPrincipalCents"::bigint + "unpaidInterestCents" + "unpaidFeesCents" + "chargesOutstandingCents" + "accruedInterestCents"
-      - CASE WHEN "interestSuspended" AND "suspensionBasis" = 'FULL_SUSPENSION' THEN "suspendedInterestCents" + "suspendedDefaultInterestCents" ELSE 0 END, 0)
+      - CASE WHEN "interestSuspended" THEN "suspendedInterestCents" + "suspendedDefaultInterestCents" ELSE 0 END, 0)
   AND "eclCents" = div("eadCents"::numeric * "pdBps" * "lgdBps" + 50000000, 100000000)
 );
 

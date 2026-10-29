@@ -81,6 +81,8 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
     // still Stage 3 on EAD 100 000 (no accrual while suspended): 100 000 x 100% x 60%
     expect(dec.eclCents).toBe(60_000)
 
+    // each month needs the one before it to have its run: January to May are made in turn, and the loan is held in Stage 3
+    for (const [key, last] of [["2027-01", "31"], ["2027-02", "28"], ["2027-03", "31"], ["2027-04", "30"]]) await monthly(a, key, monthEnd(`${key}-${last}`))
     expect((await snapshotOf((await monthly(a, "2027-05", monthEnd("2027-05-31"))).runId, a.loanId)).stage).toBe(3)
 
     // 30 Jun 2027 is six months after 31 Dec: Stage 2, interest no longer suspended, and the Stage 2 probation (3 months) starts.
@@ -90,19 +92,20 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
     // accrued on instalment 2: 5 000 x 302/456 = 3 311.4 -> 3 311 ; EAD 103 311 ; ECL = 103 311 x 15% x 50% = 7 748.3
     expect(jun).toMatchObject({ accruedInterestCents: 3_311, eadCents: 103_311, eclCents: 7_748 })
 
+    for (const [key, last] of [["2027-07", "31"], ["2027-08", "31"]]) await monthly(a, key, monthEnd(`${key}-${last}`))
     expect(await snapshotOf((await monthly(a, "2027-09", monthEnd("2027-09-30"))).runId, a.loanId)).toMatchObject({ stage: 1, previousStage: 2, cureStartedOn: null })
   })
 
-  it("on the net basis (IFRS 9 5.4.1(b)) keeps exposure gross and suspends the share of the interest the allowance covers", async () => {
+  it("on the net basis (IFRS 9 5.4.1(b)) keeps exposure gross, suspends nothing, and adjusts only the interest raised in the month", async () => {
     const n = await lender()
     await configure(n, { stage3InterestBasis: "NET_BASIS" })
     await monthly(n, "2026-09", monthEnd("2026-09-30"))
     await monthly(n, "2026-10", monthEnd("2026-10-31"))
     const s = await snapshotOf((await monthly(n, "2026-11", monthEnd("2026-11-30"))).runId, n.loanId)
     // gross EAD = 200 000 + 10 000 + 6 900 + 5 000 x 90/456 (986.8 -> 987) = 217 887 ; ECL = 217 887 x 100% x 60% = 130 732.2
-    expect(s).toMatchObject({ stage: 3, interestSuspended: true, suspensionBasis: "NET_BASIS", accruedInterestCents: 987, eadCents: 217_887, eclCents: 130_732 })
-    // coverage 130 732 / 217 887 = 60.0%: R100.00 of raised interest x that = 6 000
-    expect(s.suspendedInterestCents).toBe(6_000)
+    expect(s).toMatchObject({ stage: 3, interestSuspended: false, suspensionBasis: "NET_BASIS", suspendedInterestCents: 0, accruedInterestCents: 987, eadCents: 217_887, eclCents: 130_732 })
+    // no instalment falls due in November (the one in arrears fell due on 1 Sep), so nothing is adjusted: the earlier month's interest was recognised then
+    expect(s).toMatchObject({ netInterestAdjustmentCents: 0, netDefaultInterestAdjustmentCents: 0 })
   })
 
   it("is never edited: runs and snapshots refuse UPDATE, DELETE and TRUNCATE", async () => {
@@ -131,6 +134,14 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
     await expect(mk({ suspensionBasis: "NET_BASIS" })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
     // only a Stage 3 loan has its interest suspended
     await expect(mk({ stage: 2, triggerStage: 2 })).rejects.toThrow(/Ifrs9LoanSnapshot_stage_bounds/)
+    // the net basis: gross exposure (216 900), nothing in suspense, ECL 130 140 ; a Stage 3 adjustment is accepted ...
+    const netRow = { suspensionBasis: "NET_BASIS" as const, interestSuspended: false, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0, accruedInterestCents: 0, eadCents: 216_900, eclCents: 130_140 }
+    const control = await db.ifrs9Run.create({ data: { tenantId: a.tenantId, kind: "ON_DEMAND", runDate: new Date("2026-01-02"), settings: {}, parameters: [], loanCount: 0, totalEadCents: 0, totalEclCents: 0 } })
+    await db.ifrs9LoanSnapshot.create({ data: { ...row, ...netRow, runId: control.id, netInterestAdjustmentCents: 6_000, netDefaultInterestAdjustmentCents: 100 } })
+    // ... but not on the other basis, not below Stage 3, and exposure on the net basis is not reduced by suspense
+    await expect(mk({ ...netRow, suspensionBasis: "FULL_SUSPENSION", netInterestAdjustmentCents: 6_000 })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
+    await expect(mk({ ...netRow, stage: 2, triggerStage: 2, netInterestAdjustmentCents: 6_000 })).rejects.toThrow(/Ifrs9LoanSnapshot_stage_bounds/)
+    await expect(mk({ ...netRow, eadCents: 206_900, eclCents: 124_140, interestSuspended: true, suspendedInterestCents: 10_000 })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
   })
 
   it("refuses a run whose shape is wrong, an unbounded PD or policy, and a Stage 3 PD below 100%", async () => {

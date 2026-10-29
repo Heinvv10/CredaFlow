@@ -8,8 +8,9 @@
 // How a Stage 3 loan's interest is treated (docs/ifrs9/DESIGN.md, "Interest in Stage 3").
 //   FULL_SUSPENSION: the regulatory / prudential basis (tender 2.8.3): raised, unpaid interest is held in
 //     suspense and left out of exposure, and none further accrues into it.
-//   NET_BASIS: IFRS 9 5.4.1(b): interest on the amortised cost net of the allowance; the share of the raised,
-//     unpaid interest that the allowance covers is suspended, exposure stays gross.
+//   NET_BASIS: IFRS 9 5.4.1(b): interest revenue on the amortised cost net of the allowance. The allowance stays
+//     the ECL on the gross exposure; each month's Stage 3 interest is reduced by ECL / gross and the same amount is
+//     taken off the ECL expense. No suspense account; nothing is restored to income when the loan cures.
 enum Ifrs9InterestBasis {
   FULL_SUSPENSION
   NET_BASIS
@@ -148,6 +149,8 @@ model Ifrs9LoanSnapshot {
   // The date the loan entered `stage`, and when the current probation began.
   stageSince                    DateTime  @db.Date
   cureStartedOn                 DateTime? @db.Date
+  // The loan was RESTRUCTURED at this run, or is still serving the longer restructure probation after it.
+  restructured                  Boolean  @default(false)
   outstandingPrincipalCents     Int
   unpaidInterestCents           Int
   unpaidFeesCents               Int
@@ -160,6 +163,11 @@ model Ifrs9LoanSnapshot {
   suspendedInterestCents        Int
   // Default interest owed and held in suspense (a part of chargesOutstandingCents).
   suspendedDefaultInterestCents Int
+  // Net basis (IFRS 9 5.4.1(b)), Stage 3 only: the interest raised in the run's month, and the default interest charged in it,
+  // times ECL / gross exposure. The ledger takes it out of interest income and out of the ECL expense (no suspense), and
+  // it is never given back on cure (5.4.2 is prospective). Zero on the full-suspension basis and on an on-demand run.
+  netInterestAdjustmentCents    Int      @default(0)
+  netDefaultInterestAdjustmentCents Int  @default(0)
   eadCents                      Int
   parameterScope                String
   pdBps                         Int

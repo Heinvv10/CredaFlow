@@ -118,14 +118,46 @@ describe("a Stage 3 loan with interest still to accrue", () => {
     expect(s).toMatchObject({ daysPastDue: 97, stage: 3, interestSuspended: true, accruedInterestCents: 0, eadCents: 528_000, eclCents: 316_800 })
   })
 
-  it("net basis (IFRS 9 5.4.1(b)): exposure stays gross and the allowance's share of the raised interest is suspended", () => {
-    const ctx = { ...at("2026-11-05"), settings: { ...at("2026-11-05").settings, stage3InterestBasis: "NET_BASIS" as const } }
-    const s = buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 4_000)
-    // gross EAD = 500 000 + 40 000 + 20 000 + 12 000 + 1 667 = 573 667 ; ECL = 573 667 x 100% x 60% = 344 200.2 -> 344 200
-    expect(s).toMatchObject({ interestSuspended: true, suspensionBasis: "NET_BASIS", accruedInterestCents: 1_667, eadCents: 573_667, eclCents: 344_200 })
-    // coverage 344 200 / 573 667: interest 40 000 x that = 24 000.1 -> 24 000 ; default interest 4 000 x that = 2 400.0 -> 2 400
-    expect(s.suspendedInterestCents).toBe(24_000)
-    expect(s.suspendedDefaultInterestCents).toBe(2_400)
+  // 30 Nov 2026, 122 days past due (Jul-Nov unpaid; Nov falls due that day). Principal 500 000, raised interest 5 x 10 000,
+  // fees 5 x 5 000, default charges 12 000 (4 000 of it charged in November as default interest): gross EAD 587 000.
+  const novCtx = (basis: "FULL_SUSPENSION" | "NET_BASIS") => {
+    const base = at("2026-11-30")
+    return { ...base, periodStart: "2026-11-01", settings: { ...base.settings, stage3InterestBasis: basis } }
+  }
+
+  it("full suspension at month end: all raised interest and the default interest owed leave exposure", () => {
+    const ctx = novCtx("FULL_SUSPENSION")
+    const s = buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 4_000, 4_000)
+    // 587 000 - 50 000 - 4 000 = 533 000 ; ECL = 533 000 x 100% x 60% = 319 800
+    expect(s).toMatchObject({
+      stage: 3, interestSuspended: true, suspendedInterestCents: 50_000, suspendedDefaultInterestCents: 4_000, eadCents: 533_000, eclCents: 319_800,
+      netInterestAdjustmentCents: 0, netDefaultInterestAdjustmentCents: 0,
+    })
+  })
+
+  it("net basis (IFRS 9 5.4.1(b)): exposure stays gross, nothing is suspended, and the month's interest is adjusted by ECL / EAD", () => {
+    const ctx = novCtx("NET_BASIS")
+    const s = buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 4_000, 4_000)
+    // gross EAD 587 000 ; ECL = 587 000 x 100% x 60% = 352 200 ; coverage 60%
+    expect(s).toMatchObject({ stage: 3, interestSuspended: false, suspensionBasis: "NET_BASIS", suspendedInterestCents: 0, suspendedDefaultInterestCents: 0, eadCents: 587_000, eclCents: 352_200 })
+    // interest raised in November: the instalment of 10 000 -> 6 000 ; default interest charged in November 4 000 -> 2 400
+    expect(s.netInterestAdjustmentCents).toBe(6_000)
+    expect(s.netDefaultInterestAdjustmentCents).toBe(2_400)
+  })
+
+  it("net basis takes only the month's interest: an earlier instalment's was recognised before, and is not reached back for", () => {
+    const ctx = { ...novCtx("NET_BASIS"), periodStart: "2026-11-30" }
+    expect(buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 0, 0).netInterestAdjustmentCents).toBe(6_000)
+    const december = { ...at("2026-12-31"), periodStart: "2026-12-01", settings: { ...at("2026-12-31").settings, stage3InterestBasis: "NET_BASIS" as const } }
+    // nothing falls due in December
+    expect(buildSnapshot(loan, december, assessLoan(loan, december, null), 0, 0).netInterestAdjustmentCents).toBe(0)
+  })
+
+  it("net basis makes no adjustment for an on-demand run (no month) or while default charges are not live", () => {
+    const ctx = { ...novCtx("NET_BASIS"), periodStart: null }
+    expect(buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 4_000, 4_000)).toMatchObject({ netInterestAdjustmentCents: 0, netDefaultInterestAdjustmentCents: 0 })
+    const notLive = { ...novCtx("NET_BASIS"), chargesLive: false }
+    expect(buildSnapshot(loan, notLive, assessLoan(loan, notLive, null), 4_000, 4_000)).toMatchObject({ netInterestAdjustmentCents: 6_000, netDefaultInterestAdjustmentCents: 0, eadCents: 575_000 })
   })
 
   it("net basis never suspends a Stage 2 loan", () => {
@@ -164,5 +196,18 @@ describe("an asset-finance contract (suspense not journalled)", () => {
     const s = buildSnapshot(loan, ctx, a, 0)
     // 1 000 000 principal + 80 000 raised, unpaid interest ; ECL = 1 080 000 x 100% x 60%
     expect(s).toMatchObject({ interestSuspended: false, suspendedInterestCents: 0, eadCents: 1_080_000, eclCents: 648_000 })
+  })
+})
+
+// Review breaker R-I (PR #255 round 2): the exposure of an asset-finance contract keeps all its raised interest at Stage 3.
+describe("an instalment sale three instalments in arrears", () => {
+  it("keeps its unpaid interest in EAD and suspends nothing", () => {
+    const loan = baseLoan({
+      contractType: "INSTALMENT_SALE", principal: 300_000, outstandingPrincipal: 300_000, startDate: new Date("2026-05-31T00:00:00Z"),
+      schedule: ["2026-06-30", "2026-07-31", "2026-08-31"].map((d) => ({ dueDate: new Date(`${d}T00:00:00Z`), principalDue: 100_000, interestDue: 10_000, feesDue: 0, totalDue: 110_000, totalPaid: 0 })),
+    })
+    const ctx = at("2026-10-31")
+    const s = buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 0)
+    expect(s).toMatchObject({ stage: 3, interestSuspended: false, suspendedInterestCents: 0, eadCents: 330_000 })
   })
 })

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { currentMonthlyRun, executeRun } from "./run"
 import { loadRunReport } from "./run-report"
 import { replaceParameters, setSicrFlag } from "./store"
+import { createChargesLoan } from "@/lib/loan/charges.integration-fixture"
 import { PARAMETERS, RUN, actorOf, asTenant, at, configure, db, lender, monthEnd, monthly, snapshotOf, ymd, type Lender } from "./ifrs9.integration-fixture"
 
 const suite = RUN ? describe : describe.skip
@@ -111,5 +112,78 @@ suite.sequential("IFRS 9 monthly runs (real Postgres)", () => {
     await configure(f)
     await expect(monthly(f, "2026-10", at("2026-10-30"))).rejects.toMatchObject({ code: "PERIOD_NOT_ENDED" })
     await expect(monthly(f, "2026-13", at("2027-01-30"))).rejects.toMatchObject({ code: "INVALID_PERIOD" })
+  })
+
+  // Review breaker 3a (PR #255 round 2): a make-up run for October is October's book, not the book on the day it was made.
+  it("leaves a loan disbursed after the month end out of that month's make-up run", async () => {
+    const a = await lender()
+    await configure(a)
+    const later = await createChargesLoan(db, a)
+    await db.loan.update({ where: { id: later.loanId }, data: { startDate: at("2026-11-02"), maturityDate: at("2026-12-02") } })
+    await db.repaymentSchedule.updateMany({ where: { loanId: later.loanId }, data: { dueDate: at("2026-12-02") } })
+    const run = await monthly(a, "2026-10", at("2026-11-03"))
+    expect(run.loanCount).toBe(1)
+    expect(await db.ifrs9LoanSnapshot.findFirst({ where: { runId: run.runId, loanId: later.loanId } })).toBeNull()
+    expect(await db.ifrs9LoanSnapshot.findFirst({ where: { runId: run.runId, loanId: a.loanId } })).not.toBeNull()
+  })
+
+  // Review breakers 3a and 3c: a loan that exited after the month end was on that month's book, one that exited before was not.
+  it("keeps a loan written off after the month end in that month's make-up run, staged on its days past due then, and drops one written off before", async () => {
+    const c = await lender()
+    await configure(c)
+    const before = await createChargesLoan(db, c)
+    await monthly(c, "2026-10", monthEnd("2026-10-31"))
+    await db.loan.update({ where: { id: c.loanId }, data: { status: "WRITTEN_OFF", writeOffAt: at("2026-12-02"), closedAt: at("2026-12-02") } })
+    await db.loan.update({ where: { id: before.loanId }, data: { status: "WRITTEN_OFF", writeOffAt: at("2026-11-20"), closedAt: at("2026-11-20") } })
+    const nov = await monthly(c, "2026-11", at("2026-12-03"))
+    expect(nov.loanCount).toBe(1)
+    const s = await snapshotOf(nov.runId, c.loanId)
+    // 90 days past due on 30 Nov (due 1 Sep): Stage 3, with the interest suspended, although the loan has since been written off
+    expect(s).toMatchObject({ daysPastDue: 90, stage: 3, interestSuspended: true, loanStatus: "ACTIVE", eclCents: 124_140 })
+    expect(await db.ifrs9LoanSnapshot.findFirst({ where: { runId: nov.runId, loanId: before.loanId } })).toBeNull()
+  })
+
+  it("refuses a month's first run while the month before it, which IFRS 9 governs, has none; and does not ask for a month it does not govern", async () => {
+    const g = await lender()
+    await configure(g, { effectiveFromMonth: "2026-10" })
+    await expect(monthly(g, "2026-11", monthEnd("2026-11-30"))).rejects.toMatchObject({ code: "PREVIOUS_MONTH_MISSING" })
+    await monthly(g, "2026-10", monthEnd("2026-10-31"))
+    expect((await monthly(g, "2026-11", monthEnd("2026-11-30"))).created).toBe(true)
+    const h = await lender()
+    await configure(h, { effectiveFromMonth: "2026-11" })
+    expect((await monthly(h, "2026-11", monthEnd("2026-11-30"))).created).toBe(true)
+  })
+
+  it("lets a late October run be made after November's: allowed, because the close then holds November as stale", async () => {
+    const i = await lender()
+    await configure(i)
+    const nov = await monthly(i, "2026-11", monthEnd("2026-11-30"))
+    const oct = await monthly(i, "2026-10", at("2026-12-02"), { lateReason: "job down" })
+    expect(new Date((await db.ifrs9Run.findUniqueOrThrow({ where: { id: oct.runId } })).createdAt).getTime())
+      .toBeGreaterThan(new Date((await db.ifrs9Run.findUniqueOrThrow({ where: { id: nov.runId } })).createdAt).getTime())
+  })
+
+  it("answers a concurrent double supersede with one new run and one SUPERSEDE_STALE", async () => {
+    const j = await lender()
+    await configure(j)
+    const original = await monthly(j, "2026-10", monthEnd("2026-10-31"))
+    const results = await Promise.allSettled([1, 2].map((n) => monthly(j, "2026-10", at("2026-11-04"), { supersede: { runId: original.runId, reason: `fix ${n}` } })))
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1)
+    const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult
+    expect(failed.reason).toMatchObject({ code: "SUPERSEDE_STALE" })
+    expect(await db.ifrs9Run.count({ where: { tenantId: j.tenantId, supersedesRunId: original.runId } })).toBe(1)
+  })
+
+  it("carries the restructured marker from one month's run to the next through the database", async () => {
+    const k = await lender()
+    await configure(k)
+    await db.loan.update({ where: { id: k.loanId }, data: { status: "RESTRUCTURED" } })
+    const sep = await snapshotOf((await monthly(k, "2026-09", monthEnd("2026-09-30"))).runId, k.loanId)
+    expect(sep).toMatchObject({ stage: 2, restructured: true, reasons: ["RESTRUCTURED"] })
+    // the arrangement is kept: the arrears are paid and the loan is ACTIVE again, but it serves the longer restructure probation
+    await db.repaymentSchedule.updateMany({ where: { loanId: k.loanId, installmentNo: 1 }, data: { totalPaid: 116_900, status: "PAID" } })
+    await db.loan.update({ where: { id: k.loanId }, data: { status: "ACTIVE", outstandingPrincipal: 100_000 } })
+    const oct = await snapshotOf((await monthly(k, "2026-10", monthEnd("2026-10-31"))).runId, k.loanId)
+    expect(oct).toMatchObject({ stage: 2, triggerStage: 1, restructured: true, reasons: ["PROBATION_FROM_STAGE_2", "RESTRUCTURE_PROBATION"] })
   })
 })

@@ -19,6 +19,8 @@ export interface RunHead {
   late: boolean
   /** A newer run replaces this one (it is kept on record, and no report defaults to it). */
   superseded: boolean
+  /** A MONTHLY run made before an earlier month's current run was made or replaced: its close is refused until it is replaced. */
+  stale: boolean
   supersedesRunId: string | null
   reason: string | null
 }
@@ -37,14 +39,20 @@ const head = (r: {
 }): RunHead => ({
   id: r.id, kind: r.kind, runDate: sastCalendarDate(r.runDate), periodKey: r.periodKey, loanCount: r.loanCount,
   totalEadCents: Number(r.totalEadCents), totalEclCents: Number(r.totalEclCents), createdAt: r.createdAt.toISOString(),
-  late: r.late, superseded: r.supersededBy !== null, supersedesRunId: r.supersedesRunId, reason: r.reason,
+  late: r.late, superseded: r.supersededBy !== null, stale: false, supersedesRunId: r.supersedesRunId, reason: r.reason,
 })
 
 export async function listRuns(db: Pick<Db, "ifrs9Run">, tenantId: string, limit = 24): Promise<RunHead[]> {
   const runs = await db.ifrs9Run.findMany({
     where: { tenantId }, orderBy: [{ runDate: "desc" }, { createdAt: "desc" }], take: limit, include: { supersededBy: { select: { id: true } } },
   })
-  return runs.map(head)
+  const heads = runs.map(head)
+  // stale: an earlier month's current run is newer than this month's
+  const official = heads.filter((r) => r.kind === "MONTHLY" && !r.superseded)
+  for (const run of official) {
+    run.stale = official.some((other) => other.periodKey! < run.periodKey! && other.createdAt > run.createdAt)
+  }
+  return heads
 }
 
 async function rowsOf(db: Pick<Db, "ifrs9LoanSnapshot">, tenantId: string, runId: string): Promise<ReportRow[]> {

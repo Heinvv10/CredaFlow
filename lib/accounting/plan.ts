@@ -30,6 +30,7 @@ export type CloseRefusal =
   | "AF_CONTROL_FAILED"
   | "AF_SOURCE_UNSUPPORTED"
   | "IFRS9_RUN_MISSING"
+  | "IFRS9_RUN_STALE"
   | "CONCURRENT_CHANGE"
 
 export class AccountingPeriodError extends Error {
@@ -105,8 +106,7 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   else if (unconfirmed.length > 0) refusal = { code: "MAPPING_NOT_CONFIRMED", message: `This month posts asset-finance or IFRS 9 accounts that were not in the mapping you confirmed (${unconfirmed.join(", ")}): review and confirm the mapping again` }
   else refusal = await orderRefusal(db, tenantId, period, settings.goLiveMonth)
   if (!refusal) {
-    const missingRun = await ifrs9RunRefusal(db, tenantId, period)
-    if (missingRun) refusal = { code: "IFRS9_RUN_MISSING", message: missingRun }
+    refusal = await ifrs9RunRefusal(db, tenantId, period)
   }
   if (!refusal && unsupported.length > 0) {
     refusal = { code: "AF_SOURCE_UNSUPPORTED", message: `Asset-finance contracts the export cannot post yet: ${unsupported.slice(0, 3).map((u) => u.message).join("; ")}` }

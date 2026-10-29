@@ -162,7 +162,7 @@ suite.sequential("IFRS 9 in the ledger (real Postgres)", () => {
     })).rejects.toThrow(/closed/)
   })
 
-  it("cannot be switched off while the ledger holds an allowance, nor made to start in a month that has closed", async () => {
+  it("cannot be switched off or have its first month moved forward while the ledger holds an allowance, nor made to start in a month that has closed", async () => {
     const h = await lender(true)
     const actor = { id: h.userId, email: "ifrs9-it@test.invalid" }
     for (const key of ["2026-08", "2026-09"]) await close(h, key)
@@ -174,7 +174,11 @@ suite.sequential("IFRS 9 in the ledger (real Postgres)", () => {
 
     const early = await runWithTenant(h.tenantId, () => saveSettings(prisma, h.tenantId, { ...DEFAULT_SETTINGS, enabled: true, effectiveFromMonth: "2026-09" }, actor))
     expect(early).toMatchObject({ ok: false, error: expect.stringContaining("2026-11 or later") })
-    expect(await runWithTenant(h.tenantId, () => saveSettings(prisma, h.tenantId, { ...DEFAULT_SETTINGS, enabled: true, effectiveFromMonth: "2026-12" }, actor))).toEqual({ ok: true })
+    // moving the first month forward over a held position would freeze it: refused (review breaker 5, PR #255 round 2)
+    const forward = await runWithTenant(h.tenantId, () => saveSettings(prisma, h.tenantId, { ...DEFAULT_SETTINGS, enabled: true, effectiveFromMonth: "2026-12" }, actor))
+    expect(forward).toMatchObject({ ok: false, error: expect.stringContaining("cannot move forward") })
+    // a change that leaves the first month alone is fine
+    expect(await runWithTenant(h.tenantId, () => saveSettings(prisma, h.tenantId, { ...DEFAULT_SETTINGS, enabled: true, effectiveFromMonth: "2026-10", stage2ProbationMonths: 6 }, actor))).toEqual({ ok: true })
   })
 
   it("asks for the mapping to be confirmed again when it predates the IFRS 9 accounts", async () => {
