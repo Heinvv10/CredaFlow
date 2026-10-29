@@ -18,10 +18,11 @@ const MAX_FALLBACK_LABELS = 1000
 
 const SEGMENT = /^[a-z][a-z0-9-]{0,40}$/
 const LONG_HEX = /^[0-9a-f]{8,}$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** A segment that looks like a name (cron route, resource) and not like an identifier. */
 function isStaticSegment(segment: string): boolean {
-  if (!SEGMENT.test(segment) || LONG_HEX.test(segment)) return false
+  if (!SEGMENT.test(segment) || LONG_HEX.test(segment) || UUID.test(segment)) return false
   if ((segment.match(/\d/g)?.length ?? 0) >= 3) return false
   return !(segment.length >= 20 && /\d/.test(segment) && !segment.includes("-"))
 }

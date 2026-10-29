@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { context, trace } from "@opentelemetry/api"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { installJsonConsole, restoreConsole } from "./json-console"
 
 afterEach(() => {
@@ -34,5 +36,23 @@ describe("installJsonConsole", () => {
     installJsonConsole({ LOG_FORMAT: "json" })
     console.log("once")
     expect(out).toHaveBeenCalledTimes(1)
+  })
+
+  it("carries the trace and span id of the active span on the emitted line", () => {
+    const out = vi.spyOn(process.stdout, "write").mockReturnValue(true)
+    installJsonConsole({ LOG_FORMAT: "json" })
+    new NodeTracerProvider().register()
+    try {
+      trace.getTracer("t").startActiveSpan("s", (span) => {
+        console.log("[cron] inside a span")
+        const line = JSON.parse(String(out.mock.calls[0][0]))
+        expect(line.trace_id).toBe(span.spanContext().traceId)
+        expect(line.span_id).toBe(span.spanContext().spanId)
+        span.end()
+      })
+    } finally {
+      trace.disable()
+      context.disable()
+    }
   })
 })

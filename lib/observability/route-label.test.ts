@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { createRouteLabeler } from "./route-label"
 
 const manifest = {
@@ -41,7 +41,11 @@ describe("route label from the Next routes manifest", () => {
 })
 
 describe("route label without a manifest (dev, tests)", () => {
-  const label = createRouteLabeler(null)
+  // A fresh labeler per test: its label cap is state, and the cap test must not depend on test order.
+  let label: (pathname: string) => string
+  beforeEach(() => {
+    label = createRouteLabeler(null)
+  })
 
   it.each([
     ["/api/health", "/api/health"],
@@ -55,6 +59,8 @@ describe("route label without a manifest (dev, tests)", () => {
     ["/files/report.final.pdf", "/files/:id"],
     ["/api/tokens/aB3dE5gH7jK9mN1pQ3sT", "/api/tokens/:id"],
     ["/", "/"],
+    // A UUID whose characters are all hex letters has no digit to give it away.
+    ["/api/loans/abcdefab-cdef-abcd-efab-cdefabcdefab/statement", "/api/loans/:id/statement"],
   ])("%s -> %s", (path, expected) => {
     expect(label(path)).toBe(expected)
   })

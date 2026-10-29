@@ -44,6 +44,8 @@ describe("/api/metrics authentication", () => {
   it.each([
     ["a wrong token", `Bearer ${TOKEN}x`],
     ["a shorter token", "Bearer short"],
+    // Same length as the real token: only the byte comparison can refuse it.
+    ["a wrong token of the same length", `Bearer ${TOKEN.slice(0, -1)}${TOKEN.endsWith("0") ? "1" : "0"}`],
     ["the right token under another scheme", `Basic ${TOKEN}`],
     ["the bare token", TOKEN],
   ])("refuses %s", async (_label, header) => {
