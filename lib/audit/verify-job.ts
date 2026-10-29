@@ -15,7 +15,6 @@ import { PLATFORM_CHAIN } from "./chain-hash"
 import { verifyAuditChains, type ChainVerification, type VerifyMode } from "./chain-verify"
 import { runChainer } from "./chainer"
 import { writeCheckpoints } from "./checkpoint"
-import { chainHead } from "./store"
 
 export interface VerifyJobResult extends ChainVerification {
   checkpointsWritten: number
@@ -43,12 +42,10 @@ export async function runAuditChainVerification(opts: { db?: PrismaClient; now?:
         newValue: { kind: b.kind, chainSeq: b.chainSeq, detail: b.detail },
       })
     }
-    const checkpointsWritten = await writeCheckpoints(db, result.verifiedKeys)
-    for (const key of result.verifiedKeys) {
-      if (key === PLATFORM_CHAIN) continue
-      const head = await chainHead(db, key)
-      if (!head) continue
-      await logAudit({ tenantId: key, action: AuditAction.AUDIT_CHAIN_VERIFIED, entity: "AuditLog", newValue: { lastSeq: head.seq, mode: result.mode } })
+    const checkpointsWritten = await writeCheckpoints(db, result.verifiedHeads)
+    for (const { chainKey, seq } of result.verifiedHeads) {
+      if (chainKey === PLATFORM_CHAIN) continue
+      await logAudit({ tenantId: chainKey, action: AuditAction.AUDIT_CHAIN_VERIFIED, entity: "AuditLog", newValue: { lastSeq: seq, mode: result.mode } })
     }
     return { ...result, checkpointsWritten }
   })

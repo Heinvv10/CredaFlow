@@ -9,8 +9,8 @@
  * database; the application never does this and has no import path to here.
  *
  * A purge also removes what hangs off the rows it removes: their AuditChainLink,
- * AuditRedaction and AuditSiemOutbox rows, and every AuditChainCheckpoint of the
- * chains they were in. A partial purge leaves a chain with a gap, which the
+ * AuditRedaction and AuditSiemOutbox rows, and every AuditChainCheckpoint,
+ * AuditPolicyRevision and AuditSiemDelivery of the chains they were in. A partial purge leaves a chain with a gap, which the
  * verifier reports; that is for a tenant a suite made and is dropping anyway. A
  * suite that creates a tenant, audits for it and then deletes the tenant (or one
  * of its users) must call purgeAuditRowsForTest for the tenant first: the foreign
@@ -46,7 +46,12 @@ export function purgeAuditRowsForTest(db: AuditTestDb, where: Prisma.AuditLogWhe
         await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "auditLogId" IN (${ids})`)
       }
     }
-    for (const chain of chains) await tx.$executeRawUnsafe(`DELETE FROM "AuditChainCheckpoint" WHERE "chainKey" = '${chain.replaceAll("'", "''")}'`)
+    for (const chain of chains) {
+      const q = chain.replaceAll("'", "''")
+      await tx.$executeRawUnsafe(`DELETE FROM "AuditChainCheckpoint" WHERE "chainKey" = '${q}'`)
+      await tx.$executeRawUnsafe(`DELETE FROM "AuditPolicyRevision" WHERE "tenantId" = '${q}'`)
+      await tx.$executeRawUnsafe(`DELETE FROM "AuditSiemDelivery" WHERE "tenantId" = '${q}'`)
+    }
     return tx.auditLog.deleteMany({ where })
   })
 }

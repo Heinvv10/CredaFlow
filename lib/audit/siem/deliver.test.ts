@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   lockHeld: false,
   policy: { siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest", siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null } as Record<string, unknown> | undefined,
   pruned: 0,
+  receipts: [] as string[],
 }))
 
 const pending = () => state.rows.filter((r) => !r.sentAt && !r.deadAt)
@@ -24,7 +25,8 @@ vi.mock("@/lib/audit/store", () => ({
     id, tenantId: "t1", userId: null, action: "LOAN_NOTE_ADDED", entity: "Loan", entityId: "l1", oldValue: null, newValue: null, ipAddress: null,
     createdAt: new Date("2026-10-29T10:00:00Z"), linkSeq: Number(id.slice(1)), linkRowHash: "a".repeat(64), linkPrevHash: "b".repeat(64),
   })),
-  markOutbox: async (_db: unknown, ids: number[], mark: "sent" | "retry" | "dead", error: string | null, at: Date) => {
+  markOutbox: async (_db: unknown, _tenant: string, ids: number[], mark: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string) => {
+    if (mark === "sent") state.receipts.push(destination)
     for (const r of state.rows.filter((x) => ids.includes(x.id))) {
       if (mark === "sent") r.sentAt = at
       else { r.attempts++; r.lastError = error; if (mark === "dead") r.deadAt = at; else r.nextAttemptAt = at }
@@ -70,6 +72,7 @@ beforeEach(() => {
   state.rows = []
   state.lockHeld = false
   state.pruned = 0
+  state.receipts = []
   state.policy = { siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest", siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null }
   vi.spyOn(console, "error").mockImplementation(() => undefined)
 })
@@ -89,6 +92,13 @@ describe("deliverSiemOutbox", () => {
     expect(rec.calls).toEqual([[1, 2, 3]])
     expect(result).toMatchObject({ tenants: 1, sent: 3, dead: 0, failedBatches: 0, failedTenants: 0 })
     expect(state.rows.every((r) => r.sentAt)).toBe(true)
+  })
+
+  it("names the destination (an origin, never a path or credential) on each acknowledgement it records", async () => {
+    state.policy = { ...(state.policy as object), siemUrl: "https://siem.example.invalid/ingest/KEY123?token=abc" }
+    queue(1)
+    await deliverSiemOutbox({ db, send: recorder().send, now: NOW })
+    expect(state.receipts).toEqual(["https://siem.example.invalid"])
   })
 
   it("stops at the first failed batch, backs it off, and sends nothing behind it", async () => {

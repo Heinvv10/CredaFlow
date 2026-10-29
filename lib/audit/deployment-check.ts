@@ -10,7 +10,7 @@
 import { prisma } from "@/lib/prisma"
 import { auditChainKeyConfigured } from "./chain-hash"
 
-const AUDIT_TABLES = ["AuditLog", "AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox"] as const
+const AUDIT_TABLES = ["AuditLog", "AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox", "AuditPolicyRevision", "AuditSiemDelivery"] as const
 const EVIDENCE_TABLES = AUDIT_TABLES.filter((t) => t !== "AuditLog")
 
 export type AuditSetupWarning =
@@ -25,9 +25,10 @@ export async function auditSetupWarnings(db: Queryable = prisma): Promise<AuditS
   const warnings: AuditSetupWarning[] = []
   if (!auditChainKeyConfigured()) warnings.push("audit_chain_key_missing")
   const [row] = await db.$queryRaw<Array<{ owns: number; su: boolean; writes: boolean }>>`
-    SELECT (SELECT count(*)::int FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY(${[...AUDIT_TABLES]}) AND tableowner = current_user) AS owns,
+    SELECT (SELECT count(*)::int FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY(${[...AUDIT_TABLES]}) AND pg_has_role(current_user, tableowner, 'MEMBER'))
+             + (SELECT CASE WHEN pg_has_role(current_user, 'audit_redactor', 'MEMBER') THEN 1 ELSE 0 END) AS owns,
            (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS su,
-           (SELECT bool_or(has_table_privilege(current_user, format('public.%I', t), 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE')) FROM unnest(${[...EVIDENCE_TABLES]}::text[]) AS t)
+           (SELECT COALESCE(bool_or(has_table_privilege(current_user, format('public.%I', t), 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE')), false) FROM unnest(${[...EVIDENCE_TABLES]}::text[]) AS t)
              OR has_table_privilege(current_user, 'public."AuditLog"', 'UPDATE, DELETE, TRUNCATE') AS writes`
   if (row?.owns > 0) warnings.push("audit_runtime_role_owns_tables")
   if (row?.su === true) warnings.push("audit_runtime_role_superuser")
@@ -37,7 +38,7 @@ export async function auditSetupWarnings(db: Queryable = prisma): Promise<AuditS
 
 const MESSAGE: Record<AuditSetupWarning, string> = {
   audit_runtime_role_owns_tables:
-    "The application's database role owns the audit tables, so it can switch their append-only triggers off. Run migrations as an owner role and the application as a non-owner (docs/ARCHITECTURE.md, Tamper-evident audit).",
+    "The application's database role owns an audit table or the redaction function, or is a member of a role that does, so it can switch the append-only triggers off or redact. Run migrations as an owner role and the application as a non-owner (docs/ARCHITECTURE.md, Tamper-evident audit).",
   audit_runtime_role_superuser: "The application's database role is a superuser, which no trigger binds.",
   audit_runtime_role_can_write_evidence:
     "The application's database role holds privileges on the audit evidence tables (or UPDATE/DELETE on AuditLog). Run SELECT audit_grant_runtime('<role>') as the migration role after granting the role its table privileges (docs/ARCHITECTURE.md, Tamper-evident audit).",

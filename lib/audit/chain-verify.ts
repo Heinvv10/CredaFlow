@@ -43,6 +43,12 @@ export interface ChainVerification {
   rowsChecked: number
   /** Chains that passed, so a job may checkpoint them. */
   verifiedKeys: string[]
+  /**
+   * For each chain that passed, the last link the walk actually checked (seq and rowHash). A
+   * checkpoint signs exactly this pair, never the head as it is when the job gets to it: a
+   * link appended or swapped after the walk has not been verified.
+   */
+  verifiedHeads: Array<{ chainKey: string; seq: number; rowHash: string }>
   /** One entry per broken chain: where its walk first failed. */
   breaks: ChainBreak[]
   /** Committed rows within the lookback that the chainer has not linked yet (capped); not a break. */
@@ -66,7 +72,9 @@ async function unchained(db: Db, key: string, now: Date, floor: Date | null): Pr
   return { old: await unchainedOld(db, key, cutoff, floor), pending: await unchainedPending(db, key, cutoff, PENDING_CAP) }
 }
 
-async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Promise<{ broken: ChainBreak | null; rows: number; pending: number }> {
+interface ChainWalk { broken: ChainBreak | null; rows: number; pending: number; seq?: number; hash?: string }
+
+async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Promise<ChainWalk> {
   const checkpoints = await loadCheckpoints(db, key)
   for (const cp of checkpoints) {
     if (cp.hmac !== checkpointHmac(key, cp.seq, cp.rowHash)) {
@@ -109,7 +117,7 @@ async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Pr
   const floor = start ? new Date(start.createdAt.getTime() - 2 * LOOKBACK_MS) : null
   const { old, pending } = await unchained(db, key, now, floor)
   if (old) return { broken: brk(key, "unchained_row", "a row older than the chainer's lookback has no link", old), rows, pending }
-  return { broken: null, rows, pending }
+  return { broken: null, rows, pending, seq, hash }
 }
 
 /**
@@ -125,16 +133,20 @@ export async function verifyAuditChains(
   const keys = opts.chainKeys ? [...opts.chainKeys] : await chainKeys(db, opts.chainKey)
   const breaks: ChainBreak[] = []
   const verifiedKeys: string[] = []
+  const verifiedHeads: ChainVerification["verifiedHeads"] = []
   let rowsChecked = 0
   let pendingUnchained = 0
   for (const key of keys) {
-    const { broken, rows, pending } = await verifyChain(db, key, mode, now)
+    const { broken, rows, pending, seq, hash } = await verifyChain(db, key, mode, now)
     rowsChecked += rows
     pendingUnchained += pending
     if (broken) breaks.push(broken)
-    else verifiedKeys.push(key)
+    else {
+      verifiedKeys.push(key)
+      if (seq !== undefined && seq > 0 && hash) verifiedHeads.push({ chainKey: key, seq, rowHash: hash })
+    }
   }
-  return { ok: breaks.length === 0, mode, chains: keys.length, rowsChecked, verifiedKeys, breaks, pendingUnchained }
+  return { ok: breaks.length === 0, mode, chains: keys.length, rowsChecked, verifiedKeys, verifiedHeads, breaks, pendingUnchained }
 }
 
 export { PLATFORM_CHAIN }

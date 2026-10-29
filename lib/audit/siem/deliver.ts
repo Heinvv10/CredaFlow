@@ -14,7 +14,7 @@
  * and the anchor event sent when forwarding starts again names where it resumes.
  */
 import type { Prisma, PrismaClient } from "@prisma/client"
-import { prisma } from "@/lib/prisma"
+import { deliveryClient } from "./delivery-db"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { GENESIS_HASH } from "@/lib/audit/chain-hash"
 import {
@@ -31,7 +31,6 @@ const MAX_BATCH_BYTES = 256 * 1024
 const BACKOFF_BASE_SECONDS = 30
 const BACKOFF_CAP_SECONDS = 3600
 const PERMANENT_ATTEMPTS = 3
-const SENT_KEPT_DAYS = 7
 
 export type SiemSender = (target: SiemTarget, events: SiemEvent[], deps?: TransportDeps) => Promise<SendResult>
 
@@ -54,8 +53,14 @@ type Tx = Prisma.TransactionClient
 interface Ctx { tx: Tx; tenantId: string; now: Date; send: SiemSender; deps: TransportDeps; result: DeliveryResult }
 interface Item { row: OutboxRow; event: SiemEvent }
 
+/** The destination a receipt names: a host or origin, never a credential or a path (which may carry a key). */
+function destinationOf(t: SiemTarget): string {
+  if (t.transport === "SYSLOG_TLS") return `syslog+tls://${t.host ?? "?"}:${t.port ?? "?"}`
+  try { return new URL(t.url ?? "").origin } catch { return "https://?" }
+}
+
 async function markDead(ctx: Ctx, row: OutboxRow, error: string) {
-  await markOutbox(ctx.tx, [row.id], "dead", error, ctx.now)
+  await markOutbox(ctx.tx, ctx.tenantId, [row.id], "dead", error, ctx.now, "-")
   ctx.result.dead++
 }
 
@@ -108,7 +113,7 @@ async function sendItems(ctx: Ctx, target: SiemTarget, items: Item[]): Promise<b
   const rows = items.map((i) => i.row)
   const ids = rows.map((x) => x.id)
   if (r.ok) {
-    await markOutbox(ctx.tx, ids, "sent", null, ctx.now)
+    await markOutbox(ctx.tx, ctx.tenantId, ids, "sent", null, ctx.now, destinationOf(target))
     ctx.result.sent += rows.length
     return true
   }
@@ -120,10 +125,10 @@ async function sendItems(ctx: Ctx, target: SiemTarget, items: Item[]): Promise<b
   const dead = r.permanent === true && attempts >= PERMANENT_ATTEMPTS
   const error = r.error ?? "send_failed"
   if (dead) {
-    await markOutbox(ctx.tx, ids, "dead", error, ctx.now)
+    await markOutbox(ctx.tx, ctx.tenantId, ids, "dead", error, ctx.now, destinationOf(target))
     ctx.result.dead += rows.length
   } else {
-    await markOutbox(ctx.tx, ids, "retry", error, new Date(ctx.now.getTime() + backoffSeconds(attempts) * 1000))
+    await markOutbox(ctx.tx, ctx.tenantId, ids, "retry", error, new Date(ctx.now.getTime() + backoffSeconds(attempts) * 1000), destinationOf(target))
   }
   ctx.result.failedBatches++
   console.error("[audit-siem] delivery failed", { tenantId: ctx.tenantId, rows: rows.length, error: r.error, dead })
@@ -171,7 +176,7 @@ async function drainSnapshots(ctx: Ctx): Promise<void> {
         target = siemTarget(group[0].targetSnapshot as TargetSnapshot)
       } catch (error) {
         console.error("[audit-siem] snapshot target unusable", { tenantId: ctx.tenantId, error })
-        await markOutbox(ctx.tx, due.map((r) => r.id), "retry", "config_invalid", new Date(ctx.now.getTime() + backoffSeconds(1) * 1000))
+        await markOutbox(ctx.tx, ctx.tenantId, due.map((r) => r.id), "retry", "config_invalid", new Date(ctx.now.getTime() + backoffSeconds(1) * 1000), "-")
         continue
       }
       const items = withinSize(await eventsFor(ctx, due))
@@ -204,7 +209,7 @@ async function deliverTenant(ctx: Ctx): Promise<void> {
 }
 
 export async function deliverSiemOutbox(opts: { db?: PrismaClient; now?: Date; send?: SiemSender; deps?: TransportDeps } = {}): Promise<DeliveryResult> {
-  const db = (opts.db ?? prisma) as unknown as PrismaClient
+  const db = (opts.db ?? deliveryClient()) as unknown as PrismaClient
   const now = opts.now ?? new Date()
   const send = opts.send ?? sendToSiem
   const result: DeliveryResult = { tenants: 0, sent: 0, dead: 0, failedBatches: 0, failedTenants: 0, oldestPendingSeconds: null }
@@ -223,7 +228,7 @@ export async function deliverSiemOutbox(opts: { db?: PrismaClient; now?: Date; s
     }
     const oldest = await oldestPending(db)
     result.oldestPendingSeconds = oldest ? Math.max(0, Math.round((now.getTime() - oldest.getTime()) / 1000)) : null
-    await purgeSent(db, new Date(now.getTime() - SENT_KEPT_DAYS * 86_400_000))
+    await purgeSent(db)
     return result
   })
 }

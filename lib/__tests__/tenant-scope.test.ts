@@ -203,6 +203,8 @@ describe("tenant-scope — ALS primitives", () => {
       "TrackerClosure",
       "AuditPolicy",
       "AuditSiemOutbox",
+      "AuditPolicyRevision",
+      "AuditSiemDelivery",
       // Enterprise sign-in and API OAuth (lib/sso, lib/lender-api/oauth) — non-null tenantId.
       "SsoConnection",
       "OauthClient",

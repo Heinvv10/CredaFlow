@@ -270,8 +270,23 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   grants it (re-run after every migration: compose `db-roles`, `scripts/lender`
   `ensure_app_role`, the chart's `app-role` Job). `/api/health` and the boot log
   warn when the runtime role owns an audit table, is a superuser, can write the
-  evidence tables, or `AUDIT_CHAIN_KEY` is unset. The demo-sim stacks run as a
+  evidence tables, or `AUDIT_CHAIN_KEY` is unset. "Owns" includes being a MEMBER
+  (`pg_has_role`) of a table owner or of `audit_redactor`; `audit_grant_runtime`
+  refuses such a role. The owner login never reaches the app containers (the
+  compose files blank it; the chart keeps it in a Secret no pod mounts). The demo-sim stacks run as a
   superuser on purpose and show that warning.
+- **Redaction is a role, not a setting.** `audit_log_redact` is owned by the NOLOGIN
+  role `audit_redactor`; the append-only trigger lets an UPDATE through only when
+  `current_user = 'audit_redactor'` and an `AuditRedaction` row records the digest of
+  each column being nulled. The app login is not a member and cannot write `AuditRedaction`.
+- **Outbox functions trust nothing.** The destination a lender leaves is read from the
+  committed `AuditPolicy` change (trigger `audit_policy_revision`, table
+  `AuditPolicyRevision`), never passed in. `audit_outbox_mark` takes the tenant, accepts
+  only delivery-attempt transitions, stamps `sentAt` with the database clock and writes an
+  append-only receipt (`AuditSiemDelivery`). `audit_outbox_prune_unsent` refuses while the
+  lender forwards and audits the pruning; `audit_outbox_purge_sent` has a fixed 7-day
+  retention. The outbox functions can go to a separate delivery login
+  (`audit_grant_delivery`, `AUDIT_DELIVERY_DATABASE_URL`).
 - **SIEM.** A lender's `AuditPolicy` turns forwarding on; the chainer queues each
   chained row in `AuditSiemOutbox` and the `audit-siem-deliver` cron ships it as
   RFC 5424 syslog over TLS (CEF body) or an HTTPS JSON batch, in order, at least

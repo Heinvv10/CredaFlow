@@ -35,6 +35,20 @@ describe("recordSecurityEvent", () => {
     expect(logAudit.mock.calls[1][0]).toMatchObject({ newValue: { reason: "wrong_password", suppressedSincePrevious: 4 } })
   })
 
+  it("never suppresses a successful sign-in", async () => {
+    const ok = { ...failed, kind: "login_succeeded" as const, reason: undefined }
+    for (let i = 0; i < 4; i++) await recordSecurityEvent(ok, i * 1000)
+    expect(logAudit).toHaveBeenCalledTimes(4)
+  })
+
+  it("records a failure from a new source address even inside the window, and still throttles one address", async () => {
+    await recordSecurityEvent(failed, 0)
+    await recordSecurityEvent(failed, 1000)
+    await recordSecurityEvent({ ...failed, ipAddress: "203.0.113.9" }, 2000)
+    await recordSecurityEvent({ ...failed, ipAddress: "203.0.113.9" }, 3000)
+    expect(logAudit.mock.calls.map((c) => (c[0] as { ipAddress: string }).ipAddress)).toEqual(["10.0.0.1", "203.0.113.9"])
+  })
+
   it("keeps kinds, users and lenders apart", async () => {
     await recordSecurityEvent(failed, 0)
     await recordSecurityEvent({ ...failed, kind: "totp_failed" }, 1)

@@ -12,7 +12,7 @@ import { PrismaClient } from "@prisma/client"
 import { logAuditStrict } from "@/lib/audit"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { runChainer } from "@/lib/audit/chainer"
-import { writeCheckpoints } from "@/lib/audit/checkpoint"
+import { checkpointNow } from "@/lib/audit/checkpoint.test-helpers"
 import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 import { deliverSiemOutbox, type SiemSender } from "./deliver"
 import { saveAuditPolicy } from "./policy"
@@ -178,16 +178,52 @@ suite("SIEM forwarding", () => {
     expect(rows.find((o) => o.seq === 5)).toMatchObject({ lastError: "rejected_by_siem", attempts: 3 })
   })
 
-  it("prunes what is queued for a lender that switched forwarding off", async () => {
+  it("sends the backlog to the old destination when forwarding is switched off, rows chained later included, and queues nothing new", async () => {
     const t = await tenant("off")
-    await enable(t)
+    await enable(t, "https://old.example.invalid/ingest")
     for (let i = 1; i <= 3; i++) await write(t, i)
     await chain(t)
+    await write(t, 4) // committed before the switch-off, chained after it
     await db.auditPolicy.update({ where: { tenantId: t }, data: { siemEnabled: false } })
+    await chain(t)
+    await write(t, 5) // after: nothing to forward
+    await chain(t)
+    const rec = recorder()
+    await deliver(rec.send, T0)
+    expect(rec.calls.map((c) => c.url)).toEqual(["https://old.example.invalid/ingest"])
+    expect(rec.calls[0].events.map((e) => e.entityId)).toEqual(["e1", "e2", "e3", "e4"])
+    expect((await outbox(t)).every((o) => o.sentAt !== null)).toBe(true)
+    expect(await db.auditSiemDelivery.count({ where: { tenantId: t } })).toBe(4)
+  })
+
+  it("prunes an unstamped leftover of a lender that is not forwarding, and records the pruning as an audit row", async () => {
+    const t = await tenant("prune")
+    await write(t, 1)
+    await chain(t)
+    const [row] = await db.auditLog.findMany({ where: { tenantId: t } })
+    await db.auditSiemOutbox.create({ data: { tenantId: t, kind: "EVENT", auditLogId: row.id } })
     const rec = recorder()
     await deliver(rec.send, T0)
     expect(rec.calls).toHaveLength(0)
     expect(await outbox(t)).toEqual([])
+    const pruned = await db.auditLog.findMany({ where: { tenantId: t, action: "AUDIT_SIEM_QUEUE_PRUNED" } })
+    expect(pruned.map((r) => r.newValue)).toEqual([{ pruned: 1 }])
+  })
+
+  it("routes a policy change that only rotates the credential to the old snapshot without rerouting the backlog", async () => {
+    const t = await tenant("rot")
+    const actor = await db.user.create({ data: { id: `siem-r-${token}`, email: `siem-r-${token}@it.invalid`, password: "x", tenantId: t, role: "ADMIN" } })
+    const resolve = async () => [{ address: "8.8.8.8", family: 4 }]
+    const save = (input: Record<string, unknown>) => runWithTenant(t, () => saveAuditPolicy(t, { id: actor.id, email: actor.email }, input, { resolve }))
+    await save({ siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: "https://same.example.invalid/ingest", siemToken: "first-token" })
+    await write(t, 1)
+    await chain(t)
+    await save({ siemToken: "second-token" })
+    const [rev] = await db.auditPolicyRevision.findMany({ where: { tenantId: t }, orderBy: { id: "desc" }, take: 1 })
+    expect(rev).toMatchObject({ oldEnabled: true, newEnabled: true, rerouted: false })
+    const pending = await outbox(t)
+    expect(pending.filter((o) => o.targetSnapshot !== null).map((o) => o.kind)).toEqual(["EVENT"]) // the change row only
+    expect(pending.find((o) => o.kind === "EVENT" && o.targetSnapshot === null)).toBeDefined() // the backlog stays on the current stream
   })
 
   it("sends an anchor (the chain head) when forwarding starts, and the policy change to the destination it left", async () => {
@@ -259,8 +295,8 @@ suite("SIEM forwarding", () => {
     await enable(t)
     await write(t, 1)
     await chain(t)
-    expect(await writeCheckpoints(db, [t])).toBe(1)
-    expect(await writeCheckpoints(db, [t])).toBe(0) // the head has not moved
+    expect(await checkpointNow(db, t)).toBe(1)
+    expect(await checkpointNow(db, t)).toBe(0) // the head has not moved
     const rec = recorder()
     await deliver(rec.send, T0)
     const cp = rec.calls.flatMap((c) => c.events).find((e) => e.action === "AUDIT_CHAIN_CHECKPOINT")

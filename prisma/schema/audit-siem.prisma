@@ -97,3 +97,34 @@ model AuditSiemOutbox {
 
   @@index([sentAt])
 }
+
+/// What a change to a lender's SIEM settings left behind (written by the AuditPolicy trigger,
+/// never by the application): the destination it left, whether forwarding moved or stopped,
+/// and the transaction. The policy-change row and late-chained rows are routed from this.
+/// Insert-only.
+model AuditPolicyRevision {
+  id          Int      @id @default(autoincrement())
+  tenantId    String
+  txid        BigInt
+  oldEnabled  Boolean
+  newEnabled  Boolean
+  rerouted    Boolean
+  oldSnapshot Json
+  changedAt   DateTime @default(now())
+
+  @@index([tenantId, changedAt])
+}
+
+/// A receipt for each outbox entry the SIEM acknowledged, written by audit_outbox_mark with the
+/// destination it went to. Insert-only; compare with what the SIEM holds to find a forged 'sent'.
+model AuditSiemDelivery {
+  id          Int      @id @default(autoincrement())
+  outboxId    Int
+  tenantId    String
+  kind        String
+  seq         Int?
+  destination String
+  recordedAt  DateTime @default(now())
+
+  @@index([tenantId, outboxId])
+}

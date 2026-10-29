@@ -9,8 +9,10 @@
  * already holds: there is no lookup by email here, so a client, dealer or operator
  * sign-in, an unknown address or a refused audience can never put a row (or a
  * lender's name) on anyone's chain. The log is immutable, so the volume is bounded:
- * one row per (tenant, user, kind) per window, the rows suppressed in between
- * counted on the next.
+ * a failure is one row per (tenant, user, kind, source address) per window, the rows
+ * suppressed in between counted on the next. A new source address is always recorded,
+ * and a successful sign-in never is suppressed: it is the event that proves a
+ * guessed password worked.
  */
 import { AuditAction, logAudit } from "@/lib/audit"
 
@@ -40,7 +42,8 @@ const windows = new Map<string, { start: number; suppressed: number }>()
 
 /** The suppressed count to record if this event is the first of its window, else null. */
 function claimWindow(e: SecurityEvent, now: number): number | null {
-  const key = `${e.tenantId}|${e.userId}|${e.kind}`
+  if (e.kind === "login_succeeded") return 0
+  const key = `${e.tenantId}|${e.userId}|${e.kind}|${e.ipAddress ?? ""}`
   const seen = windows.get(key)
   if (seen && now - seen.start < SECURITY_EVENT_WINDOW_MS) {
     seen.suppressed++

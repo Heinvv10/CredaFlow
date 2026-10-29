@@ -146,18 +146,8 @@ export async function buildPolicyWrite(
   }
 }
 
-/** The destination fields of a policy, secrets still sealed: what a policy-change row is sent to after the policy moves on. */
+/** The destination fields of a policy, secrets still sealed: what a stamped outbox entry (and the AuditPolicyRevision trigger) carries. */
 export type TargetSnapshot = Pick<AuditPolicy, "siemTransport" | "siemHost" | "siemPort" | "siemUrl" | "siemSealedToken" | "siemCaCertPem" | "siemClientCert" | "siemSealedKey">
-
-function snapshotOf(row: AuditPolicy): TargetSnapshot {
-  return {
-    siemTransport: row.siemTransport, siemHost: row.siemHost, siemPort: row.siemPort, siemUrl: row.siemUrl,
-    siemSealedToken: row.siemSealedToken, siemCaCertPem: row.siemCaCertPem, siemClientCert: row.siemClientCert, siemSealedKey: row.siemSealedKey,
-  }
-}
-
-const destination = (p: TargetSnapshot | null) =>
-  p ? `${p.siemTransport}|${p.siemHost ?? ""}|${p.siemPort ?? ""}|${p.siemUrl ?? ""}` : ""
 
 /** What the audit row of a policy change records: no secrets, no certificates, and a URL as origin only (its path or query may carry a key). */
 function auditView(row: AuditPolicy | null) {
@@ -171,10 +161,11 @@ function auditView(row: AuditPolicy | null) {
 
 /**
  * Writes the policy and its audit row in one transaction. Changing or switching off
- * forwarding is itself an event: the audit row is queued for the OLD destination (so
- * whoever redirects or disables the feed leaves a trace where the bank's SOC looks),
- * and a lender that starts forwarding, or moves it, first sends an anchor event
- * (the chain head at that moment).
+ * forwarding is itself an event: the database (trigger audit_policy_revision) stamps
+ * everything still queued with the OLD destination, and the audit row recording the
+ * change is queued for it too (so whoever redirects or disables the feed leaves a trace
+ * where the bank's SOC looks, and the backlog is never lost). A lender that starts
+ * forwarding, or moves it, first sends an anchor event (the chain position at that moment).
  */
 export async function saveAuditPolicy(
   tenantId: string,
@@ -196,11 +187,8 @@ export async function saveAuditPolicy(
       entityId: row.id, oldValue: auditView(current), newValue: auditView(row), ipAddress: opts.ipAddress,
     }, tx)
 
-    const moved = destination(current && current.siemEnabled ? snapshotOf(current) : null) !== destination(row.siemEnabled ? snapshotOf(row) : null)
-    if (moved) {
-      // The change event, and whatever is still queued, go to the destination being left; a new one starts with an anchor.
-      await queuePolicyChange(tx, tenantId, auditId, current?.siemEnabled ? snapshotOf(current) : null, row.siemEnabled)
-    }
+    // The AuditPolicy trigger recorded what the change left behind; this routes the row that records it.
+    await queuePolicyChange(tx, tenantId, auditId)
     return policyView(row)
   })
 }

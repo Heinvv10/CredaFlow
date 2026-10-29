@@ -14,6 +14,7 @@ import { logAuditStrict } from "@/lib/audit"
 import { verifyAuditChains } from "./chain-verify"
 import { runChainer } from "./chainer"
 import { writeCheckpoints } from "./checkpoint"
+import { checkpointNow } from "./checkpoint.test-helpers"
 import { runAuditChainVerification } from "./verify-job"
 import { purgeAuditRowsForTest, tamperAuditRowsForTest } from "./audit-rows.test-helpers"
 
@@ -81,9 +82,31 @@ suite("tamper-evident audit", () => {
       })).rejects.toThrow(/append-only/)
     })
 
+    it("does not let the old session flag unlock a redaction-shaped update, even for a superuser: only the redactor role does", async () => {
+      await write(A, 11)
+      const [row] = await db.auditLog.findMany({ where: { tenantId: A, entityId: "e11" } })
+      // A redaction row that DOES record the digest (planted behind the triggers): the flag alone must still not unlock the update.
+      await tamper(`INSERT INTO "AuditRedaction" ("id", "auditLogId", "tenantId", "columns", "userEmailDigest", "ipAddressDigest", "oldValueDigest", "newValueDigest", "reason", "operator")
+        VALUES ('planted-${token}', '${row.id}', '${A}', '{ipAddress}', '-', '${"a".repeat(64)}', '-', '-', 'planted for the flag test', 'it')`)
+      await expect(db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SELECT set_config('cf.audit_redaction', 'on', true)`)
+        await tx.$executeRawUnsafe(`UPDATE "AuditLog" SET "ipAddress" = NULL WHERE id = '${row.id}'`)
+      })).rejects.toThrow(/append-only/)
+      expect((await db.auditLog.findUniqueOrThrow({ where: { id: row.id } })).ipAddress).toBe("10.0.0.1")
+      // As the redactor role, a column the row does NOT cover is still refused, the covered one is allowed.
+      await expect(db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE audit_redactor`)
+        await tx.$executeRawUnsafe(`UPDATE "AuditLog" SET "userEmail" = NULL WHERE id = '${row.id}'`)
+      })).rejects.toThrow(/append-only/)
+      await db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE audit_redactor`)
+        await tx.$executeRawUnsafe(`UPDATE "AuditLog" SET "ipAddress" = NULL WHERE id = '${row.id}'`)
+      })
+    })
+
     it("refuses UPDATE, DELETE and TRUNCATE on the links, checkpoints and redactions", async () => {
       await chain(A)
-      await writeCheckpoints(db, [A])
+      await checkpointNow(db, A)
       const [row] = await rows(A)
       await db.$executeRaw`SELECT public.audit_log_redact(${row.id}, ARRAY['ipAddress']::text[], 'POPIA erasure request ref 7', 'it-operator')`
       for (const table of ["AuditChainLink", "AuditChainCheckpoint", "AuditRedaction"]) {
@@ -339,6 +362,30 @@ suite("tamper-evident audit", () => {
       await tamper(`DELETE FROM "AuditChainLink" WHERE "chainKey" = '${L}' AND "seq" > ${cp.seq - 1}`)
       expect((await verify(L, "incremental")).breaks).toEqual([expect.objectContaining({ kind: "checkpoint_mismatch" })])
       expect((await verify(L, "full")).breaks).toEqual([expect.objectContaining({ kind: "checkpoint_mismatch" })])
+    })
+
+    it("signs what the walk verified, not the head as it is by the time it signs", async () => {
+      const T = await tenant("toctou")
+      for (let i = 1; i <= 3; i++) await write(T, i)
+      await chain(T)
+      const walked = await verify(T)
+      expect(walked.verifiedHeads).toEqual([{ chainKey: T, seq: 3, rowHash: expect.stringMatching(/^[0-9a-f]{64}$/) }])
+      // Two more rows are chained after the walk and before the signing.
+      for (let i = 4; i <= 5; i++) await write(T, i)
+      await chain(T)
+      expect(await writeCheckpoints(db, walked.verifiedHeads)).toBe(1)
+      const cps = await db.$queryRaw<Array<{ seq: number }>>`SELECT "seq" FROM "AuditChainCheckpoint" WHERE "chainKey" = ${T}`
+      expect(cps).toEqual([{ seq: 3 }])
+    })
+
+    it("refuses to sign a link that was swapped after the walk", async () => {
+      const T = await tenant("swap")
+      for (let i = 1; i <= 3; i++) await write(T, i)
+      await chain(T)
+      const walked = await verify(T)
+      await tamper(`UPDATE "AuditChainLink" SET "rowHash" = '${"e".repeat(64)}' WHERE "chainKey" = '${T}' AND "seq" = 3`)
+      await expect(writeCheckpoints(db, walked.verifiedHeads)).rejects.toThrow(/no such link/)
+      expect(await db.$queryRaw`SELECT 1 FROM "AuditChainCheckpoint" WHERE "chainKey" = ${T}`).toEqual([])
     })
 
     it("the daily job records a break and writes no checkpoint for a chain that failed", async () => {

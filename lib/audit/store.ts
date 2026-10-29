@@ -125,22 +125,34 @@ export function outboxSources(db: AuditDb, auditLogIds: readonly string[]): Prom
   return db.$queryRaw<OutboxSource[]>`SELECT * FROM audit_outbox_sources(${[...auditLogIds]}::text[])`
 }
 
-export async function markOutbox(db: AuditDb, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date): Promise<void> {
-  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${[...ids]}::int[], ${state}, ${error}, ${ts(at)})`)
+/**
+ * Marks entries of one lender after a delivery attempt. The database accepts only that
+ * lender's pending entries and only a transition a delivery attempt can end in; 'sent'
+ * records a receipt naming `destination` (host or origin, never a credential).
+ */
+export async function markOutbox(
+  db: AuditDb, tenantId: string, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string,
+): Promise<void> {
+  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${tenantId}, ${[...ids]}::int[], ${state}, ${error}, ${ts(at)}, ${destination})`)
 }
 
-/** Queues the policy-change event for the destination a lender leaves (and an anchor for the one it starts). */
-export async function queuePolicyChange(db: AuditDb, tenantId: string, auditLogId: string, oldTarget: unknown | null, anchor: boolean): Promise<void> {
-  const target = oldTarget === null ? Prisma.sql`NULL::jsonb` : Prisma.sql`${JSON.stringify(oldTarget)}::jsonb`
-  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_policy_change(${tenantId}, ${auditLogId}, ${target}, ${anchor})`)
+/**
+ * Routes the audit row recording a policy change to the destination the lender left, and
+ * starts an anchor for the one it moves to. The database reads both from the committed
+ * AuditPolicy change in this transaction; the caller names only the audit row.
+ */
+export async function queuePolicyChange(db: AuditDb, tenantId: string, auditLogId: string): Promise<void> {
+  await db.$queryRaw`SELECT audit_outbox_policy_change(${tenantId}, ${auditLogId})`
 }
 
+/** Drops the unsent queue of a lender that is not forwarding (the database refuses otherwise, and records it). */
 export async function pruneUnsent(db: AuditDb, tenantId: string): Promise<void> {
   await db.$queryRaw`SELECT audit_outbox_prune_unsent(${tenantId})`
 }
 
-export async function purgeSent(db: AuditDb, before: Date): Promise<void> {
-  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_purge_sent(${ts(before)})`)
+/** Drops entries sent more than seven days ago (the cutoff is the database's). */
+export async function purgeSent(db: AuditDb): Promise<void> {
+  await db.$queryRaw`SELECT audit_outbox_purge_sent()`
 }
 
 export async function oldestPending(db: AuditDb): Promise<Date | null> {
