@@ -16,7 +16,7 @@ const RESET_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)
-  const gate = checkRateLimit(`forgot:staff:${ip}`, RESET_RATE_LIMIT)
+  const gate = await checkRateLimit(`forgot:staff:${ip}`, RESET_RATE_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

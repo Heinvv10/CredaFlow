@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
-import { createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
+import { createLocalRateLimiter, createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
 import { apiKeyMatches, apiKeyPrefix, apiKeyState, bearerToken, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
 
@@ -40,10 +40,12 @@ export const UNATTRIBUTED_LOG_SAMPLE = { limit: 10, windowMs: 60_000 }
 
 // Key buckets are bounded by the ApiKey rows that exist (a bucket is made only
 // for a real key), so their store is sized well past that and never shared.
-const keyLimiter = createRateLimiter(200_000)
-const failedAuthByAddress = createRateLimiter(10_000)
-const failedAuthGlobal = createRateLimiter(1)
-const logSampler = createRateLimiter(1)
+// Namespaces are in the shared store's keys (lib/rate-limit.ts): never rename one.
+const keyLimiter = createRateLimiter(200_000, "lender-api:key")
+const failedAuthByAddress = createRateLimiter(10_000, "lender-api:failed-auth:address")
+const failedAuthGlobal = createRateLimiter(1, "lender-api:failed-auth:global")
+// Per process: it only decides how many log rows to write.
+const logSampler = createLocalRateLimiter(1)
 const LAST_USED_RESOLUTION_MS = 60_000
 
 export function apiError(status: number, code: string, message: string, headers?: HeadersInit): NextResponse {
@@ -153,12 +155,12 @@ export async function withApiKey(
     tenantId = auth.ok ? auth.caller.tenantId : auth.tenantId
     keyId = auth.ok ? auth.caller.keyId : auth.keyId
     // Per key, for every request that names a real key (refused ones too).
-    const keyLimit = keyId ? keyLimiter(keyId, API_KEY_RATE_LIMIT) : null
+    const keyLimit = keyId ? await keyLimiter(keyId, API_KEY_RATE_LIMIT) : null
     if (keyLimit && !keyLimit.allowed) {
       response = tooMany(keyLimit.retryAfterSeconds, "Too many requests for this API key.")
     } else if (!auth.ok) {
       const ip = recordedCallerIp(req)
-      const failLimit = ip ? failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
+      const failLimit = ip ? await failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : await failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
       response = failLimit.allowed ? auth.response : tooMany(failLimit.retryAfterSeconds, "Too many failed requests.")
     } else if (!hasScope(auth.caller.scopes, scope)) {
       response = apiError(403, "insufficient_scope", `This API key does not have the ${scope} scope.`)

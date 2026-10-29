@@ -42,7 +42,7 @@ export const DEALER_CAPTURE_RATE_LIMIT = { limit: 30, windowMs: 15 * 60 * 1000 }
 type Captured = "entity" | "person" | "asset"
 
 function overCaptureLimit(actor: DealerActor): DealerRefusal | null {
-  const gate = checkRateLimit(`dealer-capture:${actor.tenantId}:${actor.dealerUserId}`, DEALER_CAPTURE_RATE_LIMIT)
+  const gate = await checkRateLimit(`dealer-capture:${actor.tenantId}:${actor.dealerUserId}`, DEALER_CAPTURE_RATE_LIMIT)
   return gate.allowed ? null : dealerRefused(429, "Too many captures in a short time: try again in a few minutes")
 }
 

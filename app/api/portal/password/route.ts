@@ -30,8 +30,8 @@ export async function POST(req: NextRequest) {
   // brute-forcing the current password even when many clients share an egress
   // IP (e.g. behind the Docker/NGINX gateway, where per-IP collapses).
   const ip = callerIp(req)
-  const ipGate = checkRateLimit(`portal-password-ip:${ip}`, PASSWORD_RATE_LIMIT)
-  const acctGate = checkRateLimit(`portal-password-acct:${session.user.email.toLowerCase()}`, PASSWORD_RATE_LIMIT)
+  const ipGate = await checkRateLimit(`portal-password-ip:${ip}`, PASSWORD_RATE_LIMIT)
+  const acctGate = await checkRateLimit(`portal-password-acct:${session.user.email.toLowerCase()}`, PASSWORD_RATE_LIMIT)
   if (!ipGate.allowed || !acctGate.allowed) {
     const retryAfter = Math.max(ipGate.retryAfterSeconds ?? 0, acctGate.retryAfterSeconds ?? 0)
     return NextResponse.json(

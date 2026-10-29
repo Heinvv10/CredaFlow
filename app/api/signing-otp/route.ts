@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   if ("error" in resolved) return resolved.error
   const { caller } = resolved
 
-  const gate = checkRateLimit(`signing-otp:request:ip:${callerIp(req)}`, IP_LIMIT)
+  const gate = await checkRateLimit(`signing-otp:request:ip:${callerIp(req)}`, IP_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

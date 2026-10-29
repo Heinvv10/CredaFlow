@@ -22,7 +22,7 @@ const ACK_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 }
 export async function POST(req: NextRequest, { params }: RouteCtx) {
   const { token } = await params
   const ip = callerIp(req)
-  if (!checkRateLimit(`pasq-link:ack:${ip}`, ACK_LIMIT).allowed) {
+  if (!(await checkRateLimit(`pasq-link:ack:${ip}`, ACK_LIMIT)).allowed) {
     return Response.json(
       { error: "Too many requests. Please wait a moment and try again." },
       { status: 429 },

@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   // the same shape as the login bucket that self-DoSes when TRUSTED_PROXY is
   // unset. The user id is already authenticated at this point, cannot be
   // spoofed, and attributes a scripted probe to the account running it.
-  const gate = checkRateLimit(`clients:lookup:${guard.user.id}`, LOOKUP_RATE_LIMIT)
+  const gate = await checkRateLimit(`clients:lookup:${guard.user.id}`, LOOKUP_RATE_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many lookups. Try again shortly." },

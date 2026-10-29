@@ -29,10 +29,10 @@ export async function POST(req: NextRequest) {
     const now = new Date()
     const conversationId = verifyChatToken(body.token, now)
     if (!conversationId) {
-      const bad = checkRateLimit(`website:chat:badtoken:${ip}`, BAD_TOKEN_RATE_LIMIT)
+      const bad = await checkRateLimit(`website:chat:badtoken:${ip}`, BAD_TOKEN_RATE_LIMIT)
       return bad.allowed ? NextResponse.json(EXPIRED, { status: 401 }) : tooMany(bad.retryAfterSeconds)
     }
-    const gate = checkRateLimit(`website:chat:poll:${conversationId}`, POLL_RATE_LIMIT)
+    const gate = await checkRateLimit(`website:chat:poll:${conversationId}`, POLL_RATE_LIMIT)
     if (!gate.allowed) return tooMany(gate.retryAfterSeconds)
 
     // `return await` is deliberate: it keeps a rejection inside this try so the catch still runs.

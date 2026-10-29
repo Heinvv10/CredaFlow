@@ -113,9 +113,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // attempt at their real surface. This is deliberate — cross-audience
         // probing should be rate-limited as aggressively as same-audience
         // brute-force.
-        const emailGate    = checkRateLimit(`login:email:${email}`, PER_EMAIL_LIMIT)
-        const ipGate       = checkRateLimit(`login:ip:${ip}`,       PER_IP_LIMIT)
-        const combinedGate = checkRateLimit(`login:${email}:${ip}`, COMBINED_LIMIT)
+        const emailGate    = await checkRateLimit(`login:email:${email}`, PER_EMAIL_LIMIT)
+        const ipGate       = await checkRateLimit(`login:ip:${ip}`,       PER_IP_LIMIT)
+        const combinedGate = await checkRateLimit(`login:${email}:${ip}`, COMBINED_LIMIT)
         if (!emailGate.allowed || !ipGate.allowed || !combinedGate.allowed) {
           await recordFailure("rate_limited")
           throw new RateLimitedError()

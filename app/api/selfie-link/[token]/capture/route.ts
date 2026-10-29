@@ -101,7 +101,7 @@ export async function POST(
   // otherwise let a scanner mint unlimited fresh keys and never be limited.
   if (isSelfieLinkSecret(token)) {
     const bucket = hashSelfieLinkSecret(token).slice(0, 32)
-    if (!checkRateLimit(`selfie-link:capture:tok:${bucket}`, PER_TOKEN_LIMIT).allowed) {
+    if (!(await checkRateLimit(`selfie-link:capture:tok:${bucket}`, PER_TOKEN_LIMIT)).allowed) {
       return tooMany
     }
   }
@@ -111,7 +111,7 @@ export async function POST(
     // already passed its own per-token bucket and must never be refused by a
     // bucket an attacker can fill.
     const ip = callerIp(req as NextRequest)
-    if (!checkRateLimit(`selfie-link:capture:unresolved:${ip}`, UNRESOLVED_LIMIT).allowed) {
+    if (!(await checkRateLimit(`selfie-link:capture:unresolved:${ip}`, UNRESOLVED_LIMIT)).allowed) {
       return tooMany
     }
     return NextResponse.json(

@@ -38,7 +38,7 @@ const COVER_LABELS: Record<CoverType, string> = {
 export async function POST(req: NextRequest) {
   try {
     const ip = callerIp(req)
-    const gate = checkRateLimit(`website:insurance-enquiry:${ip}`, FORM_RATE_LIMIT)
+    const gate = await checkRateLimit(`website:insurance-enquiry:${ip}`, FORM_RATE_LIMIT)
     if (!gate.allowed) {
       return NextResponse.json(
         { success: false, error: "Too many submissions. Please try again later." },

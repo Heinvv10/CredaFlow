@@ -546,6 +546,20 @@ model CronHeartbeat {
   lastError       String?
 }
 
+// Shared rate-limit state (lib/rate-limit-store.ts): one row per limited key, the
+// timestamps of its hits inside the current window, on the DATABASE clock so
+// replicas with skewed clocks agree. `keyHash` is sha256(key): keys name emails and
+// addresses, and a limit has no need to be readable. Not tenant-scoped on purpose:
+// a key already carries whatever scope it needs. Rows past `expiresAt` are purged
+// by /api/cron/rate-limit-cleanup.
+model RateLimitHit {
+  keyHash   String     @id
+  hits      DateTime[] @db.Timestamptz(3)
+  expiresAt DateTime   @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}
+
 // One row per (single-run in-process job, SAST day): the replica that inserts it
 // runs the job, and the row records how the run ended (lib/ops/cron-run-claim.ts).
 // A later firing the same day proceeds only over a FAILED row, or a RUNNING one

@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   // Loose per-IP pre-gate: bounds Turnstile-verify (Cloudflare) calls per IP so
   // a token-bearing flood can't force unbounded outbound verifications, without
   // reintroducing the tight-IP CGNAT lockout the per-identity gate replaces.
-  const ipCallCap = checkRateLimit(`register:ip:${ip}`, REGISTER_IP_CALL_CAP)
+  const ipCallCap = await checkRateLimit(`register:ip:${ip}`, REGISTER_IP_CALL_CAP)
   if (!ipCallCap.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
   // vary it each request to land in a fresh bucket and escape the throttle. Email
   // is the invariant across a brute-force campaign, so it's the correct key. This
   // is the load-bearing bound on OTP-guessing (and OTP-email-spam) per account.
-  const identityGate = checkRateLimit(
+  const identityGate = await checkRateLimit(
     `register:${normalisedEmail}`,
     REGISTER_RATE_LIMIT,
   )

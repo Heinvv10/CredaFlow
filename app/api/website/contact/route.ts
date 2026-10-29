@@ -11,7 +11,7 @@ const FORM_RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 } as const
 export async function POST(req: NextRequest) {
   try {
     const ip = callerIp(req)
-    const gate = checkRateLimit(`website:contact:${ip}`, FORM_RATE_LIMIT)
+    const gate = await checkRateLimit(`website:contact:${ip}`, FORM_RATE_LIMIT)
     if (!gate.allowed) {
       return NextResponse.json(
         { success: false, error: "Too many submissions. Please try again later." },

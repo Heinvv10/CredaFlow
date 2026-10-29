@@ -29,7 +29,7 @@ function problem(status: number, error: string) {
 export async function GET(req: NextRequest, { params }: RouteCtx) {
   const { token } = await params
   const ip = callerIp(req)
-  if (!checkRateLimit(`pasq-link:doc:${ip}`, LINK_LIMIT).allowed) {
+  if (!(await checkRateLimit(`pasq-link:doc:${ip}`, LINK_LIMIT)).allowed) {
     return problem(429, "Too many requests. Please wait a moment and try again.")
   }
 

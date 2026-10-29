@@ -40,14 +40,14 @@ export async function POST(req: NextRequest) {
     if (!v.ok) return NextResponse.json({ error: "Please check the highlighted fields.", errors: v.errors }, { status: 400 })
 
     // Limits are charged only after Turnstile and validation pass, so junk POSTs cannot burn a bucket.
-    const perPhone = checkRateLimit(`website:chat:start:phone:${v.fields.phone}:${ip}`, PHONE_LIMIT)
+    const perPhone = await checkRateLimit(`website:chat:start:phone:${v.fields.phone}:${ip}`, PHONE_LIMIT)
     if (!perPhone.allowed) return tooMany(perPhone.retryAfterSeconds)
     // Without a real IP every caller would share one bucket, turning a per-IP limit into a site-wide one.
     if (ip !== "unknown") {
-      const perIp = checkRateLimit(`website:chat:start:ip:${ip}`, IP_LIMIT)
+      const perIp = await checkRateLimit(`website:chat:start:ip:${ip}`, IP_LIMIT)
       if (!perIp.allowed) return tooMany(perIp.retryAfterSeconds)
     }
-    const siteWide = checkRateLimit("website:chat:start:all", SITE_LIMIT)
+    const siteWide = await checkRateLimit("website:chat:start:all", SITE_LIMIT)
     if (!siteWide.allowed) return tooMany(siteWide.retryAfterSeconds)
 
     const now = new Date()

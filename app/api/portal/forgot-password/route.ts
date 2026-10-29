@@ -31,7 +31,7 @@ const FORGOT_IP_CALL_CAP = { limit: 30, windowMs: 15 * 60 * 1000 } as const
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)
 
-  const ipCallCap = checkRateLimit(`forgot:ip:${ip}`, FORGOT_IP_CALL_CAP)
+  const ipCallCap = await checkRateLimit(`forgot:ip:${ip}`, FORGOT_IP_CALL_CAP)
   if (!ipCallCap.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   // Per-email gate — same generic 429 for existing + unknown emails, so it
   // never becomes an account-existence oracle (preserves the enumeration
   // protection the 200-always responses below provide).
-  const acctGate = checkRateLimit(`forgot:acct:${normalised}`, FORGOT_RATE_LIMIT)
+  const acctGate = await checkRateLimit(`forgot:acct:${normalised}`, FORGOT_RATE_LIMIT)
   if (!acctGate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
