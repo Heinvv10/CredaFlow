@@ -1,3 +1,4 @@
+import { logger } from "@/lib/observability/logger"
 import { prisma } from "@/lib/prisma"
 import { activeCurrency, activeJurisdiction, isJurisdictionLoaded, setActiveJurisdiction } from "./active"
 import { parseCurrency, parseJurisdiction, type Currency, type Jurisdiction } from "./profiles"
@@ -37,8 +38,8 @@ export class JurisdictionChangedError extends Error {
 const current = (): ActiveJurisdictionState => ({ jurisdiction: activeJurisdiction(), currency: activeCurrency() })
 const key = (s: ActiveJurisdictionState) => `${s.jurisdiction}/${s.currency}`
 
-// TODO(#252): switch these to the repo logger when lib/observability/logger.ts lands on main.
-const logError = (message: string, error?: unknown) => console.error(`[jurisdiction] ${message}`, error ?? "")
+const logError = (message: string, error?: unknown) =>
+  logger.error(`[jurisdiction] ${message}`, error === undefined ? undefined : { error: error instanceof Error ? error.message : String(error) })
 
 /**
  * Reads the InstanceJurisdiction row (the single source of truth: every lender's

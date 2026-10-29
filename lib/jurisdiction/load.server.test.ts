@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const findUnique = vi.fn()
+const logError = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/observability/logger", () => ({ logger: { error: logError } }))
 vi.mock("@/lib/prisma", () => ({ prisma: { instanceJurisdiction: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
 
 import { activeCurrency, activeJurisdiction, isJurisdictionLoaded, resetActiveJurisdiction } from "./active"
@@ -17,7 +19,7 @@ const row = (jurisdiction: string, currency: string) => ({ id: 1, jurisdiction, 
 
 beforeEach(() => {
   findUnique.mockReset()
-  vi.spyOn(console, "error").mockImplementation(() => {})
+  logError.mockReset()
 })
 afterEach(() => {
   resetActiveJurisdiction()
@@ -44,7 +46,7 @@ describe("loadActiveJurisdiction (reads the instance row, not the tenants)", () 
   it("keeps ZA and logs when the read fails, rather than throwing into the layout", async () => {
     findUnique.mockRejectedValue(new Error("db down"))
     await expect(loadActiveJurisdiction()).resolves.toEqual({ jurisdiction: "ZA", currency: "ZAR" })
-    expect(console.error).toHaveBeenCalled()
+    expect(logError).toHaveBeenCalled()
   })
 
   it("keeps ZA when the stored value is not a known code, or ZA with another currency", async () => {
@@ -53,7 +55,7 @@ describe("loadActiveJurisdiction (reads the instance row, not the tenants)", () 
     findUnique.mockResolvedValue(row("ZA", "LSL"))
     await loadActiveJurisdiction()
     expect(isJurisdictionLoaded()).toBe(false)
-    expect(console.error).toHaveBeenCalled()
+    expect(logError).toHaveBeenCalled()
   })
 
   it("refuses a database value that differs from the one already in use", async () => {
@@ -92,7 +94,7 @@ describe("ensureActiveJurisdiction", () => {
     // Not served from the stale cache while it is wrong, and not re-read on every request.
     await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionChangedError)
     expect(findUnique).toHaveBeenCalledTimes(2)
-    expect(console.error).toHaveBeenCalled()
+    expect(logError).toHaveBeenCalled()
   })
 
   it("serves again once the database value matches the process again", async () => {
@@ -141,7 +143,7 @@ describe("bootActiveJurisdiction", () => {
     expect(state).toEqual({ jurisdiction: "ZA", currency: "ZAR" })
     expect(findUnique).toHaveBeenCalledTimes(1)
     expect(sleeps).toEqual([])
-    expect(vi.mocked(console.error).mock.calls.filter((c) => String(c[0]).includes("no instance jurisdiction"))).toHaveLength(1)
+    expect(logError.mock.calls.filter((c) => String(c[0]).includes("no instance jurisdiction"))).toHaveLength(1)
   })
 
   it("does not wait for ever on a hung database: boots as ZA after the timeout", async () => {
@@ -150,6 +152,6 @@ describe("bootActiveJurisdiction", () => {
     const booting = bootActiveJurisdiction({ timeoutMs: 1_000, sleep })
     await vi.advanceTimersByTimeAsync(1_001)
     await expect(booting).resolves.toEqual({ jurisdiction: "ZA", currency: "ZAR" })
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("not loaded after 1000 ms"), "")
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining("not loaded after 1000 ms"), undefined)
   })
 })

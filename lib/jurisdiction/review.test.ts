@@ -18,7 +18,7 @@ afterEach(() => { resetActiveJurisdiction(); delete process.env.NEXT_PUBLIC_TENA
 
 const zaLoan = { status: "ACTIVE", ncaRegime: "NCA" as const, arrearsAmount: 500_00, outstandingPrincipal: 10_000_00, daysInArrears: 120 }
 const instance = (jurisdiction: string, currency: string) => ({ instanceJurisdiction: { findUnique: vi.fn(async () => ({ id: 1, jurisdiction, currency })) } })
-vi.spyOn(console, "error").mockImplementation(() => {})
+vi.mock("@/lib/observability/logger", () => ({ logger: { error: vi.fn() } }))
 
 describe("a warm process never serves under a stale jurisdiction (breaker repro A)", () => {
   it("an LS process whose database now says ZA refuses to load it, rather than let a ZA loan lose Section 129 or print Maloti", async () => {

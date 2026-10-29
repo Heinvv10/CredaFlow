@@ -12,6 +12,7 @@
  *
  * The role needs CREATEDB (as prisma/seed.integration.test.ts does).
  */
+import { readFileSync } from "node:fs"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
@@ -78,6 +79,16 @@ suite("a Lesotho instance (real DB)", () => {
     await db().tenant.update({ where: { id: parked.id }, data: { status: "ACTIVE" } })
   })
 
+  it("refuses to re-point a mismatching config at another tenant", async () => {
+    const donor = await lender("ls-donor", "SUSPENDED", LS)
+    const target = await db().tenant.create({ data: { slug: "ls-target", name: "ls-target", status: "SUSPENDED" } })
+    await db().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+      await tx.$executeRawUnsafe(`UPDATE "TenantConfig" SET "jurisdiction" = 'ZA', "currency" = 'ZAR' WHERE "tenantId" = '${donor.id}'`)
+    })
+    await expect(db().tenantConfig.update({ where: { tenantId: donor.id }, data: { tenantId: target.id } })).rejects.toThrow(REFUSED)
+  })
+
   it("holds under a strict-RLS session that shows the guards no rows", async () => {
     await expect(db().$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', 'some-other-tenant', true)`
@@ -119,6 +130,12 @@ suite("a South African instance (real DB)", () => {
 
   it("the migration leaves an empty database ZA / ZAR, set by the migration", async () => {
     expect(await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ jurisdiction: "ZA", currency: "ZAR", setBy: "migration" })
+  })
+
+  it("a config written with no jurisdiction reads back ZA / ZAR, and the enums refuse any other code", async () => {
+    const t = await createChargesTenant(db(), false)
+    expect(await db().tenantConfig.findUniqueOrThrow({ where: { tenantId: t.tenantId }, select: { jurisdiction: true, currency: true } })).toEqual({ jurisdiction: "ZA", currency: "ZAR" })
+    await expect(db().$executeRawUnsafe(`UPDATE "TenantConfig" SET "jurisdiction" = 'US' WHERE "tenantId" = '${t.tenantId}'`)).rejects.toThrow()
   })
 
   it("refuses an LS lender; ZA lenders come in as they always did", async () => {
@@ -237,4 +254,43 @@ suite("a tenant created while the instance is being changed (real DB)", () => {
     await expect(create).rejects.toThrow(REFUSED)
     expect(await fresh.db.tenant.count({ where: { slug: "za-race" } })).toBe(0)
   }, 120_000)
+})
+
+suite("the migration's backfill (real DB)", () => {
+  let fresh: ThrowawayDb
+  const db = () => fresh.db
+  // The DO block of the migration, run again against lenders written with the triggers off
+  // (as an upgraded database that predates the row would hold them).
+  const backfill = readFileSync("prisma/migrations/20261029120000_instance_jurisdiction/migration.sql", "utf8").match(/DO \$backfill\$[^]*?\$backfill\$;/)?.[0] ?? ""
+  const rerun = (setup: string[]) => db().$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+    await tx.$executeRawUnsafe(`DELETE FROM "InstanceJurisdiction"`)
+    await tx.$executeRawUnsafe(`DELETE FROM "TenantConfig"`)
+    await tx.$executeRawUnsafe(`DELETE FROM "Tenant"`)
+    for (const statement of setup) await tx.$executeRawUnsafe(statement)
+    await tx.$executeRawUnsafe(backfill)
+  })
+  const lender = (slug: string, status: string, j: string, c: string) => [
+    `INSERT INTO "Tenant" ("id","slug","name","status","updatedAt") VALUES ('${slug}','${slug}','${slug}','${status}', now())`,
+    `INSERT INTO "TenantConfig" ("id","tenantId","jurisdiction","currency","updatedAt") VALUES ('${slug}-cfg','${slug}','${j}','${c}', now())`,
+  ]
+
+  beforeAll(async () => { fresh = await createThrowawayDb() }, 240_000)
+  afterAll(() => fresh?.drop())
+
+  it("found the backfill block in the migration", () => { expect(backfill).toContain("InstanceJurisdiction") })
+
+  it("takes the value the ACTIVE lenders agree on, ignoring parked ones", async () => {
+    await rerun([...lender("a-ls", "ACTIVE", "LS", "LSL"), ...lender("b-za", "SUSPENDED", "ZA", "ZAR")])
+    expect(await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ jurisdiction: "LS", currency: "LSL", setBy: "migration" })
+  })
+
+  it("is ZA / ZAR with no lenders", async () => {
+    await rerun([])
+    expect(await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ jurisdiction: "ZA", currency: "ZAR" })
+  })
+
+  it("fails the migration when ACTIVE lenders disagree", async () => {
+    await expect(rerun([...lender("a-ls", "ACTIVE", "LS", "LSL"), ...lender("b-za", "ACTIVE", "ZA", "ZAR")])).rejects.toThrow(/disagree/)
+  })
 })
