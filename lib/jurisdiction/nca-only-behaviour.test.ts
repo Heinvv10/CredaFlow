@@ -12,12 +12,15 @@ import { resetActiveJurisdiction, setActiveJurisdiction } from "./active"
 const reached = vi.hoisted(() => ({ what: [] as string[], tenantAllowed: false }))
 const touch = (what: string) => () => { reached.what.push(what); throw new Error(`reached ${what}`) }
 
-// The jurisdiction gate itself reads the instance row (ncaOnlyRefusal loads it first); that is the one read allowed.
+// The jurisdiction gate itself reads the instance row, and checks no lender differs from it (ncaOnlyRefusal
+// loads it first); those two reads are the only ones allowed.
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
-    get: (_t, name) => (name === "instanceJurisdiction"
-      ? { findUnique: async () => ({ id: 1, jurisdiction: "LS", currency: "LSL" }) }
-      : touch(`prisma.${String(name)}`)()),
+    get: (_t, name) => {
+      if (name === "instanceJurisdiction") return { findUnique: async () => ({ id: 1, jurisdiction: "LS", currency: "LSL" }) }
+      if (name === "tenantConfig") return { findFirst: async () => null }
+      return touch(`prisma.${String(name)}`)()
+    },
   }),
 }))
 // The export route resolves its tenant before it looks at the report type, so that test allows it.
