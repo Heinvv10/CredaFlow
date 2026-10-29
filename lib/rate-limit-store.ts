@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import type { RateLimitOptions, RateLimitResult } from "./rate-limit"
+import { SharedStoreUnavailableError } from "./rate-limit-errors"
 
 /** The part of a Prisma client the store uses: the application client or any other. */
 export interface RawQueryClient {
@@ -16,6 +17,15 @@ export function keyHash(namespace: string, key: string): string {
   return createHash("sha256").update(namespace).update("\0").update(key).digest("hex")
 }
 
+/** Anything the database call throws is the store being unavailable; the code around it stays a bug if it throws. */
+async function queryStore<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    throw new SharedStoreUnavailableError("shared rate-limit query failed", { cause: error })
+  }
+}
+
 /**
  * Sliding-window limit on the database, exact like the in-memory one and atomic
  * across replicas: one row per key holds the timestamps of its hits inside the
@@ -30,7 +40,7 @@ export function createPostgresStore(client: RawQueryClient) {
     if (opts.limit <= 0) return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(opts.windowMs / 1000)) }
     const hash = keyHash(namespace, key)
     const windowSeconds = opts.windowMs / 1000
-    const rows = await client.$queryRaw<Row[]>`
+    const rows = await queryStore(() => client.$queryRaw<Row[]>`
       WITH c AS (SELECT clock_timestamp() AS t, make_interval(secs => ${windowSeconds}::double precision) AS w),
       up AS (
         INSERT INTO "RateLimitHit" ("keyHash", "hits", "expiresAt")
@@ -45,7 +55,7 @@ export function createPostgresStore(client: RawQueryClient) {
         (SELECT n FROM up)::int AS n,
         (SELECT extract(epoch FROM (min(x) + (SELECT w FROM c) - (SELECT t FROM c))) * 1000
            FROM "RateLimitHit" r, unnest(r."hits") x
-          WHERE r."keyHash" = ${hash}::text AND x > (SELECT t - w FROM c))::float8 AS retry_ms`
+          WHERE r."keyHash" = ${hash}::text AND x > (SELECT t - w FROM c))::float8 AS retry_ms`)
     const row = rows[0]
     if (row?.n != null) return { allowed: true, remaining: Math.max(0, opts.limit - row.n), retryAfterSeconds: 0 }
     return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil((row?.retry_ms ?? 1000) / 1000)) }

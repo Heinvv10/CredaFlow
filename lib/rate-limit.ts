@@ -1,4 +1,5 @@
 import { isIP } from "node:net"
+import { SharedStoreUnavailableError } from "./rate-limit-errors"
 import { checkSharedRateLimit } from "./rate-limit-store"
 
 /**
@@ -11,7 +12,7 @@ import { checkSharedRateLimit } from "./rate-limit-store"
  * RATE_LIMIT_STORE=memory|postgres chooses explicitly; any other value throws.
  *
  * FAIL MODE: if the shared store errors or does not answer within SHARED_TIMEOUT_MS the
- * call is decided by the in-memory limiter instead, and the shared store is not asked
+ * call is decided by the in-memory limiter instead, and that namespace's shared store is not asked
  * again for BREAKER_MS. A database outage therefore makes limits per-pod (up to N times
  * looser with N replicas), never absent. Each outage is logged once.
  *
@@ -57,11 +58,12 @@ function storeMode(): Mode {
   return process.env.DATABASE_URL?.trim() ? "postgres" : "memory"
 }
 
-let breakerOpenUntil = 0
+/** Per namespace: one limiter's outage (or a stall on its keys) does not move the others off the shared store. */
+const breakerOpenUntil = new Map<string, number>()
 
 function withTimeout<T>(work: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`shared rate-limit store did not answer in ${SHARED_TIMEOUT_MS} ms`)), SHARED_TIMEOUT_MS)
+    const timer = setTimeout(() => reject(new SharedStoreUnavailableError(`shared rate-limit store did not answer in ${SHARED_TIMEOUT_MS} ms`)), SHARED_TIMEOUT_MS)
     work.then(
       (value) => {
         clearTimeout(timer)
@@ -82,13 +84,16 @@ async function decide(
   memory: Map<string, Bucket>,
   maxKeys: number,
 ): Promise<RateLimitResult> {
-  if (storeMode() === "memory" || Date.now() < breakerOpenUntil) return checkIn(memory, maxKeys, key, opts)
+  if (storeMode() === "memory" || Date.now() < (breakerOpenUntil.get(namespace) ?? 0)) return checkIn(memory, maxKeys, key, opts)
   try {
     return await withTimeout(checkSharedRateLimit(namespace, key, opts))
   } catch (error) {
+    // Only the store being unavailable degrades to the in-memory limiter (which still enforces the limit). Anything
+    // else is a bug (a TypeError, a bad argument) and is thrown to the caller: it must not be hidden as an outage.
+    if (!(error instanceof SharedStoreUnavailableError)) throw error
     // Logged when the breaker opens, not per request: an outage would otherwise write a line per login attempt.
-    console.error("[rate-limit] shared store failed; limits are per pod until it answers again:", error)
-    breakerOpenUntil = Date.now() + BREAKER_MS
+    console.error(`[rate-limit] shared store unavailable for "${namespace}"; limits are per pod until it answers again:`, error)
+    breakerOpenUntil.set(namespace, Date.now() + BREAKER_MS)
     return checkIn(memory, maxKeys, key, opts)
   }
 }
@@ -161,7 +166,7 @@ function checkIn(store: Map<string, Bucket>, maxKeys: number, key: string, opts:
 /** Clear all in-memory rate-limit state and close the breaker. Test helper; do not call from request paths. */
 export function _resetRateLimitStore(): void {
   for (const s of allStores) s.clear()
-  breakerOpenUntil = 0
+  breakerOpenUntil.clear()
 }
 
 /**

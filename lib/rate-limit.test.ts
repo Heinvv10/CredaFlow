@@ -4,6 +4,9 @@ const shared = vi.hoisted(() => vi.fn())
 vi.mock("./rate-limit-store", () => ({ checkSharedRateLimit: shared }))
 
 import { _resetRateLimitStore, checkRateLimit, createRateLimiter } from "./rate-limit"
+import { SharedStoreUnavailableError } from "./rate-limit-errors"
+
+const down = (message = "connection refused") => new SharedStoreUnavailableError(message, { cause: new Error(message) })
 
 const OPTS = { limit: 3, windowMs: 60_000 }
 const ALLOWED = { allowed: true, remaining: 2, retryAfterSeconds: 0 }
@@ -95,14 +98,14 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
 
   it("never goes fully open: on a store error it enforces the limit in memory", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
-    shared.mockRejectedValue(new Error("connection refused"))
+    shared.mockRejectedValue(down())
     for (let i = 0; i < 3; i++) expect((await checkRateLimit("k", OPTS)).allowed).toBe(true)
     expect((await checkRateLimit("k", OPTS)).allowed).toBe(false)
   })
 
   it("stops asking a failing store for a while, then tries it again", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
-    shared.mockRejectedValue(new Error("down"))
+    shared.mockRejectedValue(down("down"))
     await checkRateLimit("a", OPTS)
     await checkRateLimit("b", OPTS)
     await checkRateLimit("c", OPTS)
@@ -123,9 +126,32 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     expect((await checkRateLimit("k", OPTS)).allowed).toBe(false)
   })
 
+  it("rethrows an error that is not the store being unavailable, and does not trip the breaker", async () => {
+    shared.mockRejectedValue(new TypeError("limiter called wrongly"))
+    await expect(checkRateLimit("k", OPTS)).rejects.toThrow(TypeError)
+    await expect(checkRateLimit("k", OPTS)).rejects.toThrow(TypeError)
+    expect(shared).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps the breaker per namespace: one limiter's outage leaves the others on the shared store", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const a = createRateLimiter(10, "ns-a")
+    const b = createRateLimiter(10, "ns-b")
+    shared.mockImplementation(async (namespace: string) => {
+      if (namespace === "ns-a") throw down()
+      return ALLOWED
+    })
+    expect((await a("k", OPTS)).allowed).toBe(true)
+    await a("k", OPTS)
+    expect(shared.mock.calls.filter(([ns]) => ns === "ns-a")).toHaveLength(1)
+    expect(await b("k", OPTS)).toEqual(ALLOWED)
+    expect(await b("k", OPTS)).toEqual(ALLOWED)
+    expect(shared.mock.calls.filter(([ns]) => ns === "ns-b")).toHaveLength(2)
+  })
+
   it("logs the failure once per outage, not once per request", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
-    shared.mockRejectedValue(new Error("down"))
+    shared.mockRejectedValue(down("down"))
     for (let i = 0; i < 5; i++) await checkRateLimit(`k${i}`, OPTS)
     expect(error).toHaveBeenCalledTimes(1)
   })
