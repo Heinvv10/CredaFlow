@@ -201,6 +201,8 @@ describe("tenant-scope — ALS primitives", () => {
       "AssetTheftReport",
       "AssetMeterReadingVoid",
       "TrackerClosure",
+      "AuditPolicy",
+      "AuditSiemOutbox",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

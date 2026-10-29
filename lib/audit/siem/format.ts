@@ -6,22 +6,24 @@
  *   id              eventId         externalId     SD cf@32473 eventId
  *   createdAt       timestamp       rt (ms epoch)  TIMESTAMP
  *   action          action          signature + name  MSGID
- *   userEmail       actor.email     suser          SD user
  *   userId          actor.userId    suid           SD userId
- *   ipAddress       sourceIp        src            SD ip
+ *   ipAddress       sourceIp        src            SD ip          (VALUE_ACTIONS only)
  *   entity/entityId entity/entityId cs1/cs2        SD entity, entityId
  *   chainSeq/rowHash chain.*        cn1, cs3       SD seq, rowHash
- *   old/newValue    old/newValue    cs4/cs5 (truncated)  in the CEF MSG
+ *   old/newValue    old/newValue    cs4/cs5 (truncated)  in the CEF MSG  (VALUE_ACTIONS only, masked)
+ *
+ * The email is never sent (lib/audit/siem/minimise.ts).
  *
  * The syslog message body is the CEF line, so a SIEM that parses CEF needs no
  * mapping of its own; JSON carries the values whole.
  */
 
+import { isValueAction, maskValue } from "./minimise"
+
 export interface SiemSourceRow {
   id: string
   tenantId: string | null
   userId: string | null
-  userEmail: string | null
   action: string
   entity: string
   entityId: string | null
@@ -40,7 +42,7 @@ export interface SiemEvent {
   tenantId: string | null
   action: string
   severity: number
-  actor: { userId: string | null; email: string | null }
+  actor: { userId: string | null }
   sourceIp: string | null
   entity: string
   entityId: string | null
@@ -51,7 +53,15 @@ export interface SiemEvent {
 
 const FACILITY_LOG_AUDIT = 13
 const CEF_VALUE_CAP = 1000
-export const PEN_SD_ID = "cf@32473"
+/**
+ * RFC 5424 structured-data id: cf@<enterprise number>. 32473 is the number RFC 5612
+ * reserves for documentation; a deployment sets AUDIT_SYSLOG_PEN to its own
+ * IANA-registered number.
+ */
+export function sdId(): string {
+  const pen = process.env.AUDIT_SYSLOG_PEN
+  return `cf@${pen && /^\d{1,10}$/.test(pen) ? pen : "32473"}`
+}
 
 /** CEF severity 0-10: failures and denials 5, a broken chain 9, the rest 3. */
 export function severityOf(action: string): number {
@@ -60,18 +70,19 @@ export function severityOf(action: string): number {
 }
 
 export function toSiemEvent(row: SiemSourceRow): SiemEvent {
+  const values = isValueAction(row.action)
   return {
     eventId: row.id,
     timestamp: row.createdAt.toISOString(),
     tenantId: row.tenantId,
     action: row.action,
     severity: severityOf(row.action),
-    actor: { userId: row.userId, email: row.userEmail },
-    sourceIp: row.ipAddress,
+    actor: { userId: row.userId },
+    sourceIp: values ? row.ipAddress : null,
     entity: row.entity,
     entityId: row.entityId,
-    oldValue: row.oldValue ?? null,
-    newValue: row.newValue ?? null,
+    oldValue: values ? maskValue(row.oldValue) : null,
+    newValue: values ? maskValue(row.newValue) : null,
     chain: { seq: row.chainSeq, rowHash: row.rowHash, prevHash: row.prevHash },
   }
 }
@@ -86,7 +97,7 @@ const capped = (value: unknown) => {
 
 export function toCef(e: SiemEvent): string {
   const ext: Array<[string, string | number | null | undefined]> = [
-    ["externalId", e.eventId], ["rt", Date.parse(e.timestamp)], ["suser", e.actor.email], ["suid", e.actor.userId],
+    ["externalId", e.eventId], ["rt", Date.parse(e.timestamp)], ["suid", e.actor.userId],
     ["src", e.sourceIp], ["act", e.action],
     ["cs1Label", "entity"], ["cs1", e.entity], ["cs2Label", "entityId"], ["cs2", e.entityId],
     ["cs3Label", "rowHash"], ["cs3", e.chain.rowHash], ["cn1Label", "chainSeq"], ["cn1", e.chain.seq],
@@ -111,11 +122,11 @@ export function toSyslog5424(e: SiemEvent, hostname: string): string {
   const pri = FACILITY_LOG_AUDIT * 8 + syslogSeverity(e.severity)
   const sd: Array<[string, string | number | null]> = [
     ["eventId", e.eventId], ["tenant", e.tenantId], ["seq", e.chain.seq], ["rowHash", e.chain.rowHash],
-    ["userId", e.actor.userId], ["user", e.actor.email], ["ip", e.sourceIp], ["entity", e.entity], ["entityId", e.entityId],
+    ["userId", e.actor.userId], ["ip", e.sourceIp], ["entity", e.entity], ["entityId", e.entityId],
   ]
   const params = sd.filter(([, v]) => v !== null && v !== "").map(([k, v]) => ` ${k}="${sdValue(String(v))}"`).join("")
   const host = hostname.replace(/[^\x21-\x7e]/g, "_").slice(0, 255) || "-"
-  return `<${pri}>1 ${e.timestamp} ${host} credaflow - ${msgId(e.action)} [${PEN_SD_ID}${params}] \uFEFF${toCef(e)}`
+  return `<${pri}>1 ${e.timestamp} ${host} credaflow - ${msgId(e.action)} [${sdId()}${params}] \uFEFF${toCef(e)}`
 }
 
 /** RFC 6587 octet-counting frame: a newline in a message cannot split it. */

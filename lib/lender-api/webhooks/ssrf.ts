@@ -37,7 +37,7 @@ for (const [net, prefix] of [
 ] as const) blocked.addSubnet(net, prefix, "ipv6")
 
 /** The IPv4 address embedded in an IPv4-mapped, NAT64 or 6to4 IPv6 address. */
-function embeddedIpv4(address: string): string | null {
+export function embeddedIpv4(address: string): string | null {
   const lower = address.toLowerCase()
   const dotted = /^(?:::ffff:(?:0:)?|64:ff9b::)(\d+\.\d+\.\d+\.\d+)$/.exec(lower)
   if (dotted) return dotted[1]

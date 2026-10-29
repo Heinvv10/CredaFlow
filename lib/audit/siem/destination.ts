@@ -11,7 +11,7 @@
  */
 import { BlockList, isIP } from "node:net"
 import type { LookupAddress } from "node:dns"
-import { isBlockedAddress, SsrfError, systemResolver, type Resolver } from "@/lib/lender-api/webhooks/ssrf"
+import { embeddedIpv4, isBlockedAddress, SsrfError, systemResolver, type Resolver } from "@/lib/lender-api/webhooks/ssrf"
 
 const never = new BlockList()
 for (const [net, prefix] of [["0.0.0.0", 8], ["127.0.0.0", 8], ["169.254.0.0", 16], ["224.0.0.0", 4], ["240.0.0.0", 4]] as const) {
@@ -28,8 +28,13 @@ export function siemAddressAllowed(address: string, allowPrivate: boolean = allo
   if (!allowPrivate) return !isBlockedAddress(address)
   const family = isIP(address)
   if (family === 0) return false
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
-  if (mapped) return !never.check(mapped[1], "ipv4")
+  // An IPv4 address wrapped in IPv6 (mapped, NAT64, 6to4) is judged as that IPv4 address: ::ffff:127.0.0.1
+  // and 64:ff9b::7f00:1 are loopback, not "an IPv6 address that is not on the list".
+  if (family === 6) {
+    const wrapped = embeddedIpv4(address)
+    if (wrapped) return !never.check(wrapped, "ipv4")
+    if (address.toLowerCase().startsWith("2002:")) return false
+  }
   return !never.check(address, family === 4 ? "ipv4" : "ipv6")
 }
 

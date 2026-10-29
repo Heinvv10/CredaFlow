@@ -5,10 +5,13 @@
  * forwarded to the lender's SIEM. Best effort like logAudit: a sign-in is never
  * failed by the audit write.
  *
- * A failed sign-in is resolved to the staff account by email so it lands on that
- * lender's chain (and its SIEM); one that matches no account is not written.
+ * Only the STAFF path writes them, and only with the tenant and user the caller
+ * already holds: there is no lookup by email here, so a client, dealer or operator
+ * sign-in, an unknown address or a refused audience can never put a row (or a
+ * lender's name) on anyone's chain. The log is immutable, so the volume is bounded:
+ * one row per (tenant, user, kind) per window, the rows suppressed in between
+ * counted on the next.
  */
-import { prisma } from "@/lib/prisma"
 import { AuditAction, logAudit } from "@/lib/audit"
 
 export type SecurityEventKind = "login_succeeded" | "login_failed" | "totp_failed" | "permission_denied"
@@ -20,48 +23,52 @@ const ACTION: Record<SecurityEventKind, string> = {
   permission_denied: AuditAction.SECURITY_PERMISSION_DENIED,
 }
 
+export const SECURITY_EVENT_WINDOW_MS = 5 * 60_000
+const MAX_TRACKED = 10_000
+
 export interface SecurityEvent {
   kind: SecurityEventKind
-  tenantId?: string | null
-  userId?: string | null
+  tenantId: string
+  userId: string
   email?: string | null
   ipAddress?: string | null
   /** A short reason code (the failure reason, the role required); never a secret. */
   reason?: string
-  audience?: string
 }
 
-/** The staff account an address belongs to, so a failed sign-in lands on that lender's chain. */
-async function staffOf(email: string): Promise<{ id: string; tenantId: string | null } | null> {
-  try {
-    return await prisma.user.findUnique({ where: { email }, select: { id: true, tenantId: true } })
-  } catch (error) {
-    console.error("[security-events] staff lookup failed:", error)
+const windows = new Map<string, { start: number; suppressed: number }>()
+
+/** The suppressed count to record if this event is the first of its window, else null. */
+function claimWindow(e: SecurityEvent, now: number): number | null {
+  const key = `${e.tenantId}|${e.userId}|${e.kind}`
+  const seen = windows.get(key)
+  if (seen && now - seen.start < SECURITY_EVENT_WINDOW_MS) {
+    seen.suppressed++
     return null
   }
+  if (!seen && windows.size >= MAX_TRACKED) windows.delete(windows.keys().next().value as string)
+  windows.set(key, { start: now, suppressed: 0 })
+  return seen?.suppressed ?? 0
 }
 
-export async function recordSecurityEvent(e: SecurityEvent): Promise<void> {
-  // Best effort, like logAudit: a sign-in or a refusal is never failed by its audit row.
+export function resetSecurityEventWindows(): void {
+  windows.clear()
+}
+
+export async function recordSecurityEvent(e: SecurityEvent, now: number = Date.now()): Promise<void> {
+  const suppressed = claimWindow(e, now)
+  if (suppressed === null) return
   try {
-    await writeSecurityEvent(e)
+    await logAudit({
+      tenantId: e.tenantId,
+      userId: e.userId,
+      userEmail: e.email ?? undefined,
+      action: ACTION[e.kind],
+      entity: "Session",
+      newValue: { ...(e.reason ? { reason: e.reason } : {}), ...(suppressed > 0 ? { suppressedSincePrevious: suppressed } : {}) },
+      ipAddress: e.ipAddress ?? undefined,
+    })
   } catch (error) {
     console.error("[security-events] not recorded:", { kind: e.kind, error })
   }
-}
-
-async function writeSecurityEvent(e: SecurityEvent): Promise<void> {
-  const known = !e.tenantId && e.email ? await staffOf(e.email) : null
-  // A failure against an address that is no staff account has no lender: it is not written
-  // (the audit log is immutable and this input is unauthenticated); FailedLoginAttempt keeps it.
-  if ((e.kind === "login_failed" || e.kind === "totp_failed") && !e.tenantId && !known?.tenantId) return
-  await logAudit({
-    tenantId: e.tenantId ?? known?.tenantId ?? undefined,
-    userId: e.userId ?? known?.id ?? undefined,
-    userEmail: e.email ?? undefined,
-    action: ACTION[e.kind],
-    entity: "Session",
-    newValue: { ...(e.reason ? { reason: e.reason } : {}), ...(e.audience ? { audience: e.audience } : {}) },
-    ipAddress: e.ipAddress ?? undefined,
-  })
 }

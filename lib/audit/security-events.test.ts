@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const findUnique = vi.fn()
 const logAudit = vi.fn()
-vi.mock("@/lib/prisma", () => ({ prisma: { user: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
 vi.mock("@/lib/audit", () => ({
   AuditAction: {
     SECURITY_LOGIN_SUCCEEDED: "SECURITY_LOGIN_SUCCEEDED", SECURITY_LOGIN_FAILED: "SECURITY_LOGIN_FAILED",
@@ -11,46 +9,43 @@ vi.mock("@/lib/audit", () => ({
   logAudit: (...a: unknown[]) => logAudit(...a),
 }))
 
-import { recordSecurityEvent } from "./security-events"
+import { recordSecurityEvent, resetSecurityEventWindows, SECURITY_EVENT_WINDOW_MS } from "./security-events"
+
+const failed = { kind: "login_failed" as const, tenantId: "t1", userId: "u1", email: "a@lender.invalid", ipAddress: "10.0.0.1", reason: "wrong_password" }
 
 beforeEach(() => {
-  findUnique.mockReset()
   logAudit.mockReset()
+  resetSecurityEventWindows()
 })
 
 describe("recordSecurityEvent", () => {
-  it("puts a failed sign-in on the chain of the lender whose staff account it targeted", async () => {
-    findUnique.mockResolvedValue({ id: "u1", tenantId: "t1" })
-    await recordSecurityEvent({ kind: "login_failed", email: "a@lender.invalid", ipAddress: "10.0.0.1", reason: "wrong_password" })
+  it("writes the event on the given tenant and user, with no lookup", async () => {
+    await recordSecurityEvent(failed, 0)
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: "t1", userId: "u1", userEmail: "a@lender.invalid", action: "SECURITY_LOGIN_FAILED", ipAddress: "10.0.0.1", newValue: { reason: "wrong_password" },
+      tenantId: "t1", userId: "u1", userEmail: "a@lender.invalid", action: "SECURITY_LOGIN_FAILED", entity: "Session", ipAddress: "10.0.0.1", newValue: { reason: "wrong_password" },
     }))
   })
 
-  it("writes nothing for a failure against an address that is no staff account", async () => {
-    findUnique.mockResolvedValue(null)
-    await recordSecurityEvent({ kind: "login_failed", email: "nobody@x.invalid" })
-    await recordSecurityEvent({ kind: "totp_failed", email: "nobody@x.invalid" })
-    expect(logAudit).not.toHaveBeenCalled()
+  it("writes one row per (tenant, user, kind) per window and counts what it held back on the next", async () => {
+    await recordSecurityEvent(failed, 0)
+    for (let i = 1; i <= 4; i++) await recordSecurityEvent(failed, i * 1000)
+    expect(logAudit).toHaveBeenCalledTimes(1)
+    await recordSecurityEvent(failed, SECURITY_EVENT_WINDOW_MS + 1)
+    expect(logAudit).toHaveBeenCalledTimes(2)
+    expect(logAudit.mock.calls[1][0]).toMatchObject({ newValue: { reason: "wrong_password", suppressedSincePrevious: 4 } })
   })
 
-  it("writes nothing for a failure against an operator account (no lender)", async () => {
-    findUnique.mockResolvedValue({ id: "op", tenantId: null })
-    await recordSecurityEvent({ kind: "login_failed", email: "op@x.invalid" })
-    expect(logAudit).not.toHaveBeenCalled()
+  it("keeps kinds, users and lenders apart", async () => {
+    await recordSecurityEvent(failed, 0)
+    await recordSecurityEvent({ ...failed, kind: "totp_failed" }, 1)
+    await recordSecurityEvent({ ...failed, userId: "u2" }, 2)
+    await recordSecurityEvent({ ...failed, tenantId: "t2" }, 3)
+    expect(logAudit).toHaveBeenCalledTimes(4)
   })
 
-  it("records a sign-in and a denial with the tenant it was given, with no lookup", async () => {
-    await recordSecurityEvent({ kind: "login_succeeded", tenantId: "t1", userId: "u1", email: "a@x.invalid" })
-    await recordSecurityEvent({ kind: "permission_denied", tenantId: "t1", userId: "u1", reason: "requires ADMIN" })
-    expect(findUnique).not.toHaveBeenCalled()
-    expect(logAudit.mock.calls.map((c) => (c[0] as { action: string }).action)).toEqual(["SECURITY_LOGIN_SUCCEEDED", "SECURITY_PERMISSION_DENIED"])
-  })
-
-  it("survives a failed lookup without writing or throwing", async () => {
-    findUnique.mockRejectedValue(new Error("db down"))
+  it("never throws into the sign-in when the audit write fails", async () => {
+    logAudit.mockRejectedValue(new Error("db down"))
     vi.spyOn(console, "error").mockImplementation(() => undefined)
-    await expect(recordSecurityEvent({ kind: "login_failed", email: "a@x.invalid" })).resolves.toBeUndefined()
-    expect(logAudit).not.toHaveBeenCalled()
+    await expect(recordSecurityEvent(failed, 0)).resolves.toBeUndefined()
   })
 })

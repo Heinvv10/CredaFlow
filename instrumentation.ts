@@ -5,6 +5,9 @@ export async function register() {
     assertSmileIdentityRuntimeSafety()
 
     const APP_MODE = process.env.APP_MODE || "all"
+    // The audit trail's tamper-evidence depends on the runtime role not owning its tables and on
+    // AUDIT_CHAIN_KEY; say so at boot (lib/audit/deployment-check.ts). Never blocks startup.
+    void import("@/lib/audit/deployment-check").then((m) => m.warnAuditSetupOnce())
     console.log(`[boot] APP_MODE=${APP_MODE} GIT_SHA=${process.env.GIT_SHA ?? "unknown"}`)
 
     // Cron jobs hit staff-only API routes (/api/cron/*) which the audience

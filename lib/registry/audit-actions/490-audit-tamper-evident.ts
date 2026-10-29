@@ -7,6 +7,10 @@ export default defineAuditActions({
   // The daily hash-chain walk: a pass, and a break (with where it first failed).
   AUDIT_CHAIN_VERIFIED: "AUDIT_CHAIN_VERIFIED",
   AUDIT_CHAIN_BROKEN: "AUDIT_CHAIN_BROKEN",
+  // A documented removal of personal data from an audit row (audit_log_redact, written by the function itself).
+  AUDIT_ROW_REDACTED: "AUDIT_ROW_REDACTED",
+  // A lender's test event to its SIEM (the result class only), by whom and whether it got through.
+  AUDIT_SIEM_TEST_SENT: "AUDIT_SIEM_TEST_SENT",
   // Security events (lib/audit/security-events.ts): sign-ins, TOTP failures, refused permissions.
   SECURITY_LOGIN_SUCCEEDED: "SECURITY_LOGIN_SUCCEEDED",
   SECURITY_LOGIN_FAILED: "SECURITY_LOGIN_FAILED",

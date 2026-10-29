@@ -101,17 +101,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ip = callerIp(request as Request)
         const userAgent = (request as Request).headers.get("user-agent")
 
-        const recordFailure = async (reason: string) => {
-          await prisma.failedLoginAttempt
+        const recordFailure = (reason: string) =>
+          prisma.failedLoginAttempt
             .create({ data: { email, ip, userAgent, reason } })
             .catch((err: unknown) => { console.error("[auth] failedLoginAttempt insert failed:", err) })
-          // The immutable audit trail takes failures against a real staff account only: an unknown
-          // email, a refused audience and a rate-limited retry stay in FailedLoginAttempt, which
-          // can be pruned, so an unauthenticated caller cannot grow the audit log.
-          if (reason !== "wrong_audience" && reason !== "rate_limited") {
-            await recordSecurityEvent({ kind: reason.startsWith("totp_") ? "totp_failed" : "login_failed", email, ipAddress: ip, reason })
-          }
-        }
 
         // Three-bucket rate gate — any one tripping blocks the attempt.
         // All three are evaluated so each records the attempt in its own bucket;
@@ -208,6 +201,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               attempts.push(
                 prisma.loginLog.create({ data: { tenantId: user.tenantId, userId: user.id, ip, userAgent, success: false } })
                   .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) }),
+                recordSecurityEvent({ kind: "login_failed", tenantId: user.tenantId, userId: user.id, email: user.email, ipAddress: ip, reason: passwordMatch ? "refused" : "wrong_password" }),
               )
             }
             await Promise.all(attempts)
@@ -230,11 +224,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               prisma.loginLog.create({ data: { tenantId: loginTenantId, userId: user.id, ip, userAgent, success: false } })
                 .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) }),
               recordFailure("totp_invalid"),
+              recordSecurityEvent({ kind: "totp_failed", tenantId: loginTenantId, userId: user.id, email: user.email, ipAddress: ip, reason: "totp_invalid" }),
             ])
             throw new TotpInvalidError()
           }
           if (totp.kind === "replayed") {
-            await recordFailure("totp_replay")
+            await Promise.all([
+              recordFailure("totp_replay"),
+              recordSecurityEvent({ kind: "totp_failed", tenantId: loginTenantId, userId: user.id, email: user.email, ipAddress: ip, reason: "totp_replay" }),
+            ])
             throw new TotpInvalidError()
           }
           const totpVerified = totp.kind === "verified"

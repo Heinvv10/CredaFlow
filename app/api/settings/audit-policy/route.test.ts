@@ -7,6 +7,8 @@ const h = vi.hoisted(() => ({
   findUnique: vi.fn(),
   save: vi.fn(),
   sendTest: vi.fn(),
+  logAudit: vi.fn(),
+  rate: true,
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -14,7 +16,8 @@ vi.mock("@/lib/auth", () => ({ auth: async () => h.session }))
 vi.mock("@/lib/security/loan-book-guard", () => ({ refusesLoanBook: async () => false }))
 vi.mock("@/lib/audit/security-events", () => ({ recordSecurityEvent: async () => undefined }))
 vi.mock("@/lib/tenant", () => ({ withTenantContext: (_req: unknown, fn: (t: { id: string }) => Promise<Response>) => fn({ id: "t1" }) }))
-vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "10.0.0.9" }))
+vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "10.0.0.9", checkRateLimit: () => ({ allowed: h.rate }) }))
+vi.mock("@/lib/audit", () => ({ AuditAction: { AUDIT_SIEM_TEST_SENT: "AUDIT_SIEM_TEST_SENT" }, logAudit: (...a: unknown[]) => h.logAudit(...a) }))
 vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: async () => h.totpRequired }))
 vi.mock("@/lib/prisma", () => ({ prisma: { auditPolicy: { findUnique: (...a: unknown[]) => h.findUnique(...a) } } }))
 vi.mock("@/lib/audit/siem/deliver", () => ({ sendTestEvent: (...a: unknown[]) => h.sendTest(...a) }))
@@ -40,6 +43,8 @@ beforeEach(() => {
   h.findUnique.mockReset().mockResolvedValue(null)
   h.save.mockReset().mockResolvedValue({ retentionMonths: 24 })
   h.sendTest.mockReset().mockResolvedValue({ ok: true, error: null })
+  h.logAudit.mockReset()
+  h.rate = true
 })
 
 describe("/api/settings/audit-policy", () => {
@@ -78,13 +83,24 @@ describe("/api/settings/audit-policy", () => {
     expect((await PUT(req("PUT", [1]))).status).toBe(400)
   })
 
-  it("sends a test event only while forwarding is enabled", async () => {
+  it("sends a test event only while forwarding is enabled, audits it, and answers a coarse class only", async () => {
     expect((await POST(req("POST"))).status).toBe(409)
-    h.findUnique.mockResolvedValue({ siemEnabled: true })
+    h.findUnique.mockResolvedValue({ id: "pol-1", siemEnabled: true })
     expect((await POST(req("POST"))).status).toBe(200)
-    h.sendTest.mockResolvedValue({ ok: false, error: "the SIEM answered HTTP 503" })
+    expect(h.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "AUDIT_SIEM_TEST_SENT", tenantId: "t1", userId: "admin-1", newValue: { ok: true, error: null } }))
+    h.sendTest.mockResolvedValue({ ok: false, error: "siem_unavailable" })
     const res = await POST(req("POST"))
     expect(res.status).toBe(502)
-    expect(await res.json()).toEqual({ ok: false, error: "the SIEM answered HTTP 503" })
+    expect(await res.json()).toEqual({ ok: false, error: "siem_unavailable" })
+  })
+
+  it("gates the test like a change: TOTP where required, and rate-limited", async () => {
+    h.findUnique.mockResolvedValue({ id: "pol-1", siemEnabled: true })
+    h.session = caller("ADMIN", { totpVerified: false })
+    expect((await POST(req("POST"))).status).toBe(403)
+    h.session = caller("ADMIN")
+    h.rate = false
+    expect((await POST(req("POST"))).status).toBe(429)
+    expect(h.sendTest).not.toHaveBeenCalled()
   })
 })

@@ -4,6 +4,7 @@
  * secret is set, never any of it. Secrets are sealed with the same key as the
  * provider credentials (lib/integrations/tenant-credentials.ts).
  */
+import { randomUUID } from "node:crypto"
 import { isIP } from "node:net"
 import type { AuditPolicy, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -144,7 +145,36 @@ export async function buildPolicyWrite(
   }
 }
 
-/** Writes the policy and its audit row in one transaction. Secrets never enter the audit row. */
+/** The destination fields of a policy, secrets still sealed: what a policy-change row is sent to after the policy moves on. */
+export type TargetSnapshot = Pick<AuditPolicy, "siemTransport" | "siemHost" | "siemPort" | "siemUrl" | "siemSealedToken" | "siemCaCertPem" | "siemClientCert" | "siemSealedKey">
+
+function snapshotOf(row: AuditPolicy): TargetSnapshot {
+  return {
+    siemTransport: row.siemTransport, siemHost: row.siemHost, siemPort: row.siemPort, siemUrl: row.siemUrl,
+    siemSealedToken: row.siemSealedToken, siemCaCertPem: row.siemCaCertPem, siemClientCert: row.siemClientCert, siemSealedKey: row.siemSealedKey,
+  }
+}
+
+const destination = (p: TargetSnapshot | null) =>
+  p ? `${p.siemTransport}|${p.siemHost ?? ""}|${p.siemPort ?? ""}|${p.siemUrl ?? ""}` : ""
+
+/** What the audit row of a policy change records: no secrets, no certificates, and a URL as origin only (its path or query may carry a key). */
+function auditView(row: AuditPolicy | null) {
+  const v = policyView(row)
+  return {
+    retentionMonths: v.retentionMonths, hotMonths: v.hotMonths, siemEnabled: v.siemEnabled, siemTransport: v.siemTransport,
+    siemHost: v.siemHost, siemPort: v.siemPort, siemOrigin: v.siemUrl ? new URL(v.siemUrl).origin : null,
+    siemTokenSet: v.siemTokenSet, siemClientKeySet: v.siemClientKeySet,
+  }
+}
+
+/**
+ * Writes the policy and its audit row in one transaction. Changing or switching off
+ * forwarding is itself an event: the audit row is queued for the OLD destination (so
+ * whoever redirects or disables the feed leaves a trace where the bank's SOC looks),
+ * and a lender that starts forwarding, or moves it, first sends an anchor event
+ * (the chain head at that moment).
+ */
 export async function saveAuditPolicy(
   tenantId: string,
   actor: { id: string; email?: string | null },
@@ -159,16 +189,25 @@ export async function saveAuditPolicy(
       create: { ...(data as Prisma.AuditPolicyUncheckedCreateInput), tenantId },
       update: data,
     })
+    const auditId = `aud_${randomUUID().replaceAll("-", "")}`
     await logAuditStrict({
-      tenantId, userId: actor.id, userEmail: actor.email ?? undefined, action: AuditAction.AUDIT_POLICY_UPDATED, entity: "AuditPolicy",
-      entityId: row.id, oldValue: { ...policyView(current) }, newValue: { ...policyView(row) }, ipAddress: opts.ipAddress,
+      id: auditId, tenantId, userId: actor.id, userEmail: actor.email ?? undefined, action: AuditAction.AUDIT_POLICY_UPDATED, entity: "AuditPolicy",
+      entityId: row.id, oldValue: auditView(current), newValue: auditView(row), ipAddress: opts.ipAddress,
     }, tx)
+
+    const moved = destination(current && current.siemEnabled ? snapshotOf(current) : null) !== destination(row.siemEnabled ? snapshotOf(row) : null)
+    if (current?.siemEnabled && moved) {
+      await tx.auditSiemOutbox.create({
+        data: { tenantId, kind: "EVENT", auditLogId: auditId, targetSnapshot: snapshotOf(current) as unknown as Prisma.InputJsonValue },
+      })
+    }
+    if (row.siemEnabled && moved) await tx.auditSiemOutbox.create({ data: { tenantId, kind: "ANCHOR" } })
     return policyView(row)
   })
 }
 
-/** The delivery target for a policy, secrets opened. Throws if a sealed value cannot be opened. */
-export function siemTarget(row: AuditPolicy): SiemTarget {
+/** The delivery target for a policy or a snapshot of one, secrets opened. Throws if a sealed value cannot be opened. */
+export function siemTarget(row: TargetSnapshot): SiemTarget {
   return {
     transport: row.siemTransport, host: row.siemHost, port: row.siemPort, url: row.siemUrl,
     token: openCredential(row.siemSealedToken), caCertPem: row.siemCaCertPem,

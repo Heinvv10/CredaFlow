@@ -1,21 +1,58 @@
-// ── Tamper-evident audit: chain head, per-lender policy, SIEM outbox ──────────
-// Spec: lib/audit/.claude.md. The AuditLog hash chain, its append-only trigger
-// and the outbox trigger are hand-written SQL (migration 20261029100000).
+// ── Tamper-evident audit: chain links, checkpoints, redactions, policy, SIEM outbox ──
+// Spec: lib/audit/.claude.md. AuditLog itself is append-only (trigger) and carries no
+// chain columns; the chainer (lib/audit/chainer.ts) appends one AuditChainLink per
+// committed row, so an insert never waits on a chain. Triggers, the redaction function
+// and partial indexes are hand-written SQL (migration 20261029100000).
 
 enum AuditSiemTransport {
   SYSLOG_TLS
   HTTPS_JSON
 }
 
-/// Last link of one AuditLog chain (chainKey = tenantId, '' for platform rows).
-/// Written only by the AuditLog_zz_chain trigger, which row-locks it to
-/// serialise concurrent inserts; the verifier compares it with the table to
-/// catch a truncated tail.
-model AuditChainHead {
-  chainKey  String   @id
-  lastSeq   Int
-  lastHash  String
-  updatedAt DateTime @default(now())
+/// One link of a chain (chainKey = tenantId, '' for rows with no tenant). Insert-only.
+/// rowHash = HMAC(AUDIT_CHAIN_KEY, content digests + prevHash); the key is not in the database.
+model AuditChainLink {
+  chainKey   String
+  seq        Int
+  auditLogId String   @unique
+  tenantId   String?
+  prevHash   String
+  rowHash    String
+  linkedAt   DateTime @default(now())
+
+  @@id([chainKey, seq])
+}
+
+/// A signed note of a chain's head (seq + rowHash), written daily after the chain verified.
+/// The verifier starts from the latest one; each is also sent to the lender's SIEM. Insert-only.
+model AuditChainCheckpoint {
+  id        String   @id @default(cuid())
+  chainKey  String
+  tenantId  String?
+  seq       Int
+  rowHash   String
+  hmac      String
+  createdAt DateTime @default(now())
+
+  @@index([chainKey, seq])
+}
+
+/// A documented removal of personal data from an AuditLog row. The digests the row hashed
+/// with are kept here, so its link still verifies. Written only by audit_log_redact(). Insert-only.
+model AuditRedaction {
+  id              String   @id @default(cuid())
+  auditLogId      String
+  tenantId        String?
+  columns         String[]
+  userEmailDigest String
+  ipAddressDigest String
+  oldValueDigest  String
+  newValueDigest  String
+  reason          String
+  operator        String
+  createdAt       DateTime @default(now())
+
+  @@index([auditLogId])
 }
 
 /// A lender's audit retention and SIEM forwarding. No row = 12 months retained,
@@ -39,18 +76,24 @@ model AuditPolicy {
   updatedAt       DateTime           @default(now())
 }
 
-/// One AuditLog row waiting to be (or already) shipped. Filled by the
-/// AuditLog_siem_enqueue trigger in the audit row's own transaction. At-least-once:
-/// sentAt is set after the SIEM acknowledges; the event id is the AuditLog id.
+/// Something to ship to a lender's SIEM, in order per lender (id). EVENT = a chained
+/// AuditLog row; ANCHOR = the chain head when forwarding starts; CHECKPOINT = a daily
+/// checkpoint. targetSnapshot (sealed fields) sends a policy-change row to the destination
+/// it was changed away from. At-least-once; the receiver de-duplicates on the event id.
 model AuditSiemOutbox {
-  auditLogId    String    @id
-  tenantId      String
-  chainSeq      Int
-  attempts      Int       @default(0)
-  nextAttemptAt DateTime  @default(now())
-  lastError     String?
-  sentAt        DateTime?
-  createdAt     DateTime  @default(now())
+  id             Int       @id @default(autoincrement())
+  tenantId       String
+  kind           String
+  auditLogId     String?   @unique
+  checkpointId   String?
+  seq            Int?
+  targetSnapshot Json?
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now())
+  lastError      String?
+  sentAt         DateTime?
+  deadAt         DateTime?
+  createdAt      DateTime  @default(now())
 
-  @@index([tenantId, sentAt, nextAttemptAt])
+  @@index([sentAt])
 }

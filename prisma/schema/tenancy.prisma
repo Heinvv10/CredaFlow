@@ -497,15 +497,11 @@ model AuditLog {
   newValue  Json?
   ipAddress String?
   createdAt DateTime @default(now())
-  // Hash chain (lib/audit/.claude.md): set by the AuditLog_zz_chain trigger,
-  // never by the application. One chain per tenant; rows with no tenant are one more.
-  chainSeq  Int?
-  prevHash  String?
-  rowHash   String?
 
   @@index([entity, entityId])
   @@index([userId])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
 }
 
 // ── Branches ──────────────────────────────────────────────────────────────────

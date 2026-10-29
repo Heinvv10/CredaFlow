@@ -2,16 +2,20 @@
 --
 -- 1. AuditLog is append-only: UPDATE, DELETE and TRUNCATE are refused by
 --    triggers, and the user/tenant foreign keys no longer SET NULL (that is an
---    UPDATE). Nothing in the application updates or deletes an audit row.
--- 2. Every row carries chainSeq, prevHash and rowHash, computed by the
---    AuditLog_zz_chain trigger (after the content guards, which may rewrite the
---    row). One chain per tenant, rows with no tenant are one more; concurrent
---    inserts serialise on the chain's AuditChainHead row lock, held to commit.
--- 3. A lender's SIEM forwarding fills AuditSiemOutbox from a trigger, in the
---    audit row's own transaction.
+--    UPDATE). The one exception is audit_log_redact(), below.
+-- 2. AuditLog takes NO chain work on insert: no lock, no read of other rows. The
+--    chainer (lib/audit/chainer.ts) appends one AuditChainLink per COMMITTED row,
+--    so a rolled-back transaction, an ON CONFLICT skip or a Serializable
+--    transaction never leaves or waits on a link. rowHash is an HMAC under a key
+--    held outside the database (AUDIT_CHAIN_KEY), over content digests, so a
+--    documented redaction (audit_log_redact) keeps the chain verifiable.
+-- 3. Links, checkpoints and redactions are insert-only. The outbox is the
+--    lender's SIEM queue, filled by the chainer.
 --
--- Adds enforcement: ships with the code (lib/audit/). Existing rows are chained
--- here, ordered by (createdAt, id).
+-- Adds enforcement: ships with the code (lib/audit/). The two AuditLog foreign
+-- keys are added NOT VALID here and validated by the next migration, so the
+-- table is not scanned under the DDL lock. Deploy requirement: the application's
+-- database role must NOT own these tables (docs/ARCHITECTURE.md).
 
 -- CreateEnum
 CREATE TYPE "AuditSiemTransport" AS ENUM ('SYSLOG_TLS', 'HTTPS_JSON');
@@ -22,19 +26,47 @@ ALTER TABLE "AuditLog" DROP CONSTRAINT "AuditLog_tenantId_fkey";
 -- DropForeignKey
 ALTER TABLE "AuditLog" DROP CONSTRAINT "AuditLog_userId_fkey";
 
--- AlterTable
-ALTER TABLE "AuditLog" ADD COLUMN     "chainSeq" INTEGER,
-ADD COLUMN     "prevHash" TEXT,
-ADD COLUMN     "rowHash" TEXT;
+-- CreateTable
+CREATE TABLE "AuditChainLink" (
+    "chainKey" TEXT NOT NULL,
+    "seq" INTEGER NOT NULL,
+    "auditLogId" TEXT NOT NULL,
+    "tenantId" TEXT,
+    "prevHash" TEXT NOT NULL,
+    "rowHash" TEXT NOT NULL,
+    "linkedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AuditChainLink_pkey" PRIMARY KEY ("chainKey","seq")
+);
 
 -- CreateTable
-CREATE TABLE "AuditChainHead" (
+CREATE TABLE "AuditChainCheckpoint" (
+    "id" TEXT NOT NULL,
     "chainKey" TEXT NOT NULL,
-    "lastSeq" INTEGER NOT NULL,
-    "lastHash" TEXT NOT NULL,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "tenantId" TEXT,
+    "seq" INTEGER NOT NULL,
+    "rowHash" TEXT NOT NULL,
+    "hmac" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "AuditChainHead_pkey" PRIMARY KEY ("chainKey")
+    CONSTRAINT "AuditChainCheckpoint_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AuditRedaction" (
+    "id" TEXT NOT NULL,
+    "auditLogId" TEXT NOT NULL,
+    "tenantId" TEXT,
+    "columns" TEXT[],
+    "userEmailDigest" TEXT NOT NULL,
+    "ipAddressDigest" TEXT NOT NULL,
+    "oldValueDigest" TEXT NOT NULL,
+    "newValueDigest" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "operator" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AuditRedaction_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -60,33 +92,52 @@ CREATE TABLE "AuditPolicy" (
 
 -- CreateTable
 CREATE TABLE "AuditSiemOutbox" (
-    "auditLogId" TEXT NOT NULL,
+    "id" SERIAL NOT NULL,
     "tenantId" TEXT NOT NULL,
-    "chainSeq" INTEGER NOT NULL,
+    "kind" TEXT NOT NULL,
+    "auditLogId" TEXT,
+    "checkpointId" TEXT,
+    "seq" INTEGER,
+    "targetSnapshot" JSONB,
     "attempts" INTEGER NOT NULL DEFAULT 0,
     "nextAttemptAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastError" TEXT,
     "sentAt" TIMESTAMP(3),
+    "deadAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "AuditSiemOutbox_pkey" PRIMARY KEY ("auditLogId")
+    CONSTRAINT "AuditSiemOutbox_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AuditChainLink_auditLogId_key" ON "AuditChainLink"("auditLogId");
+
+-- CreateIndex
+CREATE INDEX "AuditChainCheckpoint_chainKey_seq_idx" ON "AuditChainCheckpoint"("chainKey", "seq");
+
+-- CreateIndex
+CREATE INDEX "AuditRedaction_auditLogId_idx" ON "AuditRedaction"("auditLogId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "AuditPolicy_tenantId_key" ON "AuditPolicy"("tenantId");
 
 -- CreateIndex
-CREATE INDEX "AuditSiemOutbox_tenantId_sentAt_nextAttemptAt_idx" ON "AuditSiemOutbox"("tenantId", "sentAt", "nextAttemptAt");
+CREATE UNIQUE INDEX "AuditSiemOutbox_auditLogId_key" ON "AuditSiemOutbox"("auditLogId");
+
+-- CreateIndex
+CREATE INDEX "AuditSiemOutbox_sentAt_idx" ON "AuditSiemOutbox"("sentAt");
+
+-- CreateIndex
+CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
 
 -- AddForeignKey
 ALTER TABLE "AuditPolicy" ADD CONSTRAINT "AuditPolicy_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE NOT VALID;
 
 -- AddForeignKey
-ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE NOT VALID;
 
 -- ── Hand-written: policy checks ─────────────────────────────────────────────
 
@@ -101,62 +152,39 @@ ALTER TABLE "AuditPolicy" ADD CONSTRAINT "AuditPolicy_siem_secrets_sealed" CHECK
   ("siemSealedToken" IS NULL OR "siemSealedToken" LIKE 'enc:v1:%')
   AND ("siemSealedKey" IS NULL OR "siemSealedKey" LIKE 'enc:v1:%')
 );
+ALTER TABLE "AuditSiemOutbox" ADD CONSTRAINT "AuditSiemOutbox_kind" CHECK (
+  ("kind" = 'EVENT' AND "auditLogId" IS NOT NULL)
+  OR ("kind" = 'ANCHOR' AND "auditLogId" IS NULL AND "checkpointId" IS NULL)
+  OR ("kind" = 'CHECKPOINT' AND "checkpointId" IS NOT NULL)
+);
 
--- ── Hand-written: the hash ──────────────────────────────────────────────────
--- The one definition of a row's hash: the trigger writes it and the verifier
--- recomputes it with this function. The text is a JSON array (jsonb prints keys
--- and numbers canonically), so a column's SQL NULL and the JSON null in a jsonb
--- column hash differently. 'v1' versions the layout.
-
-CREATE FUNCTION public.audit_log_row_hash(a "AuditLog") RETURNS text
-LANGUAGE sql IMMUTABLE AS $$
-  SELECT encode(sha256(convert_to(jsonb_build_array(
-    'v1', a."id", a."tenantId", a."userId", a."userEmail", a."action", a."entity", a."entityId",
-    a."oldValue"::text, a."newValue"::text, a."ipAddress",
-    to_char(a."createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS'), a."chainSeq", a."prevHash"
-  )::text, 'UTF8')), 'hex')
-$$;
-
--- ── Chain the existing rows (the user triggers are off for this only) ───────
-
-ALTER TABLE "AuditLog" DISABLE TRIGGER USER;
-
-DO $$
-DECLARE
-  r RECORD;
-  chain_key TEXT := NULL;
-  seq INTEGER := 0;
-  prev TEXT := repeat('0', 64);
-  cur "AuditLog";
-BEGIN
-  FOR r IN SELECT "id", COALESCE("tenantId", '') AS k FROM "AuditLog" ORDER BY COALESCE("tenantId", ''), "createdAt", "id" LOOP
-    IF chain_key IS DISTINCT FROM r.k THEN
-      IF chain_key IS NOT NULL THEN
-        INSERT INTO "AuditChainHead" ("chainKey", "lastSeq", "lastHash") VALUES (chain_key, seq, prev);
-      END IF;
-      chain_key := r.k; seq := 0; prev := repeat('0', 64);
-    END IF;
-    seq := seq + 1;
-    UPDATE "AuditLog" SET "chainSeq" = seq, "prevHash" = prev WHERE "id" = r."id" RETURNING * INTO cur;
-    prev := public.audit_log_row_hash(cur);
-    UPDATE "AuditLog" SET "rowHash" = prev WHERE "id" = r."id";
-  END LOOP;
-  IF chain_key IS NOT NULL THEN
-    INSERT INTO "AuditChainHead" ("chainKey", "lastSeq", "lastHash") VALUES (chain_key, seq, prev);
-  END IF;
-END $$;
-
-ALTER TABLE "AuditLog" ENABLE TRIGGER USER;
-
--- No CHECK that the chain columns are set: a row written with triggers off (a
--- data-only restore, a superuser in replica mode) has none, and the verifier
--- reports it as an unchained_row instead of the write failing.
-CREATE UNIQUE INDEX "AuditLog_chain_seq_key" ON "AuditLog" (COALESCE("tenantId", ''), "chainSeq");
+-- The next undelivered rows of a lender, in order.
+CREATE INDEX "AuditSiemOutbox_pending_idx" ON "AuditSiemOutbox" ("tenantId", "id") WHERE "sentAt" IS NULL AND "deadAt" IS NULL;
 
 -- ── Hand-written: append-only ───────────────────────────────────────────────
 
+-- AuditLog: no UPDATE, DELETE or TRUNCATE. The only change a row may ever see is
+-- audit_log_redact() setting userEmail, ipAddress, oldValue or newValue to NULL,
+-- with every other column untouched and the function's transaction-local flag on.
 CREATE FUNCTION public.audit_log_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF current_setting('cf.audit_redaction', true) = 'on'
+       AND NEW."id" = OLD."id"
+       AND NEW."tenantId" IS NOT DISTINCT FROM OLD."tenantId"
+       AND NEW."userId" IS NOT DISTINCT FROM OLD."userId"
+       AND NEW."action" = OLD."action"
+       AND NEW."entity" = OLD."entity"
+       AND NEW."entityId" IS NOT DISTINCT FROM OLD."entityId"
+       AND NEW."createdAt" = OLD."createdAt"
+       AND (NEW."userEmail" IS NULL OR NEW."userEmail" IS NOT DISTINCT FROM OLD."userEmail")
+       AND (NEW."ipAddress" IS NULL OR NEW."ipAddress" IS NOT DISTINCT FROM OLD."ipAddress")
+       AND (NEW."oldValue" IS NULL OR NEW."oldValue" IS NOT DISTINCT FROM OLD."oldValue")
+       AND (NEW."newValue" IS NULL OR NEW."newValue" IS NOT DISTINCT FROM OLD."newValue")
+    THEN
+      RETURN NEW;
+    END IF;
+  END IF;
   RAISE EXCEPTION USING ERRCODE = '23514',
     MESSAGE = 'AuditLog is append-only: rows are never updated, deleted or truncated';
 END;
@@ -167,43 +195,108 @@ FOR EACH ROW EXECUTE FUNCTION public.audit_log_append_only();
 CREATE TRIGGER "AuditLog_a_append_only_truncate" BEFORE TRUNCATE ON "AuditLog"
 FOR EACH STATEMENT EXECUTE FUNCTION public.audit_log_append_only();
 
--- ── Hand-written: the chain ─────────────────────────────────────────────────
--- Runs after the content guards (AuditLog_legacy_placeholder_guard,
--- AuditLog_truthful_dry_run rewrite NEW; triggers fire in name order), so the
--- hash covers the row as stored. The head row lock is held until commit: the
--- next insert on the chain sees this one's seq and hash.
+-- The evidence tables: no exception.
+CREATE FUNCTION public.audit_evidence_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION USING ERRCODE = '23514',
+    MESSAGE = format('%s is append-only: rows are never updated, deleted or truncated', TG_TABLE_NAME);
+END;
+$$;
+CREATE TRIGGER "AuditChainLink_append_only" BEFORE UPDATE OR DELETE ON "AuditChainLink"
+FOR EACH ROW EXECUTE FUNCTION public.audit_evidence_append_only();
+CREATE TRIGGER "AuditChainLink_append_only_truncate" BEFORE TRUNCATE ON "AuditChainLink"
+FOR EACH STATEMENT EXECUTE FUNCTION public.audit_evidence_append_only();
+CREATE TRIGGER "AuditChainCheckpoint_append_only" BEFORE UPDATE OR DELETE ON "AuditChainCheckpoint"
+FOR EACH ROW EXECUTE FUNCTION public.audit_evidence_append_only();
+CREATE TRIGGER "AuditChainCheckpoint_append_only_truncate" BEFORE TRUNCATE ON "AuditChainCheckpoint"
+FOR EACH STATEMENT EXECUTE FUNCTION public.audit_evidence_append_only();
+CREATE TRIGGER "AuditRedaction_append_only" BEFORE UPDATE OR DELETE ON "AuditRedaction"
+FOR EACH ROW EXECUTE FUNCTION public.audit_evidence_append_only();
+CREATE TRIGGER "AuditRedaction_append_only_truncate" BEFORE TRUNCATE ON "AuditRedaction"
+FOR EACH STATEMENT EXECUTE FUNCTION public.audit_evidence_append_only();
 
-CREATE FUNCTION public.audit_log_chain() RETURNS trigger LANGUAGE plpgsql AS $$
+-- ── Hand-written: documented redaction (POPIA) ──────────────────────────────
+-- Nulls personal data on one AuditLog row (a subset of userEmail, ipAddress,
+-- oldValue, newValue), keeps the digests the row was chained with in
+-- AuditRedaction so its link still verifies, and writes its own audit row. Not
+-- callable by PUBLIC: grant EXECUTE only to the operator role that runs
+-- scripts/audit-redact.ts. The application's role never gets it.
+
+CREATE FUNCTION public.audit_log_redact(p_audit_log_id text, p_columns text[], p_reason text, p_operator text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
-  k TEXT := COALESCE(NEW."tenantId", '');
-  head RECORD;
+  a "AuditLog";
+  taken text[];
 BEGIN
-  INSERT INTO "AuditChainHead" ("chainKey", "lastSeq", "lastHash") VALUES (k, 0, repeat('0', 64))
-  ON CONFLICT ("chainKey") DO NOTHING;
-  SELECT "lastSeq", "lastHash" INTO head FROM "AuditChainHead" WHERE "chainKey" = k FOR UPDATE;
-  NEW."chainSeq" := head."lastSeq" + 1;
-  NEW."prevHash" := head."lastHash";
-  NEW."rowHash" := public.audit_log_row_hash(NEW);
-  UPDATE "AuditChainHead" SET "lastSeq" = NEW."chainSeq", "lastHash" = NEW."rowHash", "updatedAt" = now() WHERE "chainKey" = k;
-  RETURN NEW;
-END;
-$$;
-CREATE TRIGGER "AuditLog_zz_chain" BEFORE INSERT ON "AuditLog"
-FOR EACH ROW EXECUTE FUNCTION public.audit_log_chain();
-
--- ── Hand-written: SIEM outbox ───────────────────────────────────────────────
--- A tenant's row is queued only while its policy forwards. Platform rows (no
--- tenant) have no policy and are not forwarded.
-
-CREATE FUNCTION public.audit_log_siem_enqueue() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF NEW."tenantId" IS NOT NULL AND EXISTS (
-    SELECT 1 FROM "AuditPolicy" p WHERE p."tenantId" = NEW."tenantId" AND p."siemEnabled"
-  ) THEN
-    INSERT INTO "AuditSiemOutbox" ("auditLogId", "tenantId", "chainSeq") VALUES (NEW."id", NEW."tenantId", NEW."chainSeq");
+  IF p_columns IS NULL OR cardinality(p_columns) = 0
+     OR NOT (p_columns <@ ARRAY['userEmail', 'ipAddress', 'oldValue', 'newValue']) THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_log_redact: columns must be a non-empty subset of userEmail, ipAddress, oldValue, newValue';
   END IF;
-  RETURN NULL;
+  IF p_reason IS NULL OR length(btrim(p_reason)) < 10 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_log_redact: a reason of at least 10 characters is required';
+  END IF;
+  IF p_operator IS NULL OR btrim(p_operator) = '' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_log_redact: the operator is required';
+  END IF;
+  SELECT * INTO a FROM "AuditLog" WHERE "id" = p_audit_log_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = '02000', MESSAGE = 'audit_log_redact: no such audit row';
+  END IF;
+  SELECT COALESCE(array_agg(c), ARRAY[]::text[]) INTO taken
+  FROM "AuditRedaction" r, unnest(r."columns") AS c WHERE r."auditLogId" = p_audit_log_id;
+  IF taken && p_columns THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_log_redact: a requested column is already redacted';
+  END IF;
+
+  INSERT INTO "AuditRedaction" ("id", "auditLogId", "tenantId", "columns", "userEmailDigest", "ipAddressDigest", "oldValueDigest", "newValueDigest", "reason", "operator")
+  VALUES (
+    'red_' || replace(gen_random_uuid()::text, '-', ''), a."id", a."tenantId", p_columns,
+    COALESCE(encode(sha256(convert_to(a."userEmail", 'UTF8')), 'hex'), '-'),
+    COALESCE(encode(sha256(convert_to(a."ipAddress", 'UTF8')), 'hex'), '-'),
+    COALESCE(encode(sha256(convert_to(a."oldValue"::text, 'UTF8')), 'hex'), '-'),
+    COALESCE(encode(sha256(convert_to(a."newValue"::text, 'UTF8')), 'hex'), '-'),
+    btrim(p_reason), btrim(p_operator));
+
+  PERFORM set_config('cf.audit_redaction', 'on', true);
+  UPDATE "AuditLog" SET
+    "userEmail" = CASE WHEN 'userEmail' = ANY(p_columns) THEN NULL ELSE "userEmail" END,
+    "ipAddress" = CASE WHEN 'ipAddress' = ANY(p_columns) THEN NULL ELSE "ipAddress" END,
+    "oldValue" = CASE WHEN 'oldValue' = ANY(p_columns) THEN NULL ELSE "oldValue" END,
+    "newValue" = CASE WHEN 'newValue' = ANY(p_columns) THEN NULL ELSE "newValue" END
+  WHERE "id" = a."id";
+  PERFORM set_config('cf.audit_redaction', 'off', true);
+
+  INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "entityId", "newValue")
+  VALUES (
+    'aud_' || replace(gen_random_uuid()::text, '-', ''), a."tenantId", 'AUDIT_ROW_REDACTED', 'AuditLog', a."id",
+    jsonb_build_object('columns', to_jsonb(p_columns), 'reason', btrim(p_reason), 'operator', btrim(p_operator),
+                       'databaseRole', session_user::text, 'rowAction', a."action"));
 END;
 $$;
-CREATE TRIGGER "AuditLog_siem_enqueue" AFTER INSERT ON "AuditLog"
-FOR EACH ROW EXECUTE FUNCTION public.audit_log_siem_enqueue();
+REVOKE ALL ON FUNCTION public.audit_log_redact(text, text[], text, text) FROM PUBLIC;
+
+-- ── Hand-written: row-level security ────────────────────────────────────────
+-- Same policy as the tenant-scoped models (20261014130000_tenant_rls). The
+-- chain tables carry a nullable tenantId (the platform chain has none), so a
+-- tenant never sees those rows. Binds nothing until the application connects as
+-- a role RLS binds (docs/ARCHITECTURE.md, RLS activation checklist).
+
+ALTER TABLE "AuditPolicy" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditPolicy" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AuditPolicy" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+ALTER TABLE "AuditSiemOutbox" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditSiemOutbox" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AuditSiemOutbox" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+ALTER TABLE "AuditChainLink" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditChainLink" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AuditChainLink" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+ALTER TABLE "AuditChainCheckpoint" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditChainCheckpoint" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AuditChainCheckpoint" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+ALTER TABLE "AuditRedaction" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditRedaction" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AuditRedaction" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());

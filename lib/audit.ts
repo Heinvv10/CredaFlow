@@ -7,6 +7,8 @@ import { Prisma } from "@prisma/client"
 import { AUDIT_ACTIONS } from "@/lib/registry/generated/audit-actions"
 
 interface AuditParams {
+  /** Only for a caller that must know the row's id before it commits (lib/audit/siem/policy.ts). */
+  id?: string
   tenantId?: string
   userId?: string
   userEmail?: string
@@ -53,6 +55,7 @@ function withoutSettlementEvidence(value: Record<string, unknown> | null | undef
 export async function logAuditStrict(params: AuditParams, db: Pick<typeof prisma, "auditLog"> = prisma): Promise<void> {
   await db.auditLog.create({
     data: {
+      ...(params.id ? { id: params.id } : {}),
       tenantId: params.tenantId,
       userId: params.userId ?? null,
       userEmail: params.userEmail ?? null,

@@ -238,22 +238,31 @@ migrations declare.
 ## Tamper-evident audit and SIEM forwarding
 
 `AuditLog` is the record of every state change (`lib/audit.ts`). Postgres makes
-it append-only and hash-chained, so neither the application nor a query typed
-into a console can alter or delete a row unnoticed; module rules in
+it append-only and a keyed hash chain makes it tamper-evident; module rules in
 `lib/audit/.claude.md`.
 
-- **Append-only.** Triggers refuse UPDATE, DELETE and TRUNCATE. Integration
-  suites purge their own rows with `lib/audit/audit-rows.test-helpers.ts`
-  (superuser, triggers off).
-- **Chain.** Each row stores `chainSeq`, `prevHash` and `rowHash`
-  (SHA-256 over a canonical JSON array of its content and `prevHash`), set by a
-  trigger under a row lock on the chain's head (`AuditChainHead`), one chain per
-  lender. `npm run audit:verify`, `GET /api/admin/audit/verify` and the daily
-  `audit-chain-verify` cron walk it and name the first broken link.
-- **SIEM.** A lender's `AuditPolicy` turns forwarding on; a trigger queues each
-  new row in `AuditSiemOutbox` in the audit row's transaction and the
-  `audit-siem-deliver` cron ships it as RFC 5424 syslog over TLS (CEF body) or an
-  HTTPS JSON batch, at least once, with retry and backoff.
+- **Append-only.** Triggers refuse UPDATE, DELETE and TRUNCATE on `AuditLog`,
+  `AuditChainLink`, `AuditChainCheckpoint` and `AuditRedaction`. The only change
+  a row ever sees is `audit_log_redact()` nulling personal data (POPIA), which
+  records the digests and writes its own audit row.
+- **Chain, after commit.** An audit insert touches no chain. The chainer
+  (cron `audit-chainer`, every few seconds, advisory lock per chain) appends a
+  link per committed row; `rowHash` is an HMAC under `AUDIT_CHAIN_KEY`, which is
+  not in the database. A rolled-back transaction leaves no link; a Serializable
+  one never waits on a chain.
+- **Verification.** `npm run audit:verify`, `/api/admin/audit/verify` and the
+  daily `audit-chain-verify` cron walk it and name the first broken link. A daily
+  signed checkpoint per chain bounds the walk and is sent to the lender's SIEM.
+- **Deploy requirement.** The migration role owns the tables; the application
+  connects as a different, non-superuser role with INSERT and SELECT on
+  `AuditLog` and the chain tables (and UPDATE only on `AuditSiemOutbox`). A role
+  that owns a table can switch its triggers off. `/api/health` and the boot log
+  warn when the runtime role owns them, and when `AUDIT_CHAIN_KEY` is unset.
+  The redaction function is granted only to an operator role.
+- **SIEM.** A lender's `AuditPolicy` turns forwarding on; the chainer queues each
+  chained row in `AuditSiemOutbox` and the `audit-siem-deliver` cron ships it as
+  RFC 5424 syslog over TLS (CEF body) or an HTTPS JSON batch, in order, at least
+  once, with backoff. What leaves is minimised (`lib/audit/siem/minimise.ts`).
 - **Retention.** At least 12 months (a CHECK on `AuditPolicy`), the latest 3
   "hot". No row is ever deleted; an archive table is not built.
 
@@ -262,15 +271,15 @@ into a console can alter or delete a row unnoticed; module rules in
 | id | eventId | externalId | SD eventId |
 | createdAt | timestamp | rt (ms) | TIMESTAMP |
 | action | action | signature, name | MSGID |
-| userEmail / userId | actor.email / userId | suser / suid | SD user / userId |
-| ipAddress | sourceIp | src | SD ip |
+| userId | actor.userId | suid | SD userId |
+| ipAddress (value actions only) | sourceIp | src | SD ip |
 | entity / entityId | entity / entityId | cs1 / cs2 | SD entity / entityId |
-| chainSeq / rowHash | chain.seq / rowHash | cn1 / cs3 | SD seq / rowHash |
-| oldValue / newValue | oldValue / newValue | cs4 / cs5 (1000 chars) | in the CEF body |
+| link seq / rowHash | chain.seq / rowHash | cn1 / cs3 | SD seq / rowHash |
+| oldValue / newValue (value actions only, masked) | oldValue / newValue | cs4 / cs5 (1000 chars) | in the CEF body |
 
 Syslog PRI is facility 13 (log audit) * 8 + severity (CEF 9 = 2, 5 = 4, else 6).
-The structured-data id `cf@32473` uses the documentation enterprise number;
-replace it with the deployment's own.
+The structured-data id is `cf@<AUDIT_SYSLOG_PEN>`; the default 32473 is the number
+RFC 5612 reserves for documentation, so set the deployment's own.
 
 ## Row-level security: activation checklist
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyCronSecret } from "@/lib/cron-auth"
+import { auditChainKeyConfigured } from "@/lib/audit/chain-hash"
 import { runAuditChainVerification } from "@/lib/audit/verify-job"
 import { FAILED_TENANTS_HEADER } from "@/lib/ops/cron-call"
 
@@ -13,6 +14,10 @@ export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
   if (denied) return denied
 
+  if (!auditChainKeyConfigured()) {
+    console.error("[cron/audit-chain-verify] AUDIT_CHAIN_KEY is not configured; the chain cannot be verified")
+    return NextResponse.json({ ok: false, error: "AUDIT_CHAIN_KEY is not configured" }, { status: 503 })
+  }
   const result = await runAuditChainVerification()
   return NextResponse.json(
     { runAt: new Date().toISOString(), ...result },
