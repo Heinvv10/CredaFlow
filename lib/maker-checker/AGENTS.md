@@ -34,8 +34,9 @@ consumers: decision rule sets and engine settings (`lib/decisioning/`).
 ## Critical Rules
 - **Maker is not checker**: CHECK `ChangeRequest_four_eyes`; the service answers
   `SELF_APPROVAL` first. Do not add a path that approves as a system user.
-- **Two people, not two accounts**: a maker account younger than 30 days cannot have changes
-  approved, and a checker who created the maker's account or changed it (USER_CREATED,
+- **Two people, not two accounts**: a maker account younger than 30 days that a tenant user
+  created (USER_CREATED) or SSO provisioned (SSO_USER_PROVISIONED) cannot have changes approved
+  (operator-provisioned, bootstrap and seeded accounts leave no such row and are exempt), and a checker who created the maker's account or changed it (USER_CREATED,
   USER_UPDATED, TOTP_RESET_BY_ADMIN in the audit log) in the last 30 days is refused
   (`MAKER_ACCOUNT_CONTROLLED`). A handler's `approvePermission` (and optional `makePermissionFor`)
   can depend on the payload to put a high-risk change (engine LIVE, s71 sign-off) on a higher role.

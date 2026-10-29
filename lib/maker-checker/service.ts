@@ -53,16 +53,23 @@ async function requireStepUp(tenantId: string, actor: Actor): Promise<void> {
 export const MAKER_ACCOUNT_CONTROL_DAYS = 30
 
 /**
- * Four eyes is two different PEOPLE. A maker account younger than 30 days (whoever created it) cannot have its changes approved,
- * and a checker who created the maker's account, or reset its password, role or second factor, within the last 30 days could be
- * drafting through a puppet: both refused. The trail is the audit log the user routes already write (USER_CREATED, USER_UPDATED,
+ * Four eyes is two different PEOPLE. A maker account younger than 30 days that a tenant user created (USER_CREATED, written only by
+ * the staff-management route) or that SSO provisioned on first sign-in (SSO_USER_PROVISIONED) cannot have its changes approved: the risk
+ * is a tenant admin minting accounts. An account the operator provisioned, the bootstrap or the seed made has neither row and is exempt.
+ * And a checker who created the maker's account, or reset its password, role or second factor, within the last 30 days could be
+ * drafting through a puppet: refused. The trail is the audit log the user routes already write (USER_CREATED, USER_UPDATED,
  * TOTP_RESET_BY_ADMIN).
  */
 async function refuseControlledMaker(tx: Pick<Tx, "auditLog" | "user">, tenantId: string, makerId: string, checkerId: string, now: Date): Promise<void> {
   const since = new Date(now.getTime() - MAKER_ACCOUNT_CONTROL_DAYS * 24 * 60 * 60 * 1000)
   const maker = await tx.user.findFirst({ where: { id: makerId, tenantId }, select: { createdAt: true } })
-  if (!maker || maker.createdAt > since) {
-    throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", `The account that drafted this is less than ${MAKER_ACCOUNT_CONTROL_DAYS} days old (or gone): its changes cannot be approved yet`)
+  if (!maker) throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", "The account that drafted this no longer exists: its changes cannot be approved")
+  if (maker.createdAt > since) {
+    const minted = await tx.auditLog.findFirst({
+      where: { tenantId, entity: "User", entityId: makerId, action: { in: [AuditAction.USER_CREATED, AuditAction.SSO_USER_PROVISIONED] } },
+      select: { id: true },
+    })
+    if (minted) throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", `The account that drafted this was created less than ${MAKER_ACCOUNT_CONTROL_DAYS} days ago by a user or by SSO: its changes cannot be approved yet`)
   }
   const control = await tx.auditLog.findFirst({
     where: {

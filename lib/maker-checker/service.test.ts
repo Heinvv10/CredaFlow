@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ChangeRequestError } from "./errors"
 import type { ChangeHandler } from "./types"
 
-const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown, makerCreatedAt: new Date("2026-01-01T00:00:00Z") as Date | null }))
+const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown, minted: null as unknown, makerCreatedAt: new Date("2026-01-01T00:00:00Z") as Date | null }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: async () => h.totpRequired }))
 vi.mock("./handlers", () => ({ handlerFor: (kind: string) => (kind === "TEST_KIND" ? h.handler : null) }))
@@ -26,7 +26,7 @@ function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeH
 function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
-    auditLog: { create: vi.fn(), findFirst: vi.fn(async () => h.control) },
+    auditLog: { create: vi.fn(), findFirst: vi.fn(async (a: { where: { action: { in: string[] } } }) => (a.where.action.in.includes("SSO_USER_PROVISIONED") ? h.minted : h.control)) },
     user: { findFirst: vi.fn(async () => (h.makerCreatedAt ? { createdAt: h.makerCreatedAt } : null)) },
     $executeRaw: vi.fn(async () => 0),
   }
@@ -35,7 +35,7 @@ function fakeDb(found: unknown, count = 1) {
 }
 const scope = { tenantId: "t", id: "cr1" }
 
-beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null; h.makerCreatedAt = new Date("2026-01-01T00:00:00Z") })
+beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null; h.minted = null; h.makerCreatedAt = new Date("2026-01-01T00:00:00Z") })
 
 describe("maker-checker service (state, permission, staleness; the database rules are in the integration suite)", () => {
   it("refuses an unknown kind before touching the database", async () => {
@@ -73,12 +73,28 @@ describe("maker-checker service (state, permission, staleness; the database rule
       expect(Date.now() - since).toBeLessThan(30.1 * 86_400_000)
     })
 
-    it("refuses any maker account younger than 30 days whoever created it, and one that no longer exists", async () => {
+    it.each([
+      ["a tenant user created (USER_CREATED)", { id: "audit-created" }],
+      ["SSO provisioned (SSO_USER_PROVISIONED)", { id: "audit-sso" }],
+    ])("refuses a maker account younger than 30 days that %s, writing nothing", async (_label, minted) => {
       h.makerCreatedAt = new Date(Date.now() - 29 * 86_400_000)
+      h.minted = minted
       const { db, tx } = fakeDb(row())
       await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
       expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
+      const origin = (tx.auditLog.findFirst.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where
+      expect(origin).toMatchObject({ tenantId: "t", entity: "User", entityId: "u-maker", action: { in: ["USER_CREATED", "SSO_USER_PROVISIONED"] } })
+    })
+
+    it("exempts a young account no tenant user or SSO minted (operator provisioning, bootstrap, the seed: no creation row)", async () => {
+      h.makerCreatedAt = new Date(Date.now() - 2 * 86_400_000)
+      h.minted = null
+      expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
+    })
+
+    it("does not ask for the origin of an account that is 30 days old or more, and refuses one that no longer exists", async () => {
       h.makerCreatedAt = new Date(Date.now() - 31 * 86_400_000)
+      h.minted = { id: "audit-created" }
       expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
       h.makerCreatedAt = null
       await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })

@@ -372,14 +372,29 @@ suite("maker-checker (real Postgres)", () => {
     })
   })
 
-  it("an account younger than 30 days cannot have its changes approved, whoever created it", async () => {
-    const young = await db.user.create({ data: { id: `u_young_${lender.tenantId}`, tenantId: lender.tenantId, email: `young_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 5 * 86_400_000) } })
-    const asYoung = { id: young.id, email: young.email, role: "ADMIN", totpVerified: true }
-    const d = await createDraft({ tenantId: lender.tenantId, actor: asYoung, kind: RULE_SET_KIND, title: "From a new account", payload: payload({ name: "New account rules" }) })
-    await submit({ tenantId: lender.tenantId, actor: asYoung, id: d.id })
-    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
-    await db.$executeRawUnsafe(`UPDATE "User" SET "createdAt" = now() - interval '31 days' WHERE "id" = '${young.id}'`)
-    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id })).status).toBe("APPROVED")
+  it("an account younger than 30 days that a tenant user or SSO created cannot have its changes approved; one the operator or the seed made can", async () => {
+    const young = async (label: string, origin: { action: string; userId: string | null } | null) => {
+      const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 5 * 86_400_000) } })
+      if (origin) await db.auditLog.create({ data: { tenantId: lender.tenantId, action: origin.action, entity: "User", entityId: u.id, userId: origin.userId, newValue: {} } })
+      const actor = { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
+      const d = await createDraft({ tenantId: lender.tenantId, actor, kind: RULE_SET_KIND, title: label, payload: payload({ name: `${label} rules` }) })
+      await submit({ tenantId: lender.tenantId, actor, id: d.id })
+      return { id: u.id, actor, requestId: d.id }
+    }
+    // Minted by a tenant admin, or provisioned by SSO on first sign-in: refused while it is young.
+    const byAdmin = await young("byadmin", { action: "USER_CREATED", userId: lender.checker2Id })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: byAdmin.requestId })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    const bySso = await young("bysso", { action: "SSO_USER_PROVISIONED", userId: null })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: bySso.requestId })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    // Operator provisioning, bootstrap and the seed write no creation row: exempt, however young.
+    const bySeed = await young("byseed", null)
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: bySeed.requestId })).status).toBe("APPROVED")
+    // The same account is no longer young after 30 days.
+    await db.$executeRawUnsafe(`UPDATE "User" SET "createdAt" = now() - interval '31 days' WHERE "id" = '${byAdmin.id}'`)
+    // (Its earlier draft went stale when another rule set was approved; a fresh one is approved.)
+    const fresh = await createDraft({ tenantId: lender.tenantId, actor: byAdmin.actor, kind: RULE_SET_KIND, title: "later", payload: payload({ name: "Later rules" }) })
+    await submit({ tenantId: lender.tenantId, actor: byAdmin.actor, id: fresh.id })
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: fresh.id })).status).toBe("APPROVED")
   })
 
   it("settings that go LIVE or record the s71 sign-off can only be drafted by an ADMIN or above", async () => {
