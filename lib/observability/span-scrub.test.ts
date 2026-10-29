@@ -139,15 +139,29 @@ describe("scrubSpan", () => {
     expect(scrubSpan(full).status.message).toBe("failed calling https://h/p")
   })
 
-  it("keeps the words around a URL: only URL-shaped tokens lose their query", () => {
+  it("keeps the words around a query, and a plain question", () => {
     const scrubbed = scrubSpan(
       span("x", {
         message: "did GET /a/b?token=SECRET twice; what? then (https://h/p?x=1#f) and \"/q?y=2\" done",
-        question: "is this ok? yes # no",
+        question: "is this ok? yes",
       }),
     )
     expect(scrubbed.attributes.message).toBe("did GET /a/b twice; what? then (https://h/p and \"/q done")
-    expect(scrubbed.attributes.question).toBe("is this ok? yes # no")
+    expect(scrubbed.attributes.question).toBe("is this ok? yes")
+  })
+
+  it.each([
+    ["a key=value query after url=", "failed url=/x?token=SECRET again", "failed url=/x again"],
+    ["a path inside parentheses", "fetch(/x?token=SECRET) rejected", "fetch(/x rejected"],
+    ["a host with no scheme", "dialled h.example/x?token=SECRET and gave up", "dialled h.example/x and gave up"],
+    ["a URL embedded in JSON", '{"url":"https://h.example/x?token=SECRET","ok":false}', '{"url":"https://h.example/x'],
+    ["a fragment", "opened page#access_token=SECRET now", "opened page now"],
+    ["a question that carries data", "is this?token=SECRET ok", "is this ok"],
+    ["a bare &key=value run", "retry a=1&token=SECRET&sig=SECRET2 done", "retry a=1 done"],
+  ])("fails closed on %s", (_name, input, expected) => {
+    const scrubbed = scrubSpan(span("x", { m: input }))
+    expect(scrubbed.attributes.m).toBe(expected)
+    expect(JSON.stringify(scrubbed.attributes)).not.toContain("SECRET")
   })
 
   it("rewrites the path and URL attributes to the template even when the concrete path is not found", () => {

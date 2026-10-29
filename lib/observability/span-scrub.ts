@@ -23,21 +23,17 @@ function stripUserinfo(value: string): string {
 }
 
 /**
- * Deny by default for anything URL-shaped. Userinfo goes first; then each
- * whitespace-delimited token that is a URL (`://`), a path (starts with `/`) or a
- * bare query (starts with `?` or `#`) is cut at its first `?` or `#`. The words around
- * it stay, so an exception message keeps its meaning; a plain word with a `?` is not
- * a URL and is left alone.
+ * Fail closed. Userinfo goes first and `&key=value` runs are dropped (a query string
+ * whose `?` was lost on the way). Then every whitespace-delimited token that holds a
+ * `?` or `#` is cut there, whatever it looks like: `url=/x?t=S`, `fetch(/x?t=S)`,
+ * `h.example/x?t=S` and JSON-embedded URLs all carry secrets and none is recognisable
+ * by shape. The one exception is a token that ends in a single `?` with nothing after
+ * it (prose such as "what?"). The cost is exception text cut at its first `?`.
  */
 function scrubValue(value: string): string {
-  const unsafe = stripUserinfo(value)
+  const unsafe = stripUserinfo(value).replace(/&[\w.%-]+=[^\s&]*/g, "")
   if (!/[?#]/.test(unsafe)) return unsafe
-  return unsafe.replace(/\S+/g, (token) => {
-    if (!/[?#]/.test(token)) return token
-    const bare = token.replace(/^[("'`<[]+/, "")
-    const urlShaped = bare.includes("://") || bare.startsWith("/") || (/^[?#]/.test(bare) && bare.length > 1)
-    return urlShaped ? stripQuery(token) : token
-  })
+  return unsafe.replace(/\S+/g, (token) => (/^[^?#]*\?$/.test(token) ? token : stripQuery(token)))
 }
 
 function safeDecode(value: string): string {
