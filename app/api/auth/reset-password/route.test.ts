@@ -8,7 +8,7 @@ vi.mock("@/lib/prisma", () => {
 })
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn(async () => "hashed") } }))
 
-import { POST } from "./route"
+import { GET, POST } from "./route"
 
 const post = (password: string) => POST(new NextRequest("https://app.example.test/api/auth/reset-password", {
   method: "POST",
@@ -56,4 +56,34 @@ it("refuses a reset token consumed during password hashing", async () => {
   h.updateMany.mockResolvedValue({ count: 0 })
   expect((await post("Mango-Taxi-Umbrella")).status).toBe(400)
   expect(h.audit).not.toHaveBeenCalled()
+})
+
+describe("an SSO-bound user while SSO is on", () => {
+  const bound = (over: Record<string, unknown> = {}) => h.findUnique.mockResolvedValue({
+    tenantId: "tenant-synthetic", email: "staff@example.test", id: "u1", active: true, role: "CREDIT_OFFICER",
+    resetTokenExp: new Date(Date.now() + 60_000), ssoIdentity: { id: "link-1" }, tenant: { ssoConnection: { enabled: true } }, ...over,
+  })
+
+  it("cannot use a reset token issued before the binding: nothing is changed", async () => {
+    bound()
+    const res = await post("Mango-Taxi-Umbrella")
+    expect(res.status).toBe(400)
+    expect(h.updateMany).not.toHaveBeenCalled()
+    expect(h.audit).not.toHaveBeenCalled()
+  })
+
+  it("is told the link is not valid when the page checks it", async () => {
+    bound()
+    const res = await GET(new NextRequest(`https://app.example.test/api/auth/reset-password?token=${"t".repeat(64)}`))
+    expect(await res.json()).toEqual({ valid: false })
+  })
+
+  it.each([
+    ["SSO is off", { tenant: { ssoConnection: { enabled: false } } }],
+    ["the user is a Super Admin", { role: "SUPER_ADMIN" }],
+    ["there is no binding", { ssoIdentity: null }],
+  ])("still resets when %s", async (_l, over) => {
+    bound(over)
+    expect((await post("Mango-Taxi-Umbrella")).status).toBe(200)
+  })
 })

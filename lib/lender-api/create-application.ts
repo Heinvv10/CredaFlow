@@ -144,7 +144,7 @@ export async function createDraftApplication(caller: ApiCaller, input: CreateApp
         entity: "LoanApplication",
         entityId: created.id,
         newValue: {
-          apiKeyId: caller.keyId,
+          ...(caller.kind === "oauth_client" ? { oauthClientId: caller.keyId } : { apiKeyId: caller.keyId }),
           reference: created.reference,
           clientId: created.clientId,
           productId: created.productId,

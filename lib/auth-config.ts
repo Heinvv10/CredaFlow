@@ -19,6 +19,8 @@ declare module "next-auth" {
     credentialStamp?: string
     /** Set at sign-in when the lender requires 2FA and this user has none (lib/auth.ts). */
     totpEnrolmentRequired?: boolean
+    /** SSO sessions only: epoch seconds after which the session ends and the user signs in at the provider again (lib/sso/authorize.ts). */
+    ssoSessionExp?: number
     /** Operator staff only (OPERATOR_ADMIN / OPERATOR_SUPPORT): the operator they work for. */
     operatorId?: string | null
     /** DEALER only: the dealer this dealer user works for, and their role there. */

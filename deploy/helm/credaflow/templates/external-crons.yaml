@@ -1,0 +1,83 @@
+{{- if .Values.externalCrons.enabled }}
+{{- range .Values.externalCrons.jobs }}
+---
+# /api/cron/{{ .route }} is owned by the deployment's scheduler (lib/registry/cron-jobs/100-external-scheduler.ts);
+# nothing in the application calls it. The Job calls the web Service the way the in-process scheduler does
+# (lib/ops/cron-call.ts): x-cron-secret, with the public host as Host so tenant resolution by domain works.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-%s" (include "credaflow.fullname" $ | trunc 28 | trimSuffix "-") .route | trunc 52 | trimSuffix "-" }}
+  labels:
+    {{- include "credaflow.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: cron
+spec:
+  schedule: {{ .schedule | quote }}
+  timeZone: {{ $.Values.externalCrons.timeZone | quote }}
+  # A run still going when the next is due is not overlapped, and a run that missed its
+  # slot by more than a minute is skipped rather than piled up.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ $.Values.externalCrons.deadlineSeconds }}
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "credaflow.selectorLabels" (dict "root" $ "component" "cron") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          {{- with $.Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- include "credaflow.podSecurityContext" $ | nindent 12 }}
+          containers:
+            - name: call
+              image: {{ include "credaflow.image" $ }}
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              command:
+                - node
+                - -e
+                - |
+                  const http = require("node:http")
+                  const headers = { "x-cron-secret": process.env.CRON_SECRET }
+                  if (process.env.NEXTAUTH_URL) headers.host = new URL(process.env.NEXTAUTH_URL).host
+                  const req = http.request(process.env.TARGET, { method: "GET", headers, agent: false }, (res) => {
+                    res.resume()
+                    res.on("end", () => {
+                      console.log(process.env.TARGET + " -> " + res.statusCode)
+                      process.exit(res.statusCode >= 200 && res.statusCode < 300 ? 0 : 1)
+                    })
+                  })
+                  req.on("error", (err) => {
+                    console.error(process.env.TARGET + " failed: " + err.message)
+                    process.exit(1)
+                  })
+                  req.end()
+              env:
+                - name: TARGET
+                  value: {{ printf "http://%s.%s.svc:%v/api/cron/%s" (include "credaflow.fullname" $) $.Release.Namespace $.Values.service.port .route | quote }}
+                - name: CRON_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $.Values.externalCrons.secret.name }}
+                      key: {{ $.Values.externalCrons.secret.key }}
+                - name: NEXTAUTH_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ include "credaflow.fullname" $ }}
+                      key: NEXTAUTH_URL
+                      optional: true
+              resources:
+                {{- toYaml $.Values.externalCrons.resources | nindent 16 }}
+              securityContext:
+                {{- include "credaflow.containerSecurityContext" $ | nindent 16 }}
+{{- end }}
+{{- end }}

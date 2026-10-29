@@ -113,6 +113,7 @@ model User {
   ncaSurplusRemittancesIssued NcaSurplusRemittance[] @relation("NcaSurplusIssuedBy")
   ncaSurplusRemittancesReleased NcaSurplusRemittance[] @relation("NcaSurplusReleasedBy")
   notifications                Notification[]
+  oauthClientsCreated          OauthClient[]                         @relation("OauthClientsCreatedBy")
   pasqAckTokensIssued          PasqAcknowledgementToken[]            @relation("PasqAckTokensIssuedBy")
   payoutChecklistConfirmed     PayoutChecklistItem[]                 @relation("PayoutChecklistConfirmedBy")
   payoutsApproved              Payout[]                              @relation("PayoutsApprovedBy")
@@ -133,6 +134,7 @@ model User {
   remarketingSalesCreated      RemarketingSale[]                     @relation("RemarketingSaleCreatedBy")
   selfieCaptureTokensIssued    SelfieCaptureToken[]                  @relation("SelfieCaptureTokensIssuedBy")
   sessions                     Session[]
+  ssoIdentity                  SsoIdentity?
   statementAiQuestions         StatementAiOutput[]                   @relation("StatementAiAskedBy")
   supplierAccountsDecided      SupplierBankAccount[]                 @relation("SupplierAccountDecidedBy")
   supplierAccountsRequested    SupplierBankAccount[]                 @relation("SupplierAccountRequestedBy")

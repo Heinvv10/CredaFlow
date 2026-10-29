@@ -84,3 +84,32 @@ it("never sends a reset link if the token audit fails", async () => {
   await expect(POST(req)).rejects.toThrow("audit unavailable")
   expect(sendEmailMock).not.toHaveBeenCalled()
 })
+
+// A user bound to the lender's identity provider while SSO is on: their password is not a way in, so no reset is issued.
+const forgot = () => POST(new NextRequest("http://localhost/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ email: "staff@example.com" }) }))
+const asUser = (over: Record<string, unknown>) => findUniqueMock.mockResolvedValue({
+  id: "user-1", tenantId: "tenant-1", name: "Staff User", email: "staff@example.com", active: true, role: "CREDIT_OFFICER", ...over,
+})
+const sso = (enabled: boolean) => ({ ssoConnection: { enabled } })
+
+it("issues no reset token and sends no email to an SSO-bound user while SSO is on, and still answers 200", async () => {
+  asUser({ ssoIdentity: { id: "link-1" }, tenant: sso(true) })
+  const response = await forgot()
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ ok: true })
+  expect(updateMock).not.toHaveBeenCalled()
+  expect(auditCreateMock).not.toHaveBeenCalled()
+  expect(sendEmailMock).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["SSO is switched off", { ssoIdentity: { id: "link-1" }, tenant: sso(false) }],
+  ["the user was never bound", { ssoIdentity: null, tenant: sso(true) }],
+  ["the lender has no connection", { ssoIdentity: { id: "link-1" }, tenant: { ssoConnection: null } }],
+  ["the user is a Super Admin (the break-glass path)", { role: "SUPER_ADMIN", ssoIdentity: { id: "link-1" }, tenant: sso(true) }],
+])("still resets when %s", async (_label, over) => {
+  asUser(over)
+  expect((await forgot()).status).toBe(200)
+  expect(updateMock).toHaveBeenCalledOnce()
+  expect(sendEmailMock).toHaveBeenCalledOnce()
+})

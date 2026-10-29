@@ -1,0 +1,19 @@
+{{- if .Values.worker.enabled }}
+# Only so Prometheus can scrape the worker: the cron outcome counters live in its memory.
+# Nothing routes user traffic here (the Ingress points at the web Service).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "credaflow.fullname" . }}-worker
+  labels:
+    {{- include "credaflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector:
+    {{- include "credaflow.selectorLabels" (dict "root" . "component" "worker") | nindent 4 }}
+{{- end }}

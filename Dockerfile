@@ -51,14 +51,41 @@ RUN npx prisma generate
 RUN npm run face-models:fetch
 RUN NODE_OPTIONS=--max-old-space-size=6144 npm run build
 
-# Stage 3: Production runner
+# Stage 3: Migration runner (`docker build --target migrator`). Only the Prisma
+# CLI and the migrations: the runner image below ships neither, and the Helm
+# chart's pre-upgrade Job (deploy/helm/credaflow) runs `prisma migrate deploy`
+# from this image. It must stay ABOVE the runner stage: a build with no
+# --target (docker-compose) builds the last stage.
+FROM node:22-bookworm-slim AS migrator
+WORKDIR /app
+# upgrade: pick up Debian security fixes newer than the base image (the image scan
+# in .github/workflows/security.yml fails on fixable HIGH/CRITICAL). npm is removed:
+# nothing here runs it, and its bundled packages are scanned as ours.
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends openssl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+COPY --from=deps /app/node_modules/prisma ./node_modules/prisma
+COPY --from=deps /app/node_modules/@prisma ./node_modules/@prisma
+COPY package.json ./
+COPY prisma ./prisma
+# The root filesystem is read-only in the cluster: Prisma's cache and update check
+# write under $HOME, so point it at the Job's /tmp emptyDir and switch the check off.
+ENV HOME=/tmp
+ENV CHECKPOINT_DISABLE=1
+USER node
+CMD ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
+
+# Stage 4: Production runner
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown
+# upgrade and npm removal: see the migrator stage.
 RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends openssl ca-certificates poppler-utils qpdf chromium fonts-liberation && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 ENV NODE_ENV=production
 ENV PORT=3300

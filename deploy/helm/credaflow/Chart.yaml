@@ -1,0 +1,8 @@
+apiVersion: v2
+name: credaflow
+description: CredaFlow loan management system - staff and portal web tier, cron worker and migration Job
+type: application
+version: 0.1.0
+# The image tag when image.tag is empty. CI sets it to the release's git SHA.
+appVersion: "latest"
+kubeVersion: ">=1.27.0-0"
