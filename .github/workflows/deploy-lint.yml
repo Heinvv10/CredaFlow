@@ -51,20 +51,28 @@ jobs:
       # The owner database login must not be in a Secret the pods mount (deploy/README.md, "Two database logins").
       - name: Chart refuses the owner database login in a pod-mounted Secret
         run: |
-          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set migrate.databaseUrlSecret.name=credaflow-app
-          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set migrate.databaseUrlSecret.name=
-          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set externalCrons.secret.name=credaflow-migrate
-          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set 'worker.existingSecrets={credaflow-migrate}'
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set audit.singleLogin=true --set migrate.databaseUrlSecret.name=credaflow-app
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set audit.singleLogin=true --set migrate.databaseUrlSecret.name=
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set audit.singleLogin=true --set externalCrons.secret.name=credaflow-migrate
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set audit.singleLogin=true --set 'worker.existingSecrets={credaflow-migrate}'
+      # Two logins is the default for a bank: web and worker on one login must be asked for by name.
+      - name: Chart refuses a shared web and worker login unless asked for
+        run: |
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set 'worker.existingSecrets={credaflow-worker}'
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set appRole.workerName=credaflow_worker
+          helm template rel deploy/helm/credaflow --set image.tag=v1 --set audit.singleLogin=true > /dev/null
+          helm template rel deploy/helm/credaflow --set image.tag=v1 --set appRole.workerName=credaflow_worker --set 'worker.existingSecrets={credaflow-worker}' > /dev/null
       # Each variant is a release shape the README documents. The ServiceMonitor CRD has no schema here.
       - name: helm template | kubeconform
         run: |
           chart=deploy/helm/credaflow
           kc() { kubeconform -strict -ignore-missing-schemas -summary -kubernetes-version 1.30.0 -; }
           helm template rel $chart -f $chart/ci/full-values.yaml | kc
-          helm template rel $chart --set image.tag=v1 | kc
-          helm template rel $chart --set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000 --set migrate.image.tag=v1 | kc
-          helm template rel $chart --set image.tag=v1 --set autoscaling.enabled=false --set persistence.enabled=false --set networkPolicy.enabled=false | kc
-          helm template rel $chart --set image.tag=v1 --set web.appMode=client --set worker.enabled=false --set externalCrons.enabled=false --set migrate.enabled=false --set persistence.existingClaim=uploads | kc
+          helm template rel $chart --set image.tag=v1 --set audit.singleLogin=true | kc
+          helm template rel $chart --set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000 --set migrate.image.tag=v1 --set audit.singleLogin=true | kc
+          helm template rel $chart --set image.tag=v1 --set audit.singleLogin=true --set autoscaling.enabled=false --set persistence.enabled=false --set networkPolicy.enabled=false | kc
+          helm template rel $chart --set image.tag=v1 --set audit.singleLogin=true --set web.appMode=client --set worker.enabled=false --set externalCrons.enabled=false --set migrate.enabled=false --set persistence.existingClaim=uploads | kc
 
   prometheus-rules:
     runs-on: ubuntu-latest

@@ -36,13 +36,16 @@ services:
     env_file: [.env]
     environment:
       # The application's own login (owns nothing; INSERT/SELECT on AuditLog only), not POSTGRES_USER, which owns the schema
-      # and runs migrations (ensure_app_role in lib.sh; docs/ARCHITECTURE.md, "Tamper-evident audit"). A lender not yet moved
-      # falls back to the owner so `compose ps/logs` still render; deploy.sh refuses to deploy without APP_DB_* (ensure_app_role).
-      DATABASE_URL: postgresql://${APP_DB_USER:-${POSTGRES_USER}}:${APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+      # and runs migrations (ensure_app_role in lib.sh; docs/ARCHITECTURE.md, "Tamper-evident audit"). Without APP_DB_* the URL
+      # has no user (compose still renders for ps/logs; the app cannot connect, and deploy.sh refuses to deploy: ensure_app_role).
+      # Only AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 falls back to the owner.
+      DATABASE_URL: postgresql://${APP_DB_USER:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_USER}}}:${APP_DB_PASSWORD:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_PASSWORD}}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
       NODE_ENV: production
       PORT: "3300"
       # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
       # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      # Set (to 1) only by a demo or legacy stack that has not been given its own login: the app may then connect as the owner.
+      AUDIT_ALLOW_PRIVILEGED_DB_ROLE: ${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:-}
       POSTGRES_USER: ""
       POSTGRES_PASSWORD: ""
       POSTGRES_DB: ""
@@ -80,13 +83,16 @@ services:
     env_file: [.env]
     environment:
       # The application's own login (owns nothing; INSERT/SELECT on AuditLog only), not POSTGRES_USER, which owns the schema
-      # and runs migrations (ensure_app_role in lib.sh; docs/ARCHITECTURE.md, "Tamper-evident audit"). A lender not yet moved
-      # falls back to the owner so `compose ps/logs` still render; deploy.sh refuses to deploy without APP_DB_* (ensure_app_role).
-      DATABASE_URL: postgresql://${APP_DB_USER:-${POSTGRES_USER}}:${APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+      # and runs migrations (ensure_app_role in lib.sh; docs/ARCHITECTURE.md, "Tamper-evident audit"). Without APP_DB_* the URL
+      # has no user (compose still renders for ps/logs; the app cannot connect, and deploy.sh refuses to deploy: ensure_app_role).
+      # Only AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 falls back to the owner.
+      DATABASE_URL: postgresql://${APP_DB_USER:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_USER}}}:${APP_DB_PASSWORD:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_PASSWORD}}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
       NODE_ENV: production
       PORT: "3300"
       # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
       # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      # Set (to 1) only by a demo or legacy stack that has not been given its own login: the app may then connect as the owner.
+      AUDIT_ALLOW_PRIVILEGED_DB_ROLE: ${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:-}
       POSTGRES_USER: ""
       POSTGRES_PASSWORD: ""
       POSTGRES_DB: ""

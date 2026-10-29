@@ -53,23 +53,27 @@ describe.skipIf(!compose)("owner database credentials stay out of the app contai
       }
     })
 
-    it(`${source}: still renders for ps/logs before a stack has been moved to its own login, falling back to the owner`, () => {
+    it(`${source}: still renders for ps/logs before a stack has its own login, but the app gets no owner login unless a demo/legacy stack says so`, () => {
       const dir = mkdtempSync(join(tmpdir(), "compose-fallback-"))
       try {
         cpSync(join(ROOT, source), join(dir, "docker-compose.yml"))
         writeFileSync(join(dir, envFile), OWNER_ENV)
-        const env = { ...process.env }
-        for (const k of ["APP_DB_USER", "APP_DB_PASSWORD"]) delete env[k]
-        const [bin, ...sub] = compose.split(" ")
-        const r = spawnSync(bin, [...sub, "-p", "x", "-f", join(dir, "docker-compose.yml"), "--project-directory", dir, "config", "--format", "json"], {
-          env: { ...env, APP_IMAGE: "cf:x", APP_PORT: "3999", PORTAL_PORT: "3998", PORTAL_NEXTAUTH_URL: "https://portal.example", PORTAL_AUTH_URL: "https://portal.example",
-            STAFF_AUTH_SECRET: "staff-secret", PORTAL_AUTH_SECRET: "portal-secret", NEXTAUTH_SECRET: "s", NEXT_PUBLIC_TENANT_SLUG: "x",
-            POSTGRES_USER: "ownerlogin", POSTGRES_PASSWORD: OWNER_SECRET, POSTGRES_DB: "d" },
-          encoding: "utf8",
-        })
-        expect(r.status, r.stderr).toBe(0)
-        const services = (JSON.parse(r.stdout) as { services: Record<string, Service> }).services
-        expect(services.app.environment?.DATABASE_URL).toMatch(/^postgresql:\/\/ownerlogin:/)
+        const url = (allow: boolean) => {
+          const env = { ...process.env }
+          for (const k of ["APP_DB_USER", "APP_DB_PASSWORD", "AUDIT_ALLOW_PRIVILEGED_DB_ROLE"]) delete env[k]
+          const [bin, ...sub] = compose.split(" ")
+          const r = spawnSync(bin, [...sub, "-p", "x", "-f", join(dir, "docker-compose.yml"), "--project-directory", dir, "config", "--format", "json"], {
+            env: { ...env, APP_IMAGE: "cf:x", APP_PORT: "3999", PORTAL_PORT: "3998", PORTAL_NEXTAUTH_URL: "https://portal.example", PORTAL_AUTH_URL: "https://portal.example",
+              STAFF_AUTH_SECRET: "staff-secret", PORTAL_AUTH_SECRET: "portal-secret", NEXTAUTH_SECRET: "s", NEXT_PUBLIC_TENANT_SLUG: "x",
+              POSTGRES_USER: "ownerlogin", POSTGRES_PASSWORD: OWNER_SECRET, POSTGRES_DB: "d", ...(allow ? { AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1" } : {}) },
+            encoding: "utf8",
+          })
+          expect(r.status, r.stderr).toBe(0)
+          return (JSON.parse(r.stdout) as { services: Record<string, Service> }).services.app.environment?.DATABASE_URL
+        }
+        expect(url(false)).toMatch(/^postgresql:\/\/:@db:/) // no user, no password: it cannot connect
+        expect(url(false)).not.toContain(OWNER_SECRET)
+        expect(url(true)).toMatch(/^postgresql:\/\/ownerlogin:/)
       } finally {
         rmSync(dir, { recursive: true, force: true })
       }

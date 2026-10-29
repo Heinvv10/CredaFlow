@@ -126,6 +126,14 @@ worker:
   # cannot forge the chain. Left empty, web and worker share one login (weaker: docs/ARCHITECTURE.md).
   existingSecrets: []
 
+# The audit trail's logins (docs/ARCHITECTURE.md, Tamper-evident audit). The supported shape for a bank is TWO
+# database logins: web (appRole.name) and worker (appRole.workerName), the worker in its own Secret
+# (worker.existingSecrets) with AUDIT_CHAIN_KEY. The chart refuses to render without them unless singleLogin
+# is set, which is the weaker shape (the web pods then hold the worker's functions and the key): compose and
+# demo stacks, never a real lender.
+audit:
+  singleLogin: false
+
 # `prisma migrate deploy` before each install/upgrade (Helm hook). Its image is the
 # Dockerfile `migrator` target. A migration that adds a trigger, CHECK or UNIQUE
 # takes effect while the old pods still run: ship such a migration with its code in

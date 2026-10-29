@@ -82,6 +82,10 @@ services:
     environment:
       DATABASE_URL: postgresql://\${POSTGRES_USER}:\${POSTGRES_PASSWORD}@db:5432/\${POSTGRES_DB}?schema=public
       NODE_ENV: production
+      # The drill's database login is its throwaway Postgres superuser, which a production process would otherwise
+      # refuse to run as (lib/audit/deployment-check.ts). Explicit, logged at every boot, and this stack is deleted
+      # when the drill ends; a real lender never sets it.
+      AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1"
       PORT: "3300"
       HOSTNAME: 0.0.0.0
       APP_MODE: staff

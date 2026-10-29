@@ -165,18 +165,40 @@ for you except where stated, and no agent edits these files.
    `docker compose --profile tools run --rm db-migrate && docker compose --profile tools run --rm db-roles && docker compose up -d app app-portal`.
 5. Check: `curl -s localhost:<port>/api/health` with the cron secret header lists no `audit_runtime_role_*` or
    `audit_chain_key_missing` warning, and `docker compose exec app printenv POSTGRES_PASSWORD` prints an empty line.
-6. The demo-sim stacks (`docker-compose.demo-sim.yml`) stay on one superuser login on purpose and keep
-   showing `audit_runtime_role_owns_tables`; do not use them as a pattern for a real lender.
+6. The live demo stacks (Tsela, Fair Score; `scripts/demo/upgrade-stack.sh`, `restore.sh`, `bake.sh`) and the
+   demo-sim stack (`docker-compose.demo-sim.yml`) run as the database owner or superuser. They carry
+   `DEMO_MODE=true`, and a production process with `DEMO_MODE=true` is allowed to do that: it logs
+   `PRIVILEGED DATABASE ROLE ALLOWED (DEMO_MODE=true)` at every boot and `/api/health` lists
+   `audit_privileged_role_allowed`. Nothing to edit in their env files for the upgrade; their `DATABASE_URL` stays
+   as it is. They are not a pattern for a real lender.
+
+**`AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1`: demo/legacy only, never a real lender.** A production process whose database
+role owns an audit table, is a superuser, can create roles or databases, or holds CREATE on `public` exits at boot,
+and so does one whose own setup check cannot run (it is retried four times). `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (or
+`DEMO_MODE=true`) lets it start anyway: every boot logs the allowance at error level, `/api/health` lists
+`audit_privileged_role_allowed` as a warning, and on that stack the audit trail is NOT tamper-evident against whoever
+holds the database login. A compose stack with no `APP_DB_USER`/`APP_DB_PASSWORD` gets a `DATABASE_URL` with no user
+(it cannot connect) unless this variable is set, in which case it falls back to the owner login. The restore drill
+sets it for its throwaway stack.
 
 A single-process stack (the lender scripts and `docker-compose.yml` run the app and the crons together) uses
 ONE login for both kinds of work (`audit_grant_runtime`) and one `AUDIT_CHAIN_KEY`: the web process then
-holds the worker's functions and the key, which `/api/health` reports as `audit_web_holds_worker_functions`
-only where the process does not run the crons. The supported production shape is two logins: on Kubernetes
-set `appRole.workerName` and give the worker Deployment its own Secret (`worker.existingSecrets`) holding the
-worker login's `DATABASE_URL` and `AUDIT_CHAIN_KEY`; the web pods mount neither. In production a process whose
-role could undo the audit protections refuses to start; the demo-sim stacks set
-`AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` because they run as the database superuser, and a stack not yet moved to
-its own login needs the same until it is (step 4 above).
+holds the worker's functions and the key. That is the compose and demo shape only. The shape for a bank is two
+logins, and the Helm chart refuses to render without them unless `audit.singleLogin=true`: set `appRole.workerName`
+and give the worker Deployment its own Secret (`worker.existingSecrets`) holding the worker login's `DATABASE_URL`
+and `AUDIT_CHAIN_KEY`; the web pods mount neither.
+
+**Managed Postgres without CREATEROLE.** `audit_reassert_protections()` (run by the migration and after every restore)
+creates the NOLOGIN role `audit_redactor` if it is missing, which needs CREATEROLE. Where the migrating role has
+none, an administrator creates it once, before the migration, and lets the migrating role act as it:
+`CREATE ROLE audit_redactor NOLOGIN; GRANT audit_redactor TO <migrating role>;` (the migrating role must also be able
+to `GRANT CREATE ON SCHEMA public` to it for the length of one statement, i.e. own the schema). The application logins
+are created the same way by the administrator, then `app-role.sql` grants them.
+
+**Seeds and imports.** `AuditLog.createdAt` is the database clock at insertion whatever a seed or import sends
+(trigger `AuditLog_created_at`): the chainer's high-water mark and the policy routing rest on it. A load of historic
+audit rows must be done behind the triggers by an owner (`SET session_replication_role = replica` in the loading
+transaction), as the integration tests do (`plantAuditRowsForTest`); the chainer then chains them from its first pass.
 
 After ANY restore (`scripts/lender/restore.sh`, `restore-drill.sh`, `scripts/demo/restore.sh`) the scripts run
 `audit_reassert_protections()` in the restored database (a `--no-owner --no-acl` dump loses the redaction

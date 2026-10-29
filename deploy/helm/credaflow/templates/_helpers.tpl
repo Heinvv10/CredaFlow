@@ -234,3 +234,19 @@ be one the worker needs for the audit chain, and the worker's own Secrets must n
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The supported shape for a bank: a web login and a worker login, the worker in its own Secret (docs/ARCHITECTURE.md,
+Tamper-evident audit). One login for both is the weaker compose/demo shape and must be asked for by name
+(audit.singleLogin=true), so it is never the accident of a missing value.
+*/}}
+{{- define "credaflow.assertAuditLogins" -}}
+{{- if not .Values.audit.singleLogin -}}
+{{- if and .Values.worker.enabled (not .Values.worker.existingSecrets) -}}
+{{- fail "worker.existingSecrets is required: the worker's own Secret holds its database login and AUDIT_CHAIN_KEY, which the web pods must not mount. For the weaker one-login shape (compose and demo only) set audit.singleLogin=true." -}}
+{{- end -}}
+{{- if and .Values.migrate.enabled .Values.appRole.enabled (not .Values.appRole.workerName) -}}
+{{- fail "appRole.workerName is required: the web and the worker connect as different database logins. For the weaker one-login shape (compose and demo only) set audit.singleLogin=true." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

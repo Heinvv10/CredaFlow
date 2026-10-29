@@ -44,6 +44,17 @@ describe("chart: the owner database login", () => {
     expect(block("worker")).toMatch(/existingSecrets: \[\]/)
   })
 
+  it("defaults to two database logins: web and worker, the worker in its own Secret, unless one login is asked for by name", () => {
+    expect(block("audit")).toMatch(/singleLogin: false/)
+    expect(block("worker")).toMatch(/existingSecrets: \[\]/)
+    const helpers = read("templates/_helpers.tpl")
+    expect(helpers).toMatch(/define "credaflow.assertAuditLogins"/)
+    expect(helpers).toMatch(/not \.Values\.audit\.singleLogin/)
+    expect(helpers).toMatch(/not \.Values\.worker\.existingSecrets/)
+    expect(helpers).toMatch(/not \.Values\.appRole\.workerName/)
+    for (const f of ["templates/worker-deployment.yaml", "templates/app-role-job.yaml"]) expect(read(f), f).toContain('include "credaflow.assertAuditLogins"')
+  })
+
   it("passes no password on a command line: the role Job and compose pipe \\set lines to psql's stdin", () => {
     const job = read("templates/app-role-job.yaml")
     expect(job).toContain("| psql \"$url\" -v ON_ERROR_STOP=1 -f -")

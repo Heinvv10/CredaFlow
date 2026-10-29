@@ -1,5 +1,6 @@
 {{- if .Values.worker.enabled }}
 {{- include "credaflow.assertWorkerSecretsApart" . }}
+{{- include "credaflow.assertAuditLogins" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

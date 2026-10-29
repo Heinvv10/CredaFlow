@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { idx, lender, sh } from "./scripts.test-helpers"
+import { idx, lender, SRC, sh } from "./scripts.test-helpers"
 
 // The uploads volume (ClientDocument files) is part of every backup and every
 // restore. The docker stub tars two synthetic files for `tar -cf - -C /u .`
@@ -121,5 +121,17 @@ describe("restore.sh and the uploads volume", () => {
     expect(r.out).toMatch(/uploads could not be restored/)
     expect(r.calls.some((c) => c.includes("ALTER DATABASE"))).toBe(false)
     expect(idx(r.calls, "up -d --no-deps app app-portal")).toBeGreaterThan(idx(r.calls, "/u/.restore-"))
+  })
+})
+
+describe("restore-drill.sh compose file", () => {
+  // The drill app is a production-mode process on the throwaway Postgres superuser; without the explicit allowance
+  // it would refuse to start and the drill's health check would fail (lib/audit/deployment-check.ts).
+  const yaml = readFileSync(join(SRC, "restore-drill.sh"), "utf8").split("cat > \"$work/docker-compose.yml\" <<YAML\n")[1].split("\nYAML\n")[0]
+  const app = yaml.split("\n  app:\n")[1].split("\nvolumes:")[0]
+
+  it("lets the drill's app start on its throwaway superuser login, explicitly", () => {
+    expect(app).toMatch(/NODE_ENV: production/)
+    expect(app).toMatch(/^\s+AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1"$/m)
   })
 })

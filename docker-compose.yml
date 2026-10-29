@@ -29,16 +29,19 @@ services:
       - path: .env.production
         required: false
     environment:
-      # The application's login (APP_DB_USER/APP_DB_PASSWORD, set up by `db-roles` below). Until a stack has been moved to it, the
-      # owner login is the fallback so `ps`/`logs`/`up` keep working, and the app logs a warning and (in production) refuses to
-      # start unless AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 is set (docs/DEPLOY.md, "Moving an existing stack to two logins").
-      DATABASE_URL: postgresql://${APP_DB_USER:-${POSTGRES_USER}}:${APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+      # The application's login (APP_DB_USER/APP_DB_PASSWORD, set up by `db-roles` below). Without it the URL has no user
+      # and the app cannot connect (compose still renders, so `ps`/`logs` work). Only a stack that sets
+      # AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 (demo/legacy, never a real lender) falls back to the owner login, and the app logs
+      # that loudly at every boot (docs/DEPLOY.md, "Moving an existing stack to two logins").
+      DATABASE_URL: postgresql://${APP_DB_USER:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_USER}}}:${APP_DB_PASSWORD:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_PASSWORD}}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
       NODE_ENV: production
       PORT: 3300
       HOSTNAME: 0.0.0.0
       GIT_SHA: ${GIT_SHA:-unknown}
       # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
       # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      # Set (to 1) only by a demo or legacy stack that has not been given its own login: the app may then connect as the owner.
+      AUDIT_ALLOW_PRIVILEGED_DB_ROLE: ${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:-}
       POSTGRES_USER: ""
       POSTGRES_PASSWORD: ""
       POSTGRES_DB: ""
@@ -101,16 +104,19 @@ services:
       - path: .env.production
         required: false
     environment:
-      # The application's login (APP_DB_USER/APP_DB_PASSWORD, set up by `db-roles` below). Until a stack has been moved to it, the
-      # owner login is the fallback so `ps`/`logs`/`up` keep working, and the app logs a warning and (in production) refuses to
-      # start unless AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 is set (docs/DEPLOY.md, "Moving an existing stack to two logins").
-      DATABASE_URL: postgresql://${APP_DB_USER:-${POSTGRES_USER}}:${APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
+      # The application's login (APP_DB_USER/APP_DB_PASSWORD, set up by `db-roles` below). Without it the URL has no user
+      # and the app cannot connect (compose still renders, so `ps`/`logs` work). Only a stack that sets
+      # AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 (demo/legacy, never a real lender) falls back to the owner login, and the app logs
+      # that loudly at every boot (docs/DEPLOY.md, "Moving an existing stack to two logins").
+      DATABASE_URL: postgresql://${APP_DB_USER:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_USER}}}:${APP_DB_PASSWORD:-${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:+${POSTGRES_PASSWORD}}}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
       NODE_ENV: production
       PORT: 3300
       HOSTNAME: 0.0.0.0
       GIT_SHA: ${GIT_SHA:-unknown}
       # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
       # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      # Set (to 1) only by a demo or legacy stack that has not been given its own login: the app may then connect as the owner.
+      AUDIT_ALLOW_PRIVILEGED_DB_ROLE: ${AUDIT_ALLOW_PRIVILEGED_DB_ROLE:-}
       POSTGRES_USER: ""
       POSTGRES_PASSWORD: ""
       POSTGRES_DB: ""

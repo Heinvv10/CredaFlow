@@ -1,5 +1,6 @@
 {{- if and .Values.migrate.enabled .Values.appRole.enabled }}
 {{- include "credaflow.assertOwnerSecretApart" . }}
+{{- include "credaflow.assertAuditLogins" . }}
 # Runs right after the migration Job (hook weight 5 against its 0) and before any pod
 # changes: gives the application's database login its table privileges on the new
 # schema and takes the audit evidence tables back from it (files/app-role.sql, SELECT
