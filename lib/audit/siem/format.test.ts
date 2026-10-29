@@ -35,11 +35,11 @@ describe("SIEM event formats", () => {
     expect(cef).not.toContain("cs5=")
   })
 
-  it("escapes what would break CEF framing: pipes in the header, equals and newlines in the extension", () => {
-    const cef = toCef(toSiemEvent({ ...row, action: "A|B", userId: "a=b\nc" }))
-    expect(cef.split("|")[4]).toBe("A\\")
-    expect(cef).toContain("suid=a\\=b\\nc")
-    expect(cef).not.toMatch(/\n/)
+  it("escapes what would break CEF framing: backslash and pipe in the header, backslash, equals, CR and LF in the extension", () => {
+    const cef = toCef(toSiemEvent({ ...row, action: "A|B\\C\r\nD", userId: "a=b\nc\\d\re" }))
+    expect(cef.split(/(?<!\\)\|/)[4]).toBe("A\\|B\\\\C D")
+    expect(cef).toContain("suid=a\\=b\\nc\\\\d\\re")
+    expect(cef).not.toMatch(/[\r\n]/)
   })
 
   it("truncates a long value instead of exceeding the CEF field limit", () => {
@@ -60,6 +60,13 @@ describe("SIEM event formats", () => {
       delete process.env.AUDIT_SYSLOG_PEN
     }
     expect(msg).toContain("] ﻿CEF:0|")
+  })
+
+  it("makes the MSGID the action, printable ASCII without spaces, at most 32 characters", () => {
+    const msgid = (action: string) => toSyslog5424(toSiemEvent({ ...row, action }), "h").split(" ")[5]
+    expect(msgid("SECURITY_LOGIN_FAILED")).toBe("SECURITY_LOGIN_FAILED")
+    expect(msgid("A B\u00e9\tC")).toBe("A_B__C")
+    expect(msgid("X".repeat(80))).toHaveLength(32)
   })
 
   it("escapes quotes, backslashes and brackets in structured data", () => {

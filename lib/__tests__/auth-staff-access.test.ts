@@ -18,6 +18,8 @@ const { mocks, captured, requestHeaders } = vi.hoisted(() => ({
     failedAttemptCreate: vi.fn(),
     loginLogCreate: vi.fn(),
     auditCreate: vi.fn(),
+    bcryptCompare: vi.fn(),
+    totpOutcome: vi.fn(),
   },
   captured: { config: undefined as undefined | CapturedConfig },
   requestHeaders: { value: new Headers() },
@@ -33,7 +35,8 @@ vi.mock("next-auth", () => ({
 vi.mock("next-auth/providers/credentials", () => ({ default: (config: unknown) => config }))
 vi.mock("next/headers", () => ({ headers: async () => requestHeaders.value }))
 vi.mock("@/lib/tenant-scope", () => ({ withoutTenantScope: <T,>(fn: () => Promise<T>) => fn() }))
-vi.mock("bcryptjs", () => ({ default: { compare: async () => true, hashSync: () => "dummy-hash" } }))
+vi.mock("bcryptjs", () => ({ default: { compare: (...a: unknown[]) => mocks.bcryptCompare(...a), hashSync: () => "dummy-hash" } }))
+vi.mock("@/lib/auth-totp-step", () => ({ signInTotpOutcome: (...a: unknown[]) => mocks.totpOutcome(...a) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: mocks.userFindUnique, update: vi.fn(async () => ({})), updateMany: vi.fn() },
@@ -46,6 +49,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import "../auth"
+import { resetSecurityEventWindows } from "../audit/security-events"
 
 const jwt = (args: Record<string, unknown>) => captured.config!.callbacks.jwt(args)
 const signInFrom = (ip: string) =>
@@ -78,6 +82,9 @@ beforeEach(() => {
   vi.stubEnv("APP_MODE", "")
   _resetRateLimitStore()
   for (const m of Object.values(mocks)) m.mockReset().mockResolvedValue({})
+  mocks.bcryptCompare.mockResolvedValue(true)
+  mocks.totpOutcome.mockResolvedValue({ kind: "not_enrolled" })
+  resetSecurityEventWindows()
   mocks.tenantConfigFindUnique.mockResolvedValue({ ...policy, requireStaffTotp: false })
   requestHeaders.value = new Headers({ "x-forwarded-for": "192.0.2.44" })
 })
@@ -155,6 +162,57 @@ describe("sign-in", () => {
     mocks.userFindUnique.mockResolvedValue({ ...staffRow(), active: false })
     await expect(signInFrom("192.0.2.10")).resolves.toBeNull()
     expect(auditActions()).toEqual([])
+  })
+})
+
+// The SECURITY_* rows the SIEM watches: written on the user's own lender, with the user, only on the staff path.
+const securityRows = () => mocks.auditCreate.mock.calls
+  .map((c) => (c[0] as { data: Record<string, unknown> }).data)
+  .filter((d) => String(d.action).startsWith("SECURITY_"))
+
+describe("security events at sign-in", () => {
+  it("records a failed password on the user's lender, once per window", async () => {
+    mocks.userFindUnique.mockResolvedValue(staffRow())
+    mocks.bcryptCompare.mockResolvedValue(false)
+    await expect(signInFrom("192.0.2.10")).resolves.toBeNull()
+    await expect(signInFrom("192.0.2.10")).resolves.toBeNull()
+    await expect(signInFrom("192.0.2.10")).resolves.toBeNull()
+    expect(securityRows()).toEqual([expect.objectContaining({
+      action: "SECURITY_LOGIN_FAILED", tenantId: "t1", userId: "u1", userEmail: "officer@example.test", ipAddress: "192.0.2.10",
+      newValue: { reason: "wrong_password" },
+    })])
+  })
+
+  it("records nothing for an email that belongs to no user (no lender to attribute it to)", async () => {
+    mocks.userFindUnique.mockResolvedValue(null)
+    await expect(signInFrom("192.0.2.10")).rejects.toMatchObject({ code: "wrong_audience" })
+    expect(securityRows()).toEqual([])
+  })
+
+  it("records a wrong and a replayed TOTP code as TOTP failures, not as sign-ins", async () => {
+    mocks.userFindUnique.mockResolvedValue({ ...staffRow(), totpEnabled: true, totpSecret: "sealed" })
+    mocks.totpOutcome.mockResolvedValue({ kind: "invalid" })
+    await expect(signInFrom("192.0.2.10")).rejects.toMatchObject({ code: expect.any(String) })
+    expect(securityRows()).toEqual([expect.objectContaining({ action: "SECURITY_TOTP_FAILED", tenantId: "t1", userId: "u1", newValue: { reason: "totp_invalid" } })])
+
+    resetSecurityEventWindows()
+    mocks.auditCreate.mockClear()
+    mocks.totpOutcome.mockResolvedValue({ kind: "replayed" })
+    await expect(signInFrom("192.0.2.10")).rejects.toMatchObject({ code: expect.any(String) })
+    expect(securityRows()).toEqual([expect.objectContaining({ action: "SECURITY_TOTP_FAILED", newValue: { reason: "totp_replay" } })])
+  })
+
+  it("records the success after both factors and the access policy passed", async () => {
+    mocks.userFindUnique.mockResolvedValue(staffRow())
+    await signInFrom("192.0.2.10")
+    expect(securityRows()).toEqual([expect.objectContaining({ action: "SECURITY_LOGIN_SUCCEEDED", tenantId: "t1", userId: "u1" })])
+  })
+
+  it("records no success for a sign-in the working-hours policy refused", async () => {
+    vi.setSystemTime(AFTER_HOURS)
+    mocks.userFindUnique.mockResolvedValue(staffRow())
+    await expect(signInFrom("192.0.2.10")).rejects.toMatchObject({ code: "access_outside_hours" })
+    expect(securityRows()).toEqual([])
   })
 })
 

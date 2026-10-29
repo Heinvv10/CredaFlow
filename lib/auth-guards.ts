@@ -131,10 +131,13 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
     return { error: enrolmentRequiredResponse() }
   }
   if (!hasMinRole(session.user.role, minRole) || await refusesLoanBook(session.user.role)) {
-    await recordSecurityEvent({
-      kind: "permission_denied", tenantId: session.user.tenantId, userId: session.user.id, email: session.user.email,
-      reason: `requires ${minRole}`,
-    })
+    // Staff only: a portal client's id is not a User row, so it can neither be attributed nor sit on the audit FK.
+    if (session.user.role !== "CLIENT") {
+      await recordSecurityEvent({
+        kind: "permission_denied", tenantId: session.user.tenantId, userId: session.user.id, email: session.user.email,
+        reason: `requires ${minRole}`,
+      })
+    }
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
   return { user: session.user as StaffUser }
