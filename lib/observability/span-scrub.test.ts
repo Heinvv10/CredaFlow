@@ -156,6 +156,8 @@ describe("scrubSpan", () => {
     ["a host with no scheme", "dialled h.example/x?token=SECRET and gave up", "dialled h.example/x and gave up"],
     ["a URL embedded in JSON", '{"url":"https://h.example/x?token=SECRET","ok":false}', '{"url":"https://h.example/x'],
     ["a fragment", "opened page#access_token=SECRET now", "opened page now"],
+    ["a query that happens to end in ?", "got /a?token=SECRET? back", "got /a back"],
+    ["a fragment that ends in ?", "got page#token=SECRET? back", "got page back"],
     ["a question that carries data", "is this?token=SECRET ok", "is this ok"],
     ["a bare &key=value run", "retry a=1&token=SECRET&sig=SECRET2 done", "retry a=1 done"],
   ])("fails closed on %s", (_name, input, expected) => {
