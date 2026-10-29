@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { deleteManagedFileStrict, readFile, saveFileToManagedPath, storageEncryptionEnabled } from "@/lib/storage"
 import { cronFreshness, type CronJobFreshness } from "@/lib/ops/cron-heartbeat"
+import { cronSchedulerEnabled } from "@/lib/ops/cron-scheduler-flag"
 
 /**
  * The checks behind /api/health. Database and storage decide the HTTP status
@@ -49,9 +50,9 @@ export async function probeStorage(): Promise<CheckState> {
 
 export type CronState = "ok" | "stale" | "not_scheduled" | "error"
 
-/** Only the staff container runs the scheduler (instrumentation.ts), and only with CRON_SECRET set. */
+/** Only the staff container runs the scheduler (instrumentation.ts), and only with CRON_SECRET set and CRON_SCHEDULER not off. */
 export async function probeCron(): Promise<{ state: CronState; jobs: CronJobFreshness[] }> {
-  if (process.env.APP_MODE === "client" || !process.env.CRON_SECRET) return { state: "not_scheduled", jobs: [] }
+  if (process.env.APP_MODE === "client" || !process.env.CRON_SECRET || !cronSchedulerEnabled(process.env)) return { state: "not_scheduled", jobs: [] }
   try {
     const jobs = await cronFreshness()
     return { state: jobs.some((j) => j.stale) ? "stale" : "ok", jobs }

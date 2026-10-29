@@ -75,8 +75,9 @@ SSO adds a way in; it does not relax the staff TOTP rule (CLAUDE.md, "Staff TOTP
 - Disabling someone at the provider does NOT end an open session sooner and does
   NOT disable their CredaFlow account. Until SCIM provisioning exists, also
   deactivate them in CredaFlow (Settings, Users); that ends their sessions at once.
-- Once SSO is live, turn password sign-in off ("Turn off password sign-in"), or
-  staff keep a password path that bypasses the provider's lifecycle.
+- While SSO is enabled, SSO-bound users have no password path, so the provider's
+  lifecycle governs them (a SUPER_ADMIN break-glass excepted). During an IdP
+  outage the recovery is to disable SSO (SUPER_ADMIN in a TOTP-verified session).
 
 ### Password sign-in off
 

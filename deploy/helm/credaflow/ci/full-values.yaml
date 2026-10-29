@@ -1,0 +1,20 @@
+# Every optional template on, for helm lint / template / kubeconform in CI.
+image:
+  tag: ci
+config:
+  NEXTAUTH_URL: https://staff.lender.example
+  AUTH_URL: https://staff.lender.example
+observability:
+  otlpEndpoint: http://otel-collector.observability:4318
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: staff.lender.example
+  tls:
+    - secretName: staff-tls
+      hosts: [staff.lender.example]
+serviceMonitor:
+  enabled: true
+autoscaling:
+  targetMemoryUtilizationPercentage: 80

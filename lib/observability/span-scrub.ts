@@ -1,0 +1,167 @@
+import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-node"
+import { collapsePath, createRouteLabeler, loadRoutesManifest } from "./route-label"
+
+type Labeler = (pathname: string) => string
+
+// SpanKind.CLIENT; the enum is not imported so the SDK stays unloaded while tracing is off.
+const CLIENT_KIND = 2
+const ROUTE_KEY = "next.route"
+const PATH_KEYS = ["http.target", "url.path"]
+const FULL_URL_KEYS = ["http.url", "url.full"]
+const DROPPED_KEYS = new Set(["url.query"])
+const HEADER_KEY = /^http\.(request|response)\.header\./
+
+function stripQuery(value: string): string {
+  return value.split(/[?#]/)[0] ?? value
+}
+
+/**
+ * Everything from `://` up to the LAST `@` before the first `/` is the authority's
+ * userinfo (or something that passed for it): removed whole, and before any query
+ * handling, because a `?`, `#` or `@` inside the password must not end the match early.
+ */
+function stripUserinfo(value: string): string {
+  return value.replace(/(:\/\/)[^/\s]*@/g, "$1")
+}
+
+/**
+ * Fail closed. Userinfo goes first and `&key=value` runs are dropped (a query string
+ * whose `?` was lost on the way). Then every whitespace-delimited token that holds a
+ * `?` or `#` is cut there, whatever it looks like: `url=/x?t=S`, `fetch(/x?t=S)`,
+ * `h.example/x?t=S` and JSON-embedded URLs all carry secrets and none is recognisable
+ * by shape. The one exception is a token that ends in a single `?` with nothing after
+ * it (prose such as "what?"). The cost is exception text cut at its first `?`.
+ */
+function scrubValue(value: string): string {
+  const unsafe = stripUserinfo(value).replace(/&[\w.%-]+=[^\s&]*/g, "")
+  if (!/[?#]/.test(unsafe)) return unsafe
+  return unsafe.replace(/\S+/g, (token) => (/^[^?#]*\?$/.test(token) ? token : stripQuery(token)))
+}
+
+/**
+ * Masks the path of every URL or absolute path in a string (the query is already gone):
+ * `https://bureau.example/v1/consumers/8001015009087/report` becomes
+ * `https://bureau.example/v1/consumers/:id/report`.
+ */
+function maskPaths(text: string): string {
+  return text.replace(/\S+/g, (token) => {
+    if (token.includes("://")) return token.replace(/([a-z][a-z0-9+.-]*:\/\/[^/\s]*)(\/\S*)?/gi, (_m, origin: string, path?: string) => origin + (path ? collapsePath(path) : ""))
+    return token.startsWith("/") ? collapsePath(token) : token
+  })
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+/** A path, its decoded form and the re-encoded form: the same token is written differently by different layers. */
+function pathVariants(path: string): string[] {
+  const decoded = safeDecode(path)
+  let encoded = decoded
+  try {
+    encoded = encodeURI(decoded)
+  } catch {
+    // a lone surrogate: the raw and decoded forms still cover it
+  }
+  return [...new Set([path, decoded, encoded])].filter((variant) => variant.length > 1)
+}
+
+/** The request paths a span names, from every path and URL attribute. */
+function concretePaths(attributes: Record<string, unknown>): string[] {
+  const paths: string[] = []
+  for (const key of PATH_KEYS) {
+    const value = attributes[key]
+    if (typeof value === "string" && value.startsWith("/")) paths.push(stripQuery(value))
+  }
+  for (const key of FULL_URL_KEYS) {
+    const value = attributes[key]
+    if (typeof value !== "string") continue
+    const path = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/i.exec(stripUserinfo(value))?.[1]
+    if (path) paths.push(path)
+    else if (value.startsWith("/")) paths.push(stripQuery(value))
+  }
+  return paths.filter((path) => path.length > 1)
+}
+
+interface Scrubber {
+  /** Scrubs one string value. */
+  value(value: string): string
+  /** The attribute with the template substituted, for the path and URL keys. */
+  route: string | null
+}
+
+let defaultLabeler: Labeler | undefined
+
+/**
+ * One span's scrubbing. The template is Next's `next.route` or, for spans that carry
+ * none (Next's middleware span records the raw pathname), the route labeler's answer
+ * for the span's path. Every occurrence of the path, raw, decoded or re-encoded, in
+ * any value then becomes the template, before the generic scrub.
+ */
+function scrubberFor(span: ReadableSpan, labeler: Labeler): Scrubber {
+  // An outbound call (a fetch to a provider, SpanKind.CLIENT) names a path on someone
+  // else's host: the app's route table says nothing about it. The fail-closed rules apply
+  // and every path segment that is not a lowercase word is masked (a bureau path carries
+  // an ID number, a WhatsApp path a phone number); scheme, host and the words stay.
+  if (span.kind === CLIENT_KIND) return { value: (text) => maskPaths(scrubValue(text)), route: null }
+  const paths = concretePaths(span.attributes)
+  const named = span.attributes[ROUTE_KEY]
+  const route = typeof named === "string" && named.startsWith("/") ? named : paths[0] ? labeler(paths[0]) : null
+  const variants = route ? [...new Set(paths.flatMap(pathVariants))].filter((variant) => variant !== route).sort((a, b) => b.length - a.length) : []
+  const replaced = (text: string) => variants.reduce((out, variant) => out.split(variant).join(route!), text)
+  return { value: (text) => scrubValue(replaced(text)), route }
+}
+
+function scrubAttributes(source: Record<string, unknown> | undefined, scrub: Scrubber): Record<string, unknown> {
+  const attributes: Record<string, unknown> = {}
+  for (const [key, raw] of Object.entries(source ?? {})) {
+    if (DROPPED_KEYS.has(key) || HEADER_KEY.test(key)) continue
+    if (Array.isArray(raw)) {
+      attributes[key] = raw.map((item) => (typeof item === "string" ? scrub.value(item) : item))
+    } else if (typeof raw !== "string") {
+      attributes[key] = raw
+    } else if (scrub.route && PATH_KEYS.includes(key)) {
+      // Unconditional: whatever the concrete path looked like, it is not exported.
+      attributes[key] = scrub.route
+    } else if (scrub.route && FULL_URL_KEYS.includes(key)) {
+      const origin = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*/i.exec(stripUserinfo(raw))?.[0]
+      attributes[key] = `${origin ?? ""}${scrub.route.startsWith("/") ? "" : "/"}${scrub.route}`
+    } else {
+      attributes[key] = scrub.value(raw)
+    }
+  }
+  return attributes
+}
+
+/**
+ * A copy of the span that is safe to leave the process. Deny by default: every string
+ * the span carries (name, attributes, event and link attributes, status message) passes
+ * through the scrubber, not a list of known keys, because attribute names differ by Next
+ * and OpenTelemetry version. Request and response header attributes (cookies,
+ * authorization) are dropped. The original span is untouched.
+ */
+export function scrubSpan(span: ReadableSpan, labeler?: Labeler): ReadableSpan {
+  defaultLabeler ??= createRouteLabeler(loadRoutesManifest())
+  const scrub = scrubberFor(span, labeler ?? defaultLabeler)
+  return Object.create(span, {
+    name: { value: scrub.value(span.name), enumerable: true },
+    attributes: { value: scrubAttributes(span.attributes, scrub), enumerable: true },
+    // Events carry exception messages, which quote URLs; a failed span's status message does too.
+    events: { value: (span.events ?? []).map((event) => ({ ...event, attributes: scrubAttributes(event.attributes, scrub) })), enumerable: true },
+    links: { value: (span.links ?? []).map((link) => ({ ...link, attributes: scrubAttributes(link.attributes, scrub) })), enumerable: true },
+    status: { value: span.status?.message === undefined ? span.status : { ...span.status, message: scrub.value(span.status.message) }, enumerable: true },
+  }) as ReadableSpan
+}
+
+/** Wraps an exporter so every span passes through scrubSpan on its way out. */
+export function scrubbingExporter(inner: SpanExporter): SpanExporter {
+  return {
+    export: (spans, done) => inner.export(spans.map((span) => scrubSpan(span)), done),
+    shutdown: () => inner.shutdown(),
+    forceFlush: inner.forceFlush ? () => inner.forceFlush!() : undefined,
+  }
+}
