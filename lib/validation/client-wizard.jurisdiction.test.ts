@@ -43,6 +43,15 @@ describe("LS capture", () => {
     expect(errs).toEqual({})
   })
 
+  it("does not cross-check date of birth against a Luhn-valid 13-digit ID (only an SA ID encodes it)", () => {
+    asLesotho()
+    // 9001015009086 reads as 1990-01-01 to the SA rules; for a Lesotho lender it is just an ID.
+    const errs = validateStep1Identity({ ...base, idNumber: "9001015009086", dateOfBirth: "1985-06-30", phone: "+26658123456" })
+    expect(errs.dateOfBirth).toBeUndefined()
+    resetActiveJurisdiction()
+    expect(validateStep1Identity({ ...base, idNumber: "9001015009086", dateOfBirth: "1985-06-30", phone: "0821234567" }).dateOfBirth).toBe("Does not match the ID number")
+  })
+
   it("refuses a South African mobile and a malformed ID with Lesotho wording", () => {
     asLesotho()
     const errs = validateStep1Identity({ ...base, idNumber: "12", dateOfBirth: "1985-06-30", phone: "0821234567" })

@@ -61,6 +61,15 @@ describe("business days by jurisdiction", () => {
   })
 })
 
+describe("Heroes' Day (4 April)", () => {
+  it("is a holiday on a weekday: 4 Apr 2028 is a Tuesday", () => {
+    expect(lesothoPublicHolidays(2028).has("2028-04-04")).toBe(true)
+    expect(isBusinessDate("2028-04-04", "LS")).toBe(false)
+    expect(isBusinessDate("2028-04-04", "ZA")).toBe(true)
+    expect(addBusinessDays("2028-04-03", 1, "LS")).toBe("2028-04-05")
+  })
+})
+
 describe("Sunday holidays and malformed input", () => {
   it("LS observes a Sunday holiday on the Monday (4 Oct 2026 is a Sunday)", () => {
     expect(lesothoPublicHolidays(2026).has("2026-10-05")).toBe(true)
