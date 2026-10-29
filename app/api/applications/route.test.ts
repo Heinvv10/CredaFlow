@@ -123,7 +123,7 @@ describe("POST /api/applications", () => {
         affordabilityResult: preparedFields.affordabilityResult,
         submittedAt: preparedFields.submittedAt,
         // Staff capture is recorded: an engine approval cannot be disbursed by whoever captured it.
-        capturedById: "officer-1",
+        inputStaffIds: ["officer-1"],
       }),
     })
     expect(applicationCreateMock.mock.invocationCallOrder[0]).toBeLessThan(

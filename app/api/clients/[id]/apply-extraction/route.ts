@@ -1,3 +1,4 @@
+import { recordInputStaffForClient } from "@/lib/applications/input-staff"
 import { NextResponse } from "next/server"
 import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import type { NextRequest } from "next/server"
@@ -502,6 +503,10 @@ export async function POST(
           // from one that simply happened. Both otherwise look identical here.
           acknowledged: acknowledgeIdentityRevocation,
         })
+        // Income read from a document is a change to the figures an open application is decided on.
+        if (updates.monthlyIncome !== undefined || updates.grossMonthlyIncome !== undefined) {
+          await recordInputStaffForClient(tx, { tenantId: tenant.id, clientId, userId: guard.user.id })
+        }
 
         const previousBank = bankTuple(previous)
         const updatedBank = bankTuple(updated)

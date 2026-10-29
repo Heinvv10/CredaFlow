@@ -12,7 +12,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { decisionRuleSetHandler } from "@/lib/decisioning/change-handlers"
 import { RULE_SET_KIND } from "@/lib/decisioning/change-payloads"
-import { asChecker, asChecker2, asMaker, asOfficer, createLender, type Lender } from "@/lib/decisioning/decisioning.integration-fixture"
+import { asAdminChecker, asChecker, asChecker2, asMaker, asOfficer, createLender, type Lender } from "@/lib/decisioning/decisioning.integration-fixture"
 import { ChangeRequestError } from "./errors"
 import { approve, createDraft, reject, submit, updateDraft, withdraw } from "./service"
 
@@ -277,15 +277,78 @@ suite("maker-checker (real Postgres)", () => {
     expect(await refusal(rewrite(`"s71SignedOffAt" = now(), "s71SignedOffById" = '${lender.checkerId}', "automatedDeclineNotice" = '${NOTICE}'`, older))).toContain("must match the approved change request")
   })
 
+  it("the engine-settings trigger also holds the channels, the products, the challenger and the notice wording", async () => {
+    const older = await approvedSettings("Shadow, narrow", { mode: "SHADOW" })
+    const challenger = await db.decisionRuleSetVersion.findFirst({ where: { tenantId: lender.tenantId }, select: { id: true } })
+    await approvedSettings("Off again", { mode: "OFF", channels: [], productIds: [] })
+    // The row put back to exactly what the older request approved, but for the one column under test.
+    const asApproved: Record<string, string> = {
+      mode: `'SHADOW'`, channels: `ARRAY['STAFF']::TEXT[]`, productIds: `ARRAY['${lender.productId}']::TEXT[]`, repaymentMethod: `'EFT'`,
+      challengerVersionId: "NULL", challengerPercent: "0", automatedDeclineNotice: "NULL",
+    }
+    const only = (over: Record<string, string>) => rewrite(Object.entries({ ...asApproved, ...over }).map(([k, v]) => `"${k}" = ${v}`).join(", "), older)
+    const REFUSED = "must match the approved change request"
+    expect(await refusal(only({ channels: `ARRAY['PORTAL']::TEXT[]` }))).toContain(REFUSED)
+    expect(await refusal(only({ channels: `ARRAY['STAFF','PORTAL']::TEXT[]` }))).toContain(REFUSED)
+    expect(await refusal(only({ channels: `ARRAY[]::TEXT[]` }))).toContain(REFUSED)
+    expect(await refusal(only({ productIds: `ARRAY['some-other-product']::TEXT[]` }))).toContain(REFUSED)
+    expect(await refusal(only({ productIds: `ARRAY[]::TEXT[]` }))).toContain(REFUSED)
+    expect(await refusal(only({ automatedDeclineNotice: `'${NOTICE}'` }))).toContain(REFUSED)
+    expect(challenger).toBeTruthy()
+    expect(await refusal(only({ challengerVersionId: `'${challenger!.id}'` }))).toContain(REFUSED)
+    // Put back exactly as approved, the older request is a legitimate source of the row: only the columns above were wrong.
+    await only({})
+  })
+
+  it("settings that go LIVE or record the s71 sign-off need a SUPER_ADMIN: an ADMIN checker is refused, and nothing is written", async () => {
+    for (const over of [{ mode: "LIVE" }, { mode: "SHADOW", s71SignOff: true, automatedDeclineNotice: NOTICE }]) {
+      const d = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "High risk", payload: engineConfig(over) })
+      await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id })
+      await expect(approve({ tenantId: lender.tenantId, actor: asAdminChecker(lender), id: d.id })).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 })
+      expect((await db.changeRequest.findUniqueOrThrow({ where: { id: d.id } })).status).toBe("SUBMITTED")
+      expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id })).status).toBe("APPROVED")
+    }
+  })
+
+  it("a checker who created or changed the maker's account in the last 30 days cannot approve what that account drafted (sock puppet)", async () => {
+    const person = async (label: string) => {
+      const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN" } })
+      return { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
+    }
+    const trail = (action: string, userId: string, entityId: string, ageDays: number) =>
+      db.auditLog.create({ data: { tenantId: lender.tenantId, action, entity: "User", entityId, userId, createdAt: new Date(Date.now() - ageDays * 86_400_000), newValue: {} } })
+    const submitted = async (maker: Awaited<ReturnType<typeof person>>, name: string) => {
+      const d = await createDraft({ tenantId: lender.tenantId, actor: maker, kind: RULE_SET_KIND, title: name, payload: payload({ name }) })
+      await submit({ tenantId: lender.tenantId, actor: maker, id: d.id })
+      return d.id
+    }
+    const puppet = await person("puppet")
+    const fromPuppet = await submitted(puppet, "Puppet rules")
+    // The checker made the account yesterday: refused, nothing written. A password, role or second-factor reset counts the same.
+    await trail("USER_CREATED", lender.checkerId, puppet.id, 1)
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: fromPuppet })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
+    expect((await db.changeRequest.findUniqueOrThrow({ where: { id: fromPuppet } })).status).toBe("SUBMITTED")
+    await trail("TOTP_RESET_BY_ADMIN", lender.checker2Id, puppet.id, 29)
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker2(lender), id: fromPuppet })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    // Someone with no hand in the account is a second person; so is one whose last change was more than 30 days ago.
+    const old = await person("old")
+    await trail("USER_UPDATED", lender.checker2Id, old.id, 31)
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker2(lender), id: await submitted(old, "Old account rules") })).status).toBe("APPROVED")
+    const untouched = await person("untouched")
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: await submitted(untouched, "Untouched rules") })).status).toBe("APPROVED")
+  })
+
   it("a sign-off is recorded against the checker who approved it; anyone else's name is refused", async () => {
     const first = await approvedSettings("Sign-off A", { mode: "SHADOW", s71SignOff: true, automatedDeclineNotice: NOTICE }, "checker2")
     await approvedSettings("Sign-off B", { mode: "SHADOW", s71SignOff: true, automatedDeclineNotice: `${NOTICE} Contact us.` }, "checker2")
     expect((await db.decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: lender.tenantId } })).s71SignedOffById).toBe(lender.checker2Id)
     // Request A's checker was checker2, and the row's current sign-off is checker2's too: naming anyone else is a forgery.
-    expect(await refusal(rewrite(`"s71SignedOffById" = '${lender.makerId}'`, first))).toContain("recorded against the checker who approved the change")
-    expect(await refusal(rewrite(`"s71SignedOffById" = '${lender.checkerId}'`, first))).toContain("recorded against the checker who approved the change")
+    // (Everything else is put back to what request A approved, so the signer is the only thing wrong.)
+    const asApprovedByA = `"automatedDeclineNotice" = '${NOTICE}', "s71SignedOffById"`
+    expect(await refusal(rewrite(`${asApprovedByA} = '${lender.makerId}'`, first))).toContain("recorded against the checker who approved the change")
+    expect(await refusal(rewrite(`${asApprovedByA} = '${lender.checkerId}'`, first))).toContain("recorded against the checker who approved the change")
     // Carrying the existing name over, or the approving checker's own, is not.
-    await rewrite(`"s71SignedOffById" = '${lender.checker2Id}'`, first)
+    await rewrite(`${asApprovedByA} = '${lender.checker2Id}'`, first)
   })
 
   it("an older-format draft cannot be submitted (STALE 409); editing it brings it up to date", async () => {

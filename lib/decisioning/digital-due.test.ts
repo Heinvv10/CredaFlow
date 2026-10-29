@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   review: vi.fn(),
   lockOrder: [] as string[],
   logError: vi.fn(),
+  tx: null as unknown,
 }))
 
 vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: (_t: string, fn: () => unknown) => fn(), withoutTenantScope: (fn: () => unknown) => fn() }))
@@ -48,12 +49,14 @@ vi.mock("@/lib/prisma", () => {
       $executeRaw: vi.fn(async (_strings: TemplateStringsArray, key: string) => { h.lockOrder.push(key); return 1 }),
       $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   }
+  h.tx = prisma
   return { prisma }
 })
 
 import {
   markDigitalDecisionDue, runDigitalDue, sweepDigitalDecisions, DIGITAL_SWEEP_AFTER_MINUTES, DIGITAL_MAX_ATTEMPTS,
   DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, DIGITAL_REVIEWS_PER_IP_PER_DAY, DIGITAL_REVIEWS_UNKNOWN_IP_PER_DAY,
+  admitDigitalReview, digitalReviewsPerLenderPerDay, ipBucket,
 } from "./digital-due"
 
 const NOW = new Date("2026-10-29T10:00:00Z")
@@ -61,7 +64,7 @@ const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000)
 const live = { mode: "LIVE", channels: ["PORTAL"] }
 const due = (over: Record<string, unknown> = {}) => ({ id: `d${h.rows.length + 1}`, tenantId: "t", applicationId: "a1", clientId: "c1", ip: "1.2.3.4", createdAt: minutesAgo(10), claimedAt: null, completedAt: null, outcome: null, attempts: 0, ...over })
 
-beforeEach(() => { h.rows = []; h.config = live; h.review.mockReset().mockResolvedValue({ status: "REVIEWED" }); h.lockOrder = [] })
+beforeEach(() => { h.rows = []; h.config = live; h.review.mockReset().mockImplementation(async (a: { admit?: (tx: unknown) => Promise<boolean> }) => (a.admit && !(await a.admit(h.tx)) ? { status: "RATE_LIMITED" } : { status: "REVIEWED" })); h.lockOrder = [] })
 
 describe("markDigitalDecisionDue", () => {
   it("writes the due row for a lender whose engine covers the portal", async () => {
@@ -88,7 +91,7 @@ describe("runDigitalDue", () => {
   it("claims the row, reviews, and completes it with how it ended", async () => {
     h.rows.push(due({ createdAt: NOW }))
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
-    expect(h.review).toHaveBeenCalledWith({ tenantId: "t", applicationId: "a1" })
+    expect(h.review).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t", applicationId: "a1" }))
     expect(h.rows[0]).toMatchObject({ outcome: "REVIEWED", attempts: 1 })
     expect(h.rows[0].completedAt).not.toBeNull()
   })
@@ -131,13 +134,11 @@ describe("the daily limit on automatic bureau pulls from portal submissions (spa
   it("stops a client past the daily limit: no review, no pull, the application stays for staff", async () => {
     h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }), due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
-    expect(h.review).not.toHaveBeenCalled()
     expect(outcomeOf("a1")).toBe("RATE_LIMITED")
   })
   it("and an address past its own, whoever the clients are", async () => {
     h.rows.push(...Array.from({ length: DIGITAL_REVIEWS_PER_IP_PER_DAY }, (_, i) => due({ applicationId: `x${i}`, clientId: `other-${i}`, chargedAt: minutesAgo(5) })), due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
-    expect(h.review).not.toHaveBeenCalled()
     expect(outcomeOf("a1")).toBe("RATE_LIMITED")
   })
   it("counts a review that is admitted but not finished (the race a completed-only count leaves open)", async () => {
@@ -148,7 +149,7 @@ describe("the daily limit on automatic bureau pulls from portal submissions (spa
   it("a charge older than a day no longer counts", async () => {
     h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }).map((r) => ({ ...r, chargedAt: minutesAgo(25 * 60) })), due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
-    expect(h.review).toHaveBeenCalled()
+    expect(outcomeOf("a1")).toBe("REVIEWED")
   })
   it("charges the review it admits, so the next one sees it", async () => {
     h.rows.push(due())
@@ -158,25 +159,82 @@ describe("the daily limit on automatic bureau pulls from portal submissions (spa
   it("a retry of a row that was already charged is not charged or limited again", async () => {
     h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }), due({ chargedAt: minutesAgo(15), claimedAt: minutesAgo(15), attempts: 1 }))
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
-    expect(h.review).toHaveBeenCalled()
+    expect(outcomeOf("a1")).toBe("REVIEWED")
     expect(h.rows.at(-1)?.chargedAt).toEqual(minutesAgo(15))
   })
   it("a row with no address shares one bucket per lender, it is not exempt", async () => {
     h.rows.push(...Array.from({ length: DIGITAL_REVIEWS_UNKNOWN_IP_PER_DAY }, (_, i) => due({ applicationId: `u${i}`, clientId: `u-${i}`, ip: null, chargedAt: minutesAgo(5) })), due({ ip: null }))
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
-    expect(h.review).not.toHaveBeenCalled()
     expect(outcomeOf("a1")).toBe("RATE_LIMITED")
   })
   it("another lender's reviews never count against this one", async () => {
     h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { tenantId: "other", ip: "9.9.9.9" }), due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
-    expect(h.review).toHaveBeenCalled()
+    expect(outcomeOf("a1")).toBe("REVIEWED")
   })
-  it("takes the client and address locks before counting, in a fixed order", async () => {
+  it("takes the client, address and lender locks before counting, in a fixed order", async () => {
     h.rows.push(due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
     expect(h.lockOrder).toEqual([...h.lockOrder].sort())
-    expect(h.lockOrder).toHaveLength(2)
+    expect(h.lockOrder).toHaveLength(3)
+  })
+})
+
+describe("the review is admitted after its gates and before its paid pull", () => {
+  it("hands the review an admit step; a refusal there is a RATE_LIMITED outcome with no further work", async () => {
+    h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }), due())
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(h.review).toHaveBeenCalledWith(expect.objectContaining({ admit: expect.any(Function) }))
+    expect(outcomeOf("a1")).toBe("RATE_LIMITED")
+  })
+  it("a review the gates stop never reaches admit, so it never uses a slot", async () => {
+    h.review.mockResolvedValueOnce({ status: "REVIEW_REFUSED", httpStatus: 422 })
+    h.rows.push(due())
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(h.rows[0].chargedAt ?? null).toBeNull()
+    expect(outcomeOf("a1")).toBe("REVIEW_REFUSED_422")
+  })
+})
+
+describe("the lender-wide daily ceiling on automatic paid pulls", () => {
+  it("stops every submitter once the lender has used its ceiling, whoever they are", async () => {
+    h.rows.push(...Array.from({ length: 4 }, (_, i) => due({ applicationId: `x${i}`, clientId: `other-${i}`, ip: `10.0.0.${i}`, chargedAt: minutesAgo(5) })), due({ ip: "10.9.9.9" }))
+    const row = h.rows.at(-1) as { id: string; tenantId: string; clientId: string; ip: string | null; chargedAt: Date | null }
+    expect(await admitDigitalReview(h.tx as never, row, NOW, 4)).toBe(false)
+    expect(await admitDigitalReview(h.tx as never, row, NOW, 5)).toBe(true)
+  })
+  it("defaults to 200 a day and is read from DIGITAL_AUTO_PULLS_PER_LENDER_PER_DAY", () => {
+    expect(digitalReviewsPerLenderPerDay({})).toBe(200)
+    expect(digitalReviewsPerLenderPerDay({ DIGITAL_AUTO_PULLS_PER_LENDER_PER_DAY: "25" })).toBe(25)
+    expect(digitalReviewsPerLenderPerDay({ DIGITAL_AUTO_PULLS_PER_LENDER_PER_DAY: "0" })).toBe(200)
+    expect(digitalReviewsPerLenderPerDay({ DIGITAL_AUTO_PULLS_PER_LENDER_PER_DAY: "lots" })).toBe(200)
+  })
+})
+
+describe("ipBucket: an IPv6 subscriber holds a /64, a zone id is not part of the address, junk is the unknown bucket", () => {
+  it.each([
+    ["203.0.113.9", "203.0.113.9"],
+    ["2001:db8:1:2:aaaa:bbbb:cccc:dddd", "2001:0db8:0001:0002::/64"],
+    ["2001:db8:1:2:1111:2222:3333:4444", "2001:0db8:0001:0002::/64"],
+    ["2001:DB8:1:2::7", "2001:0db8:0001:0002::/64"],
+    ["2001:db8::1", "2001:0db8:0000:0000::/64"],
+    ["fe80::1%eth0", "fe80:0000:0000:0000::/64"],
+    ["::ffff:198.51.100.4", "198.51.100.4"],
+    ["::1", "0000:0000:0000:0000::/64"],
+    [`2001:db8::1%${"z".repeat(100)}`, "2001:0db8:0000:0000::/64"],
+  ])("%s -> %s", (ip, bucket) => { expect(ipBucket(ip)).toBe(bucket) })
+  it.each([[null], [""], ["not an address"], ["1.2.3.4.5"], ["x".repeat(200)]])("%j is the unknown bucket", (ip) => {
+    expect(ipBucket(ip as string | null)).toBeNull()
+  })
+  it("a whole /64 shares one slot allowance, so rotating addresses inside it is no way round the limit", async () => {
+    h.rows.push(...Array.from({ length: DIGITAL_REVIEWS_PER_IP_PER_DAY }, (_, i) => due({ applicationId: `v6-${i}`, clientId: `o${i}`, ip: ipBucket(`2001:db8:1:2::${i + 1}`), chargedAt: minutesAgo(5) })), due({ ip: ipBucket("2001:db8:1:2:ffff::9") }))
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(outcomeOf("a1")).toBe("RATE_LIMITED")
+  })
+  it("stores the bucket, never the raw address, and an over-long address as the unknown bucket (no insert error)", async () => {
+    await markDigitalDecisionDue({ tenantId: "t", applicationId: "a1", clientId: "c1", ip: "2001:db8:1:2:aaaa:bbbb:cccc:dddd%eth0" })
+    await markDigitalDecisionDue({ tenantId: "t", applicationId: "a2", clientId: "c1", ip: "9".repeat(500) })
+    expect(h.rows.map((r) => r.ip)).toEqual(["2001:0db8:0001:0002::/64", null])
   })
 })
 
@@ -197,7 +255,7 @@ describe("sweepDigitalDecisions: a task lost to a restart is found and run", () 
     h.rows.push(due({ applicationId: "held", claimedAt: minutesAgo(1) }), due({ applicationId: "stale", claimedAt: minutesAgo(30) }))
     await sweepDigitalDecisions({ now: NOW })
     expect(h.review).toHaveBeenCalledTimes(1)
-    expect(h.review).toHaveBeenCalledWith({ tenantId: "t", applicationId: "stale" })
+    expect(h.review).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t", applicationId: "stale" }))
   })
   it("ignores completed rows, and gives up on a row that has failed too often", async () => {
     h.rows.push(due({ applicationId: "done", completedAt: minutesAgo(8), outcome: "REVIEWED" }), due({ applicationId: "bad", attempts: DIGITAL_MAX_ATTEMPTS }))
@@ -205,6 +263,13 @@ describe("sweepDigitalDecisions: a task lost to a restart is found and run", () 
     expect(h.review).not.toHaveBeenCalled()
     expect(h.rows[1].outcome).toBe("GAVE_UP")
     expect(result.gaveUp).toBe(1)
+  })
+
+  it("counts a review that threw as failed, not swept (so the cron answers 503 and the failure is seen)", async () => {
+    h.review.mockRejectedValueOnce(new Error("db down"))
+    h.rows.push(due({ createdAt: minutesAgo(DIGITAL_SWEEP_AFTER_MINUTES + 2) }))
+    expect(await sweepDigitalDecisions({ now: NOW })).toMatchObject({ swept: 0, failed: 1 })
+    expect(h.rows[0].completedAt ?? null).toBeNull()
   })
 
   it("prunes finished rows after the retention period, keeping recent ones (the limits read them) and open ones", async () => {

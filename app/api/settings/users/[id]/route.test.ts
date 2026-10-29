@@ -12,6 +12,7 @@ const h = vi.hoisted(() => {
     userDelete: vi.fn(),
     auditLogCreate: vi.fn(),
     branchFindFirst: vi.fn(),
+    applicationCount: vi.fn(),
     logAudit: vi.fn(),
     logAuditStrict: vi.fn(),
     /** The caller's and target's rows as the write's transaction locks them. */
@@ -42,6 +43,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     auditLog: { create: (args: unknown) => h.auditLogCreate(args) },
     branch: { findFirst: (args: unknown) => h.branchFindFirst(args) },
+    loanApplication: { count: (args: unknown) => h.applicationCount(args) },
     $transaction: (fn: (tx: unknown) => unknown) => fn(h.tx),
   },
 }))
@@ -104,6 +106,7 @@ beforeEach(() => {
   locked = {}
   h.lockedRows.mockImplementation(async () => [locked.caller, locked.target].filter(Boolean))
   h.userFindUnique.mockResolvedValue(null)
+  h.applicationCount.mockResolvedValue(0)
   h.userUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "target-1", role: "CREDIT_OFFICER", ...data }))
 })
 
@@ -545,6 +548,18 @@ describe("DELETE /api/settings/users/[id]", () => {
     expect(await res.json()).toMatchObject({ mode: "deactivated" })
     expect(h.userUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "target-1" }, data: { active: false, tokenVersion: { increment: 1 } } }))
     expect(h.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "USER_DEACTIVATED", entityId: "target-1" }), h.tx)
+  })
+
+  it("deactivates, never deletes, a user recorded as input staff on an application (no foreign key would have kept them)", async () => {
+    signedIn("SUPER_ADMIN")
+    target("ADMIN")
+    h.applicationCount.mockResolvedValue(2)
+    const res = await del()
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ mode: "deactivated" })
+    expect(h.applicationCount).toHaveBeenCalledWith({ where: { tenantId: "tenant-a", inputStaffIds: { has: "target-1" } } })
+    expect(h.userDelete).not.toHaveBeenCalled()
   })
 
   it.each(["BRANCH_MANAGER", "ADMIN"])("refuses a %s", async (role) => {

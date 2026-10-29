@@ -25,7 +25,16 @@ export interface ReviewArgs {
   autoDecisionTrigger: Trigger
   /** Assign the application to `user` (a person starting a review). Off for the system user: an application it refers stays unassigned for staff to pick up. */
   assignToUser?: boolean
+  /**
+   * Called inside the claim transaction once every gate (KYC, document mismatches) has passed and
+   * before the application is claimed and the paid bureau pull is made. False refuses the review
+   * with 429 and the application is left as it was. For automatic reviews that spend the lender's money
+   * (lib/decisioning/digital-due.ts); a person starting a review passes none.
+   */
+  admit?: (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<boolean>
 }
+
+export const REVIEW_NOT_ADMITTED_STATUS = 429
 
 export type ReviewStarted = {
   ok: true
@@ -42,7 +51,7 @@ export type ReviewStarted = {
  * and tenant are known; also run for a digitally submitted application
  * (lib/decisioning/digital-submission.ts). Returns the refusal as a Response.
  */
-export async function startApplicationReview({ tenant, user, id, autoDecisionTrigger, assignToUser = true }: ReviewArgs): Promise<Response | ReviewStarted> {
+export async function startApplicationReview({ tenant, user, id, autoDecisionTrigger, assignToUser = true, admit }: ReviewArgs): Promise<Response | ReviewStarted> {
   const claim = await prisma.$transaction(async (tx) => {
     // Approval takes application then client. Use the identical order so
     // concurrent review/approval requests cannot deadlock or audit a stale
@@ -245,6 +254,8 @@ export async function startApplicationReview({ tenant, user, id, autoDecisionTri
       return { kind: "mismatches" as const, documents: criticalMismatches }
     }
 
+    if (admit && !(await admit(tx))) return { kind: "not_admitted" as const }
+
     const changed = await tx.loanApplication.updateMany({
       where: {
         id,
@@ -290,6 +301,9 @@ export async function startApplicationReview({ tenant, user, id, autoDecisionTri
       retryingBureauReview,
     }
   })
+  if (claim.kind === "not_admitted") {
+    return NextResponse.json({ error: "The automatic review limit for today has been reached; the application stays with staff." }, { status: REVIEW_NOT_ADMITTED_STATUS })
+  }
   if (claim.kind === "application_missing") {
     return NextResponse.json({ error: "Application not found" }, { status: 404 })
   }

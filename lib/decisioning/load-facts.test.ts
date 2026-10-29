@@ -5,14 +5,15 @@ vi.mock("@/lib/affordability/own-lender-debt-load", () => ({ liveOwnAwareDebtInp
 import { loadDecisionFacts } from "./load-facts"
 
 const NOW = new Date("2026-10-29T08:00:00Z")
-const state = { bureau: null as Record<string, unknown> | null, submittedByClient: false, loans: [] as { status: string }[], snapshot: undefined as unknown }
+const state = { productType: "MICRO", deal: null as { id: string } | null, bureau: null as Record<string, unknown> | null, submittedByClient: false, loans: [] as { status: string }[], snapshot: undefined as unknown }
 
 function application() {
   return {
     id: "a1", tenantId: "t", clientId: "c1", productId: "p1", status: "UNDER_REVIEW", updatedAt: new Date("2026-10-29T07:00:00Z"), submittedAt: new Date("2026-10-29T07:59:00Z"),
     appliedAmount: 300_000, appliedTermDays: 30, initiationFeePayment: "DEFERRED", bureauReviewGeneration: "gen1",
     affordabilityResult: state.snapshot ?? null,
-    product: { code: "MICRO", productType: "MICRO", interestRatePm: 0.05, interestModel: "FLAT", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 6_900 },
+    assetFinanceDeal: state.deal,
+    product: { code: "MICRO", productType: state.productType, interestRatePm: 0.05, interestModel: "FLAT", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 6_900 },
     client: {
       id: "c1", dateOfBirth: new Date("1990-10-30T00:00:00Z"), employmentStatus: "EMPLOYED", incomeSourceType: "SALARY", employmentStartDate: new Date("2020-09-01T00:00:00Z"),
       monthlyIncome: 2_000_000, monthlyExpenses: 800_000, grossMonthlyIncome: 2_200_000, expenseBreakdown: null, debtObligations: [],
@@ -28,9 +29,17 @@ const db = {
 }
 const load = (options = {}) => loadDecisionFacts(db as never, "t", "a1", NOW, options)
 
-beforeEach(() => { state.bureau = null; state.submittedByClient = false; state.loans = []; state.snapshot = undefined })
+beforeEach(() => { state.productType = "MICRO"; state.deal = null; state.bureau = null; state.submittedByClient = false; state.loans = []; state.snapshot = undefined })
 
 describe("loadDecisionFacts", () => {
+  it("is not for asset finance: neither an asset-finance product nor an application that carries a deal is a consumer application", async () => {
+    state.productType = "ASSET_FINANCE"
+    expect(await load()).toBeNull()
+    state.productType = "MICRO"
+    state.deal = { id: "deal-1" }
+    expect(await load()).toBeNull()
+  })
+
   it("bureau flags are missing, not false, when there is no current bureau check", async () => {
     const { facts, bureauCheckId } = (await load())!
     expect(facts).toMatchObject({ bureauAvailable: false, bureauScore: null, bureauJudgement: null, bureauAdverse: null, bureauNotice: null, bureauUnderDebtReview: null, bureauDeceased: null, bureauUnscoreable: null })

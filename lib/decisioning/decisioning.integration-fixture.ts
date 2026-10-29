@@ -18,8 +18,11 @@ export interface Lender {
 // A TOTP-verified session: a change request is approved only from one where the lender requires TOTP.
 const actor = (id: string, role: string) => ({ id, email: `${id}@test.invalid`, role, totpVerified: true })
 export const asMaker = (l: Lender) => actor(l.makerId, "ADMIN")
-export const asChecker = (l: Lender) => actor(l.checkerId, "ADMIN")
-export const asChecker2 = (l: Lender) => ({ id: l.checker2Id, email: `${l.checker2Id}@test.invalid`, role: "ADMIN", totpVerified: true })
+// The checkers sign in as SUPER_ADMIN: engine settings that go LIVE or record the s71 sign-off need one (approve_decision_engine_live).
+export const asChecker = (l: Lender) => actor(l.checkerId, "SUPER_ADMIN")
+export const asChecker2 = (l: Lender) => actor(l.checker2Id, "SUPER_ADMIN")
+/** The same person as asChecker, signed in as a plain ADMIN. */
+export const asAdminChecker = (l: Lender) => actor(l.checkerId, "ADMIN")
 export const asOfficer = (l: Lender) => actor(l.officerId, "CREDIT_OFFICER")
 
 export async function createLender(db: PrismaClient): Promise<Lender> {

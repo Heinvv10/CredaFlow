@@ -1,3 +1,4 @@
+import { logger } from "@/lib/observability/logger"
 import { runAutoDecision, type AutoDecisionOutcome, type Trigger } from "./auto-decision"
 
 /**
@@ -9,7 +10,7 @@ export async function runAutoDecisionSafely(input: { tenantId: string; applicati
   try {
     return await runAutoDecision(input)
   } catch (error) {
-    console.error("[auto-decision] run failed; the application stays with staff:", input.applicationId, error)
+    logger.error("auto-decision: run failed; the application stays with staff", { applicationId: input.applicationId, error: error instanceof Error ? error.message : String(error) })
     return null
   }
 }

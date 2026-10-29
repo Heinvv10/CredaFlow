@@ -1,4 +1,5 @@
 import type { AutoDecisionExecution, AutoDecisionRole, DecisionRuleSetVersion } from "@prisma/client"
+import { logger } from "@/lib/observability/logger"
 import { AuditAction, logAudit } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
@@ -93,8 +94,7 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
       verdict = decide({ facts: loaded.facts, rules: parseRules(row.rules), scorecard: parseScorecard(row.scorecard) })
     } catch (error) {
       // A stored set that no longer validates is never run: staff decide. Say so where operations will see it.
-      // TODO: use the structured logger once lib/observability/logger.ts lands (PR #252).
-      console.error("[auto-decision] stored rule set is invalid:", row.id, error)
+      logger.error("auto-decision: stored rule set is invalid", { ruleSetVersionId: row.id, error: error instanceof Error ? error.message : String(error) })
       await logAudit({
         tenantId, action: AuditAction.AUTO_DECISION_RULE_SET_INVALID, entity: "DecisionRuleSetVersion", entityId: row.id,
         newValue: { applicationId, mode: config.mode, ruleSet: versionLabel(row), role },

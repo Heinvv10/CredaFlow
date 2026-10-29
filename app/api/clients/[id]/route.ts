@@ -1,3 +1,4 @@
+import { recordInputStaffForClient } from "@/lib/applications/input-staff"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { isErasedRowEdit } from "@/lib/dealer/draft-purge-messages"
@@ -882,6 +883,11 @@ export async function PUT(
         })
         let updated = clientMutation.client
         const biometricIdentityRevocation = clientMutation.revocation
+        // The figures an open application is decided on changed: whoever changed them cannot later disburse an
+        // engine approval of it (lib/applications/input-staff.ts).
+        if (financialInputChanged) {
+          await recordInputStaffForClient(tx, { tenantId: tenant.id, clientId: id, userId: guard.user.id })
+        }
 
         // Now that the column names the incoming agent, the accrual reads the
         // right payee. Writes its own audit rows for both the reversal set and

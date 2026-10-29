@@ -17,7 +17,7 @@ import { requestHumanReview } from "./human-review"
 const actor = { id: "u1", email: "u@x.invalid", role: "LOAN_ADMIN" }
 const input = { tenantId: "t", applicationId: "a", actor, reason: "Client asked for a person to review the decision" }
 
-const systemDeclined = { id: "a", status: "DECLINED", clientId: "c", approvedById: "sys", approvedBy: { isSystem: true }, humanReviewRequestedAt: null }
+const systemDeclined = { id: "a", status: "DECLINED", clientId: "c", approvedById: "sys", approvedBy: { isSystem: true }, humanReviewRequestedAt: null, affordabilityResult: { schemaVersion: 3, assessment: { stage: "ASSESSMENT" } } }
 beforeEach(() => { h.app = systemDeclined; h.run = { id: "r1", createdAt: new Date("2026-10-29T08:00:00Z") }; h.count = 1; h.records = []; h.audits = [] })
 
 describe("requestHumanReview", () => {
@@ -29,6 +29,12 @@ describe("requestHumanReview", () => {
     // A fresh review cycle, as a return to review has: the old bureau generation and the reckless-lending attestation do not carry over.
     expect(update[1].data).toMatchObject({ recklessLendingAssessed: false, recklessLendingAssessedById: null, recklessLendingAssessedAt: null, humanReviewRequestedAt: expect.any(Date) })
     expect(typeof (update[1].data as { bureauReviewGeneration: unknown }).bureauReviewGeneration).toBe("string")
+    // And what the decline sat on: a bureau override, the approval terms and the approval snapshot, as a return to review clears them.
+    expect(update[1].data).toMatchObject({
+      bureauOverrideReason: null, bureauOverrideById: null, bureauOverrideAt: null,
+      repaymentMethod: null, approvedAmount: null, approvedTermDays: null, approvedRate: null,
+      affordabilityResult: expect.objectContaining({ assessment: expect.anything() }),
+    })
     expect(h.audits).toHaveLength(1)
     expect(h.audits[0]).toMatchObject({ data: { action: "AUTO_DECISION_HUMAN_REVIEW_REQUESTED", entityId: "a", userId: "u1" } })
     const record = h.records.find((r) => (r as unknown[])[0] === "record") as [string, { data: Record<string, unknown> }]

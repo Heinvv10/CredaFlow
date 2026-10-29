@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/prisma", () => ({ prisma: h.prisma }))
+vi.mock("@/lib/observability/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
 vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: (_t: string, fn: () => unknown) => fn() }))
 vi.mock("@/lib/audit", () => ({
   AuditAction: new Proxy({}, { get: (_o, k) => String(k) }),
@@ -46,7 +47,7 @@ function config(over: Record<string, unknown> = {}) {
 function loaded() {
   return { application: { id: "app-1", clientId: "c1", productId: "p1", status: "UNDER_REVIEW", updatedAt: UPDATED_AT, submittedAt: null }, facts: { channel: "STAFF", monthlyIncomeCents: 500_000, bureauJudgement: false }, bureauCheckId: "b1", affordabilitySource: "LIVE" }
 }
-function stubDb(over: { config?: unknown; versions?: unknown[]; user?: unknown } = {}) {
+function stubDb(over: { config?: unknown; versions?: unknown[]; user?: unknown; signoff?: unknown } = {}) {
   const writes = { runs: [] as unknown[], gradeUpdates: [] as unknown[], tx: {} as Record<string, unknown> }
   const tx = {
     autoDecisionRun: { create: vi.fn(async (a: unknown) => { writes.runs.push(a); return { id: `run${writes.runs.length}` } }) },
@@ -54,6 +55,8 @@ function stubDb(over: { config?: unknown; versions?: unknown[]; user?: unknown }
     auditLog: { create: vi.fn() },
     creditDecisionRecord: { create: vi.fn() },
     $executeRawUnsafe: vi.fn(async () => 0),
+    // The decline transaction re-reads the s71 sign-off and notice (FOR SHARE).
+    $queryRaw: vi.fn(async () => [over.signoff === undefined ? { s71SignedOffAt: new Date("2026-10-01T00:00:00Z"), automatedDeclineNotice: "Approved wording now." } : over.signoff]),
   }
   Object.assign(h.prisma, {
     decisionEngineConfig: { findUnique: vi.fn(async () => over.config ?? config()) },
@@ -172,7 +175,6 @@ describe("an automatic decision acts only on the facts it read (breaker 5: one d
   })
 
   it("refers (does not decline) when the staff decline path throws, or the system user is missing", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined)
     const w = stubDb()
     h.decideApplication.mockRejectedValueOnce(new Error("db down"))
     const verdict = { ...ctxWith().verdict, decision: "DECLINE" as const, declineCategory: "POLICY" as const }
@@ -200,7 +202,6 @@ describe("an approve verdict the staff path does not carry out becomes a referra
     ["a thrown error", async () => { throw new Error("db down") }, "HARD_GATE_ERROR", "failed"],
   ])("%s", async (_name, answer, code, note) => {
     const w = stubDb()
-    vi.spyOn(console, "error").mockImplementation(() => undefined)
     h.decideApplication.mockImplementationOnce(answer)
     const out = await approveThroughStaffPath(ctxWith(), "EFT")
     expect(out).toMatchObject({ execution: "REFERRED" })
@@ -214,6 +215,39 @@ describe("an approve verdict the staff path does not carry out becomes a referra
     h.decideApplication.mockResolvedValueOnce(new Response("{}", { status: 422 }))
     await approveThroughStaffPath(ctxWith(), "EFT")
     expect(JSON.stringify(w.runs)).not.toContain('"execution":"APPROVED"')
+  })
+})
+
+describe("the s71 sign-off is re-read inside the decline transaction (a sign-off withdrawn or reworded between the read and the commit)", () => {
+  const declineVerdict = () => ({ ...ctxWith().verdict, decision: "DECLINE" as const, declineCategory: "POLICY" as const })
+  const hook = (w: { tx: unknown }) => async ({ automation }: { automation: { inTransaction: (tx: unknown) => Promise<void> } }) => { await automation.inTransaction(w.tx); return ok() }
+
+  it("stores the wording read inside the transaction on the run, not the one read when the verdict was made", async () => {
+    const w = stubDb()
+    h.decideApplication.mockImplementationOnce(hook(w))
+    await declineThroughStaffPath(ctxWith({ verdict: declineVerdict(), noticeText: "Older wording read earlier." }))
+    expect(w.runs[0]).toMatchObject({ data: { execution: "DECLINED", noticeText: "Approved wording now." } })
+    expect(String((w.tx as { $queryRaw: { mock: { calls: unknown[][] } } }).$queryRaw.mock.calls[0][0])).toContain("FOR SHARE")
+  })
+
+  it("refers instead of declining when the sign-off is gone inside the transaction: nothing is written", async () => {
+    const w = stubDb({ signoff: { s71SignedOffAt: null, automatedDeclineNotice: "Draft." } })
+    h.decideApplication.mockImplementationOnce(async (args: { automation: { inTransaction: (tx: unknown) => Promise<void> } }) => {
+      await args.automation.inTransaction(w.tx)
+      return ok()
+    })
+    const out = await declineThroughStaffPath(ctxWith({ verdict: declineVerdict(), noticeText: "Wording that was signed off when read." }))
+    expect(out).toMatchObject({ execution: "REFERRED" })
+    expect(w.runs).toHaveLength(1)
+    expect(w.runs[0]).toMatchObject({ data: { execution: "REFERRED", reasonCodes: expect.arrayContaining(["S71_NOT_SIGNED_OFF"]) } })
+    expect(JSON.stringify(w.runs)).not.toContain('"execution":"DECLINED"')
+  })
+
+  it("an approval does not read or depend on the sign-off", async () => {
+    const w = stubDb({ signoff: { s71SignedOffAt: null, automatedDeclineNotice: null } })
+    h.decideApplication.mockImplementationOnce(hook(w))
+    await approveThroughStaffPath(ctxWith(), "EFT")
+    expect(w.runs[0]).toMatchObject({ data: { execution: "APPROVED", noticeText: null } })
   })
 })
 
@@ -235,7 +269,6 @@ describe("the run and the grade commit with the decision (the staff path's trans
 
   it("a failure inside the hook propagates, so the staff path's transaction rolls back and the engine refers instead", async () => {
     const w = stubDb()
-    vi.spyOn(console, "error").mockImplementation(() => undefined)
     ;(w.tx.autoDecisionRun as { create: ReturnType<typeof vi.fn> }).create.mockRejectedValueOnce(new Error("run insert failed"))
     h.decideApplication.mockImplementationOnce(async ({ automation }: { automation: { inTransaction: (tx: unknown) => Promise<void> } }) => {
       await automation.inTransaction(w.tx)
@@ -303,7 +336,6 @@ describe("SHADOW rehearses: the run records the grade, the application is untouc
 
 describe("a stored rule set that no longer validates", () => {
   it("is skipped, audited for operations, and never acted on", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined)
     stubDb({ versions: [version({ rules: [{ id: "BAD" }] })] })
     expect(await run()).toEqual({ status: "SKIPPED", reason: "rule_set_invalid" })
     expect(h.audits).toContainEqual(expect.objectContaining({ action: "AUTO_DECISION_RULE_SET_INVALID", entityId: "v1" }))
@@ -340,8 +372,8 @@ describe("an application a person was asked to look at again", () => {
 
 describe("the client notice is the wording approved when the engine declined", () => {
   it("is stored on a DECLINED run, and on no other run", async () => {
-    const w = stubDb()
     const NOTICE = "This decision was made by automated means; you may ask for a person to review it."
+    const w = stubDb({ signoff: { s71SignedOffAt: new Date("2026-10-01T00:00:00Z"), automatedDeclineNotice: NOTICE } })
     h.decideApplication.mockImplementationOnce(async ({ automation }: { automation: { inTransaction: (tx: unknown) => Promise<void> } }) => {
       await automation.inTransaction(w.tx)
       return ok()

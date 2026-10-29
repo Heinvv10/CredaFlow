@@ -18,8 +18,8 @@ CREATE TYPE "AutoDecisionExecution" AS ENUM ('APPROVED', 'DECLINED', 'REFERRED',
 CREATE TYPE "ChangeRequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'WITHDRAWN');
 
 -- AlterTable
-ALTER TABLE "LoanApplication" ADD COLUMN     "capturedById" TEXT,
-ADD COLUMN     "humanReviewRequestedAt" TIMESTAMP(3),
+ALTER TABLE "LoanApplication" ADD COLUMN     "humanReviewRequestedAt" TIMESTAMP(3),
+ADD COLUMN     "inputStaffIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
 ADD COLUMN     "riskGrade" TEXT,
 ADD COLUMN     "riskGradeRank" INTEGER,
 ADD COLUMN     "riskGradeVersionId" TEXT,
@@ -200,9 +200,6 @@ ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_tenantId_fkey" FOR
 ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_tenantId_ruleSetVersionId_fkey" FOREIGN KEY ("tenantId", "ruleSetVersionId") REFERENCES "DecisionRuleSetVersion"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_tenantId_capturedById_fkey" FOREIGN KEY ("tenantId", "capturedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
-
--- AddForeignKey
 ALTER TABLE "AutoDecisionDue" ADD CONSTRAINT "AutoDecisionDue_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -337,11 +334,15 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Decision engine settings are written only by an approved DECISION_ENGINE_CONFIG change request';
   END IF;
-  -- What was approved is what is written: the mode, repayment method, challenger share and the s71 sign-off.
+  -- What was approved is what is written: the mode, repayment method, challenger and its share, the channels, the products, the notice wording and the s71 sign-off.
   IF NEW."mode"::TEXT IS DISTINCT FROM req."payload" ->> 'mode'
     OR NEW."repaymentMethod"::TEXT IS DISTINCT FROM req."payload" ->> 'repaymentMethod'
     OR NEW."challengerPercent" IS DISTINCT FROM (req."payload" ->> 'challengerPercent')::INTEGER
     OR (NEW."s71SignedOffAt" IS NOT NULL) IS DISTINCT FROM COALESCE((req."payload" ->> 's71SignOff')::BOOLEAN, false)
+    OR NEW."automatedDeclineNotice" IS DISTINCT FROM (req."payload" ->> 'automatedDeclineNotice')
+    OR NEW."challengerVersionId" IS DISTINCT FROM (req."payload" ->> 'challengerVersionId')
+    OR NOT (NEW."channels" <@ ARRAY(SELECT jsonb_array_elements_text(req."payload" -> 'channels')) AND ARRAY(SELECT jsonb_array_elements_text(req."payload" -> 'channels')) <@ NEW."channels")
+    OR NOT (NEW."productIds" <@ ARRAY(SELECT jsonb_array_elements_text(req."payload" -> 'productIds')) AND ARRAY(SELECT jsonb_array_elements_text(req."payload" -> 'productIds')) <@ NEW."productIds")
   THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Decision engine settings must match the approved change request''s payload';
   END IF;
@@ -438,7 +439,7 @@ CREATE POLICY "tenant_isolation" ON "AutoDecisionDue" USING (public.cf_rls_unres
 
 -- Segregation of duties for a system approval (lib/decisioning/): the engine approved it, so the people whose
 -- attestations the approval rested on (the reckless-lending assessor, the income verifier, the bureau-override
--- giver) and the staff member who captured the application cannot also disburse it. guardLoanApplicationSegregationOfDuties as of 20261016200200, plus that check.
+-- giver) and the staff who captured the application or changed its inputs cannot also disburse it. guardLoanApplicationSegregationOfDuties as of 20261016200200, plus that check.
 CREATE OR REPLACE FUNCTION public."guardLoanApplicationSegregationOfDuties"()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -484,10 +485,10 @@ BEGIN
       MESSAGE = 'A disbursement is recorded against an active staff member of the application tenant who may disburse';
   END IF;
 
-  IF TG_OP = 'UPDATE' AND OLD."capturedById" IS NOT NULL AND NEW."capturedById" IS DISTINCT FROM OLD."capturedById" THEN
+  IF TG_OP = 'UPDATE' AND NOT (OLD."inputStaffIds" <@ NEW."inputStaffIds") THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
-      MESSAGE = 'The staff member who captured an application cannot be changed';
+      MESSAGE = 'The staff who captured or changed the inputs of an application cannot be removed from it';
   END IF;
 
   IF NEW."entityId" IS NOT NULL OR EXISTS (
@@ -507,7 +508,8 @@ BEGIN
         ERRCODE = '23514',
         MESSAGE = 'Segregation of duties: the staff member who approved an application cannot disburse it';
     END IF;
-    IF NEW."disbursedById" IN (NEW."recklessLendingAssessedById", NEW."incomeVerifiedById", NEW."bureauOverrideById", NEW."capturedById")
+    IF (NEW."disbursedById" IN (NEW."recklessLendingAssessedById", NEW."incomeVerifiedById", NEW."bureauOverrideById")
+      OR NEW."disbursedById" = ANY (NEW."inputStaffIds"))
       AND EXISTS (SELECT 1 FROM "User" a WHERE a."id" = NEW."approvedById" AND a."tenantId" = NEW."tenantId" AND a."isSystem")
     THEN
       RAISE EXCEPTION USING
@@ -530,6 +532,16 @@ BEGIN
 END;
 $function$;
 
--- As 20261016200100_segregation_of_duties, plus: a change of the capturer reaches the guard (set once, never changed or cleared).
+-- As 20261016200100_segregation_of_duties, plus: a change of the input staff reaches the guard (it only grows).
 DROP TRIGGER "LoanApplication_z_guard_segregation_of_duties" ON "LoanApplication";
-CREATE TRIGGER "LoanApplication_z_guard_segregation_of_duties" BEFORE UPDATE ON "LoanApplication" FOR EACH ROW WHEN (((new.status IS DISTINCT FROM old.status) OR (new."agreementCountersignedAt" IS DISTINCT FROM old."agreementCountersignedAt") OR (new."disbursedById" IS DISTINCT FROM old."disbursedById") OR (new."capturedById" IS DISTINCT FROM old."capturedById"))) EXECUTE FUNCTION "guardLoanApplicationSegregationOfDuties"();
+CREATE TRIGGER "LoanApplication_z_guard_segregation_of_duties" BEFORE UPDATE ON "LoanApplication" FOR EACH ROW WHEN (((new.status IS DISTINCT FROM old.status) OR (new."agreementCountersignedAt" IS DISTINCT FROM old."agreementCountersignedAt") OR (new."disbursedById" IS DISTINCT FROM old."disbursedById") OR (new."inputStaffIds" IS DISTINCT FROM old."inputStaffIds"))) EXECUTE FUNCTION "guardLoanApplicationSegregationOfDuties"();
+
+-- A user is or is not the lender's automated decisioning account from the day it is created: flipping the
+-- flag would turn a person into the account every engine decision is booked under (or the reverse).
+CREATE OR REPLACE FUNCTION public."guardUserIsSystem"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'User.isSystem cannot be changed after the user is created';
+END;
+$function$;
+CREATE TRIGGER "User_guard_is_system" BEFORE UPDATE OF "isSystem" ON "User" FOR EACH ROW WHEN (old."isSystem" IS DISTINCT FROM new."isSystem") EXECUTE FUNCTION "guardUserIsSystem"();

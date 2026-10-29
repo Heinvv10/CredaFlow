@@ -649,7 +649,7 @@ export async function POST(
             recklessLendingAssessed: true,
             recklessLendingAssessedAt: now,
             recklessLendingAssessedById: guard.user.id ?? "admin",
-            capturedById: guard.user.id ?? null,
+            inputStaffIds: guard.user.id ? [guard.user.id] : [],
           },
         })
 

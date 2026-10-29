@@ -19,13 +19,13 @@ describe("segregationOfDutiesConflict", () => {
   })
 
   describe("an application the decision engine approved (approved by the system user)", () => {
-    const engineApproved = { ...application, approvedById: "sys", approvedBySystem: true, capturedById: "capturer", recklessLendingAssessedById: "assessor", incomeVerifiedById: "verifier", bureauOverrideById: "overrider" }
+    const engineApproved = { ...application, approvedById: "sys", approvedBySystem: true, inputStaffIds: ["capturer", "editor"], recklessLendingAssessedById: "assessor", incomeVerifiedById: "verifier", bureauOverrideById: "overrider" }
 
     it("the system user cannot disburse, as an approver cannot", () => {
       expect(segregationOfDutiesConflict("disburse", "sys", engineApproved)).toBe("approve_disburse")
     })
 
-    it.each(["capturer", "assessor", "verifier", "overrider"])("the staff member who captured it, or whose attestation the approval rested on (%s), may not disburse it", (who) => {
+    it.each(["capturer", "editor", "assessor", "verifier", "overrider"])("the staff who captured it or changed its inputs, or whose attestation the approval rested on (%s), may not disburse it", (who) => {
       expect(segregationOfDutiesConflict("disburse", who, engineApproved)).toBe("attester_disburse")
     })
 

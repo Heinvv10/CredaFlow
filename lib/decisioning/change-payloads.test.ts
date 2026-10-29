@@ -30,12 +30,20 @@ describe("parseEngineConfigPayload", () => {
     expect(parseEngineConfigPayload(engine).mode).toBe("SHADOW")
     expect(parseEngineConfigPayload({ ...engine, mode: "LIVE", challengerVersionId: "v1", challengerPercent: 50, s71SignOff: true, automatedDeclineNotice: NOTICE }).challengerPercent).toBe(50)
   })
+  it("accepts a notice of exactly 700 characters and one with single and double spaces", () => {
+    expect(parseEngineConfigPayload({ ...engine, automatedDeclineNotice: "a".repeat(700) }).automatedDeclineNotice).toHaveLength(700)
+    expect(parseEngineConfigPayload({ ...engine, automatedDeclineNotice: `${NOTICE}  Two spaces.   Three.` }).automatedDeclineNotice).toContain("Three.")
+  })
   it.each([
     ["a sign-off with no notice", { ...engine, s71SignOff: true }, /approved wording/],
     ["a notice that is a draft", { ...engine, automatedDeclineNotice: "DRAFT: the client may ask for a review of the decision" }, /placeholder/],
     ["a notice with a TODO", { ...engine, automatedDeclineNotice: "TODO get this reviewed by the legal team please" }, /placeholder/],
     ["a notice that is too short", { ...engine, automatedDeclineNotice: "short" }, /characters/],
     ["a notice with surrounding spaces", { ...engine, automatedDeclineNotice: ` ${NOTICE}` }, /characters/],
+    ["a notice with a new line", { ...engine, automatedDeclineNotice: `${NOTICE}\nYou may ask for a person.` }, /one line/],
+    ["a notice with a tab", { ...engine, automatedDeclineNotice: `${NOTICE}\tYou may ask for a person.` }, /one line/],
+    ["a notice with four spaces in a row", { ...engine, automatedDeclineNotice: `${NOTICE}    You may ask for a person.` }, /one line/],
+    ["a notice over the WhatsApp variable limit", { ...engine, automatedDeclineNotice: "a".repeat(701) }, /characters/],
     ["an s71 flag that is not a boolean", { ...engine, s71SignOff: "yes" }, /true or false/],
     ["shadow with nothing selected", { ...engine, channels: [] }, /at least one channel/],
     ["a challenger share with no challenger", { ...engine, challengerPercent: 10 }, /challenger version/],

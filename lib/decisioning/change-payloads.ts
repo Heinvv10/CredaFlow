@@ -37,7 +37,14 @@ export interface EngineConfigPayload {
 /** Draft or placeholder wording must never be approvable as the lender's notice. */
 const PLACEHOLDER_NOTICE = /\b(draft|todo|tbc|lorem)\b/i
 export const NOTICE_MIN_LENGTH = 20
-export const NOTICE_MAX_LENGTH = 2000
+/**
+ * The notice is sent as a WhatsApp template variable (lib/whatsapp/template-vars.ts, application_declined_automated), and
+ * WhatsApp refuses a variable with a newline, a tab, four or more spaces in a row, or more than ~700 characters (the whole
+ * body is limited to 1024). Wording the lender approved that could not be sent would silently fall back to no notice, so
+ * it is refused when the settings are approved, not when a client is declined.
+ */
+export const NOTICE_MAX_LENGTH = 700
+const WHATSAPP_UNSAFE_NOTICE = /[\n\r\t]| {4,}/
 
 const isDay = (v: unknown): v is string => {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
@@ -88,6 +95,8 @@ export function parseEngineConfigPayload(raw: unknown): EngineConfigPayload {
   const notice = raw.automatedDeclineNotice
   if (notice !== null && (typeof notice !== "string" || notice !== notice.trim() || notice.length < NOTICE_MIN_LENGTH || notice.length > NOTICE_MAX_LENGTH)) {
     problems.add("payload.automatedDeclineNotice", `null, or ${NOTICE_MIN_LENGTH} to ${NOTICE_MAX_LENGTH} characters with no surrounding spaces`)
+  } else if (typeof notice === "string" && WHATSAPP_UNSAFE_NOTICE.test(notice)) {
+    problems.add("payload.automatedDeclineNotice", "one line: no new lines, tabs or runs of four spaces (the notice is sent as a WhatsApp message variable)")
   } else if (typeof notice === "string" && PLACEHOLDER_NOTICE.test(notice)) {
     problems.add("payload.automatedDeclineNotice", "placeholder wording (draft, TODO, TBC) cannot be approved as the client notice")
   }

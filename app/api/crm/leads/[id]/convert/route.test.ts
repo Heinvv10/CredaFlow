@@ -294,7 +294,7 @@ describe("POST /api/crm/leads/[id]/convert affordability evidence", () => {
       productFindUniqueMock.mock.invocationCallOrder[1],
     )
     const data = applicationCreateMock.mock.calls[0][0].data
-    expect(data.capturedById).toBe("officer-1")
+    expect(data.inputStaffIds).toEqual(["officer-1"])
     expect(data.affordabilityResult).toEqual(expect.objectContaining({
       schemaVersion: 3,
       submission: expect.objectContaining({

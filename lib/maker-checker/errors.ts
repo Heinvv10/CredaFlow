@@ -3,6 +3,7 @@ export type ChangeRequestErrorCode =
   | "NOT_FOUND"
   | "FORBIDDEN"
   | "SELF_APPROVAL"
+  | "MAKER_ACCOUNT_CONTROLLED"
   | "NOT_MAKER"
   | "WRONG_STATE"
   | "STALE"
@@ -14,6 +15,7 @@ const STATUS: Record<ChangeRequestErrorCode, number> = {
   NOT_FOUND: 404,
   FORBIDDEN: 403,
   SELF_APPROVAL: 403,
+  MAKER_ACCOUNT_CONTROLLED: 403,
   NOT_MAKER: 403,
   WRONG_STATE: 409,
   STALE: 409,

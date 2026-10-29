@@ -22,6 +22,7 @@ const debtCreateManyMock = vi.fn()
 const debtFindManyMock = vi.fn()
 const auditLogCreateMock = vi.fn()
 const approvedApplicationFindManyMock = vi.fn()
+const loanApplicationUpdateManyMock = vi.fn()
 const logAuditMock = vi.fn()
 const syncClientConsentMock = vi.fn()
 const queryRawMock = vi.fn()
@@ -160,6 +161,7 @@ beforeEach(() => {
   }])
   auditLogCreateMock.mockResolvedValue({ id: "audit-1" })
   approvedApplicationFindManyMock.mockResolvedValue([])
+  loanApplicationUpdateManyMock.mockResolvedValue({ count: 1 })
   transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({
       $queryRaw: queryRawMock,
@@ -168,7 +170,7 @@ beforeEach(() => {
         update: clientUpdateMock,
       },
       // resolveReferralCodeById runs on the tx.
-      loanApplication: { findMany: approvedApplicationFindManyMock },
+      loanApplication: { findMany: approvedApplicationFindManyMock, updateMany: loanApplicationUpdateManyMock },
       referralCode: { findFirst: referralFindFirstMock },
       clientExpenseBreakdown: { upsert: expenseBreakdownUpsertMock },
       clientDocument: {
@@ -557,6 +559,23 @@ describe("PUT /api/clients/[id] approval evidence guard", () => {
 })
 
 describe("PUT /api/clients/[id] partial-update semantics", () => {
+  it("records the staff member who changed the income as an input staff member of the client's open applications", async () => {
+    const response = await PUT(putRequest({ monthlyIncome: 1_500_099 }), context)
+
+    expect(response.status).toBe(200)
+    expect(loanApplicationUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "tenant-1", clientId: "client-1", status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED"] } }),
+      data: { inputStaffIds: { push: expect.any(String) } },
+    }))
+  })
+
+  it("records nobody for an edit that touches no income or expense figure", async () => {
+    const response = await PUT(putRequest({ phone: "0820000000" }), context)
+
+    expect(response.status).toBe(200)
+    expect(loanApplicationUpdateManyMock).not.toHaveBeenCalled()
+  })
+
   it("requires the client revision before any write transaction starts", async () => {
     const response = await PUT(putRequest({
       expectedUpdatedAt: undefined,

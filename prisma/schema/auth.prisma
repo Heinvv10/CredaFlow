@@ -65,7 +65,6 @@ model User {
   auditLogs                    AuditLog[]
   branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
   bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
-  capturedApplications         LoanApplication[]                     @relation("CapturedBy")
   changeRequestsChecked        ChangeRequest[]                       @relation("ChangeRequestChecker")
   changeRequestsMade           ChangeRequest[]                       @relation("ChangeRequestMaker")
   clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")

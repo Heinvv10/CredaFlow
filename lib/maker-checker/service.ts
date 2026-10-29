@@ -42,6 +42,26 @@ async function requireStepUp(tenantId: string, actor: Actor): Promise<void> {
   }
 }
 
+/** How long a checker who set up or changed the maker's account stays barred from approving what that account drafts. */
+export const MAKER_ACCOUNT_CONTROL_DAYS = 30
+
+/**
+ * Four eyes is two different PEOPLE. A checker who created the maker's account, or reset its password,
+ * role or second factor, within the last 30 days could be drafting through a puppet: refused. The trail
+ * is the audit log the user routes already write (USER_CREATED, USER_UPDATED, TOTP_RESET_BY_ADMIN).
+ */
+async function refuseControlledMaker(tx: Pick<Tx, "auditLog">, tenantId: string, makerId: string, checkerId: string, now: Date): Promise<void> {
+  const since = new Date(now.getTime() - MAKER_ACCOUNT_CONTROL_DAYS * 24 * 60 * 60 * 1000)
+  const control = await tx.auditLog.findFirst({
+    where: {
+      tenantId, entity: "User", entityId: makerId, userId: checkerId, createdAt: { gte: since },
+      action: { in: [AuditAction.USER_CREATED, AuditAction.USER_UPDATED, AuditAction.TOTP_RESET_BY_ADMIN] },
+    },
+    select: { id: true },
+  })
+  if (control) throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", `You created or changed the account of the person who drafted this within the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: another approver must decide it`)
+}
+
 async function load(tx: Pick<Tx, "changeRequest">, tenantId: string, id: string): Promise<ChangeRequest> {
   const row = await tx.changeRequest.findFirst({ where: { id, tenantId } })
   if (!row) throw new ChangeRequestError("NOT_FOUND", "Change request not found")
@@ -173,6 +193,7 @@ export async function approve(scope: Scope & { id: string; note?: string }, db: 
       mayApprove(handler, scope.actor, row.payload)
       if (row.makerId === scope.actor.id) throw selfApproval()
       const now = new Date()
+      await refuseControlledMaker(tx, scope.tenantId, row.makerId, scope.actor.id, now)
       const changed = await tx.changeRequest.updateMany({
         where: { id: row.id, tenantId: scope.tenantId, status: "SUBMITTED" },
         data: { status: "APPROVED", checkerId: scope.actor.id, decidedAt: now, appliedAt: now, decisionNote: scope.note?.trim() || null },

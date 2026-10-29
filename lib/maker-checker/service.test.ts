@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ChangeRequestError } from "./errors"
 import type { ChangeHandler } from "./types"
 
-const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown }))
+const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: async () => h.totpRequired }))
 vi.mock("./handlers", () => ({ handlerFor: (kind: string) => (kind === "TEST_KIND" ? h.handler : null) }))
@@ -26,7 +26,7 @@ function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeH
 function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
-    auditLog: { create: vi.fn() },
+    auditLog: { create: vi.fn(), findFirst: vi.fn(async () => h.control) },
     $executeRaw: vi.fn(async () => 0),
   }
   const db = { $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)), changeRequest: tx.changeRequest }
@@ -34,7 +34,7 @@ function fakeDb(found: unknown, count = 1) {
 }
 const scope = { tenantId: "t", id: "cr1" }
 
-beforeEach(() => { h.totpRequired = true; h.handler = handler() })
+beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null })
 
 describe("maker-checker service (state, permission, staleness; the database rules are in the integration suite)", () => {
   it("refuses an unknown kind before touching the database", async () => {
@@ -57,6 +57,24 @@ describe("maker-checker service (state, permission, staleness; the database rule
     const loanAdmin = { ...checker, role: "LOAN_ADMIN" }
     await expect(approve({ ...scope, actor: loanAdmin }, fakeDb(row({ payload: { amount: 50 } })).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
     expect((await approve({ ...scope, actor: loanAdmin }, fakeDb(row({ payload: { amount: 5 } })).db)).id).toBe("cr1")
+  })
+
+  describe("a checker who controls the maker's account is not a second person", () => {
+    it("refuses a checker who created or changed the maker's account in the last 30 days, writing nothing", async () => {
+      h.control = { id: "audit-1" }
+      const { db, tx } = fakeDb(row())
+      await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
+      expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
+      const query = (tx.auditLog.findFirst.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where
+      expect(query).toMatchObject({ tenantId: "t", entity: "User", entityId: "u-maker", userId: "u-checker", action: { in: ["USER_CREATED", "USER_UPDATED", "TOTP_RESET_BY_ADMIN"] } })
+      const since = (query.createdAt as { gte: Date }).gte.getTime()
+      expect(Date.now() - since).toBeGreaterThan(29.9 * 86_400_000)
+      expect(Date.now() - since).toBeLessThan(30.1 * 86_400_000)
+    })
+
+    it("lets a checker with no such history approve", async () => {
+      expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
+    })
   })
 
   it("answers not found for a request outside the tenant, without writing", async () => {

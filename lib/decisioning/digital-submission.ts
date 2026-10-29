@@ -1,4 +1,4 @@
-import { startApplicationReview } from "@/app/api/applications/[id]/review/review-application"
+import { REVIEW_NOT_ADMITTED_STATUS, startApplicationReview, type ReviewArgs } from "@/app/api/applications/[id]/review/review-application"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { runAutoDecision } from "./auto-decision"
@@ -7,6 +7,8 @@ import { findSystemUser } from "./system-user"
 export type DigitalSubmissionResult =
   | { status: "SKIPPED"; reason: "engine_off" | "mode_off" | "channel_not_enabled" | "product_not_enabled" | "no_system_user" | "application_not_submitted" }
   | { status: "REVIEW_REFUSED"; httpStatus: number }
+  /** The daily limit on automatic paid pulls stopped it (after the KYC gates, before any pull); the application stays with staff. */
+  | { status: "RATE_LIMITED" }
   | { status: "REVIEWED" }
   /** SHADOW: a rehearsal run was recorded; the application was not touched. */
   | { status: "REHEARSED" }
@@ -19,8 +21,8 @@ export type DigitalSubmissionResult =
  * refuses what staff review would refuse (unverified KYC, say); the application then
  * simply stays SUBMITTED for staff. Never throws into a caller: see runDigitalDecision.
  */
-export async function reviewDigitalSubmission(input: { tenantId: string; applicationId: string }): Promise<DigitalSubmissionResult> {
-  const { tenantId, applicationId } = input
+export async function reviewDigitalSubmission(input: { tenantId: string; applicationId: string; admit?: ReviewArgs["admit"] }): Promise<DigitalSubmissionResult> {
+  const { tenantId, applicationId, admit } = input
   return runWithTenant(tenantId, async () => {
     const config = await prisma.decisionEngineConfig.findUnique({ where: { tenantId } })
     if (!config) return { status: "SKIPPED", reason: "engine_off" }
@@ -36,7 +38,8 @@ export async function reviewDigitalSubmission(input: { tenantId: string; applica
     }
     const system = await findSystemUser(prisma, tenantId)
     if (!system) return { status: "SKIPPED", reason: "no_system_user" }
-    const started = await startApplicationReview({ tenant: { id: tenantId }, user: system, id: applicationId, autoDecisionTrigger: "DIGITAL_SUBMISSION", assignToUser: false })
-    return started instanceof Response ? { status: "REVIEW_REFUSED", httpStatus: started.status } : { status: "REVIEWED" }
+    const started = await startApplicationReview({ tenant: { id: tenantId }, user: system, id: applicationId, autoDecisionTrigger: "DIGITAL_SUBMISSION", assignToUser: false, admit })
+    if (started instanceof Response) return admit && started.status === REVIEW_NOT_ADMITTED_STATUS ? { status: "RATE_LIMITED" } : { status: "REVIEW_REFUSED", httpStatus: started.status }
+    return { status: "REVIEWED" }
   })
 }

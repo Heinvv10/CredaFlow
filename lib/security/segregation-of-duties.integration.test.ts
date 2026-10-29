@@ -63,6 +63,17 @@ function countersign(
   })
 }
 
+// A user cannot be turned into the system account (trigger User_guard_is_system), so a test that needs one
+// switches the trigger off for the single statement that stands it up.
+async function makeSystemUser(userId: string): Promise<void> {
+  await prisma.$executeRawUnsafe(`ALTER TABLE "User" DISABLE TRIGGER "User_guard_is_system"`)
+  try {
+    await prisma.$executeRawUnsafe(`UPDATE "User" SET "active" = false, "password" = '!', "isSystem" = true WHERE "id" = '${userId}'`)
+  } finally {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "User" ENABLE TRIGGER "User_guard_is_system"`)
+  }
+}
+
 suite("segregation of duties in the database", () => {
   describe("approve / disburse", () => {
     it.each([
@@ -84,7 +95,7 @@ suite("segregation of duties in the database", () => {
     // approval rested on take the approver's place (migration 20261029100000_maker_checker_decision_rules).
     it("an engine approval cannot be disbursed by the staff member whose attestation it rested on, whichever attestation", async () => {
       const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
-      await prisma.$executeRawUnsafe(`UPDATE "User" SET "active" = false, "password" = '!', "isSystem" = true WHERE "id" = '${scenario.officerId}'`)
+      await makeSystemUser(scenario.officerId)
       for (const column of ["recklessLendingAssessedById", "incomeVerifiedById", "bureauOverrideById"]) {
         await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "${column}" = '${scenario.colleagueId}' WHERE "id" = '${scenario.applicationId}'`)
         await expect(disburse(scenario, scenario.colleagueId), column).rejects.toThrow(ENGINE_ATTESTER_DISBURSES)
@@ -99,23 +110,33 @@ suite("segregation of duties in the database", () => {
       await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "recklessLendingAssessedById" = '${person.colleagueId}' WHERE "id" = '${person.applicationId}'`)
       await expect(disburse(person, person.colleagueId)).rejects.toBe(rollback)
       const off = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: false })
-      await prisma.$executeRawUnsafe(`UPDATE "User" SET "active" = false, "password" = '!', "isSystem" = true WHERE "id" = '${off.officerId}'`)
+      await makeSystemUser(off.officerId)
       await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "recklessLendingAssessedById" = '${off.colleagueId}' WHERE "id" = '${off.applicationId}'`)
       await expect(disburse(off, off.colleagueId)).rejects.toBe(rollback)
     })
 
-    it("an engine approval cannot be disbursed by the staff member who captured the application", async () => {
+    it("an engine approval cannot be disbursed by any staff member who captured it or changed its inputs", async () => {
       const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
-      await prisma.$executeRawUnsafe(`UPDATE "User" SET "active" = false, "password" = '!', "isSystem" = true WHERE "id" = '${scenario.officerId}'`)
-      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = '${scenario.colleagueId}' WHERE "id" = '${scenario.applicationId}'`)
+      await makeSystemUser(scenario.officerId)
+      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY['someone-else', '${scenario.colleagueId}'] WHERE "id" = '${scenario.applicationId}'`)
       await expect(disburse(scenario, scenario.colleagueId)).rejects.toThrow(ENGINE_ATTESTER_DISBURSES)
     })
 
-    it("a capturer, once recorded, cannot be changed or cleared (it could otherwise be laundered before disbursing)", async () => {
+    it("the input staff of an application can be added to but never removed (it could otherwise be laundered before disbursing)", async () => {
       const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
-      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = '${scenario.colleagueId}' WHERE "id" = '${scenario.applicationId}'`)
-      await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = '${scenario.officerId}' WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/captured an application cannot be changed/)
-      await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = NULL WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/captured an application cannot be changed/)
+      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY['a'] WHERE "id" = '${scenario.applicationId}'`)
+      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY['a', 'b'] WHERE "id" = '${scenario.applicationId}'`)
+      await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY['b'] WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/cannot be removed from it/)
+      await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY[]::TEXT[] WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/cannot be removed from it/)
+    })
+
+    it("a user cannot be turned into (or out of) the system account", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      await expect(prisma.$executeRawUnsafe(`UPDATE "User" SET "isSystem" = true WHERE "id" = '${scenario.colleagueId}'`)).rejects.toThrow(/isSystem cannot be changed/)
+      await makeSystemUser(scenario.officerId)
+      await expect(prisma.$executeRawUnsafe(`UPDATE "User" SET "isSystem" = false WHERE "id" = '${scenario.officerId}'`)).rejects.toThrow(/isSystem cannot be changed/)
+      // An update that leaves the flag as it is is not touched.
+      await prisma.$executeRawUnsafe(`UPDATE "User" SET "name" = 'Renamed' WHERE "id" = '${scenario.colleagueId}'`)
     })
 
     it("records the disburser only with the DISBURSED transition", async () => {

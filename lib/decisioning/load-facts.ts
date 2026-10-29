@@ -94,7 +94,7 @@ function approvalInstalment(application: ApplicationRow, now: Date): { instalmen
  * (channel) and the lender's loan book. Affordability comes from the approval
  * path's own helpers (./affordability-facts.ts), so a rule and the approval
  * gate read the same numbers. Read-only. Null when the application is not a
- * consumer application of this lender (no client borrower).
+ * consumer application of this lender (no client borrower, or asset finance).
  */
 export async function loadDecisionFacts(db: Db, tenantId: string, applicationId: string, now: Date = new Date(), options: LoadOptions = {}): Promise<LoadedFacts | null> {
   const application = await db.loanApplication.findFirst({
@@ -102,9 +102,12 @@ export async function loadDecisionFacts(db: Db, tenantId: string, applicationId:
     include: {
       product: true,
       client: { include: { debtObligations: true, expenseBreakdown: true } },
+      assetFinanceDeal: { select: { id: true } },
     },
   })
   if (!application?.client || !application.clientId) return null
+  // Asset finance (a deal, or any application on an asset-finance product) is decided by its own path, never by this engine.
+  if (application.assetFinanceDeal || application.product.productType === "ASSET_FINANCE") return null
   const client = application.client
 
   const config = await db.tenantConfig.findFirst({ where: { tenantId }, select: { bureauMaxAgeDays: true, ndiBufferPct: true } })

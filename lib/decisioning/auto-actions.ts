@@ -1,6 +1,7 @@
 import type { AutoDecisionExecution, AutoDecisionRole, DecisionEngineMode, LoanRepaymentMethod } from "@prisma/client"
 import { decideApplication, type DecideAutomation } from "@/app/api/applications/[id]/decide/decide-application"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { logger } from "@/lib/observability/logger"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { prisma } from "@/lib/prisma"
 import type { LoadedFacts } from "./load-facts"
@@ -38,6 +39,27 @@ export class ApplicationChangedError extends Error {
     super("The application changed after the decision engine read it")
     this.name = "ApplicationChangedError"
   }
+}
+
+/** The lender's s71 sign-off was gone when the decline came to commit: the decline must not stand. */
+export class S71NotSignedOffError extends Error {
+  constructor() {
+    super("The lender's POPIA s71 sign-off of automated declines is not in force")
+    this.name = "S71NotSignedOffError"
+  }
+}
+
+/**
+ * The sign-off and the wording as they are NOW, read inside the decline's transaction with a row lock
+ * (FOR SHARE: a change of the engine settings waits for this decline to commit), so a decline is never
+ * committed under a sign-off that was withdrawn or reworded after the verdict was made.
+ */
+async function currentNotice(tx: Pick<Tx, "$queryRaw">, tenantId: string): Promise<string | null> {
+  const rows = await tx.$queryRaw<Array<{ s71SignedOffAt: Date | null; automatedDeclineNotice: string | null }>>`
+    SELECT "s71SignedOffAt", "automatedDeclineNotice" FROM "DecisionEngineConfig" WHERE "tenantId" = ${tenantId} FOR SHARE`
+  const config = rows[0]
+  if (!config?.s71SignedOffAt) throw new S71NotSignedOffError()
+  return config.automatedDeclineNotice
 }
 
 const elapsed = (ctx: RunContext) => Math.max(0, Math.round(performance.now() - ctx.startedAt))
@@ -145,7 +167,9 @@ function automationFor(ctx: RunContext, execution: AutoDecisionExecution, reason
     expectedUpdatedAt: ctx.loaded.application.updatedAt,
     inTransaction: async (tx) => {
       await writeGrade(tx, ctx, false)
-      booked.runId = (await writeRun(tx, ctx, execution, reasonCodes, null)).id
+      // A decline stores the wording in force when it commits, not the one read when the verdict was made.
+      const decided = execution === "DECLINED" ? { ...ctx, noticeText: await currentNotice(tx, ctx.tenantId) } : ctx
+      booked.runId = (await writeRun(tx, decided, execution, reasonCodes, null)).id
     },
   }
 }
@@ -179,8 +203,8 @@ export async function declineThroughStaffPath(ctx: RunContext): Promise<Executed
   try {
     response = await decideApplication({ tenant: { id: ctx.tenantId }, user: system, id: ctx.applicationId, formData: form, automation: automationFor(ctx, "DECLINED", ctx.verdict.reasonCodes, booked) })
   } catch (error) {
-    // TODO: use the structured logger once lib/observability/logger.ts lands (PR #252).
-    console.error("[auto-decision] staff decline path failed:", error)
+    if (error instanceof S71NotSignedOffError) return refer(ctx, [...ctx.verdict.reasonCodes, "S71_NOT_SIGNED_OFF"], "The s71 sign-off of automated declines is no longer in force; staff must decide.", false)
+    logger.error("auto-decision: staff decline path failed", { applicationId: ctx.applicationId, error: error instanceof Error ? error.message : String(error) })
     return refer(ctx, [...ctx.verdict.reasonCodes, "HARD_GATE_ERROR"], "The decline path failed; staff must decide.", false)
   }
   if (response.ok) return { execution: "DECLINED", runId: booked.runId, note: null }
@@ -208,8 +232,7 @@ export async function approveThroughStaffPath(ctx: RunContext, repaymentMethod: 
   try {
     response = await decideApplication({ tenant: { id: ctx.tenantId }, user: system, id: ctx.applicationId, formData: form, automation: automationFor(ctx, "APPROVED", ctx.verdict.reasonCodes, booked) })
   } catch (error) {
-    // TODO: use the structured logger once lib/observability/logger.ts lands (PR #252).
-    console.error("[auto-decision] staff approval path failed:", error)
+    logger.error("auto-decision: staff approval path failed", { applicationId: ctx.applicationId, error: error instanceof Error ? error.message : String(error) })
     return refer(ctx, [...ctx.verdict.reasonCodes, "HARD_GATE_ERROR"], "The approval path failed; staff must decide.", false)
   }
   if (response.ok) return { execution: "APPROVED", runId: booked.runId, note: null }

@@ -11,4 +11,8 @@ export default definePermissions({
   manage_decision_rules: "LOAN_ADMIN",
   // Approve or reject a submitted decisioning change (never one's own).
   approve_decision_rules: "ADMIN",
+  // Approve engine settings that put the engine LIVE or record the lender's s71 sign-off of automated
+  // declines: a SUPER_ADMIN, with the session's second factor where the lender requires one
+  // (lib/maker-checker/service.ts). A drafting ADMIN's colleague ADMIN cannot wave it through.
+  approve_decision_engine_live: "SUPER_ADMIN",
 } as const)

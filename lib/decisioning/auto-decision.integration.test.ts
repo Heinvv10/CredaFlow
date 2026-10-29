@@ -56,7 +56,7 @@ import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { listAutomatedDeclines } from "./automated-declines"
 import { runAutoDecision } from "./auto-decision"
-import { markDigitalDecisionDue, runDigitalDue, sweepDigitalDecisions } from "./digital-due"
+import { admitDigitalReview, markDigitalDecisionDue, runDigitalDue, sweepDigitalDecisions } from "./digital-due"
 import { reviewDigitalSubmission } from "./digital-submission"
 import { HumanReviewError, requestHumanReview } from "./human-review"
 import { ENGINE_CONFIG_KIND, RULE_SET_KIND } from "./change-payloads"
@@ -82,7 +82,7 @@ const expenses = { housing: 400_000, transport: 150_000, food: 150_000, insuranc
 const longAgo = new Date(Date.now() - 2 * 365 * 86_400_000)
 const clientOf = (applicationId: string) => `${applicationId}-client`
 const maker = { id: ids.maker, email: `${ids.maker}@test.invalid`, role: "ADMIN", totpVerified: true }
-const checker = { id: ids.checker, email: `${ids.checker}@test.invalid`, role: "ADMIN", totpVerified: true }
+const checker = { id: ids.checker, email: `${ids.checker}@test.invalid`, role: "SUPER_ADMIN", totpVerified: true }
 
 async function createAppRole(): Promise<string> {
   const password = randomBytes(12).toString("hex")
@@ -539,20 +539,41 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(pulls).not.toHaveBeenCalled()
   })
 
+  it("a client the KYC gate stops never uses a daily slot or reaches the bureau (the slot is charged after the gates, before the pull)", async () => {
+    await approveChange(ENGINE_CONFIG_KIND, "Live, kyc gate", engine({ mode: "LIVE", channels: ["PORTAL", "STAFF"], ...signOff }))
+    const pulls = vi.fn(async () => "completed")
+    bureauStub.run = pulls
+    await underReview("dec-nokyc", { bureauScore: 640, clearFlags: false })
+    await db.clientDocument.deleteMany({ where: { tenantId: ids.tenant, clientId: clientOf("dec-nokyc") } })
+    await db.loanApplication.update({ where: { id: "dec-nokyc" }, data: { status: "SUBMITTED", assignedToId: null } })
+    await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: "dec-nokyc", clientId: clientOf("dec-nokyc"), ip: "203.0.113.77", createdAt: new Date(Date.now() - 600_000) } })
+    await runDigitalDue({ tenantId: ids.tenant, applicationId: "dec-nokyc" })
+    const due = await db.autoDecisionDue.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-nokyc" } })
+    expect(due.outcome).toMatch(/^REVIEW_REFUSED_/)
+    expect(due.chargedAt).toBeNull()
+    expect(pulls).not.toHaveBeenCalled()
+    expect(await statusOf("dec-nokyc")).toBe("SUBMITTED")
+  })
+
   it("the daily limit holds under concurrent submissions: only the limit's worth is admitted, per client, per address and for unknown addresses", async () => {
     await approveChange(ENGINE_CONFIG_KIND, "Live, digital race", engine({ mode: "LIVE", channels: ["PORTAL", "STAFF"], ...signOff }))
-    const burst = async (label: string, rows: Array<{ clientId: string; ip: string | null }>) => {
-      for (const [i, r] of rows.entries()) await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `race-${label}-${i}`, clientId: r.clientId, ip: r.ip } })
-      await Promise.all(rows.map((_, i) => runDigitalDue({ tenantId: ids.tenant, applicationId: `race-${label}-${i}` })))
-      const done = await db.autoDecisionDue.findMany({ where: { tenantId: ids.tenant, applicationId: { startsWith: `race-${label}-` } } })
-      return { limited: done.filter((d) => d.outcome === "RATE_LIMITED").length, admitted: done.filter((d) => d.chargedAt !== null).length }
+    const burst = async (label: string, rows: Array<{ clientId: string; ip: string | null }>, ceiling = 1000) => {
+      const created = []
+      for (const [i, r] of rows.entries()) created.push(await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `race-${label}-${i}`, clientId: r.clientId, ip: r.ip } }))
+      // Each admit is its own transaction on its own connection, as the reviews of concurrent submissions are.
+      const admitted = await Promise.all(created.map((row) => runWithTenant(ids.tenant, () => app!.$transaction((tx) => admitDigitalReview(tx as never, row, new Date(), ceiling)))))
+      const charged = await db.autoDecisionDue.count({ where: { tenantId: ids.tenant, applicationId: { startsWith: `race-${label}-` }, chargedAt: { not: null } } })
+      return { limited: admitted.filter((a) => !a).length, admitted: admitted.filter(Boolean).length, charged }
     }
     // One client, one address, eight at once: three get in.
-    expect(await burst("client", Array.from({ length: 8 }, () => ({ clientId: "race-client", ip: "192.0.2.1" })))).toEqual({ limited: 5, admitted: 3 })
+    expect(await burst("client", Array.from({ length: 8 }, () => ({ clientId: "race-client", ip: "192.0.2.1" })))).toEqual({ limited: 5, admitted: 3, charged: 3 })
     // Fifteen clients behind one address: ten get in.
-    expect(await burst("ip", Array.from({ length: 15 }, (_, i) => ({ clientId: `race-ip-client-${i}`, ip: "192.0.2.2" })))).toEqual({ limited: 5, admitted: 10 })
+    expect(await burst("ip", Array.from({ length: 15 }, (_, i) => ({ clientId: `race-ip-client-${i}`, ip: "192.0.2.2" })))).toEqual({ limited: 5, admitted: 10, charged: 10 })
+    // Twenty clients on twenty addresses against a lender ceiling with room for six more: six get in, whoever they are.
+    const usedToday = await db.autoDecisionDue.count({ where: { tenantId: ids.tenant, chargedAt: { gte: new Date(Date.now() - 86_400_000) } } })
+    expect(await burst("lender", Array.from({ length: 20 }, (_, i) => ({ clientId: `race-lender-client-${i}`, ip: `192.0.2.${100 + i}` })), usedToday + 6)).toEqual({ limited: 14, admitted: 6, charged: 6 })
     // Fifteen clients whose address is unknown share one bucket: ten get in.
-    expect(await burst("unknown", Array.from({ length: 15 }, (_, i) => ({ clientId: `race-unknown-client-${i}`, ip: null })))).toEqual({ limited: 5, admitted: 10 })
+    expect(await burst("unknown", Array.from({ length: 15 }, (_, i) => ({ clientId: `race-unknown-client-${i}`, ip: null })))).toEqual({ limited: 5, admitted: 10, charged: 10 })
   })
 
   it("decides well inside the 60 second target", () => {

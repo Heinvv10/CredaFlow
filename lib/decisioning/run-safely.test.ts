@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const run = vi.hoisted(() => vi.fn())
+const logError = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/observability/logger", () => ({ logger: { error: logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
 vi.mock("./auto-decision", () => ({ runAutoDecision: run }))
 
 import { runAutoDecisionSafely, statusAfterAutoDecision } from "./run-safely"
@@ -20,10 +22,9 @@ describe("runAutoDecisionSafely", () => {
     expect(await runAutoDecisionSafely(input)).toEqual({ status: "SKIPPED", reason: "engine_off" })
   })
   it("logs a failure and answers null, so the review it ran inside never fails", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined)
     run.mockRejectedValueOnce(new Error("db down"))
     expect(await runAutoDecisionSafely(input)).toBeNull()
-    expect(log).toHaveBeenCalled()
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining("stays with staff"), expect.objectContaining({ applicationId: "a" }))
   })
 })
 

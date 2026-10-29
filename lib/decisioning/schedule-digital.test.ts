@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ order: [] as string[], mark: vi.fn(), run: vi.fn(), review: vi.fn() }))
+const h = vi.hoisted(() => ({ order: [] as string[], mark: vi.fn(), run: vi.fn(), review: vi.fn(), logError: vi.fn() }))
+vi.mock("@/lib/observability/logger", () => ({ logger: { error: h.logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
 vi.mock("./digital-due", () => ({ markDigitalDecisionDue: h.mark, runDigitalDue: h.run }))
 vi.mock("./digital-submission", () => ({ reviewDigitalSubmission: h.review }))
 vi.mock("@/lib/http/after-response", () => ({ deferAfterResponse: vi.fn() }))
@@ -13,6 +14,7 @@ beforeEach(() => {
   h.mark.mockReset().mockImplementation(async () => { h.order.push("mark"); return true })
   h.run.mockReset().mockImplementation(async () => { h.order.push("run") })
   h.review.mockReset().mockResolvedValue({ status: "REVIEWED" })
+  h.logError.mockReset()
 })
 
 describe("scheduleDigitalDecision", () => {
@@ -37,26 +39,22 @@ describe("scheduleDigitalDecision", () => {
     expect(scheduled).toHaveLength(0)
   })
 
-  it("a failure to record the row is logged and the task is still scheduled: the submission itself never fails", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined)
+  it("a failure to record the row is logged and NOTHING is scheduled or reviewed: the application stays with staff, and the submission never fails", async () => {
     h.mark.mockRejectedValueOnce(new Error("db down"))
     const scheduled: Array<() => Promise<void>> = []
     await expect(scheduleDigitalDecision(input, (task) => { scheduled.push(task) })).resolves.toBeUndefined()
-    expect(scheduled).toHaveLength(1)
-    // With no row to claim, the task reviews directly rather than do nothing.
-    await scheduled[0]()
+    expect(scheduled).toHaveLength(0)
+    // A review without its row would run without the daily limits on paid pulls (breaker 3): none is attempted.
+    expect(h.review).not.toHaveBeenCalled()
     expect(h.run).not.toHaveBeenCalled()
-    expect(h.review).toHaveBeenCalledWith({ tenantId: "t", applicationId: "a" })
-    log.mockRestore()
+    expect(h.logError).toHaveBeenCalledWith(expect.stringContaining("stays with staff"), expect.objectContaining({ applicationId: "a" }))
   })
 
   it("a failing task is logged, never thrown", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined)
     h.run.mockRejectedValueOnce(new Error("db down"))
     const scheduled: Array<() => Promise<void>> = []
     await scheduleDigitalDecision(input, (task) => { scheduled.push(task) })
     await expect(scheduled[0]()).resolves.toBeUndefined()
-    expect(log).toHaveBeenCalled()
-    log.mockRestore()
+    expect(h.logError).toHaveBeenCalled()
   })
 })

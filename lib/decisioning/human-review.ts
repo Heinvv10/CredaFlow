@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto"
+import type { Prisma } from "@prisma/client"
+import { returnAffordabilityToReview } from "@/lib/affordability/snapshot"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerReturnRecord } from "@/lib/learning-loop/records"
@@ -43,7 +45,7 @@ export async function requestHumanReview(input: {
   await prisma.$transaction(async (tx) => {
     const application = await tx.loanApplication.findFirst({
       where: { id: input.applicationId, tenantId: input.tenantId },
-      select: { id: true, status: true, clientId: true, approvedById: true, approvedBy: { select: { isSystem: true } }, humanReviewRequestedAt: true },
+      select: { id: true, status: true, clientId: true, approvedById: true, approvedBy: { select: { isSystem: true } }, humanReviewRequestedAt: true, affordabilityResult: true },
     })
     if (!application) throw new HumanReviewError("NOT_FOUND", "Application not found")
     if (application.status !== "DECLINED") throw new HumanReviewError("NOT_DECLINED", "Only a declined application can be reopened for review")
@@ -62,9 +64,14 @@ export async function requestHumanReview(input: {
       data: {
         status: "UNDER_REVIEW", approvedById: null, approvedAt: null, decisionReason: null, declineCategory: null, declineInternalNote: null,
         assignedToId: input.actor.id,
-        // A new review cycle, as a return to review has: evidence tied to the old one does not carry over.
+        // A new review cycle, as a return to review has (decide-application.ts): evidence tied to the old one does not carry over.
+        // Not reset here, because a declined application never had them: the PASQ, agreement and debit-mandate fields belong to an
+        // approval (CHECK LoanApplication_approved_status_requires_pasq), so they are null on a decline by construction.
         bureauReviewGeneration: randomUUID(),
         recklessLendingAssessed: false, recklessLendingAssessedById: null, recklessLendingAssessedAt: null,
+        bureauOverrideReason: null, bureauOverrideById: null, bureauOverrideAt: null,
+        repaymentMethod: null, approvedAmount: null, approvedTermDays: null, approvedRate: null,
+        affordabilityResult: returnAffordabilityToReview(application.affordabilityResult) as unknown as Prisma.InputJsonValue,
         humanReviewRequestedAt: now,
       },
     })

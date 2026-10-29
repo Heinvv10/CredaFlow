@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
               tenantId: tenant.id,
               reference: generateReference("APP"),
               ...prepared.fields,
-              // Staff capture: the SoD rule for an engine approval names the capturer (lib/security/segregation-of-duties.ts).
-              capturedById: guard.user.id,
+              // Staff capture: the SoD rule for an engine approval names whoever captured it (lib/applications/input-staff.ts).
+              inputStaffIds: [guard.user.id],
             },
           })
           if (prepared.fields.status === "SUBMITTED") {

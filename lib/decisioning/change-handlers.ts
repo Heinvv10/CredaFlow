@@ -63,13 +63,17 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
   label: "Decision engine settings",
   payloadVersion: 1,
   makePermission: "manage_decision_rules",
-  approvePermission: "approve_decision_rules",
+  // Going LIVE, or recording the s71 sign-off, is the change that lets the engine decide and decline on its own.
+  approvePermission: (payload) => (payload.mode === "LIVE" || payload.s71SignOff ? "approve_decision_engine_live" : "approve_decision_rules"),
   parse: parseEngineConfigPayload,
   async verify(tx: Tx, tenantId, payload) {
     const problems: string[] = []
-    const products = await tx.loanProduct.findMany({ where: { tenantId, id: { in: payload.productIds } }, select: { id: true } })
+    const products = await tx.loanProduct.findMany({ where: { tenantId, id: { in: payload.productIds } }, select: { id: true, productType: true } })
     const missing = payload.productIds.filter((id) => !products.some((p) => p.id === id))
     if (missing.length > 0) problems.push(`payload.productIds: unknown product ${missing.join(", ")}`)
+    // Asset finance has its own decision path (a deal, a valuation, a lessee); this engine never decides it.
+    const assetFinance = products.filter((p) => p.productType === "ASSET_FINANCE").map((p) => p.id)
+    if (assetFinance.length > 0) problems.push(`payload.productIds: ${assetFinance.join(", ")} is an asset-finance product; the decision engine does not decide asset finance`)
     if (payload.challengerVersionId) {
       const version = await tx.decisionRuleSetVersion.findFirst({ where: { id: payload.challengerVersionId, tenantId }, select: { effectiveFrom: true } })
       if (!version) problems.push("payload.challengerVersionId: no such rule set version")

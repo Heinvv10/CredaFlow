@@ -628,7 +628,7 @@ describe("POST /api/portal/applications", () => {
       creditLifeDisclosureAcknowledgedBy: "c1",
     }))
     // Not staff capture: no capturer, so the SoD rule for an engine approval names no one for a client's own application.
-    expect(createApplication.mock.calls[0][0].data).not.toHaveProperty("capturedById")
+    expect(createApplication.mock.calls[0][0].data).not.toHaveProperty("inputStaffIds")
     expect(createApplication.mock.calls[0][0].data).not.toHaveProperty("pasqAcknowledgedAt")
     expect(createApplication.mock.calls[0][0].data).not.toHaveProperty("pasqAcknowledgedBy")
     expect(findFirstInsuranceProduct).toHaveBeenCalledWith(
