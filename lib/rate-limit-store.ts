@@ -17,12 +17,27 @@ export function keyHash(namespace: string, key: string): string {
   return createHash("sha256").update(namespace).update("\0").update(key).digest("hex")
 }
 
-/** Anything the database call throws is the store being unavailable; the code around it stays a bug if it throws. */
+/** Postgres SQLSTATEs for a statement that ran out of time (57014) or a lock it would not wait for (55P03). */
+const TIMED_OUT_SQLSTATES = new Set(["57014", "55P03"])
+
+/** Prisma's own timeout waiting for a free connection from the limiter's pool. */
+const POOL_TIMEOUT_CODE = "P2024"
+
+function isTimeout(error: unknown): boolean {
+  const e = error as { code?: unknown; meta?: { code?: unknown } } | null
+  return e?.code === POOL_TIMEOUT_CODE || (typeof e?.meta?.code === "string" && TIMED_OUT_SQLSTATES.has(e.meta.code))
+}
+
+/** Server-side cap on one limiter statement; below the limiter's own SHARED_TIMEOUT_MS (lib/rate-limit.ts). */
+export const STATEMENT_TIMEOUT_MS = 1000
+
+/** Anything the database call throws is the store being unavailable (a timeout, or an error); the code around it stays a bug if it throws. */
 async function queryStore<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run()
   } catch (error) {
-    throw new SharedStoreUnavailableError("shared rate-limit query failed", { cause: error })
+    const kind = isTimeout(error) ? "timeout" : "error"
+    throw new SharedStoreUnavailableError(`shared rate-limit query failed (${kind})`, { cause: error, kind })
   }
 }
 
@@ -43,11 +58,12 @@ export function createPostgresStore(client: RawQueryClient) {
     const rows = await queryStore(() => client.$queryRaw<Row[]>`
       WITH c AS (SELECT clock_timestamp() AS t, make_interval(secs => ${windowSeconds}::double precision) AS w),
       up AS (
-        INSERT INTO "RateLimitHit" ("keyHash", "ns", "hits", "expiresAt")
-        SELECT ${hash}::text, ${group}::text, ARRAY[c.t], c.t + c.w FROM c
+        INSERT INTO "RateLimitHit" ("keyHash", "ns", "maxHits", "hits", "expiresAt")
+        SELECT ${hash}::text, ${group}::text, ${opts.limit}::int, ARRAY[c.t], c.t + c.w FROM c
         ON CONFLICT ("keyHash") DO UPDATE SET
           "hits" = ARRAY(SELECT x FROM unnest("RateLimitHit"."hits") x WHERE x > (SELECT t - w FROM c)) || (SELECT t FROM c),
-          "expiresAt" = (SELECT t + w FROM c)
+          "expiresAt" = (SELECT t + w FROM c),
+          "maxHits" = ${opts.limit}::int
         WHERE (SELECT count(*) FROM unnest("RateLimitHit"."hits") x WHERE x > (SELECT t - w FROM c)) < ${opts.limit}::int
         RETURNING cardinality("hits") AS n
       )
@@ -77,6 +93,10 @@ export function limiterDatabaseUrl(url: string): string {
   }
   if (!parsed.searchParams.has("connection_limit")) parsed.searchParams.set("connection_limit", "5")
   if (!parsed.searchParams.has("pool_timeout")) parsed.searchParams.set("pool_timeout", "2")
+  // A statement (a wait for a locked row included) is cancelled by the server before the limiter's own timeout fires,
+  // so a stalled key fails that one call and frees its connection instead of holding it while the limiter has moved on.
+  const options = parsed.searchParams.get("options") ?? ""
+  if (!/statement_timeout/.test(options)) parsed.searchParams.set("options", `${options} -c statement_timeout=${STATEMENT_TIMEOUT_MS}`.trim())
   return parsed.toString()
 }
 

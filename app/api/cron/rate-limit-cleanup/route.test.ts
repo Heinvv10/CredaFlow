@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 const executeRaw = vi.hoisted(() => vi.fn())
-vi.mock("@/lib/prisma", () => ({ prisma: { $executeRaw: executeRaw } }))
+const queryRaw = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/prisma", () => ({ prisma: { $executeRaw: executeRaw, $queryRaw: queryRaw } }))
 
 import { GET } from "./route"
 
@@ -10,6 +11,7 @@ const request = (secret?: string) => new NextRequest("http://localhost/api/cron/
 
 beforeEach(() => {
   executeRaw.mockReset()
+  queryRaw.mockReset().mockResolvedValue([])
   vi.stubEnv("CRON_SECRET", "cron-secret-for-tests-0123456789")
 })
 
@@ -37,6 +39,15 @@ describe("GET /api/cron/rate-limit-cleanup", () => {
     expect(body).toMatchObject({ ok: true, deleted: 0, capped: 1200 })
     expect((executeRaw.mock.calls[1]![0] as TemplateStringsArray).join("?")).toMatch(/PARTITION BY "ns"/)
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("1200"))
+  })
+
+  it("raises an alert for a group still over the ceiling after the cap, and names it in the answer", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    executeRaw.mockResolvedValue(0)
+    queryRaw.mockResolvedValue([{ ns: "login:", rows: BigInt(250_000) }])
+    const body = await (await GET(request("cron-secret-for-tests-0123456789"))).json()
+    expect(body.overCap).toEqual([{ ns: "login:", rows: 250_000 }])
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('ALERT: limiter group "login:"'))
   })
 
   it("answers 503 when the delete fails, so the run is recorded as failed", async () => {

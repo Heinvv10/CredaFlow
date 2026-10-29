@@ -2,6 +2,7 @@
 CREATE TABLE "RateLimitHit" (
     "keyHash" TEXT NOT NULL,
     "ns" TEXT NOT NULL DEFAULT '',
+    "maxHits" INTEGER NOT NULL DEFAULT 0,
     "hits" TIMESTAMPTZ(3)[],
     "expiresAt" TIMESTAMPTZ(3) NOT NULL,
 

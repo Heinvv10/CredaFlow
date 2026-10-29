@@ -1,4 +1,5 @@
 import { isIP } from "node:net"
+import { classify, FAIL_CLOSED_RETRY_SECONDS } from "./rate-limit-groups"
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
 import { checkSharedRateLimit } from "./rate-limit-store"
 
@@ -11,11 +12,13 @@ import { checkSharedRateLimit } from "./rate-limit-store"
  * process: per-pod limits, for tests, local development and a database-less run.
  * RATE_LIMIT_STORE=memory|postgres chooses explicitly; any other value throws.
  *
- * FAIL MODE: if the shared store errors or does not answer within SHARED_TIMEOUT_MS, an
- * authentication limit (FAIL_CLOSED_*) REFUSES the attempt, and any other limit is decided by
- * the in-memory limiter (per pod, so up to N times looser with N replicas, never absent). After
- * FAILURES_TO_OPEN failures in a row a group's store is not asked for BREAKER_MS. The breaker is
- * per group, so one slow key or limiter does not move the others. An outage is logged once.
+ * FAIL MODE (lib/rate-limit-groups.ts says which limits are authentication limits):
+ *  - A call that TIMES OUT (a lock held on its key, no free connection, SHARED_TIMEOUT_MS) concerns that call alone:
+ *    an authentication limit refuses it, any other is decided by the in-memory limiter. Nothing else changes.
+ *  - A database ERROR counts towards an outage: after FAILURES_TO_OPEN in a row the group's store is not asked for
+ *    BREAKER_MS, and meanwhile an authentication group refuses (sign-in needs the database anyway) while any other is
+ *    decided in memory (per pod, up to N times looser, never absent). The breaker is per group.
+ * An outage is logged once.
  *
  * Each call records a hit under the given key and reports whether the caller is
  * over the limit. A refused call records nothing.
@@ -65,45 +68,12 @@ function storeMode(): Mode {
   return process.env.DATABASE_URL?.trim() ? "postgres" : "memory"
 }
 
-/**
- * Limits that guard authentication or a one-time code. When the shared store cannot answer they FAIL CLOSED: the
- * attempt is refused, because the in-memory limiter would start every key at zero on every pod and hand an attacker
- * a fresh budget exactly when the database is struggling. These paths need the database to authenticate anyway.
- * Matched on the key's prefix for checkRateLimit, and on the limiter's namespace for createRateLimiter.
- */
-const FAIL_CLOSED_KEY_PREFIXES = [
-  "login:", "totp-current-code:", "sso:", "forgot:", "reset-otp:", "register:", "portal-password-", "signing-otp:",
-] as const
-const FAIL_CLOSED_NAMESPACES: ReadonlySet<string> = new Set(["oauth:client", "oauth:failed:address", "lender-api:failed-auth:address"])
-/** Seconds a refused-because-the-store-is-down caller is told to wait. */
-const FAIL_CLOSED_RETRY_SECONDS = 30
-
-/**
- * Site-wide counters with a single key. In the shared store every caller would queue on one row lock, so they stay
- * per pod (a limit of L across N pods is at most N x L site-wide): the per-address and per-identity limits beside
- * them are the ones that hold across pods.
- */
-const POD_LOCAL_KEYS: ReadonlySet<string> = new Set(["website:chat:start:all"])
-
-interface Classified {
-  /** Names the breaker and the row group in the shared store. */
-  group: string
-  failClosed: boolean
-  podLocal: boolean
-}
-
-function classify(namespace: string, key: string): Classified {
-  if (namespace !== "") return { group: namespace, failClosed: FAIL_CLOSED_NAMESPACES.has(namespace), podLocal: false }
-  const prefix = FAIL_CLOSED_KEY_PREFIXES.find((p) => key.startsWith(p))
-  return { group: prefix ?? "", failClosed: prefix !== undefined, podLocal: POD_LOCAL_KEYS.has(key) }
-}
-
 /** Consecutive failures and the end of the open period, per group: one group's outage does not move the others. */
 const health = new Map<string, { failures: number; openUntil: number }>()
 
 function withTimeout<T>(work: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new SharedStoreUnavailableError(`shared rate-limit store did not answer in ${SHARED_TIMEOUT_MS} ms`)), SHARED_TIMEOUT_MS)
+    const timer = setTimeout(() => reject(new SharedStoreUnavailableError(`shared rate-limit store did not answer in ${SHARED_TIMEOUT_MS} ms`, { kind: "timeout" })), SHARED_TIMEOUT_MS)
     work.then(
       (value) => {
         clearTimeout(timer)
@@ -138,6 +108,11 @@ async function decide(
     // Only the store being unavailable degrades (to a refusal, or the in-memory limiter, by group). Anything else is
     // a bug (a TypeError, a bad argument) and is thrown to the caller: it must not be hidden as an outage.
     if (!(error instanceof SharedStoreUnavailableError)) throw error
+    // A timeout concerns this call alone (a lock held on this one key, a busy pool): it is refused, or served from memory,
+    // and no other key is affected. Whoever can stall one key must not be able to refuse the rest.
+    if (error.kind === "timeout") return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
+    // A database error is an outage once it repeats: then the group is not asked for a while, and an authentication group
+    // refuses meanwhile (sign-in needs the database too, so nothing that would have worked is lost).
     const failures = (state?.failures ?? 0) + 1
     const opens = failures >= FAILURES_TO_OPEN
     health.set(group, { failures, openUntil: opens ? Date.now() + BREAKER_MS : 0 })

@@ -6,7 +6,8 @@ vi.mock("./rate-limit-store", () => ({ checkSharedRateLimit: shared }))
 import { _resetRateLimitStore, assertRateLimitStoreConfig, checkRateLimit, createRateLimiter } from "./rate-limit"
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
 
-const down = (message = "connection refused") => new SharedStoreUnavailableError(message, { cause: new Error(message) })
+const down = (message = "connection refused") => new SharedStoreUnavailableError(message, { cause: new Error(message), kind: "error" })
+const slow = (message = "lock wait") => new SharedStoreUnavailableError(message, { cause: new Error(message), kind: "timeout" })
 
 const OPTS = { limit: 3, windowMs: 60_000 }
 const ALLOWED = { allowed: true, remaining: 2, retryAfterSeconds: 0 }
@@ -128,7 +129,35 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
       expect((await checkRateLimit("website:contact:1.2.3.4", OPTS)).allowed).toBe(false)
     })
 
-    it("treats a store that does not answer in time as down, refusing an authentication attempt", async () => {
+    it("answers a timed-out call alone: an authentication call is refused, and the store is asked again for the next key", async () => {
+      quiet()
+      shared.mockRejectedValue(slow())
+      for (let i = 0; i < 8; i++) expect((await checkRateLimit(`login:email:${i}@x.example`, OPTS)).allowed).toBe(false)
+      // eight timeouts opened nothing: the next key reaches the store and is answered by it
+      shared.mockResolvedValue(ALLOWED)
+      expect(await checkRateLimit("login:email:fresh@x.example", OPTS)).toEqual(ALLOWED)
+      expect(shared).toHaveBeenCalledTimes(9)
+    })
+
+    it("serves a timed-out call of any other limit from memory, again without opening anything", async () => {
+      quiet()
+      shared.mockRejectedValue(slow())
+      for (let i = 0; i < 3; i++) expect((await checkRateLimit("website:contact:k", OPTS)).allowed).toBe(true)
+      expect((await checkRateLimit("website:contact:k", OPTS)).allowed).toBe(false)
+      expect(shared).toHaveBeenCalledTimes(4)
+    })
+
+    it("does not count timeouts towards an outage, even between errors", async () => {
+      quiet()
+      shared.mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockRejectedValueOnce(slow()).mockRejectedValue(down())
+      for (let i = 0; i < 4; i++) await checkRateLimit(`website:contact:${i}`, OPTS)
+      // error, error, timeout, error: the timeout neither counts nor resets, so this is the third error and the breaker opens
+      expect(shared).toHaveBeenCalledTimes(4)
+      await checkRateLimit("website:contact:after", OPTS)
+      expect(shared).toHaveBeenCalledTimes(4)
+    })
+
+    it("treats a store that does not answer within the limiter's own timeout as a timed-out call: refused, nothing opened", async () => {
       quiet()
       shared.mockReturnValue(new Promise(() => {}))
       const pending = checkRateLimit("login:ip:1.2.3.4", OPTS)
