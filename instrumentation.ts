@@ -17,6 +17,10 @@ export async function register() {
       instrumentHttpServer()
     }
 
+    // A mistyped RATE_LIMIT_STORE stops the boot here rather than failing every sign-in later.
+    const { assertRateLimitStoreConfig } = await import("@/lib/rate-limit")
+    assertRateLimitStoreConfig()
+
     const { assertSmileIdentityRuntimeSafety } = await import("@/lib/integrations/smileidentity")
     assertSmileIdentityRuntimeSafety()
 

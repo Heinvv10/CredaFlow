@@ -168,11 +168,28 @@ key already carries the scope it needs (an address, an account, a key id) and th
 | `postgres` | Shared, as above. |
 | `memory` | Per pod (and reset on restart): up to N times the configured limit with N replicas. For tests, local development and a database-less run only. |
 
-Any other value fails the check with an error. **Failure mode:** if the database errors, or does not answer within
-1.5 s, the call is decided by the in-memory limiter, and the database is not asked again for 30 s. An outage therefore
-makes limits per pod, never absent; each outage logs one line (`[rate-limit] shared store failed`). Cost: one
-database round trip on every rate-limited call (sign-in, OTP, portal forms, API-key requests). A limit that only
-decides how many log rows to write (the unattributed ApiRequestLog sample) stays per pod on purpose.
+Any other value stops the boot (`instrumentation.ts`).
+
+**Failure mode.** The store has its own small connection pool (5 connections, 2 s wait unless `DATABASE_URL` sets
+`connection_limit` / `pool_timeout`), so a busy application, or a transaction that calls a limiter, cannot starve it.
+If a call errors or does not answer within 1.5 s:
+
+- **Authentication limits fail closed**: sign-in, second-factor codes (settings and sign-in), SSO start and code, OAuth token
+  client and failed-auth, forgot/reset password, portal password and registration, signing OTP. The attempt is refused
+  (429, `Retry-After` 30) and one line is logged. An in-memory fallback would give every pod a fresh budget exactly
+  when the database is struggling; these paths need the database to authenticate anyway.
+- **Every other limit** is decided by the in-memory limiter (per pod, up to N times looser, never absent).
+- After 3 failures in a row a group's store is not asked for 30 s (authentication groups refuse during that time).
+  The breaker is per group, so one slow key or limiter does not move the others.
+- Two single-key site-wide counters (`website:chat:start:all`, the unattributed-address failed-auth counters of the
+  lender API and OAuth token endpoint) stay per pod on purpose: in the shared store every caller would queue on one row
+  lock. The per-address and per-identity limits beside them are the ones that hold across pods.
+- Cost: one database round trip per rate-limited call. The unattributed ApiRequestLog sample stays per pod too.
+
+**Table care.** Every hit rewrites its row (and moves `expiresAt` in an index, so no update is HOT): `RateLimitHit` is pure
+churn. The migration sets aggressive per-table autovacuum (`autovacuum_vacuum_scale_factor = 0.01`); on a busy lender
+watch `pg_stat_user_tables.n_dead_tup` for it. The cleanup job also caps each limiter group at 200 000 rows, deleting the
+least recently used, so a flood of made-up sign-in emails cannot grow the table without bound.
 
 Still worth an edge limit at the ingress for the login and portal OTP paths
 (`nginx.ingress.kubernetes.io/limit-rps`): it absorbs a flood before it reaches the database.

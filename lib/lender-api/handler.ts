@@ -54,7 +54,8 @@ export const UNATTRIBUTED_LOG_SAMPLE = { limit: 10, windowMs: 60_000 }
 // Namespaces are in the shared store's keys (lib/rate-limit.ts): never rename one.
 const keyLimiter = createRateLimiter(200_000, "lender-api:key")
 const failedAuthByAddress = createRateLimiter(10_000, "lender-api:failed-auth:address")
-const failedAuthGlobal = createRateLimiter(1, "lender-api:failed-auth:global")
+// Per pod: one key, so in the shared store every failed request would queue on a single row lock.
+const failedAuthGlobal = createLocalRateLimiter(1)
 // Per process: it only decides how many log rows to write.
 const logSampler = createLocalRateLimiter(1)
 const LAST_USED_RESOLUTION_MS = 60_000
@@ -176,7 +177,7 @@ export async function withApiKey(
       response = tooMany(keyLimit.retryAfterSeconds, kind === "oauth_client" ? "Too many requests for this OAuth client." : "Too many requests for this API key.")
     } else if (!auth.ok) {
       const ip = recordedCallerIp(req)
-      const failLimit = ip ? await failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : await failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
+      const failLimit = ip ? await failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
       response = failLimit.allowed ? auth.response : tooMany(failLimit.retryAfterSeconds, "Too many failed requests.")
     } else if (!sourceAddressAllowed(req, auth.ipAllowlist)) {
       // The key (or client) is real and valid but not from here: its allowlist, on the TRUSTED_PROXY-aware caller address.

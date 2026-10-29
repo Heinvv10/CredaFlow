@@ -557,10 +557,13 @@ model CronHeartbeat {
 // by /api/cron/rate-limit-cleanup.
 model RateLimitHit {
   keyHash   String     @id
+  // The limiter group the key belongs to (lib/rate-limit.ts): the cleanup cron caps the rows of each group.
+  ns        String     @default("")
   hits      DateTime[] @db.Timestamptz(3)
   expiresAt DateTime   @db.Timestamptz(3)
 
   @@index([expiresAt])
+  @@index([ns, expiresAt])
 }
 
 // One row per (single-run in-process job, SAST day): the replica that inserts it

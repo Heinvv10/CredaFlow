@@ -40,13 +40,15 @@ export async function POST(req: NextRequest) {
     if (!v.ok) return NextResponse.json({ error: "Please check the highlighted fields.", errors: v.errors }, { status: 400 })
 
     // Limits are charged only after Turnstile and validation pass, so junk POSTs cannot burn a bucket.
-    const perPhone = await checkRateLimit(`website:chat:start:phone:${v.fields.phone}:${ip}`, PHONE_LIMIT)
-    if (!perPhone.allowed) return tooMany(perPhone.retryAfterSeconds)
+    // The address bucket goes first and a refusal stops there: the phone bucket is keyed by a number the caller
+    // chooses, so an address already blocked must not write a fresh row per made-up number.
     // Without a real IP every caller would share one bucket, turning a per-IP limit into a site-wide one.
     if (ip !== "unknown") {
       const perIp = await checkRateLimit(`website:chat:start:ip:${ip}`, IP_LIMIT)
       if (!perIp.allowed) return tooMany(perIp.retryAfterSeconds)
     }
+    const perPhone = await checkRateLimit(`website:chat:start:phone:${v.fields.phone}:${ip}`, PHONE_LIMIT)
+    if (!perPhone.allowed) return tooMany(perPhone.retryAfterSeconds)
     const siteWide = await checkRateLimit("website:chat:start:all", SITE_LIMIT)
     if (!siteWide.allowed) return tooMany(siteWide.retryAfterSeconds)
 

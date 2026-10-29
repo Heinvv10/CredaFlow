@@ -40,6 +40,7 @@ vi.mock("bcryptjs", () => ({ default: { compare: async () => h.passwordOk, hash:
 
 import "@/lib/auth"
 import { _resetRateLimitStore } from "@/lib/rate-limit"
+import * as rateLimit from "@/lib/rate-limit"
 
 function authorize(email: string, ip: string) {
   const request = new Request("https://app.lender.example/api/auth/callback/credentials", {
@@ -68,5 +69,14 @@ describe("authorize(): sign-in rate gate", () => {
   it("refuses an address after 30 attempts against different accounts", async () => {
     for (let i = 0; i < 30; i++) expect(await code(authorize(`user${i}@lender.example`, "203.0.113.50"))).not.toBe("rate_limited")
     expect(await code(authorize("user31@lender.example", "203.0.113.50"))).toBe("rate_limited")
+  })
+
+  // Breaker 4 (PR #259): a blocked address must not write a limiter row for each email it makes up.
+  it("stops at the address bucket once it refuses: no email or combined key is written for the attempt", async () => {
+    for (let i = 0; i < 30; i++) await code(authorize(`user${i}@lender.example`, "203.0.113.51"))
+    const spy = vi.spyOn(rateLimit, "checkRateLimit")
+    expect(await code(authorize("fresh-made-up@lender.example", "203.0.113.51"))).toBe("rate_limited")
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(["login:ip:203.0.113.51"])
+    spy.mockRestore()
   })
 })

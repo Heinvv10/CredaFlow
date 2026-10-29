@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
-import { createPostgresStore, keyHash } from "./rate-limit-store"
+import { createPostgresStore, keyHash, limiterDatabaseUrl } from "./rate-limit-store"
 
 const OPTS = { limit: 3, windowMs: 60_000 }
 
@@ -30,5 +30,15 @@ describe("createPostgresStore", () => {
   it("hashes namespace and key apart, so no pair collides with another by concatenation", () => {
     expect(keyHash("ab", "c")).not.toBe(keyHash("a", "bc"))
     expect(keyHash("ns", "k")).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it("gives the limiter its own small pool unless the URL already says otherwise", () => {
+    const own = new URL(limiterDatabaseUrl("postgresql://u:p@db:5432/app?schema=public"))
+    expect(own.searchParams.get("connection_limit")).toBe("5")
+    expect(own.searchParams.get("pool_timeout")).toBe("2")
+    expect(own.searchParams.get("schema")).toBe("public")
+    const set = new URL(limiterDatabaseUrl("postgresql://u:p@db:5432/app?connection_limit=2&pool_timeout=9"))
+    expect([set.searchParams.get("connection_limit"), set.searchParams.get("pool_timeout")]).toEqual(["2", "9"])
+    expect(limiterDatabaseUrl("not a url")).toBe("not a url")
   })
 })

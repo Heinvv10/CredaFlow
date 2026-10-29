@@ -21,7 +21,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 suite("shared rate limit on Postgres", () => {
   afterAll(async () => {
-    await replicaA.$executeRaw`DELETE FROM "RateLimitHit" WHERE "expiresAt" < now() + interval '1 hour'`
+    // No blanket DELETE: other suites share this database and own live rows; every key here is a fresh UUID.
     await Promise.all([replicaA.$disconnect(), replicaB.$disconnect()])
   })
 

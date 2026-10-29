@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const shared = vi.hoisted(() => vi.fn())
 vi.mock("./rate-limit-store", () => ({ checkSharedRateLimit: shared }))
 
-import { _resetRateLimitStore, checkRateLimit, createRateLimiter } from "./rate-limit"
+import { _resetRateLimitStore, assertRateLimitStoreConfig, checkRateLimit, createRateLimiter } from "./rate-limit"
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
 
 const down = (message = "connection refused") => new SharedStoreUnavailableError(message, { cause: new Error(message) })
@@ -81,14 +81,17 @@ describe("createRateLimiter", () => {
 
 describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
   beforeEach(() => vi.stubEnv("RATE_LIMIT_STORE", "postgres"))
+  const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {})
 
-  it("takes the decision from the shared store, with the namespace of the limiter", async () => {
+  it("takes the decision from the shared store, with the namespace and the group of the limiter", async () => {
     shared.mockResolvedValue(ALLOWED)
     const limiter = createRateLimiter(100, "lender-api:key")
     expect(await limiter("abc", OPTS)).toEqual(ALLOWED)
-    expect(shared).toHaveBeenCalledWith("lender-api:key", "abc", OPTS)
+    expect(shared).toHaveBeenCalledWith("lender-api:key", "abc", OPTS, "lender-api:key")
     await checkRateLimit("login:ip:1.2.3.4", OPTS)
-    expect(shared).toHaveBeenLastCalledWith("", "login:ip:1.2.3.4", OPTS)
+    expect(shared).toHaveBeenLastCalledWith("", "login:ip:1.2.3.4", OPTS, "login:")
+    await checkRateLimit("website:contact:1.2.3.4", OPTS)
+    expect(shared).toHaveBeenLastCalledWith("", "website:contact:1.2.3.4", OPTS, "")
   })
 
   it("passes a refusal through unchanged", async () => {
@@ -96,64 +99,108 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     expect(await checkRateLimit("k", OPTS)).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 42 })
   })
 
-  it("never goes fully open: on a store error it enforces the limit in memory", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    shared.mockRejectedValue(down())
-    for (let i = 0; i < 3; i++) expect((await checkRateLimit("k", OPTS)).allowed).toBe(true)
-    expect((await checkRateLimit("k", OPTS)).allowed).toBe(false)
+  it("keeps a site-wide single-key counter per pod: it never reaches the store", async () => {
+    for (let i = 0; i < 3; i++) await checkRateLimit("website:chat:start:all", OPTS)
+    expect((await checkRateLimit("website:chat:start:all", OPTS)).allowed).toBe(false)
+    expect(shared).not.toHaveBeenCalled()
   })
 
-  it("stops asking a failing store for a while, then tries it again", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    shared.mockRejectedValue(down("down"))
-    await checkRateLimit("a", OPTS)
-    await checkRateLimit("b", OPTS)
-    await checkRateLimit("c", OPTS)
-    expect(shared).toHaveBeenCalledTimes(1)
-    vi.advanceTimersByTime(60_000)
-    shared.mockResolvedValue(ALLOWED)
-    expect(await checkRateLimit("d", OPTS)).toEqual(ALLOWED)
-    expect(shared).toHaveBeenCalledTimes(2)
-  })
-
-  it("treats a store that does not answer in time as down", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    shared.mockReturnValue(new Promise(() => {}))
-    const pending = checkRateLimit("k", OPTS)
-    await vi.advanceTimersByTimeAsync(2_000)
-    expect((await pending).allowed).toBe(true)
-    for (let i = 0; i < 2; i++) await checkRateLimit("k", OPTS)
-    expect((await checkRateLimit("k", OPTS)).allowed).toBe(false)
-  })
-
-  it("rethrows an error that is not the store being unavailable, and does not trip the breaker", async () => {
-    shared.mockRejectedValue(new TypeError("limiter called wrongly"))
-    await expect(checkRateLimit("k", OPTS)).rejects.toThrow(TypeError)
-    await expect(checkRateLimit("k", OPTS)).rejects.toThrow(TypeError)
-    expect(shared).toHaveBeenCalledTimes(2)
-  })
-
-  it("keeps the breaker per namespace: one limiter's outage leaves the others on the shared store", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    const a = createRateLimiter(10, "ns-a")
-    const b = createRateLimiter(10, "ns-b")
-    shared.mockImplementation(async (namespace: string) => {
-      if (namespace === "ns-a") throw down()
-      return ALLOWED
+  describe("when the store is unavailable", () => {
+    it.each([
+      ["login:email:a@b.example"], ["totp-current-code:u1"], ["sso:code:u1"], ["sso:start:1.2.3.4"], ["forgot:ip:1.2.3.4"],
+      ["reset-otp:1.2.3.4"], ["register:a@b.example"], ["portal-password-ip:1.2.3.4"], ["signing-otp:verify:ip:1.2.3.4"],
+    ])("refuses the authentication attempt %s, and does not fall back to a fresh in-memory budget", async (key) => {
+      quiet()
+      shared.mockRejectedValue(down())
+      for (let i = 0; i < 6; i++) expect(await checkRateLimit(key, OPTS)).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 30 })
     })
-    expect((await a("k", OPTS)).allowed).toBe(true)
-    await a("k", OPTS)
-    expect(shared.mock.calls.filter(([ns]) => ns === "ns-a")).toHaveLength(1)
-    expect(await b("k", OPTS)).toEqual(ALLOWED)
-    expect(await b("k", OPTS)).toEqual(ALLOWED)
-    expect(shared.mock.calls.filter(([ns]) => ns === "ns-b")).toHaveLength(2)
-  })
 
-  it("logs the failure once per outage, not once per request", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {})
-    shared.mockRejectedValue(down("down"))
-    for (let i = 0; i < 5; i++) await checkRateLimit(`k${i}`, OPTS)
-    expect(error).toHaveBeenCalledTimes(1)
+    it.each([["oauth:client"], ["oauth:failed:address"], ["lender-api:failed-auth:address"]])("refuses on the %s limiter", async (namespace) => {
+      quiet()
+      shared.mockRejectedValue(down())
+      expect((await createRateLimiter(10, namespace)("k", OPTS)).allowed).toBe(false)
+    })
+
+    it("falls back to the in-memory limiter, which still enforces the limit, for every other limit", async () => {
+      quiet()
+      shared.mockRejectedValue(down())
+      for (let i = 0; i < 3; i++) expect((await checkRateLimit("website:contact:1.2.3.4", OPTS)).allowed).toBe(true)
+      expect((await checkRateLimit("website:contact:1.2.3.4", OPTS)).allowed).toBe(false)
+    })
+
+    it("treats a store that does not answer in time as down, refusing an authentication attempt", async () => {
+      quiet()
+      shared.mockReturnValue(new Promise(() => {}))
+      const pending = checkRateLimit("login:ip:1.2.3.4", OPTS)
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect((await pending).allowed).toBe(false)
+    })
+
+    it("stops asking the store only after 3 failures in a row, for 30 s, then asks again", async () => {
+      quiet()
+      shared.mockRejectedValue(down("down"))
+      await checkRateLimit("website:contact:a", OPTS)
+      await checkRateLimit("website:contact:b", OPTS)
+      expect(shared).toHaveBeenCalledTimes(2)
+      await checkRateLimit("website:contact:c", OPTS)
+      await checkRateLimit("website:contact:d", OPTS)
+      await checkRateLimit("website:contact:e", OPTS)
+      expect(shared).toHaveBeenCalledTimes(3)
+      vi.advanceTimersByTime(60_000)
+      shared.mockResolvedValue(ALLOWED)
+      expect(await checkRateLimit("website:contact:f", OPTS)).toEqual(ALLOWED)
+      expect(shared).toHaveBeenCalledTimes(4)
+    })
+
+    it("counts consecutive failures: an answer in between starts the count again", async () => {
+      quiet()
+      shared.mockRejectedValueOnce(down()).mockRejectedValueOnce(down()).mockResolvedValueOnce(ALLOWED).mockRejectedValue(down())
+      for (let i = 0; i < 5; i++) await checkRateLimit(`website:contact:${i}`, OPTS)
+      // fail, fail, ok, fail, fail: never three in a row, so every call reached the store
+      expect(shared).toHaveBeenCalledTimes(5)
+    })
+
+    it("keeps the breaker per group: one group's outage leaves the others on the shared store", async () => {
+      quiet()
+      const a = createRateLimiter(10, "ns-a")
+      const b = createRateLimiter(10, "ns-b")
+      shared.mockImplementation(async (namespace: string) => {
+        if (namespace === "ns-a") throw down()
+        return ALLOWED
+      })
+      for (let i = 0; i < 5; i++) await a("k", OPTS)
+      expect(shared.mock.calls.filter(([ns]) => ns === "ns-a")).toHaveLength(3)
+      expect(await b("k", OPTS)).toEqual(ALLOWED)
+      expect(await b("k", OPTS)).toEqual(ALLOWED)
+      expect(shared.mock.calls.filter(([ns]) => ns === "ns-b")).toHaveLength(2)
+      // and an authentication group's outage does not move the unrelated keys of the default namespace
+      shared.mockImplementation(async (_ns: string, key: string) => {
+        if (key.startsWith("login:")) throw down()
+        return ALLOWED
+      })
+      for (let i = 0; i < 4; i++) await checkRateLimit(`login:ip:${i}`, OPTS)
+      expect(await checkRateLimit("website:contact:z", OPTS)).toEqual(ALLOWED)
+    })
+
+    it("opens an authentication group's breaker too: it refuses at once instead of waiting out the timeout each time", async () => {
+      quiet()
+      shared.mockRejectedValue(down())
+      for (let i = 0; i < 6; i++) await checkRateLimit("login:ip:1.2.3.4", OPTS)
+      expect(shared).toHaveBeenCalledTimes(3)
+    })
+
+    it("rethrows an error that is not the store being unavailable, and does not count it as an outage", async () => {
+      shared.mockRejectedValue(new TypeError("limiter called wrongly"))
+      for (let i = 0; i < 4; i++) await expect(checkRateLimit("login:ip:1.2.3.4", OPTS)).rejects.toThrow(TypeError)
+      expect(shared).toHaveBeenCalledTimes(4)
+    })
+
+    it("logs the first failure of an outage and the opening of the breaker, not one line per request", async () => {
+      const error = quiet()
+      shared.mockRejectedValue(down("down"))
+      for (let i = 0; i < 8; i++) await checkRateLimit(`website:contact:${i}`, OPTS)
+      expect(error).toHaveBeenCalledTimes(2)
+    })
   })
 })
 
@@ -180,8 +227,16 @@ describe("choosing the store", () => {
     expect(shared).not.toHaveBeenCalled()
   })
 
-  it("refuses to guess at an unknown value", async () => {
+  it("refuses to guess at an unknown value, at boot and per call", async () => {
     vi.stubEnv("RATE_LIMIT_STORE", "redis")
+    expect(() => assertRateLimitStoreConfig()).toThrow(/RATE_LIMIT_STORE/)
     await expect(checkRateLimit("k", OPTS)).rejects.toThrow(/RATE_LIMIT_STORE/)
+  })
+
+  it("accepts every value the boot check lets through", () => {
+    for (const value of ["", "memory", "postgres", " Postgres "]) {
+      vi.stubEnv("RATE_LIMIT_STORE", value)
+      expect(() => assertRateLimitStoreConfig()).not.toThrow()
+    }
   })
 })

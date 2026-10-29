@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { withoutTenantScope } from "@/lib/tenant-scope"
-import { createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
+import { createLocalRateLimiter, createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
 import { apiKeyMatches, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { logApiRequest } from "@/lib/lender-api/handler"
 import { sourceAddressAllowed } from "@/lib/lender-api/ip-restriction"
@@ -25,9 +25,10 @@ export const TOKEN_FAILED_GLOBAL_LIMIT = { limit: 300, windowMs: 60_000 }
 const MAX_BODY_BYTES = 8 * 1024
 
 // Namespaces are in the shared store's keys (lib/rate-limit.ts): never rename one.
-const clientLimiter = createRateLimiter(10_000, "oauth-token:client")
-const failedByAddress = createRateLimiter(10_000, "oauth-token:failed:address")
-const failedGlobal = createRateLimiter(1, "oauth-token:failed:global")
+const clientLimiter = createRateLimiter(10_000, "oauth:client")
+const failedByAddress = createRateLimiter(10_000, "oauth:failed:address")
+// Per pod: one key, so in the shared store every failed request would queue on a single row lock.
+const failedGlobal = createLocalRateLimiter(1)
 const LAST_USED_RESOLUTION_MS = 60_000
 
 type OAuthError = "invalid_request" | "invalid_client" | "unsupported_grant_type" | "invalid_scope"
@@ -66,7 +67,7 @@ export async function handleTokenRequest(req: Request, now: Date = new Date()): 
   // Counted only for refusals that name no real, secret-proven client.
   const failed = async (error: OAuthError, description: string) => {
     const ip = recordedCallerIp(req)
-    const gate = ip ? await failedByAddress(ip, TOKEN_FAILED_IP_LIMIT) : await failedGlobal("unknown-address", TOKEN_FAILED_GLOBAL_LIMIT)
+    const gate = ip ? await failedByAddress(ip, TOKEN_FAILED_IP_LIMIT) : failedGlobal("unknown-address", TOKEN_FAILED_GLOBAL_LIMIT)
     if (!gate.allowed) {
       return finish(NextResponse.json({ error: "invalid_request", error_description: "Too many failed requests." }, {
         status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds), "Cache-Control": "no-store" },
