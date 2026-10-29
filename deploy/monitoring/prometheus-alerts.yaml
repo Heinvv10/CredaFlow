@@ -1,0 +1,89 @@
+# Prometheus alerting rules for CredaFlow (docs: deploy/README.md, "Observability").
+# Plain rule-file format: load it with `rule_files:`, or wrap `groups:` in a
+# PrometheusRule resource. Check with: promtool check rules prometheus-alerts.yaml
+# The credaflow_* series come from /api/metrics (METRICS_TOKEN); kube_* from kube-state-metrics.
+groups:
+  - name: credaflow-availability
+    rules:
+      - alert: CredaFlowHigh5xxRate
+        expr: |
+          sum(rate(credaflow_http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(credaflow_http_requests_total[5m])) > 0.05
+          and sum(rate(credaflow_http_requests_total[5m])) > 0.1
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "More than 5% of CredaFlow requests are failing (5xx)"
+          description: "{{ $value | humanizePercentage }} of requests over the last 5 minutes. Check the web pods' logs by trace_id."
+      - alert: CredaFlowHighP95Latency
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(credaflow_http_request_duration_seconds_bucket[5m]))) > 3
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "CredaFlow p95 request latency is above 3 seconds"
+          description: "p95 is {{ $value | humanizeDuration }} over the last 5 minutes."
+      - alert: CredaFlowDatabaseDown
+        expr: min(credaflow_database_up) == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "CredaFlow cannot reach its database"
+          description: "SELECT 1 fails from at least one pod. Pods leave the Service (readiness) until it answers."
+      - alert: CredaFlowMetricsAbsent
+        expr: absent(credaflow_database_up)
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "No CredaFlow metrics are being scraped"
+          description: "Either every pod is down or Prometheus cannot read /api/metrics (METRICS_TOKEN, NetworkPolicy)."
+      - alert: CredaFlowPodsUnavailable
+        expr: |
+          kube_deployment_status_replicas_unavailable{deployment=~".*credaflow-(web|worker)"} > 0
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.deployment }} has unavailable replicas"
+          description: "A rollout may be stuck, or pods fail readiness."
+  - name: credaflow-cron
+    rules:
+      - alert: CredaFlowCronJobFailing
+        expr: sum by (job) (increase(credaflow_cron_runs_total{outcome!="ok"}[30m])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Cron job {{ $labels.job }} finished with a failure"
+          description: "Outcome failed, tenant_failed or error in the last 30 minutes. Single-run jobs retry 30 and 60 minutes later."
+      - alert: CredaFlowCronJobStale
+        expr: |
+          (time() - max by (job) (credaflow_cron_last_success_timestamp_seconds))
+            > max by (job) (credaflow_cron_freshness_budget_seconds)
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "Cron job {{ $labels.job }} has not succeeded within its freshness budget"
+          description: "Reminders, Section 129 and arrears jobs missing a day is a compliance problem. Is the worker running?"
+      - alert: CredaFlowExternalCronFailed
+        # The chart's CronJobs for the registry's owner "external" routes (messaging-retry, email-poll,
+        # lead-task-reminders, cleanup-notifications). They write no heartbeat, so Kubernetes is the signal.
+        expr: |
+          sum by (namespace, job_name) (kube_job_status_failed{job_name=~".+-(messaging-retry|email-poll|lead-task-reminders|cleanup-notifications)-.+"}) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "External cron Job {{ $labels.job_name }} failed"
+          description: "kubectl logs job/{{ $labels.job_name }}. messaging-retry failing means failed messages are not being retried."
+      - alert: CredaFlowWebhookOutboxFailures
+        expr: max(credaflow_webhook_outbox_failures_24h) > 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Webhook events were lost in the last 24 hours"
+          description: "The payment, loan or application was saved; the lender-API event was not written (WebhookOutboxFailure)."
+  - name: credaflow-runtime
+    rules:
+      - alert: CredaFlowEventLoopLag
+        expr: max by (pod) (nodejs_eventloop_lag_p99_seconds) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Node.js event loop lag above 1s on {{ $labels.pod }}"
+          description: "The pod is CPU-bound or blocked; the HPA scales on CPU only."

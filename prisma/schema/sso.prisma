@@ -1,0 +1,101 @@
+// ── Enterprise sign-in and API OAuth (lib/sso, lib/lender-api/oauth) ─────────
+
+enum SsoProtocol {
+  OIDC
+  SAML
+}
+
+// A lender's single sign-on connection for its staff: one per lender, OIDC or
+// SAML 2.0. The OIDC client secret is sealed with SSO_SECRET_KEY
+// (lib/crypto/secret-box.ts); the SAML IdP certificate is public. Who may be
+// mapped to what is enforced here as well as in code: no connection can map or
+// provision a SUPER_ADMIN or operator role, and password sign-in can be turned
+// off only while the connection is enabled (migration 20261029100000_sso_oauth).
+model SsoConnection {
+  id                     String      @id @default(cuid())
+  tenantId               String      @unique
+  tenant                 Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  protocol               SsoProtocol
+  enabled                Boolean     @default(false)
+  oidcIssuer             String?
+  oidcClientId           String?
+  oidcClientSecretSealed String?
+  oidcScopes             String[]
+  samlEntityId           String?
+  samlIdpEntityId        String?
+  // An attribute holding an immutable id (objectGUID, immutableId) to bind as the subject; else only a persistent NameID is accepted.
+  samlSubjectAttribute   String?
+  samlIdpSsoUrl          String?
+  samlIdpCert            String?
+  emailClaim             String      @default("email")
+  groupsClaim            String      @default("groups")
+  allowedEmailDomains    String[]
+  groupRoleMap           Json        @default("{}")
+  allowUnverifiedEmail   Boolean     @default(false)
+  jitProvisioning        Boolean     @default(false)
+  jitDefaultRole         UserRole?
+  mfaAcrValues           String[]
+  passwordLoginDisabled  Boolean     @default(false)
+  // Absolute life of an SSO session; then the user signs in at the provider again.
+  sessionHours           Int         @default(10)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  updatedById            String?
+}
+
+// The stable identity-provider subject a staff user is bound to, written at the
+// first SSO sign-in (email matches only that once). OIDC: "<issuer>|<sub>"; SAML:
+// "<IdP entity id>|<NameID>". From then on sign-in matches the subject, never the
+// email, so a re-used or re-pointed email at the provider cannot take the account.
+// Changing the provider (protocol, issuer, entity id) clears the links.
+model SsoIdentity {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userId    String
+  user      User     @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade, onUpdate: Restrict)
+  subject   String
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, subject])
+  @@unique([tenantId, userId])
+}
+
+// Single-use and short-lived values shared by every replica: SAML request and
+// assertion ids, SSO sign-in tickets. `key` is namespaced by its writer.
+model SsoCacheEntry {
+  key       String   @id
+  value     String
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+// An OAuth2 client-credentials client for /api/v1 (POST /api/auth/oauth/token). Only
+// the SHA-256 of the secret is stored; the secret is 256 random bits, so no slow
+// hash is needed (as ApiKey). Scopes are the API key scopes. A client that
+// requires mTLS must pin the certificate's SHA-256 fingerprint; a subject DN (exact RFC 4514 string) is an optional extra.
+model OauthClient {
+  id             String          @id @default(cuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name           String
+  clientId       String          @unique
+  secretHash     String
+  scopes         String[]
+  createdById    String
+  createdBy      User            @relation("OauthClientsCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt      DateTime        @default(now())
+  expiresAt      DateTime
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  revokedById    String?
+  requireMtls    Boolean         @default(false)
+  mtlsSubjectDn  String?
+  mtlsCertSha256 String?
+  ipAllowlist    String[]        @default([])
+  requestLogs    ApiRequestLog[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
+}

@@ -23,6 +23,8 @@ export async function createApiKey(args: {
   name: string
   scopes: ApiScope[]
   lifetimeDays: number
+  /** Optional CIDR allowlist (lib/lender-api/ip-restriction.ts); empty = any address. */
+  ipAllowlist?: string[]
 }): Promise<CreateKeyOutcome> {
   const generated = generateApiKey()
   const now = new Date()
@@ -37,6 +39,7 @@ export async function createApiKey(args: {
         prefix: generated.prefix,
         keyHash: generated.keyHash,
         scopes: args.scopes,
+        ipAllowlist: args.ipAllowlist ?? [],
         createdById: args.actor.id,
         createdAt: now,
         expiresAt,
@@ -50,7 +53,7 @@ export async function createApiKey(args: {
       action: AuditAction.API_KEY_CREATED,
       entity: "ApiKey",
       entityId: apiKey.id,
-      newValue: { name: apiKey.name, prefix: apiKey.prefix, scopes: apiKey.scopes, expiresAt: expiresAt.toISOString() },
+      newValue: { name: apiKey.name, prefix: apiKey.prefix, scopes: apiKey.scopes, expiresAt: expiresAt.toISOString(), ipAllowlist: args.ipAllowlist ?? [] },
       ipAddress: args.actor.ipAddress,
     }, tx)
     return { ok: true as const, key: generated.key, apiKey }

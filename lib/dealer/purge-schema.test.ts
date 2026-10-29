@@ -54,7 +54,9 @@ const KEPT: Record<string, string[]> = {
 }
 
 // Columns that name a person or business by id without a foreign key, and are not a link to keep it by.
-const NOT_LINKS = ["AuditLog.entityId", "CreditDecisionRecord.sourceEntityId", "WebhookEvent.entityId", "WebhookOutboxFailure.entityId"]
+const NOT_LINKS = ["AuditLog.entityId", "CreditDecisionRecord.sourceEntityId", "WebhookEvent.entityId", "WebhookOutboxFailure.entityId",
+  // OAuth / SAML identifiers of an identity provider or API client, not a person (lib/sso, lib/lender-api/oauth).
+  "OauthClient.clientId", "SsoConnection.oidcClientId", "SsoConnection.samlEntityId", "SsoConnection.samlIdpEntityId"]
 
 describe("dealer draft purge against the schema", () => {
   it.each(["Client", "BusinessEntity"])("decides every %s column: overwritten or kept on purpose", (model) => {

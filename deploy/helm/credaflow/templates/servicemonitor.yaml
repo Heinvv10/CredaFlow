@@ -1,0 +1,25 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "credaflow.fullname" . }}
+  labels:
+    {{- include "credaflow.labels" . | nindent 4 }}
+spec:
+  # The web and worker Services of this release.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "credaflow.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - { key: app.kubernetes.io/component, operator: In, values: [web, worker] }
+  endpoints:
+    - port: http
+      path: /api/metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ .Values.serviceMonitor.tokenSecret.name }}
+          key: {{ .Values.serviceMonitor.tokenSecret.key }}
+{{- end }}

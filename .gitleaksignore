@@ -1,0 +1,13 @@
+# Findings in synthetic test fixtures (CLAUDE.md: no real data in the repository).
+# One fingerprint per finding: a new leak, in a test or anywhere else, still fails the scan.
+34625a69e083a195ebb0ca9f30773011ad72a39d:app/api/health/route.test.ts:generic-api-key:29
+51c387e4c943bda5d2923450b0cb2f004bfadae9:app/api/website/apply/route.test.ts:generic-api-key:1121
+51c387e4c943bda5d2923450b0cb2f004bfadae9:app/api/website/apply/route.test.ts:generic-api-key:307
+51c387e4c943bda5d2923450b0cb2f004bfadae9:lib/crm/lead-outreach.test.ts:generic-api-key:239
+8e5bff346dfb1a4a98f7956af7ff0568e72d22ae:app/api/health/route.test.ts:generic-api-key:102
+8e5bff346dfb1a4a98f7956af7ff0568e72d22ae:app/api/health/route.test.ts:generic-api-key:35
+ab1824867202578d5969603338e211a69fc38877:app/api/website/apply/route.test.ts:generic-api-key:1126
+ab1824867202578d5969603338e211a69fc38877:app/api/website/apply/route.test.ts:generic-api-key:312
+ab1824867202578d5969603338e211a69fc38877:lib/crm/lead-outreach.test.ts:generic-api-key:239
+d0c1068434866f541a6d3b75a0f54258bae513d2:prisma/seed.integration.test.ts:generic-api-key:280
+f922a62c0ffc17e2977d34a9534855c3192dc004:app/api/integrations/isaflow/route.test.ts:generic-api-key:5
