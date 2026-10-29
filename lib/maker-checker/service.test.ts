@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ChangeRequestError } from "./errors"
 import type { ChangeHandler } from "./types"
 
-const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown, minted: null as unknown, recent: [] as unknown[], makerCreatedAt: new Date("2026-01-01T00:00:00Z") as Date | null }))
+const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown, minted: null as unknown, earlierTotp: null as unknown, recent: [] as unknown[], makerCreatedAt: new Date("2026-01-01T00:00:00Z") as Date | null }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: async () => h.totpRequired }))
 vi.mock("./handlers", () => ({ handlerFor: (kind: string) => (kind === "TEST_KIND" ? h.handler : null) }))
@@ -26,7 +26,7 @@ function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeH
 function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
-    auditLog: { create: vi.fn(), findMany: vi.fn(async () => h.recent), findFirst: vi.fn(async (a: { where: { action: { in: string[] } } }) => (a.where.action.in.includes("SSO_USER_PROVISIONED") ? h.minted : h.control)) },
+    auditLog: { create: vi.fn(), findMany: vi.fn(async () => h.recent), findFirst: vi.fn(async (a: { where: { action: { in: string[] } } }) => (a.where.action.in.includes("SSO_USER_PROVISIONED") ? h.minted : a.where.action.in.includes("TOTP_ENROLLED") ? h.earlierTotp : h.control)) },
     user: { findFirst: vi.fn(async () => (h.makerCreatedAt ? { createdAt: h.makerCreatedAt } : null)) },
     $executeRaw: vi.fn(async () => 0),
   }
@@ -35,7 +35,7 @@ function fakeDb(found: unknown, count = 1) {
 }
 const scope = { tenantId: "t", id: "cr1" }
 
-beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null; h.minted = null; h.recent = []; h.makerCreatedAt = new Date("2026-01-01T00:00:00Z") })
+beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null; h.minted = null; h.earlierTotp = null; h.recent = []; h.makerCreatedAt = new Date("2026-01-01T00:00:00Z") })
 
 describe("maker-checker service (state, permission, staleness; the database rules are in the integration suite)", () => {
   it("refuses an unknown kind before touching the database", async () => {
@@ -101,11 +101,26 @@ describe("maker-checker service (state, permission, staleness; the database rule
     })
 
     describe("an account taken over in the last 30 days, whoever wrote the row", () => {
-      it.each(["SSO_IDENTITY_LINKED", "SSO_ROLE_SYNCED", "TOTP_ENROLLED", "TOTP_REPLACED", "TOTP_DISABLED", "TOTP_RESET_BY_ADMIN", "SSO_PASSWORD_BREAK_GLASS"])("%s refuses the maker", async (action) => {
+      it.each(["SSO_IDENTITY_LINKED", "SSO_ROLE_SYNCED", "TOTP_REPLACED", "TOTP_DISABLED", "TOTP_RESET_BY_ADMIN", "SSO_PASSWORD_BREAK_GLASS"])("%s refuses the maker", async (action) => {
         h.recent = [{ action, oldValue: null, newValue: null }]
         const { db, tx } = fakeDb(row())
         await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
         expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
+      })
+
+      it("a user's FIRST TOTP enrolment (none on record before it) is not a takeover: a new admin enrols at first login", async () => {
+        h.recent = [{ action: "TOTP_ENROLLED", createdAt: new Date(Date.now() - 5 * 86_400_000), oldValue: null, newValue: null }]
+        h.earlierTotp = null
+        const { db, tx } = fakeDb(row())
+        expect((await approve({ ...scope, actor: checker }, db)).id).toBe("cr1")
+        const earlier = (tx.auditLog.findFirst.mock.calls.find((c) => (c[0] as { where: { action: { in: string[] } } }).where.action.in.includes("TOTP_ENROLLED")) as unknown as [{ where: Record<string, unknown> }])[0].where
+        expect(earlier).toMatchObject({ tenantId: "t", entity: "User", entityId: "u-maker", createdAt: { lt: expect.any(Date) }, action: { in: expect.arrayContaining(["TOTP_ENROLLED", "TOTP_REPLACED", "TOTP_DISABLED", "TOTP_RESET_BY_ADMIN"]) } })
+      })
+
+      it("a TOTP enrolment after an earlier enrolment, replacement, disable or reset is a takeover (reset, then re-enrol)", async () => {
+        h.recent = [{ action: "TOTP_ENROLLED", createdAt: new Date(Date.now() - 5 * 86_400_000), oldValue: null, newValue: null }]
+        h.earlierTotp = { id: "earlier-reset" }
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
       })
 
       it.each([
@@ -129,7 +144,7 @@ describe("maker-checker service (state, permission, staleness; the database rule
         const where = (tx.auditLog.findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where
         expect(where).toMatchObject({ tenantId: "t", entity: "User", entityId: "u-maker" })
         expect(where).not.toHaveProperty("userId")
-        expect((where.action as { in: string[] }).in.sort()).toEqual(["SSO_IDENTITY_LINKED", "SSO_PASSWORD_BREAK_GLASS", "SSO_ROLE_SYNCED", "TOTP_DISABLED", "TOTP_ENROLLED", "TOTP_REPLACED", "TOTP_RESET_BY_ADMIN", "USER_UPDATED"])
+        expect((where.action as { in: string[] }).in.slice().sort()).toEqual(["SSO_IDENTITY_LINKED", "SSO_PASSWORD_BREAK_GLASS", "SSO_ROLE_SYNCED", "TOTP_DISABLED", "TOTP_ENROLLED", "TOTP_REPLACED", "TOTP_RESET_BY_ADMIN", "USER_UPDATED"])
         const age = Date.now() - (where.createdAt as { gte: Date }).gte.getTime()
         expect(age).toBeGreaterThan(29.9 * 86_400_000)
         expect(age).toBeLessThan(30.1 * 86_400_000)

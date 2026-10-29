@@ -38,7 +38,8 @@ consumers: decision rule sets and engine settings (`lib/decisioning/`).
   created (USER_CREATED) or SSO provisioned (SSO_USER_PROVISIONED) cannot have changes approved
   (operator-provisioned, bootstrap and seeded accounts leave no such row and are exempt; a
   HIGH-RISK payload needs a 30-day-old maker account whatever its origin). An account whose SSO
-  identity, second factor, role, email or password changed in the last 30 days is refused whoever
+  identity, second factor (a first enrolment at setup is not a change; a replacement, disable, reset or
+  re-enrolment after one is), role, email or password changed in the last 30 days is refused whoever
   wrote the row (audit trail: SSO_*, TOTP_*, USER_UPDATED with role/email/`passwordChanged`), and a checker who created the maker's account or changed it (USER_CREATED,
   USER_UPDATED, TOTP_RESET_BY_ADMIN in the audit log) in the last 30 days is refused
   (`MAKER_ACCOUNT_CONTROLLED`). A handler's `approvePermission` (and optional `makePermissionFor`)

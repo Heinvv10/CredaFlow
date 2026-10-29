@@ -417,14 +417,23 @@ suite("maker-checker (real Postgres)", () => {
       expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: await taken(label, trail) })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
     await refused("sso", { action: "SSO_IDENTITY_LINKED", ageDays: 3 })
     await refused("synced", { action: "SSO_ROLE_SYNCED", oldValue: { role: "READONLY" }, newValue: { role: "ADMIN" }, ageDays: 3 })
-    await refused("totp", { action: "TOTP_ENROLLED", ageDays: 10 })
+    await refused("replaced", { action: "TOTP_REPLACED", ageDays: 10 })
+    await refused("disabled", { action: "TOTP_DISABLED", ageDays: 10 })
+    await refused("adminreset", { action: "TOTP_RESET_BY_ADMIN", ageDays: 10 })
     await refused("role", { action: "USER_UPDATED", oldValue: { role: "LOAN_ADMIN" }, newValue: { role: "ADMIN" }, ageDays: 5 })
     await refused("email", { action: "USER_UPDATED", oldValue: { email: "old@x.invalid" }, newValue: { email: "new@x.invalid" }, ageDays: 5 })
     await refused("pw", { action: "USER_UPDATED", newValue: { passwordChanged: true }, ageDays: 5 })
+    // A new admin enrolling TOTP at first login is not a takeover (the age rule still applies to a young account); an enrolment after a
+    // reset is, even when the reset itself is more than 30 days old.
+    const first = await taken("firstenrol", { action: "TOTP_ENROLLED", ageDays: 5 })
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: first })).status).toBe("APPROVED")
+    const reenrolled = await taken("reenrol", { action: "TOTP_ENROLLED", ageDays: 10 })
+    await db.auditLog.create({ data: { tenantId: lender.tenantId, action: "TOTP_RESET_BY_ADMIN", entity: "User", entityId: `u_reenrol_${lender.tenantId}`, userId: lender.checker2Id, newValue: {}, createdAt: new Date(Date.now() - 40 * 86_400_000) } })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: reenrolled })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
     // A rename, or any of it more than 30 days ago, does not count.
     const renamed = await taken("renamed", { action: "USER_UPDATED", newValue: { changed: ["name"] }, ageDays: 2 })
     expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: renamed })).status).toBe("APPROVED")
-    const old = await taken("oldtotp", { action: "TOTP_ENROLLED", ageDays: 45 })
+    const old = await taken("oldtotp", { action: "TOTP_REPLACED", ageDays: 45 })
     expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: old })).status).toBe("APPROVED")
   })
 

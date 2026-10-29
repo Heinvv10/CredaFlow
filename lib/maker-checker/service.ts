@@ -66,8 +66,8 @@ function changesAccessOnUpdate(row: { oldValue: unknown; newValue: unknown }): b
  *    provisioned it on first sign-in (SSO_USER_PROVISIONED): the risk is a tenant admin minting accounts. An account the operator
  *    provisioned, the bootstrap or the seed made has neither row and is exempt. For a HIGH-RISK payload (LIVE, s71 sign-off) the
  *    account must be 30 days old whatever its origin;
- *  - in the last 30 days, and whoever wrote the row, its SSO identity was linked or its role synced, its second factor was enrolled,
- *    replaced, disabled or reset, or its role, email or password was changed (an account taken over);
+ *  - in the last 30 days, and whoever wrote the row, its SSO identity was linked or its role synced, its second factor was replaced,
+ *    disabled or reset (or enrolled again after any of those; a first enrolment is how an account is set up), or its role, email or password was changed (an account taken over);
  *  - the CHECKER created or changed it (USER_CREATED, USER_UPDATED, TOTP_RESET_BY_ADMIN) in the last 30 days.
  * The trail is the audit log the user, SSO and TOTP routes already write.
  */
@@ -97,10 +97,28 @@ async function refuseControlledMaker(
         ],
       },
     },
-    select: { action: true, oldValue: true, newValue: true },
+    select: { action: true, oldValue: true, newValue: true, createdAt: true },
     take: 200,
   })
-  if (recent.some((row) => row.action !== AuditAction.USER_UPDATED || changesAccessOnUpdate(row))) {
+  const takenOver = async (row: (typeof recent)[number]): Promise<boolean> => {
+    if (row.action === AuditAction.USER_UPDATED) return changesAccessOnUpdate(row)
+    if (row.action !== AuditAction.TOTP_ENROLLED) return true
+    // A user's FIRST enrolment is how a new account is set up (staff TOTP is on by default), not a takeover. An enrolment after an
+    // earlier one, a replacement, a disable or an admin reset is.
+    const earlier = await tx.auditLog.findFirst({
+      where: {
+        tenantId, entity: "User", entityId: makerId, createdAt: { lt: row.createdAt },
+        action: { in: [AuditAction.TOTP_ENROLLED, AuditAction.TOTP_REPLACED, AuditAction.TOTP_DISABLED, AuditAction.TOTP_RESET_BY_ADMIN] },
+      },
+      select: { id: true },
+    })
+    return earlier !== null
+  }
+  let takeover = false
+  for (const row of recent) {
+    if (await takenOver(row)) { takeover = true; break }
+  }
+  if (takeover) {
     throw refuse(`The sign-in, second factor, role, email or password of the account that drafted this changed in the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: its changes cannot be approved yet`)
   }
   const control = await tx.auditLog.findFirst({
