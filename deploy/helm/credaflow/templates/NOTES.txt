@@ -1,0 +1,13 @@
+CredaFlow {{ include "credaflow.image" . }} installed as release "{{ .Release.Name }}".
+
+  web      {{ include "credaflow.fullname" . }}-web (APP_MODE={{ .Values.web.appMode }}, CRON_SCHEDULER=off)
+{{- if .Values.worker.enabled }}
+  worker   {{ include "credaflow.fullname" . }}-worker (1 replica, runs every in-process cron job)
+{{- else }}
+  worker   disabled: nothing in this release runs cron jobs
+{{- end }}
+
+Secrets are read from: {{ join ", " .Values.existingSecrets }}. They must exist in
+namespace {{ .Release.Namespace }} before the migration hook runs.
+
+Check:  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "credaflow.fullname" . }}-web
