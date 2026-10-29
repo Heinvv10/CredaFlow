@@ -180,6 +180,10 @@ model LoanApplication {
   /// Set when a person asked for the automated decline to be looked at again (lib/decisioning/human-review.ts):
   /// the decision engine never decides this application again.
   humanReviewRequestedAt                  DateTime?
+  /// The staff member who captured the application for the client (wizard, CRM lead conversion). Null for
+  /// portal, website and API submissions. Set once (trigger guardLoanApplicationSegregationOfDuties): where the
+  /// decision engine approves it, the capturer cannot disburse it.
+  capturedById                            String?
   riskGradeVersion                        DecisionRuleSetVersion? @relation("ApplicationRiskGradeVersion", fields: [tenantId, riskGradeVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt                               DateTime             @default(now())
   updatedAt                               DateTime             @updatedAt
@@ -193,6 +197,7 @@ model LoanApplication {
   approvedBy                              User?                @relation("ApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementCountersignedBy                User?                @relation("AgreementCountersignedBy", fields: [tenantId, agreementCountersignedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementSignedBy                       User?                @relation("AgreementSignedBy", fields: [tenantId, agreementSignedByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  capturedBy                              User?                @relation("CapturedBy", fields: [tenantId, capturedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   disbursedBy                             User?                @relation("DisbursedBy", fields: [tenantId, disbursedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   // PostgreSQL partial unique index (not expressible in Prisma schema):
   // LoanApplication_debitMandateReference_key, created by the baseline

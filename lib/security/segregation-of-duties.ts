@@ -25,7 +25,7 @@ export const SEGREGATION_OF_DUTIES_REFUSALS = {
   approve_disburse:
     "Segregation of duties: you approved this application, so another staff member must disburse it.",
   attester_disburse:
-    "Segregation of duties: the decision engine approved this application on your attestation (reckless-lending assessment, income verification or bureau override), so another staff member must disburse it.",
+    "Segregation of duties: the decision engine approved this application on your attestation or capture (capturing it, the reckless-lending assessment, income verification or bureau override), so another staff member must disburse it.",
   branch_sign_countersign:
     "Segregation of duties: you witnessed the client's in-branch signature, so another staff member must countersign for the lender.",
 } as const
@@ -50,6 +50,8 @@ export function segregationOfDutiesConflict(
     approvedById?: string | null
     /** The approver is the lender's automated decisioning account (User.isSystem). */
     approvedBySystem?: boolean
+    /** The staff member who captured the application (null for portal, website and API submissions). */
+    capturedById?: string | null
     recklessLendingAssessedById?: string | null
     incomeVerifiedById?: string | null
     bureauOverrideById?: string | null
@@ -61,7 +63,7 @@ export function segregationOfDutiesConflict(
     if (application.approvedById === actorId) return "approve_disburse"
     // The engine approved it, so no person approved: the people whose attestations it rested on take the approver's place.
     if (application.approvedBySystem === true && actorId !== "") {
-      const attesters = [application.recklessLendingAssessedById, application.incomeVerifiedById, application.bureauOverrideById]
+      const attesters = [application.capturedById, application.recklessLendingAssessedById, application.incomeVerifiedById, application.bureauOverrideById]
       if (attesters.includes(actorId)) return "attester_disburse"
     }
     return null

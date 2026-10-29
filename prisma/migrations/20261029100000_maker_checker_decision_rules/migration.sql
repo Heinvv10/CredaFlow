@@ -18,7 +18,8 @@ CREATE TYPE "AutoDecisionExecution" AS ENUM ('APPROVED', 'DECLINED', 'REFERRED',
 CREATE TYPE "ChangeRequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'WITHDRAWN');
 
 -- AlterTable
-ALTER TABLE "LoanApplication" ADD COLUMN     "humanReviewRequestedAt" TIMESTAMP(3),
+ALTER TABLE "LoanApplication" ADD COLUMN     "capturedById" TEXT,
+ADD COLUMN     "humanReviewRequestedAt" TIMESTAMP(3),
 ADD COLUMN     "riskGrade" TEXT,
 ADD COLUMN     "riskGradeRank" INTEGER,
 ADD COLUMN     "riskGradeVersionId" TEXT,
@@ -197,6 +198,9 @@ ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_tenantId_fkey" FOR
 
 -- AddForeignKey
 ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_tenantId_ruleSetVersionId_fkey" FOREIGN KEY ("tenantId", "ruleSetVersionId") REFERENCES "DecisionRuleSetVersion"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_tenantId_capturedById_fkey" FOREIGN KEY ("tenantId", "capturedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "AutoDecisionDue" ADD CONSTRAINT "AutoDecisionDue_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -434,7 +438,7 @@ CREATE POLICY "tenant_isolation" ON "AutoDecisionDue" USING (public.cf_rls_unres
 
 -- Segregation of duties for a system approval (lib/decisioning/): the engine approved it, so the people whose
 -- attestations the approval rested on (the reckless-lending assessor, the income verifier, the bureau-override
--- giver) cannot also disburse it. guardLoanApplicationSegregationOfDuties as of 20261016200200, plus that check.
+-- giver) and the staff member who captured the application cannot also disburse it. guardLoanApplicationSegregationOfDuties as of 20261016200200, plus that check.
 CREATE OR REPLACE FUNCTION public."guardLoanApplicationSegregationOfDuties"()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -480,6 +484,12 @@ BEGIN
       MESSAGE = 'A disbursement is recorded against an active staff member of the application tenant who may disburse';
   END IF;
 
+  IF TG_OP = 'UPDATE' AND OLD."capturedById" IS NOT NULL AND NEW."capturedById" IS DISTINCT FROM OLD."capturedById" THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'The staff member who captured an application cannot be changed';
+  END IF;
+
   IF NEW."entityId" IS NOT NULL OR EXISTS (
     SELECT 1 FROM "AssetFinanceDeal" d WHERE d."applicationId" = NEW."id" AND d."tenantId" = NEW."tenantId"
   ) THEN
@@ -497,7 +507,7 @@ BEGIN
         ERRCODE = '23514',
         MESSAGE = 'Segregation of duties: the staff member who approved an application cannot disburse it';
     END IF;
-    IF NEW."disbursedById" IN (NEW."recklessLendingAssessedById", NEW."incomeVerifiedById", NEW."bureauOverrideById")
+    IF NEW."disbursedById" IN (NEW."recklessLendingAssessedById", NEW."incomeVerifiedById", NEW."bureauOverrideById", NEW."capturedById")
       AND EXISTS (SELECT 1 FROM "User" a WHERE a."id" = NEW."approvedById" AND a."tenantId" = NEW."tenantId" AND a."isSystem")
     THEN
       RAISE EXCEPTION USING
@@ -519,3 +529,7 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
+
+-- As 20261016200100_segregation_of_duties, plus: a change of the capturer reaches the guard (set once, never changed or cleared).
+DROP TRIGGER "LoanApplication_z_guard_segregation_of_duties" ON "LoanApplication";
+CREATE TRIGGER "LoanApplication_z_guard_segregation_of_duties" BEFORE UPDATE ON "LoanApplication" FOR EACH ROW WHEN (((new.status IS DISTINCT FROM old.status) OR (new."agreementCountersignedAt" IS DISTINCT FROM old."agreementCountersignedAt") OR (new."disbursedById" IS DISTINCT FROM old."disbursedById") OR (new."capturedById" IS DISTINCT FROM old."capturedById"))) EXECUTE FUNCTION "guardLoanApplicationSegregationOfDuties"();

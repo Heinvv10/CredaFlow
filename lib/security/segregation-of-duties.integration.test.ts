@@ -104,6 +104,20 @@ suite("segregation of duties in the database", () => {
       await expect(disburse(off, off.colleagueId)).rejects.toBe(rollback)
     })
 
+    it("an engine approval cannot be disbursed by the staff member who captured the application", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      await prisma.$executeRawUnsafe(`UPDATE "User" SET "active" = false, "password" = '!', "isSystem" = true WHERE "id" = '${scenario.officerId}'`)
+      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = '${scenario.colleagueId}' WHERE "id" = '${scenario.applicationId}'`)
+      await expect(disburse(scenario, scenario.colleagueId)).rejects.toThrow(ENGINE_ATTESTER_DISBURSES)
+    })
+
+    it("a capturer, once recorded, cannot be changed or cleared (it could otherwise be laundered before disbursing)", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = '${scenario.colleagueId}' WHERE "id" = '${scenario.applicationId}'`)
+      await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = '${scenario.officerId}' WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/captured an application cannot be changed/)
+      await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "capturedById" = NULL WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/captured an application cannot be changed/)
+    })
+
     it("records the disburser only with the DISBURSED transition", async () => {
       const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: false })
       await expect(prisma.loanApplication.update({

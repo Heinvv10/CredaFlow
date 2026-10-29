@@ -54,7 +54,9 @@ applications only for the same `riskGradeVersionId`. `getRiskGrade` reads it.
   client notice apply only while the CURRENT decline is the system user's; the
   notice is the wording stored on that run, not a later edit.
 - **SoD for an engine approval**: the people whose attestations it rested on
-  (reckless-lending, income, bureau override) cannot disburse it
+  (reckless-lending, income, bureau override) and the staff member who captured it
+  (`LoanApplication.capturedById`: staff wizard and lead conversion only, null for
+  portal, website and API; set once) cannot disburse it
   (`segregationOfDutiesConflict`, trigger `guardLoanApplicationSegregationOfDuties`).
 - The system user is hidden from user lists and refused by every user-write route.
 - **Facts** (`facts.ts`, `load-facts.ts`): affordability reuses the approval's own
