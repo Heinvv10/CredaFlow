@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/ThemeToggle"
 import { AlertCircle } from "lucide-react"
 import { safeInternalPath } from "@/lib/safe-path"
 import { accessRefusalMessage } from "@/lib/security/staff-access-messages"
+import { SsoReturn, SsoStartLink } from "@/components/auth/SsoSignIn"
 
 export type LoginVariant = "staff" | "client" | "operator" | "dealer"
 
@@ -61,9 +62,11 @@ type LoginFormProps = {
   /** Link to the other audience's sign-in on its own host, or null when this
    *  deployment's host env is not configured (the link is then omitted). */
   crossLink: { href: string; label: string } | null
+  /** The lender has single sign-on switched on (staff form only). */
+  ssoEnabled?: boolean
 }
 
-function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormProps>) {
+function LoginFormInner({ variant, brandName, crossLink, ssoEnabled }: Required<LoginFormProps>) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const copy = COPY[variant]
@@ -71,6 +74,8 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
   // form an open redirect.
   const callbackUrl = safeInternalPath(searchParams.get("callbackUrl")) ?? copy.fallbackDest
   const errorMsg = searchParams.get("error")
+  const ssoReturn = variant === "staff" && searchParams.get("sso") === "1"
+  const ssoError = variant === "staff" && searchParams.get("sso_error") ? accessRefusalMessage("sso_refused") ?? "" : ""
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(errorMsg || "")
@@ -139,6 +144,15 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
     setError("")
   }
 
+  if (ssoReturn) {
+    return (
+      <div className="mx-auto w-full max-w-md">
+        <h1 className="mb-4 text-center text-3xl font-bold text-[var(--cf-text)]">{brandName}</h1>
+        <SsoReturn callbackUrl={callbackUrl} />
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto w-full max-w-md">
       {/* Header */}
@@ -151,11 +165,15 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
       </div>
 
       {/* Error alert */}
-      {error && (
+      {(error || ssoError) && (
         <div className="mb-4 flex gap-3 rounded-lg border border-[rgba(208,92,75,0.35)] bg-[rgba(208,92,75,0.12)] px-4 py-3">
           <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-[var(--cf-danger)]" />
-          <p className="text-sm text-[var(--cf-text)]">{error}</p>
+          <p className="text-sm text-[var(--cf-text)]">{error || ssoError}</p>
         </div>
+      )}
+
+      {ssoEnabled && variant === "staff" && step === "password" && (
+        <div className="mb-4"><SsoStartLink callbackUrl={callbackUrl} /></div>
       )}
 
       {/* Form */}
@@ -301,13 +319,13 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
   )
 }
 
-export default function LoginForm({ variant = "staff", brandName, crossLink }: LoginFormProps) {
+export default function LoginForm({ variant = "staff", brandName, crossLink, ssoEnabled = false }: LoginFormProps) {
   return (
     <div className="cf-app-surface flex min-h-screen items-center justify-center px-4">
       <ThemeToggle className="fixed right-4 top-[calc(1rem+var(--cf-demo-banner-h))] z-10" />
       <div className="w-full max-w-md rounded-xl border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-8 shadow-2xl shadow-black/35">
         <Suspense fallback={<div className="text-center text-[var(--cf-text-muted)]">Loading...</div>}>
-          <LoginFormInner variant={variant} brandName={brandName} crossLink={crossLink} />
+          <LoginFormInner variant={variant} brandName={brandName} crossLink={crossLink} ssoEnabled={ssoEnabled} />
         </Suspense>
       </div>
     </div>

@@ -3,8 +3,11 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 import { prisma } from "@/lib/prisma"
 import { formatDateTime } from "@/lib/utils"
 import { apiKeyState, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
+import { listOauthClients } from "@/lib/lender-api/oauth/clients"
+import { canDo } from "@/lib/permissions"
 import { Header } from "@/components/layout/Header"
 import { ApiKeysCard } from "@/components/settings/ApiKeysCard"
+import { OauthClientsCard } from "@/components/settings/OauthClientsCard"
 import { WebhookEndpointsCard } from "@/components/settings/WebhookEndpointsCard"
 
 export const metadata = {
@@ -18,7 +21,10 @@ export default async function ApiSettingsPage() {
   const tenantId = await getStaffTenantId()
   const canManage = hasMinRole(user.role, "ADMIN") && user.totpVerified === true
 
-  const [keys, endpoints, deliveries] = await Promise.all([
+  // OAuth clients are a Super Admin's to register (lib/sso/admin-guard.ts), in a TOTP-verified session.
+  const canManageOauth = canDo(user.role, "manage_oauth_clients") && user.totpVerified === true
+
+  const [keys, oauthClients, endpoints, deliveries] = await Promise.all([
     prisma.apiKey.findMany({
       where: { tenantId },
       orderBy: { createdAt: "desc" },
@@ -27,6 +33,7 @@ export default async function ApiSettingsPage() {
         lastUsedAt: true, revokedAt: true, createdBy: { select: { email: true, active: true, role: true } },
       },
     }),
+    listOauthClients(tenantId),
     prisma.webhookEndpoint.findMany({
       where: { tenantId },
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
@@ -67,6 +74,23 @@ export default async function ApiSettingsPage() {
             createdAt: formatDateTime(k.createdAt),
             expiresAt: formatDateTime(k.expiresAt),
             lastUsedAt: k.lastUsedAt ? formatDateTime(k.lastUsedAt) : null,
+          }))}
+        />
+        <OauthClientsCard
+          canManage={canManageOauth}
+          clients={oauthClients.map((c) => ({
+            id: c.id,
+            name: c.name,
+            clientId: c.clientId,
+            scopes: c.scopes,
+            // A client whose creator is no longer an active ADMIN is refused (lib/lender-api/oauth/authenticate.ts).
+            state: c.state === "active" && !keyIssuerStillAuthorised(c.createdBy) ? "suspended" : c.state,
+            requireMtls: c.requireMtls,
+            mtlsSubjectDn: c.mtlsSubjectDn,
+            mtlsCertSha256: c.mtlsCertSha256,
+            createdAt: formatDateTime(c.createdAt),
+            expiresAt: formatDateTime(c.expiresAt),
+            lastUsedAt: c.lastUsedAt ? formatDateTime(c.lastUsedAt) : null,
           }))}
         />
         <WebhookEndpointsCard

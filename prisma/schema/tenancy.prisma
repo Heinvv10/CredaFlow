@@ -158,6 +158,7 @@ model Tenant {
   ncaSurplusRemittances NcaSurplusRemittance[]
   notificationLogs           NotificationLog[]
   notifications              Notification[]
+  oauthClients               OauthClient[]
   pasqAcknowledgementTokens  PasqAcknowledgementToken[]
   paymentArrangements        PaymentArrangement[]
   paymentNotifications       PaymentNotification[]
@@ -178,6 +179,7 @@ model Tenant {
   screeningChecks            ScreeningCheck[]
   selfieCaptureTokens        SelfieCaptureToken[]
   signingOtpChallenges       SigningOtpChallenge[]
+  ssoConnection              SsoConnection?
   statementAiOutputs         StatementAiOutput[]
   statementAiUsages          StatementAiUsage[]
   statementAnalyses          StatementAnalysis[]

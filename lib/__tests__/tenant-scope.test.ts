@@ -201,6 +201,9 @@ describe("tenant-scope — ALS primitives", () => {
       "AssetTheftReport",
       "AssetMeterReadingVoid",
       "TrackerClosure",
+      // Enterprise sign-in and API OAuth (lib/sso, lib/lender-api/oauth) — non-null tenantId.
+      "SsoConnection",
+      "OauthClient",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

@@ -18,6 +18,8 @@ import { audienceOf, enrolmentRequired, principalRefusal, revalidatePrincipal } 
 import { checkStaffSignIn, staffSessionAllowed } from "@/lib/security/staff-access-enforcement"
 import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/staff-access-messages"
 import { isPortalEnabled } from "@/lib/portal/portal-policy"
+import { authorizeSsoCredentials } from "@/lib/sso/provider"
+import { PASSWORD_POLICY_SELECT, auditBreakGlassSignIn, passwordLoginOff } from "@/lib/sso/password-policy"
 
 export { claimTotpCounter }
 
@@ -47,6 +49,11 @@ class StaffAccessRefusedError extends CredentialsSignin {
 
 class PortalDisabledError extends CredentialsSignin {
   code = "portal_disabled"
+}
+
+/** The lender turned password sign-in off (SSO); only a Super Admin with a TOTP code may still use it (lib/sso/password-policy.ts). */
+class PasswordLoginDisabledError extends CredentialsSignin {
+  code = "password_login_disabled"
 }
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
@@ -172,7 +179,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // to avoid leaking which audience an email belongs to).
         const user =
           loginType === "staff"
-            ? await prisma.user.findUnique({ where: { email }, include: { tenant: { select: { status: true } } } })
+            ? await prisma.user.findUnique({ where: { email }, include: { tenant: { select: { status: true, ssoConnection: PASSWORD_POLICY_SELECT } } } })
             : null
 
         if (loginType === "staff" && !user) {
@@ -206,6 +213,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null
           }
           const loginTenantId = user.tenantId
+          // Password sign-in switched off for this lender: refuse before the code step, except
+          // a Super Admin, who must then present a TOTP code (break-glass, checked below).
+          const passwordOff = passwordLoginOff(user)
+          if (passwordOff && user.role !== "SUPER_ADMIN") {
+            await recordFailure("password_login_disabled")
+            throw new PasswordLoginDisabledError()
+          }
 
           // Enforce TOTP if the flag or the secret is set (fail-closed on inconsistent state).
           // totpVerified records that THIS sign-in checked a code: enrolling TOTP
@@ -230,6 +244,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             throw new TotpInvalidError()
           }
           const totpVerified = totp.kind === "verified"
+          if (passwordOff) {
+            if (!totpVerified) {
+              await recordFailure("password_login_disabled")
+              throw new PasswordLoginDisabledError()
+            }
+            await auditBreakGlassSignIn({ id: user.id, email: user.email, tenantId: loginTenantId }, ip)
+          }
           // The lender requires 2FA and this user has none: the session may
           // reach only the enrolment page (proxy.ts, lib/auth-guards.ts).
           const totpEnrolmentRequired = totp.kind === "not_enrolled" ? await enrolmentRequired(user, "staff") : false
@@ -317,6 +338,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       },
     }),
+    // Single sign-on: trades the ticket cookie the SSO callback set (lib/sso).
+    Credentials({
+      id: "sso",
+      name: "sso",
+      credentials: { code: { label: "TOTP code", type: "text" } },
+      authorize: (credentials, request) => authorizeSsoCredentials(credentials, request as Request),
+    }),
   ],
   callbacks: {
     async jwt({ token, user }) {
@@ -340,6 +368,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.totpVerified = user.totpVerified === true
         if (user.credentialStamp) token.credentialStamp = user.credentialStamp
         token.totpEnrolmentRequired = user.totpEnrolmentRequired === true
+        token.idpMfa = user.idpMfa === true
         return token
       }
 
@@ -365,6 +394,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const audience = audienceOf(token.role)
         const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion, {
           audience, totpVerified: token.totpVerified === true, totpEnrolmentRequired: token.totpEnrolmentRequired,
+          idpMfa: token.idpMfa === true,
         })
         if (freshPrincipal === "error") {
           // A transient failure may retain an already bound token, but must

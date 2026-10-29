@@ -63,7 +63,7 @@ suite("lender API hardening (real database)", () => {
     // Refused throughout: 401, then 429 once the global failed-auth bucket (no known address) is full.
     for (let i = 0; i < 650; i++) expect([401, 429]).toContain(await call(generateApiKey().key))
     expect(await call(valid.key)).toBe(200)
-    const unattributed = await db.apiRequestLog.count({ where: { apiKeyId: null, createdAt: { gte: since } } })
+    const unattributed = await db.apiRequestLog.count({ where: { apiKeyId: null, oauthClientId: null, createdAt: { gte: since } } })
     expect(unattributed).toBeLessThanOrEqual(10)
     expect(await db.apiRequestLog.count({ where: { apiKeyId: valid.id } })).toBe(1)
     warn.mockRestore()

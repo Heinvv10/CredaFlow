@@ -109,6 +109,7 @@ model User {
   ncaSurplusRemittancesIssued NcaSurplusRemittance[] @relation("NcaSurplusIssuedBy")
   ncaSurplusRemittancesReleased NcaSurplusRemittance[] @relation("NcaSurplusReleasedBy")
   notifications                Notification[]
+  oauthClientsCreated          OauthClient[]                         @relation("OauthClientsCreatedBy")
   pasqAckTokensIssued          PasqAcknowledgementToken[]            @relation("PasqAckTokensIssuedBy")
   payoutChecklistConfirmed     PayoutChecklistItem[]                 @relation("PayoutChecklistConfirmedBy")
   payoutsApproved              Payout[]                              @relation("PayoutsApprovedBy")

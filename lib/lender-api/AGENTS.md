@@ -8,7 +8,8 @@
 
 - Every `app/api/v1/*` handler goes through `withApiKey(req, scope, …)`
   (`lib/lender-api/handler.ts`). It is the authentication: `proxy.ts` lets
-  `/api/v1/*` through without a session, on the staff host only.
+  `/api/v1/*` through without a session, on the staff host only. The bearer is
+  an API key or an OAuth2 access token (below); both are an `ApiCaller`.
 - The tenant comes from the key row, never from a header or the host. Handlers
   run inside `runWithTenant(key.tenantId)` and still pass `tenantId` explicitly.
 - A Prisma query run in `withoutTenantScope` / `runWithTenant` must be AWAITED
@@ -28,9 +29,22 @@
   (`keyIssuerStillAuthorised`). Paging is keyset on (createdAt, id): never a
   Prisma `cursor: { id }`, which reads the named row without the tenant filter.
 - A new route, method or scope must be added to `openapi.ts`;
-  `openapi.test.ts` fails otherwise. Scopes live in three places: `scopes.ts`,
-  `ApiKey_scopes_check` (migration `20261014150000_lender_api_webhooks`) and the
+  `openapi.test.ts` fails otherwise. Scopes live in four places: `scopes.ts`,
+  `ApiKey_scopes_check` (migration `20261014150000_lender_api_webhooks`),
+  `OauthClient_scopes_check` (migration `20261029100000_sso_oauth`) and the
   OpenAPI security scheme.
+- **OAuth2 client credentials** (`oauth/`, runbook `docs/SSO-AND-OAUTH.md`):
+  `POST /api/auth/oauth/token` (outside `/api/v1` on purpose: `openapi.test.ts` wants
+  every `/api/v1` route behind a scope; under `/api/auth` so `proxy.ts` already
+  serves it unauthenticated on the staff host only) issues a 15-minute HS256 JWT. The token
+  is only a pointer: `oauth/authenticate.ts` re-reads the `OauthClient` on every
+  call (revoked, expired, creator demoted, lender suspended, cert pin, scopes
+  intersected with the client's current ones). Rate limit and `ApiRequestLog`
+  work as for keys (`oauthClientId` instead of `apiKeyId`; bucket `oauth:<id>`).
+- **mTLS** (`oauth/mtls.ts`): the app trusts forwarded verified-client-cert
+  headers only with `MTLS_TRUSTED_PROXY=1` and only for a client with
+  `requireMtls`; otherwise that client is refused (fail closed). Checked at the
+  token endpoint and on every call, so a stolen token is useless without the cert.
 - No money writes (recording payments, disbursing) through the API: they need
   their own design (idempotency, allocation, audit, 2FA-equivalent).
 - Webhook events are written by database triggers (same migration; their

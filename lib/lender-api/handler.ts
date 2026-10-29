@@ -4,11 +4,15 @@ import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
 import { createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
 import { apiKeyMatches, apiKeyPrefix, apiKeyState, bearerToken, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
+import { apiError } from "@/lib/lender-api/api-error"
+import { authenticateAccessToken, looksLikeAccessToken } from "@/lib/lender-api/oauth/authenticate"
 
 /**
  * The one entry point for /api/v1 routes. Every call:
  *   1. must carry `Authorization: Bearer cfk_…` naming an active, unexpired key
  *      of an ACTIVE tenant, whose creator is still an active ADMIN or above,
+ *      or an OAuth2 access token (lib/lender-api/oauth) of a client that is
+ *      active under the same rules; both are the same kind of caller below,
  *   2. must hold the route's scope,
  *   3. is rate limited per KEY (any request naming a real key counts, refused
  *      or not), so one key's traffic never spends another's allowance,
@@ -26,8 +30,13 @@ import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
  * addresses can never evict a key's bucket and lift its limit.
  */
 
+/** What authenticated the call: an API key row or an OAuth client row. */
+export type CredentialKind = "api_key" | "oauth_client"
+
 export interface ApiCaller {
+  /** The id of the credential row (ApiKey, or OauthClient when `kind` says so). */
   keyId: string
+  kind: CredentialKind
   tenantId: string
   scopes: string[]
   createdById: string
@@ -46,20 +55,19 @@ const failedAuthGlobal = createRateLimiter(1)
 const logSampler = createRateLimiter(1)
 const LAST_USED_RESOLUTION_MS = 60_000
 
-export function apiError(status: number, code: string, message: string, headers?: HeadersInit): NextResponse {
-  return NextResponse.json({ error: { code, message } }, { status, headers })
-}
+export { apiError }
 
-type AuthOutcome =
+export type AuthOutcome =
   | { ok: true; caller: ApiCaller; lastUsedAt: Date | null }
-  | { ok: false; response: NextResponse; tenantId: string | null; keyId: string | null }
+  | { ok: false; response: NextResponse; tenantId: string | null; keyId: string | null; kind: CredentialKind }
 
 export async function authenticateApiKey(req: Request, now: Date = new Date()): Promise<AuthOutcome> {
   const fail = (status: number, code: string, message: string, tenantId: string | null = null, keyId: string | null = null): AuthOutcome =>
-    ({ ok: false, response: apiError(status, code, message, status === 401 ? { "WWW-Authenticate": "Bearer" } : undefined), tenantId, keyId })
+    ({ ok: false, response: apiError(status, code, message, status === 401 ? { "WWW-Authenticate": "Bearer" } : undefined), tenantId, keyId, kind: "api_key" })
 
   const token = bearerToken(req.headers.get("authorization"))
-  if (!token) return fail(401, "missing_api_key", "Send an API key as `Authorization: Bearer <key>`.")
+  if (!token) return fail(401, "missing_api_key", "Send an API key or an OAuth access token as `Authorization: Bearer <credential>`.")
+  if (looksLikeAccessToken(token)) return authenticateAccessToken(req, token, now)
   const prefix = apiKeyPrefix(token)
   if (!prefix) return fail(401, "invalid_api_key", "The API key is not valid.")
 
@@ -88,17 +96,16 @@ export async function authenticateApiKey(req: Request, now: Date = new Date()): 
 
   return {
     ok: true,
-    caller: { keyId: row.id, tenantId: row.tenantId, scopes: row.scopes, createdById: row.createdById },
+    caller: { keyId: row.id, kind: "api_key", tenantId: row.tenantId, scopes: row.scopes, createdById: row.createdById },
     lastUsedAt: row.lastUsedAt,
   }
 }
 
 async function touchLastUsed(caller: ApiCaller, lastUsedAt: Date | null, now: Date): Promise<void> {
   if (lastUsedAt && now.getTime() - lastUsedAt.getTime() < LAST_USED_RESOLUTION_MS) return
-  await prisma.apiKey.updateMany({
-    where: { id: caller.keyId, tenantId: caller.tenantId },
-    data: { lastUsedAt: now },
-  })
+  const where = { id: caller.keyId, tenantId: caller.tenantId }
+  if (caller.kind === "oauth_client") await prisma.oauthClient.updateMany({ where, data: { lastUsedAt: now } })
+  else await prisma.apiKey.updateMany({ where, data: { lastUsedAt: now } })
 }
 
 let suppressedLogRows = 0
@@ -111,7 +118,10 @@ function shouldLog(keyId: string | null, status: number): boolean {
   return false
 }
 
-async function logRequest(req: Request, entry: { tenantId: string | null; keyId: string | null; status: number; startedAt: number }) {
+export async function logApiRequest(
+  req: Request,
+  entry: { tenantId: string | null; keyId: string | null; kind: CredentialKind; status: number; startedAt: number },
+) {
   if (!shouldLog(entry.keyId, entry.status)) return
   if (suppressedLogRows > 0) {
     console.warn(`[lender-api] ${suppressedLogRows} unattributed or rate-limited request(s) not written to ApiRequestLog (sampled)`)
@@ -121,7 +131,8 @@ async function logRequest(req: Request, entry: { tenantId: string | null; keyId:
     await prisma.apiRequestLog.create({
       data: {
         tenantId: entry.tenantId,
-        apiKeyId: entry.keyId,
+        apiKeyId: entry.kind === "api_key" ? entry.keyId : null,
+        oauthClientId: entry.kind === "oauth_client" ? entry.keyId : null,
         method: req.method,
         path: new URL(req.url).pathname.slice(0, 300),
         status: entry.status,
@@ -147,21 +158,23 @@ export async function withApiKey(
   const startedAt = Date.now()
   let tenantId: string | null = null
   let keyId: string | null = null
+  let kind: CredentialKind = "api_key"
   let response: Response
   try {
     const auth = await authenticateApiKey(req)
     tenantId = auth.ok ? auth.caller.tenantId : auth.tenantId
     keyId = auth.ok ? auth.caller.keyId : auth.keyId
-    // Per key, for every request that names a real key (refused ones too).
-    const keyLimit = keyId ? keyLimiter(keyId, API_KEY_RATE_LIMIT) : null
+    kind = auth.ok ? auth.caller.kind : auth.kind
+    // Per credential (key or OAuth client), for every request that names a real one (refused ones too).
+    const keyLimit = keyId ? keyLimiter(kind === "oauth_client" ? `oauth:${keyId}` : keyId, API_KEY_RATE_LIMIT) : null
     if (keyLimit && !keyLimit.allowed) {
-      response = tooMany(keyLimit.retryAfterSeconds, "Too many requests for this API key.")
+      response = tooMany(keyLimit.retryAfterSeconds, kind === "oauth_client" ? "Too many requests for this OAuth client." : "Too many requests for this API key.")
     } else if (!auth.ok) {
       const ip = recordedCallerIp(req)
       const failLimit = ip ? failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
       response = failLimit.allowed ? auth.response : tooMany(failLimit.retryAfterSeconds, "Too many failed requests.")
     } else if (!hasScope(auth.caller.scopes, scope)) {
-      response = apiError(403, "insufficient_scope", `This API key does not have the ${scope} scope.`)
+      response = apiError(403, "insufficient_scope", `This ${kind === "oauth_client" ? "access token" : "API key"} does not have the ${scope} scope.`)
     } else {
       const { caller } = auth
       response = await runWithTenant(caller.tenantId, async () => {
@@ -176,6 +189,6 @@ export async function withApiKey(
     response = apiError(500, "internal_error", "The request failed.")
   }
   response.headers.set("Cache-Control", "no-store")
-  await logRequest(req, { tenantId, keyId, status: response.status, startedAt })
+  await logApiRequest(req, { tenantId, keyId, kind, status: response.status, startedAt })
   return response
 }

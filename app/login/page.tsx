@@ -6,6 +6,8 @@ import { getLenderBrandName } from "@/lib/config/identity"
 import { DeploymentConfigError } from "@/lib/config/deployment-urls"
 import { portalLoginUrl } from "@/lib/portal-urls"
 import { getResolvedTenantId, getTenantConfig } from "@/lib/tenant"
+import { runWithTenant } from "@/lib/tenant-scope"
+import { getEnabledConnection } from "@/lib/sso/connection"
 
 // The lender's brand is read from the DB per request, so this page cannot be
 // prerendered at build time.
@@ -19,7 +21,11 @@ export default async function LoginPage() {
     redirect(session.user.role === "CLIENT" ? "/portal" : "/dashboard")
   }
   const tenantId = await getResolvedTenantId()
-  const [brandName, config] = await Promise.all([getLenderBrandName(tenantId), getTenantConfig(tenantId)])
+  const [brandName, config, sso] = await Promise.all([
+    getLenderBrandName(tenantId),
+    getTenantConfig(tenantId),
+    runWithTenant(tenantId, () => getEnabledConnection(tenantId)),
+  ])
   // The portal lives on its own host: omit the link when that host is not configured.
   let crossLink: { href: string; label: string } | null = null
   try {
@@ -29,7 +35,7 @@ export default async function LoginPage() {
   }
   return (
     <TenantThemeProvider config={config}>
-      <LoginForm variant="staff" brandName={brandName} crossLink={crossLink} />
+      <LoginForm variant="staff" brandName={brandName} crossLink={crossLink} ssoEnabled={sso !== null} />
     </TenantThemeProvider>
   )
 }

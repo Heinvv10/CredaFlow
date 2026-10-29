@@ -27,13 +27,16 @@ model ApiKey {
 }
 
 // One row per /api/v1 call, authenticated or not. tenantId and apiKeyId are
-// null when the bearer key matched no key.
+// null when the bearer key matched no key; oauthClientId names the OAuth client
+// when the call carried an access token (lib/lender-api/oauth).
 model ApiRequestLog {
   id         String   @id @default(cuid())
   tenantId   String?
   tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   apiKeyId   String?
   apiKey     ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: Restrict)
+  oauthClientId String?
+  oauthClient   OauthClient? @relation(fields: [oauthClientId], references: [id], onDelete: Restrict)
   method     String
   path       String
   status     Int
@@ -43,6 +46,7 @@ model ApiRequestLog {
 
   @@index([tenantId, createdAt])
   @@index([apiKeyId, createdAt])
+  @@index([oauthClientId, createdAt])
 }
 
 // Where a tenant wants its events POSTed. The signing secret is sealed with

@@ -19,6 +19,8 @@ declare module "next-auth" {
     credentialStamp?: string
     /** Set at sign-in when the lender requires 2FA and this user has none (lib/auth.ts). */
     totpEnrolmentRequired?: boolean
+    /** The session relies on the identity provider's MFA, not a CredaFlow code (lib/sso/authorize.ts). */
+    idpMfa?: boolean
     /** Operator staff only (OPERATOR_ADMIN / OPERATOR_SUPPORT): the operator they work for. */
     operatorId?: string | null
     /** DEALER only: the dealer this dealer user works for, and their role there. */
