@@ -19,6 +19,9 @@ import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integ
 import { resetActiveJurisdiction, activeCurrency, activeJurisdiction } from "./active"
 import { setInstanceJurisdiction } from "./instance-write"
 import { loadActiveJurisdiction, resetEnsuredJurisdiction } from "./load.server"
+import { bootstrapTenant } from "@/scripts/lender/bootstrap-tenant"
+import { parseTenantConfig } from "@/scripts/lender/tenant-config"
+import { validFile } from "@/scripts/lender/tenant-config.test-helpers"
 import { createThrowawayDb, type ThrowawayDb } from "./throwaway-db.integration-fixture"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe.sequential : describe.skip
@@ -112,6 +115,22 @@ suite("a Lesotho instance (real DB)", () => {
       await tx.$executeRaw`SET CONSTRAINTS "InstanceJurisdiction_configs_agree" IMMEDIATE`
     })).rejects.toThrow(REFUSED)
     expect((await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).currency).toBe("LSL")
+  })
+
+  it("provisions a Lesotho lender through the operator bootstrap, with the instance's jurisdiction and no NCR number", async () => {
+    await loadActiveJurisdiction(db() as never)
+    const identity = {
+      ...validFile().identity, legalName: "Demo Basotho Lending (Pty) Ltd", brandName: "Demo Basotho Lending",
+      ncrNumber: null, fscaNumber: null, companyRegNumber: "2099/000001", registeredOffice: "1 Demo Road\nMaseru\n100",
+      publicPhone: "+266 2200 0000", collectionsPhone: "+266 2200 0001",
+    }
+    const parsed = parseTenantConfig({
+      ...validFile(), slug: "basotho-boot", name: identity.legalName, domain: "basotho-boot.example.test", identity,
+      statutoryConfirm: { ncrNumber: null, fscaNumber: null, companyRegNumber: "2099/000001" },
+    })
+    if (!parsed.ok) throw new Error(parsed.errors.join("; "))
+    expect((await bootstrapTenant(db(), parsed.config, { dryRun: false, operator: "it@host", seedTemplates: async () => {} })).status).toBe("created")
+    expect(await db().tenantConfig.findFirstOrThrow({ where: { tenant: { slug: "basotho-boot" } } })).toMatchObject({ jurisdiction: "LS", currency: "LSL", ncrNumber: null })
   })
 
   it("the app loads the jurisdiction from the instance row", async () => {
