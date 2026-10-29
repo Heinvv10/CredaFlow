@@ -63,7 +63,7 @@ function parseNoticeDate(value: unknown): Date | null {
 export async function POST(req: NextRequest, { params }: Params) {
   const guard = await guardCollections()
   if (guard.error) return guard.error
-  const notNca = ncaOnlyRefusal("Debt review (NCA s86)")
+  const notNca = await ncaOnlyRefusal("Debt review (NCA s86)")
   if (notNca) return notNca
   const { user } = guard
 
@@ -147,7 +147,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 export async function DELETE(req: NextRequest, { params }: Params) {
   const guard = await guardCollections()
   if (guard.error) return guard.error
-  const notNca = ncaOnlyRefusal("Debt review (NCA s86)")
+  const notNca = await ncaOnlyRefusal("Debt review (NCA s86)")
   if (notNca) return notNca
   const { user } = guard
 

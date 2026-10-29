@@ -14,7 +14,7 @@ type RouteCtx = { params: Promise<{ id: string }> }
 export async function POST(req: NextRequest, { params }: RouteCtx) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
-  const notNca = ncaOnlyRefusal("Section 129 notices")
+  const notNca = await ncaOnlyRefusal("Section 129 notices")
   if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {

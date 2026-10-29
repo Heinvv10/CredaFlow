@@ -4,7 +4,9 @@ import type { Currency } from "./profiles"
  * The house money format, per currency: symbol, a space, comma-grouped, two
  * decimals ("R 1,234.56", "M 1,234.56"). One spelling in every surface, so the
  * amount on screen is character-for-character the amount on a PDF or SMS.
- * ZAR output is unchanged since the first release.
+ * The positive ZAR output is unchanged since the first release; a negative amount
+ * leads with the sign ("-R 0.05"). The NCA PDFs keep their original negative form
+ * (formatZarPdf in lib/pdf/helpers.ts), which is pinned and legally signed off.
  */
 const SYMBOL: Record<Currency, string> = { ZAR: "R", LSL: "M" }
 

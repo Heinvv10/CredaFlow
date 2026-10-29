@@ -30,7 +30,7 @@ function parseDecision(body: unknown): ReferenceRateDecision | null {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
-  const notNca = ncaOnlyRefusal("Reference rates")
+  const notNca = await ncaOnlyRefusal("Reference rates")
   if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {

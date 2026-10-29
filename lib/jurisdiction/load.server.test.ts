@@ -97,11 +97,28 @@ describe("ensureActiveJurisdiction", () => {
     expect(findMany).toHaveBeenCalledTimes(2)
   })
 
-  it("rejects, permanently, once the tenants are found to disagree", async () => {
+  it("refuses to serve while the tenants disagree, without re-reading inside the cooldown", async () => {
     findMany.mockResolvedValue([row("a", "LS", "LSL"), row("b", "ZA", "ZAR")])
     await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionConflictError)
     await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionConflictError)
     expect(findMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("recovers without a restart once the conflict is fixed", async () => {
+    vi.useFakeTimers()
+    findMany.mockResolvedValueOnce([row("a", "LS", "LSL"), row("b", "ZA", "ZAR")]).mockResolvedValue([row("a", "LS", "LSL")])
+    await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionConflictError)
+    vi.advanceTimersByTime(6_000)
+    await expect(ensureActiveJurisdiction()).resolves.toEqual({ jurisdiction: "LS", currency: "LSL" })
+  })
+
+  it("still refuses after the cooldown if the conflict is still there", async () => {
+    vi.useFakeTimers()
+    findMany.mockResolvedValue([row("a", "LS", "LSL"), row("b", "ZA", "ZAR")])
+    await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionConflictError)
+    vi.advanceTimersByTime(6_000)
+    await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionConflictError)
+    expect(findMany).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -120,6 +137,16 @@ describe("bootActiveJurisdiction", () => {
   it("throws, so the process does not start, when the tenants disagree", async () => {
     findMany.mockResolvedValue([row("a", "LS", "LSL"), row("b", "ZA", "ZAR")])
     await expect(bootActiveJurisdiction({ sleep })).rejects.toBeInstanceOf(JurisdictionConflictError)
+  })
+
+  it("boots at once as ZA, logging once, when there is no ACTIVE tenant yet", async () => {
+    findMany.mockResolvedValue([])
+    const sleeps: number[] = []
+    const state = await bootActiveJurisdiction({ sleep: async (ms) => { sleeps.push(ms) } })
+    expect(state).toEqual({ jurisdiction: "ZA", currency: "ZAR" })
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(sleeps).toEqual([])
+    expect(vi.mocked(console.error).mock.calls.filter((c) => String(c[0]).includes("no ACTIVE tenant"))).toHaveLength(1)
   })
 
   it("does not wait for ever on a hung database: boots as ZA after the timeout", async () => {

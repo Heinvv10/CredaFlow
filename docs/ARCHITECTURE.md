@@ -191,9 +191,15 @@ gates need no tenant argument.
   the NCA gates on, so a failed read is stricter, never looser. Crons, tenant
   resolution (`withTenantContext`, `getStaffTenantId`, ...) and the root layout
   await `ensureActiveJurisdiction()`.
-- **Database guards** (migration `20261029100000_jurisdiction_guards`): a CHECK
-  ties currency to jurisdiction (ZA is rand only), and a trigger refuses a
-  jurisdiction change once the lender has a loan application or loan.
+- **Database guards** (migrations `20261029100000_jurisdiction_guards`,
+  `20261029110000_jurisdiction_instance_guard`): a CHECK ties currency to
+  jurisdiction (ZA is rand only); triggers refuse any state where two ACTIVE
+  tenants differ in jurisdiction or currency (so a ZA lender cannot be created,
+  activated or reactivated on an LS instance, with a 409 from the app paths
+  that pre-check it); and a trigger freezes jurisdiction and currency, and
+  forbids deleting the config, once the lender has a loan application or loan.
+- **Recovery without a restart.** A runtime conflict is re-checked after a short
+  cooldown; while it exists the instance refuses to serve.
 - **No application write path.** Setting a lender's jurisdiction is an operator
   action on the database before its first application; nothing in the app edits it.
 - **NCA-only steps** are gated at their entry points by `isNcaJurisdiction()` /

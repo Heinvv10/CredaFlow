@@ -79,15 +79,17 @@ const RETRY_COOLDOWN_MS = 5_000
 const BOOT_DELAYS_MS = [0, 500, 1_000, 2_000, 4_000, 8_000]
 export const BOOT_TIMEOUT_MS = 20_000
 
+type Outcome = "loaded" | "empty" | "failed"
+
 interface Memo {
   inflight: Promise<ActiveJurisdictionState> | null
-  lastFailureAt: number
-  fatal: JurisdictionConflictError | null
+  lastAttemptAt: number
+  conflict: JurisdictionConflictError | null
 }
 const MEMO_KEY = Symbol.for("credaflow.jurisdictionLoad")
 function memo(): Memo {
   const holder = globalThis as Record<symbol, Memo | undefined>
-  return (holder[MEMO_KEY] ??= { inflight: null, lastFailureAt: 0, fatal: null })
+  return (holder[MEMO_KEY] ??= { inflight: null, lastAttemptAt: 0, conflict: null })
 }
 
 /** Test seam: forget the load memo. */
@@ -95,20 +97,25 @@ export function resetEnsuredJurisdiction(): void {
   delete (globalThis as Record<symbol, Memo | undefined>)[MEMO_KEY]
 }
 
-async function attempt(db: ConfigDb): Promise<ActiveJurisdictionState> {
+/**
+ * One read, with its result recorded: a conflict is remembered (and re-checked
+ * after the cooldown, so fixing the data clears it without a restart), a read
+ * that failed or found no ACTIVE tenant is `failed` / `empty`.
+ */
+async function attempt(db: ConfigDb): Promise<{ state: ActiveJurisdictionState; outcome: Outcome }> {
   const m = memo()
+  m.lastAttemptAt = Date.now()
   try {
     const { state, settled } = await readJurisdiction(db)
-    if (!settled) m.lastFailureAt = Date.now()
-    return state
+    m.conflict = null
+    return { state, outcome: settled ? "loaded" : "empty" }
   } catch (error) {
     if (error instanceof JurisdictionConflictError) {
-      m.fatal = error
+      m.conflict = error
       throw error
     }
     logError("could not load the lender's jurisdiction", error)
-    m.lastFailureAt = Date.now()
-    return current()
+    return { state: current(), outcome: "failed" }
   }
 }
 
@@ -116,42 +123,42 @@ async function attempt(db: ConfigDb): Promise<ActiveJurisdictionState> {
  * The value every server entry point awaits (tenant resolution, the root
  * layout, the cron runner). Instant once loaded. Otherwise one read at a time,
  * and after a failed or empty read no new one for a few seconds, so a database
- * outage does not turn into a query per request. Rejects with
- * JurisdictionConflictError, permanently, if the tenants disagree.
+ * outage does not turn into a query per request. While the tenants disagree it
+ * rejects with JurisdictionConflictError (the process does not serve), and it
+ * re-reads once the cooldown has passed, so fixing the data needs no restart.
  */
 export function ensureActiveJurisdiction(db: ConfigDb = prisma as unknown as ConfigDb): Promise<ActiveJurisdictionState> {
   const m = memo()
-  if (m.fatal) return Promise.reject(m.fatal)
-  if (isJurisdictionLoaded()) return Promise.resolve(current())
   if (m.inflight) return m.inflight
-  if (Date.now() - m.lastFailureAt < RETRY_COOLDOWN_MS) return Promise.resolve(current())
-  m.inflight = attempt(db).finally(() => { m.inflight = null })
+  const cooling = Date.now() - m.lastAttemptAt < RETRY_COOLDOWN_MS
+  if (m.conflict && cooling) return Promise.reject(m.conflict)
+  if (isJurisdictionLoaded()) return Promise.resolve(current())
+  if (cooling) return Promise.resolve(current())
+  m.inflight = attempt(db).then((r) => r.state).finally(() => { m.inflight = null })
   return m.inflight
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /**
- * Boot: read with backoff until the lender is known, logging each miss. The
- * caller bounds how long it waits (`bootActiveJurisdiction`); the retries
- * continue behind it. Conflicting tenants reject at once.
+ * Boot: read until the lender is known. A read that FAILS is retried with
+ * backoff; an instance with no ACTIVE tenant yet is not waited for (it boots as
+ * ZA, fail-closed, logged once, and the next request retries on the cooldown).
+ * Conflicting tenants reject at once.
  */
 async function loadWithBackoff(db: ConfigDb, sleep: (ms: number) => Promise<void>): Promise<ActiveJurisdictionState> {
   for (const [i, delay] of BOOT_DELAYS_MS.entries()) {
     if (delay > 0) await sleep(delay)
-    const state = await attemptBoot(db)
-    if (isJurisdictionLoaded()) return state
-    logError(`attempt ${i + 1}/${BOOT_DELAYS_MS.length}: no lender configuration yet`)
+    const { state, outcome } = await attempt(db)
+    if (outcome === "loaded") return state
+    if (outcome === "empty") {
+      logError("no ACTIVE tenant yet; booting as ZA with the NCA gates on until one exists")
+      return state
+    }
+    logError(`attempt ${i + 1}/${BOOT_DELAYS_MS.length}: the database could not be read`)
   }
   logError("giving up at boot; running as ZA with the NCA gates on until a request retries")
   return current()
-}
-
-async function attemptBoot(db: ConfigDb): Promise<ActiveJurisdictionState> {
-  const m = memo()
-  m.lastFailureAt = 0
-  m.inflight ??= attempt(db).finally(() => { m.inflight = null })
-  return m.inflight
 }
 
 /**

@@ -1,5 +1,4 @@
-import { notFound } from "next/navigation"
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { ncaOnlyPage } from "@/lib/jurisdiction/nca-only"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   getFscaReturnData,
@@ -25,7 +24,7 @@ export default async function FscaReturnPage({
   // compliance is no longer gated on the insurance module. Matches the NCR
   // return's floor; submission stays LOAN_ADMIN+ via the POST route.
   await requireMinRole("READONLY")
-  if (!isNcaJurisdiction()) notFound()
+  await ncaOnlyPage()
 
   const params = await searchParams
   const now = new Date()

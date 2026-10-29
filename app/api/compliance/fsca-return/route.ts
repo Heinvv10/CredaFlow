@@ -16,7 +16,7 @@ import { auth } from "@/lib/auth"
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
-  const notNca = ncaOnlyRefusal("The FSCA return")
+  const notNca = await ncaOnlyRefusal("The FSCA return")
   if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {

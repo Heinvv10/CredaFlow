@@ -155,4 +155,22 @@ describe("bootstrapTenant", () => {
     expect(f.tables.tenants).toHaveLength(0)
     expect(f.tables.tenantConfigs).toHaveLength(0)
   })
+
+  it("refuses a new ZA lender on an instance whose ACTIVE lender is Lesotho, and writes nothing", async () => {
+    const f = createFakeDb({
+      tenants: [{ id: "t-ls", slug: "basotho", status: "ACTIVE", domain: null, name: "Demo Basotho" }],
+      tenantConfigs: [{ id: "c-ls", tenantId: "t-ls", jurisdiction: "LS", currency: "LSL" }],
+    })
+    const before = f.tables.tenants.length
+    expect(await refusal(run(f, config()))).toBe("JURISDICTION_CONFLICT")
+    expect(f.tables.tenants).toHaveLength(before)
+  })
+
+  it("lets a ZA lender join an instance of ZA lenders", async () => {
+    const f = createFakeDb({
+      tenants: [{ id: "t-za", slug: "other", status: "ACTIVE", domain: null, name: "Other" }],
+      tenantConfigs: [{ id: "c-za", tenantId: "t-za", jurisdiction: "ZA", currency: "ZAR" }],
+    })
+    expect((await run(f, config())).status).toBe("created")
+  })
 })

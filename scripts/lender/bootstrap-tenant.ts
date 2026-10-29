@@ -6,6 +6,7 @@
  * no-op that still re-ensures the default document and message templates.
  */
 import type { Prisma, PrismaClient } from "@prisma/client"
+import { instanceJurisdictionConflict } from "@/lib/jurisdiction/instance.server"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditDb } from "./audit-db"
 import { tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
@@ -13,7 +14,7 @@ import { DATE_FIELDS, LENDER_IDENTITY_FIELDS, storedDateString } from "@/lib/con
 import { TENANT_COLOUR_VARS } from "@/lib/theme/tenant-colours"
 import { FEATURE_COLUMNS, type TenantBootstrapConfig } from "./tenant-config"
 
-export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE" | "DOMAIN_RESERVED" | "SLUG_HOST_TAKEN" | "DEMO_LENDER"
+export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE" | "DOMAIN_RESERVED" | "SLUG_HOST_TAKEN" | "DEMO_LENDER" | "JURISDICTION_CONFLICT"
 
 export class TenantBootstrapRefusal extends Error {
   readonly code: TenantRefusalCode
@@ -104,6 +105,10 @@ export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig
     if (domainRefusal) throw new TenantBootstrapRefusal("DOMAIN_RESERVED", domainRefusal)
     const slugRefusal = await tenantSlugRefusal(c.slug, tx)
     if (slugRefusal) throw new TenantBootstrapRefusal("SLUG_HOST_TAKEN", slugRefusal)
+    // One jurisdiction per instance (lib/jurisdiction/instance.server.ts): a new lender
+    // is ZA / ZAR (the file carries no jurisdiction), so it cannot join an LS instance.
+    const clash = await instanceJurisdictionConflict(tx, { tenantId: null, jurisdiction: "ZA", currency: "ZAR" })
+    if (clash) throw new TenantBootstrapRefusal("JURISDICTION_CONFLICT", clash.message)
     if (opts.dryRun) return { status: "dry-run-create", tenantId: null }
 
     const created = await tx.tenant.create({

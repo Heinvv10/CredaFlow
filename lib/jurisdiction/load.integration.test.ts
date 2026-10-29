@@ -42,6 +42,8 @@ suite("jurisdiction columns and loader (real DB)", () => {
   })
 
   it("loads a stored LS / LSL", async () => {
+    // Parked: the shared database holds ACTIVE ZA lenders and an ACTIVE LS one beside them is refused.
+    await db.tenant.update({ where: { id: tenantId }, data: { status: "SUSPENDED" } })
     await db.tenantConfig.update({ where: { tenantId }, data: { jurisdiction: "LS", currency: "LSL" } })
     // The shared test database holds other tenants; narrow the read to this one.
     const own = {

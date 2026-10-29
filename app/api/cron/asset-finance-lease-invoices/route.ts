@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyCronSkip } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { sastCalendarDate } from "@/lib/date/sast"
@@ -13,6 +14,9 @@ import { runLeaseInvoiceBatch } from "@/lib/asset-finance/lease-invoice-batch"
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
   if (denied) return denied
+  // Asset finance is an NCA product: nothing to do for a lender outside the NCA's jurisdiction.
+  const skipped = await ncaOnlyCronSkip()
+  if (skipped) return skipped
   const run = await runLeaseInvoiceBatch(prisma, sastCalendarDate(new Date()))
   return NextResponse.json(run, { status: run.ok ? 200 : 503 })
 }

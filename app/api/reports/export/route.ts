@@ -271,7 +271,7 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: "Affordability Register", rows }])
   } else if (type === "ncr-quarterly") {
-    const notNca = ncaOnlyRefusal("The NCR quarterly return")
+    const notNca = await ncaOnlyRefusal("The NCR quarterly return")
     if (notNca) return notNca
     // Two sheets of this workbook carry client ID numbers and full names, so a
     // generic READONLY export permission is too broad — same reasoning as the
@@ -459,7 +459,7 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: "Credit Agreements Register", rows }])
   } else if (type === "section129-log") {
-    const notNca = ncaOnlyRefusal("The Section 129 log")
+    const notNca = await ncaOnlyRefusal("The Section 129 log")
     if (notNca) return notNca
     // The legal register contains ID numbers, addresses, recipient details and
     // financial snapshots. A generic READONLY export permission is too broad.
@@ -488,6 +488,8 @@ export async function GET(req: NextRequest) {
       newValue: { rowCount: records.length },
     })
   } else if (type === "reckless-lending") {
+    const notNca = await ncaOnlyRefusal("The reckless-lending audit")
+    if (notNca) return notNca
     // The reckless-lending audit (NCA s80-81) covers natural-person consumers;
     // an entity (asset finance) application is not on it.
     const applications = await prisma.loanApplication.findMany({
@@ -611,7 +613,7 @@ export async function GET(req: NextRequest) {
     const month = now.toLocaleString("en-ZA", { month: "long", year: "numeric", timeZone: SAST_TIME_ZONE })
     wb = createWorkbook([{ name: `Reconciliation ${month}`, rows }])
   } else if (type === "fsca-annual") {
-    const notNca = ncaOnlyRefusal("The FSCA return")
+    const notNca = await ncaOnlyRefusal("The FSCA return")
     if (notNca) return notNca
     // SAST year. The FSCA annual return is filed for a South African year.
     const year = sastParts(now).year
@@ -664,7 +666,7 @@ export async function GET(req: NextRequest) {
     ])
     return workbookResponse(fscaWb, `fsca-annual-return-${year}.xlsx`)
   } else if (type === "fsca-quarterly") {
-    const notNca = ncaOnlyRefusal("The FSCA return")
+    const notNca = await ncaOnlyRefusal("The FSCA return")
     if (notNca) return notNca
     const quarter = parseQuarterParam(req.nextUrl.searchParams.get("quarter") ?? undefined, now)
     const { start, end } = quarterBounds(quarter)

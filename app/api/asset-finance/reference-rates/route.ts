@@ -28,7 +28,7 @@ function pageOf(req: NextRequest): { limit: number; offset: number } | null {
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
-  const notNca = ncaOnlyRefusal("Reference rates")
+  const notNca = await ncaOnlyRefusal("Reference rates")
   if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
-  const notNca = ncaOnlyRefusal("Reference rates")
+  const notNca = await ncaOnlyRefusal("Reference rates")
   if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {

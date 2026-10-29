@@ -99,7 +99,7 @@ export default function Footer({ identity, locale = DEFAULT_LOCALE }: { identity
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-white/64 sm:flex-row">
           <p>&copy; {sastParts(new Date()).year} {identity.legalName} · Co. Reg: {identity.companyRegNumber}. All rights reserved.</p>
-          <p>Registered Credit Provider — NCR Reg: {identity.ncrNumber}{identity.fspNumber && <> · FSP: {identity.fspNumber}</>}{demoNote && <> · {demoNote}</>}</p>
+          <p>{identity.ncrNumber ? <>Registered Credit Provider — NCR Reg: {identity.ncrNumber}</> : "Credit Provider"}{identity.fspNumber && <> · FSP: {identity.fspNumber}</>}{demoNote && <> · {demoNote}</>}</p>
         </div>
       </div>
     </footer>

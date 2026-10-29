@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 import { resetActiveJurisdiction, setActiveJurisdiction } from "./active"
 import { ncaOnlyRefusal } from "./nca-only"
 import { itemEnabled } from "@/components/app-shell/AppSidebar"
@@ -7,13 +9,13 @@ import { staffNavigation } from "@/lib/navigation"
 afterEach(() => resetActiveJurisdiction())
 
 describe("ncaOnlyRefusal", () => {
-  it("lets a ZA lender through", () => {
-    expect(ncaOnlyRefusal("The NCR return")).toBeNull()
+  it("lets a ZA lender through", async () => {
+    expect(await ncaOnlyRefusal("The NCR return")).toBeNull()
   })
 
   it("answers 404 for an LS lender", async () => {
     setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
-    const refusal = ncaOnlyRefusal("The NCR return")
+    const refusal = await ncaOnlyRefusal("The NCR return")
     expect(refusal?.status).toBe(404)
     expect(await refusal?.json()).toEqual({ error: "The NCR return does not apply to this lender." })
   })

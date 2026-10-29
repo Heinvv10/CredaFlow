@@ -193,7 +193,7 @@ export const staffNavigation: NavGroup[] = [
       { href: "/compliance/complaints", label: "Complaints", icon: MessageSquare, minRole: "LOAN_ADMIN" },
       { href: "/compliance/dsar", label: "DSAR", icon: Lock, minRole: "ADMIN" },
       { href: "/compliance/screening", label: "Screening", icon: ShieldCheck, minRole: "BRANCH_MANAGER" },
-      { href: "/compliance/fic", label: "FIC Act", icon: Landmark, minRole: "ADMIN" },
+      { href: "/compliance/fic", label: "FIC Act", icon: Landmark, minRole: "ADMIN", ncaOnly: true },
     ],
   },
   {
