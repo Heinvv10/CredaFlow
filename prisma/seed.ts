@@ -121,14 +121,19 @@ async function main() {
   console.log(`Seeding ${BRAND} demo data...`)
 
   // The instance's jurisdiction (InstanceJurisdiction) comes first: every lender must equal it.
-  // A seed sets it only on an instance with no other lender; otherwise the database refuses
-  // this lender's config with the instance's own message rather than converting someone else's.
+  // A seed sets it only on an instance with no other lender. Otherwise it refuses a lender of
+  // another jurisdiction itself: the database would give the new config the instance's values
+  // (a TenantConfig insert takes them), silently turning the demo lender into someone else's.
   const others = await prisma.tenant.count({ where: { slug: { not: LENDER.slug } } })
+  // Imported here, not at the top: these reach lib/prisma (see seed-document-templates below).
   if (others === 0) {
-    // Imported here, not at the top: it reaches lib/prisma (see seed-document-templates below).
     const { setInstanceJurisdiction } = await import("../lib/jurisdiction/instance-write")
     const set = await setInstanceJurisdiction(prisma, { jurisdiction: JURISDICTION, currency: CURRENCY, actor: "demo-seed", reason: `Demo lender ${LENDER.slug}` })
     if (!set.ok) throw new Error(`Seed refused: ${set.error}`)
+  } else {
+    const { instanceJurisdictionConflict } = await import("../lib/jurisdiction/instance.server")
+    const conflict = await instanceJurisdictionConflict(prisma, { jurisdiction: JURISDICTION, currency: CURRENCY })
+    if (conflict) throw new Error(`Seed refused: ${conflict.message}`)
   }
   const tenant = await prisma.tenant.upsert({
     where: { slug: LENDER.slug },
