@@ -85,6 +85,8 @@ describe("tenant-scope — ALS primitives", () => {
       // POPIA security-compromise register — non-null tenantId, passed
       // explicitly by its routes and page.
       "BreachLog",
+      // Maker-checker change requests and decision rules (lib/maker-checker/, lib/decisioning/) — non-null tenantId.
+      "ChangeRequest", "DecisionRuleSetVersion", "DecisionEngineConfig", "AutoDecisionRun",
       // Insurance book + cross-sell — non-null tenantId. Routes run in a
       // tenant frame; pages, crons and bindQuote pass the tenant explicitly.
       "InsurancePolicy",

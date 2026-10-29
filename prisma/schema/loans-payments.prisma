@@ -25,8 +25,9 @@ model LoanProduct {
   createdAt                   DateTime           @default(now())
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
-  applications LoanApplication[]
-  loans        Loan[]
+  applications            LoanApplication[]
+  decisionRuleSetVersions DecisionRuleSetVersion[]
+  loans                   Loan[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, id])

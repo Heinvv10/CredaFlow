@@ -22,6 +22,7 @@ import { AffordabilityCapture } from "@/components/applications/AffordabilityCap
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
+import { AutoDecisionCard } from "@/components/applications/AutoDecisionCard"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
 import { StatementAiCard } from "@/components/applications/StatementAiCard"
@@ -925,6 +926,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             initialOpenCount={openChecks}
           />
         )}
+
+        {/* The lender's decision engine (lib/decisioning/): renders nothing while it has never run here. */}
+        {canReadChecks && <AutoDecisionCard applicationId={application.id} canRun={hasMinRole(userRole, "LOAN_ADMIN") && application.status === "UNDER_REVIEW"} />}
 
         {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
 

@@ -1,0 +1,46 @@
+// ── Maker-checker: generic four-eyes change requests (lib/maker-checker/) ────
+// A change to lender configuration is drafted by one person (the maker) and
+// takes effect only when a different person (the checker) approves it. The
+// payload is the whole change, typed per `kind` by a handler registered in
+// lib/maker-checker/handlers.ts; approving applies it in the same transaction
+// that records the approval. The database holds the rules that must never be
+// broken by any code path: maker is not checker, a request moves only along
+// DRAFT -> SUBMITTED -> APPROVED | REJECTED (or WITHDRAWN), the payload is
+// frozen from submission, and nothing is deleted
+// (migration 20261029100000_maker_checker). Module rules:
+// lib/maker-checker/.claude.md.
+
+enum ChangeRequestStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+model ChangeRequest {
+  id           String              @id @default(cuid())
+  tenantId     String
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
+  /// UPPER_SNAKE name of the change type, e.g. DECISION_RULE_SET (CHECK: format).
+  kind         String
+  title        String
+  /// The whole change, validated by the kind's handler. Frozen once SUBMITTED.
+  payload      Json
+  status       ChangeRequestStatus @default(DRAFT)
+  makerId      String
+  maker        User                @relation("ChangeRequestMaker", fields: [tenantId, makerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  submittedAt  DateTime?
+  checkerId    String?
+  checker      User?               @relation("ChangeRequestChecker", fields: [tenantId, checkerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// When the checker approved or rejected, or the maker withdrew.
+  decidedAt    DateTime?
+  decisionNote String?
+  /// Set with APPROVED, in the transaction that ran the handler (CHECK).
+  appliedAt    DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([tenantId, id])
+  @@index([tenantId, kind, status])
+}

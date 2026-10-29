@@ -26,6 +26,12 @@ routes, each with its own session secret (`docker-compose.yml`).
 - **Origination** — `applications/`, `affordability/`, `credit/`, `decision/`,
   `kyc/`, `ocr/` (document extraction), `qualify.ts`, `loan-calculator.ts`,
   `pdf/` (the NCA documents), `disbursement/`.
+- **Decisioning** — `decisioning/` (lender-configured rules, scorecards, risk
+  grades, automatic approve/decline/refer, simulation, champion/challenger) and
+  `maker-checker/` (generic four-eyes change requests it and later
+  configuration modules use). An automatic approval runs through the staff
+  approval path's gates; the engine is off until a lender's settings, approved
+  by a second person, turn it on.
 - **Servicing** — `loan/` (schedules, balances, default charges), `payments/`,
   `bank-sync/` (statement import and reconciliation), `collections/`
   (escalation, arrangements, Section 129).

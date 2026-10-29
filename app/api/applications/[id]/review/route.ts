@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
+import { runAutoDecisionSafely, statusAfterAutoDecision } from "@/lib/decisioning/run-safely"
 import { runBureauReviewCheck } from "@/lib/compliance/bureau-review"
 import {
   lockAffordabilityApplicationEvidence,
@@ -352,13 +353,19 @@ export async function POST(
         )
       }
 
+      // The lender's decision engine (lib/decisioning/), when it is switched on
+      // for this channel and product. Never blocks the review: a failure leaves
+      // the application with staff.
+      const autoDecision = await runAutoDecisionSafely({ tenantId: tenant.id, applicationId: id, trigger: "REVIEW_STARTED" })
+
       if (req.headers.get("accept")?.includes("application/json")) {
         return NextResponse.json({
           ok: true,
           id,
-          status: "UNDER_REVIEW",
+          status: autoDecision ? statusAfterAutoDecision(autoDecision) : "UNDER_REVIEW",
           bureauResult,
           bureauReviewRetried: claim.retryingBureauReview,
+          ...(autoDecision?.status === "RAN" ? { autoDecision: { execution: autoDecision.execution, decision: autoDecision.verdict.decision, reasonCodes: autoDecision.verdict.reasonCodes, riskGrade: autoDecision.verdict.riskGrade } } : {}),
         })
       }
 

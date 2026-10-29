@@ -168,6 +168,10 @@ model LoanApplication {
   disbursementAccountType                 String?
   disbursementRef                         String?
   submittedAt                             DateTime?
+  /// Risk grade from the lender's approved scorecard (lib/decisioning/risk-grade.ts); null until graded.
+  riskGrade                               String?
+  riskScore                               Int?
+  riskGradedAt                            DateTime?
   createdAt                               DateTime             @default(now())
   updatedAt                               DateTime             @updatedAt
   client                                  Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)

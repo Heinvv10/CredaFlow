@@ -110,7 +110,7 @@ describe("every other staff role keeps the loan book", () => {
 const OPEN_PAGES = ["clients", "compliance", "inbox", "insurance", "learn", "no-access", "settings"]
 const OPEN_APIS = [
   "admin", "agent-hub", "audit", "auth", "automation", "branches", "clients", "complaints", "compliance", "cron",
-  "dealer", "documents", "dsar", "email", "health", "inbox", "insurance", "insurers", "integrations", "messaging",
+  "dealer", "documents", "dsar", "email", "health", "inbox", "insurance", "insurers", "integrations", "maker-checker", "messaging",
   "notifications", "operator", "pasq-link", "portal", "products", "screening", "selfie-link", "settings",
   "signing-otp", "staff", "users", "v1", "webhooks", "website",
 ]

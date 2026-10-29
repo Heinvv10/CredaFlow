@@ -63,6 +63,8 @@ model User {
   auditLogs                    AuditLog[]
   branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
   bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
+  changeRequestsChecked        ChangeRequest[]                       @relation("ChangeRequestChecker")
+  changeRequestsMade           ChangeRequest[]                       @relation("ChangeRequestMaker")
   clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
   clientDealerContactsVerified Client[]                              @relation("ClientDealerContactVerifiedBy")
   coiDeclarations              CoiDeclaration[]
@@ -84,6 +86,7 @@ model User {
   dealersDeactivated           Dealer[]                              @relation("DealerDeactivatedBy")
   dealerUsersCreated           DealerUser[]                          @relation("DealerUserCreatedBy")
   debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
+  decisionEngineDelegations    DecisionEngineConfig[]                @relation("DecisionEngineDelegate")
   disbursedApplications        LoanApplication[]                     @relation("DisbursedBy")
   fitAndProper                 FitAndProper?
   kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")

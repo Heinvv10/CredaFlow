@@ -110,6 +110,14 @@ export default async function SettingsPage() {
             </div>
             <span className="text-[#4F46E5] text-xl">→</span>
           </Link>
+          <Link href="/settings/decision-rules"
+            className="flex items-center justify-between p-5 bg-white rounded-xl shadow-sm border border-[#4F46E5]/20 hover:border-[#4F46E5] hover:bg-amber-50 transition-colors group col-span-1">
+            <div>
+              <p className="font-semibold text-[#1b1d24] group-hover:text-[#4F46E5]">⚖ Decision Rules</p>
+              <p className="text-xs text-gray-500 mt-0.5">Rule sets, scorecards, risk grades and automatic decisions, with four-eyes approval</p>
+            </div>
+            <span className="text-[#4F46E5] text-xl">→</span>
+          </Link>
           <Link href="/settings/documents"
             className="flex items-center justify-between p-5 bg-white rounded-xl shadow-sm border border-[#4F46E5]/20 hover:border-[#4F46E5] hover:bg-amber-50 transition-colors group col-span-1">
             <div>

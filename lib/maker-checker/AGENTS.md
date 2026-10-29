@@ -1,0 +1,47 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: maker-checker
+<!-- summary: generic four-eyes change requests for configuration; maker is never checker, enforced in the database -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+One reusable mechanism for lender configuration that must not change on one
+person's word: draft -> submitted -> approved | rejected (or withdrawn). The
+approved payload is applied in the same transaction as the approval. First
+consumers: decision rule sets and engine settings (`lib/decisioning/`).
+
+## Contract for a consumer (A5 product versions, A6 approval matrix, ...)
+1. Write a `ChangeHandler<P>` (`types.ts`): `kind` (UPPER_SNAKE, 3-60), `label`,
+   `makePermission` / `approvePermission` (keys in `lib/registry/permissions/`),
+   `parse(raw)` (pure; throw `InvalidPayloadError(problems)`; return the
+   normalised payload that is stored), optional `verify(tx, tenantId, payload)`
+   (DB checks; runs on submit AND again inside the approval), and
+   `apply(tx, { tenantId, request, payload, checker, now })`.
+2. Add one import and one entry to the map in `handlers.ts`.
+3. Add audit actions via `lib/registry/audit-actions/`, write them in `apply`
+   with the same `tx`. `apply` throwing rolls the approval back.
+4. Call `service.ts` (`createDraft`, `updateDraft`, `submit`, `approve`,
+   `reject`, `withdraw`) or the generic routes `app/api/maker-checker/**`;
+   the service checks permission, maker/checker and state. Never write
+   `ChangeRequest` rows directly.
+
+## Critical Rules
+- **Maker is not checker**: CHECK `ChangeRequest_four_eyes`. The service
+  answers `SELF_APPROVAL` first; the CHECK is the backstop. Do not add a path
+  that approves as a system user.
+- **The payload is frozen at submission** (trigger `guardChangeRequest`): the
+  payload the checker read is the one applied. Edit = withdraw and redraft.
+- **No delete, no truncate.** A mistake is a new request.
+- A table your `apply` fills should refuse rows no approved request made:
+  see `guardDecisionRuleSetVersion` (it checks the request is APPROVED and of
+  its kind). Store `changeRequestId` as plain text; add no relation to
+  `ChangeRequest`, so consumers never edit this module's schema file.
+- Approval is gated by `approvePermission` only: a user who both drafted and
+  holds it still needs a second approver.
+
+## Tests
+`RUN_MAKER_CHECKER_IT=1`: `maker-checker.integration.test.ts` (CHECKs,
+triggers, atomic rollback, concurrent approvals). `service.test.ts` is mocked.
