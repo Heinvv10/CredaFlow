@@ -44,6 +44,19 @@ function isStaticSegment(segment: string): boolean {
   return !(segment.length >= 20 && /\d/.test(segment) && !segment.includes("-"))
 }
 
+function collapseSegment(segment: string): string {
+  return segment === "" || isStaticSegment(segment) ? segment : ":id"
+}
+
+/**
+ * A path with every segment that is not a lowercase word (digits, hex, UUIDs, tokens,
+ * emails, phone numbers, anything with a capital or a dot) replaced by `:id`. For paths
+ * this application has no route table for, such as a provider's.
+ */
+export function collapsePath(path: string): string {
+  return path.split("/").map(collapseSegment).join("/")
+}
+
 function stripQuery(pathname: string): string {
   const clean = pathname.split("?")[0] ?? "/"
   return clean.length > 1 ? clean.replace(/\/+$/, "") || "/" : clean
@@ -76,7 +89,7 @@ export function createRouteLabeler(candidate: RoutesManifest | null): (pathname:
   return (pathname) => {
     const label = stripQuery(pathname)
       .split("/")
-      .map((segment) => (segment === "" || isStaticSegment(segment) ? segment : ":id"))
+      .map(collapseSegment)
       .join("/") || "/"
     if (label.startsWith("/_next/static/")) return "/_next/static"
     if (seen.has(label)) return label

@@ -21,7 +21,7 @@ stack behaves as before.
   every 404 are `unmatched`. Without a manifest (dev, tests) it falls back to path
   shapes with a cap. Never put a client id, loan id, token or any request-derived free
   text in a metric label.
-- `span-scrub.ts` fails closed (outbound `SpanKind.CLIENT` spans get only these rules, never an app route template): in every string value, the span name, event and link
+- `span-scrub.ts` fails closed (outbound `SpanKind.CLIENT` spans get only these rules plus path masking: every path segment that is not a lowercase word becomes `:id`, since a provider path carries ID or phone numbers; never an app route template): in every string value, the span name, event and link
   attributes and the status message, each whitespace-delimited token holding `?` or `#` is
   cut there (shape does not matter: `url=/x?t=S`, `fetch(/x?t=S)`, `h.example/x?t=S` and JSON
   all leak otherwise), `&key=value` runs and `user:pass@` are removed, and only a token

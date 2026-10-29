@@ -1,5 +1,5 @@
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-node"
-import { createRouteLabeler, loadRoutesManifest } from "./route-label"
+import { collapsePath, createRouteLabeler, loadRoutesManifest } from "./route-label"
 
 type Labeler = (pathname: string) => string
 
@@ -36,6 +36,18 @@ function scrubValue(value: string): string {
   const unsafe = stripUserinfo(value).replace(/&[\w.%-]+=[^\s&]*/g, "")
   if (!/[?#]/.test(unsafe)) return unsafe
   return unsafe.replace(/\S+/g, (token) => (/^[^?#]*\?$/.test(token) ? token : stripQuery(token)))
+}
+
+/**
+ * Masks the path of every URL or absolute path in a string (the query is already gone):
+ * `https://bureau.example/v1/consumers/8001015009087/report` becomes
+ * `https://bureau.example/v1/consumers/:id/report`.
+ */
+function maskPaths(text: string): string {
+  return text.replace(/\S+/g, (token) => {
+    if (token.includes("://")) return token.replace(/([a-z][a-z0-9+.-]*:\/\/[^/\s]*)(\/\S*)?/gi, (_m, origin: string, path?: string) => origin + (path ? collapsePath(path) : ""))
+    return token.startsWith("/") ? collapsePath(token) : token
+  })
 }
 
 function safeDecode(value: string): string {
@@ -92,9 +104,10 @@ let defaultLabeler: Labeler | undefined
  */
 function scrubberFor(span: ReadableSpan, labeler: Labeler): Scrubber {
   // An outbound call (a fetch to a provider, SpanKind.CLIENT) names a path on someone
-  // else's host: the app's route table says nothing about it. Only the fail-closed
-  // rules apply, so its host and path stay readable and its token goes.
-  if (span.kind === CLIENT_KIND) return { value: scrubValue, route: null }
+  // else's host: the app's route table says nothing about it. The fail-closed rules apply
+  // and every path segment that is not a lowercase word is masked (a bureau path carries
+  // an ID number, a WhatsApp path a phone number); scheme, host and the words stay.
+  if (span.kind === CLIENT_KIND) return { value: (text) => maskPaths(scrubValue(text)), route: null }
   const paths = concretePaths(span.attributes)
   const named = span.attributes[ROUTE_KEY]
   const route = typeof named === "string" && named.startsWith("/") ? named : paths[0] ? labeler(paths[0]) : null

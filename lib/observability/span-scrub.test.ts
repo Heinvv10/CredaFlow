@@ -251,17 +251,38 @@ describe("scrubSpan", () => {
     const fetchSpan = (url: string, extra: Record<string, string | number> = {}) =>
       span("fetch GET " + url, { "http.url": url, "http.method": "GET", "next.span_type": "AppRender.fetch", ...extra }, CLIENT)
 
-    it("keeps the provider's host and path and drops only the token", () => {
+    it("keeps the provider's scheme, host and word-like path and drops the token", () => {
       const scrubbed = scrubSpan(fetchSpan("https://api.provider.example/v1/score/abc?access_token=SECRET#x"), labeler)
       expect(scrubbed.attributes["http.url"]).toBe("https://api.provider.example/v1/score/abc")
       expect(scrubbed.name).toBe("fetch GET https://api.provider.example/v1/score/abc")
       expect(JSON.stringify(scrubbed)).not.toContain("SECRET")
     })
 
+    it("masks identifiers in the provider's path: a bureau ID number never leaves the process", () => {
+      const url = "https://bureau.example/v1/consumers/8001015009087/report?key=SECRET"
+      const scrubbed = scrubSpan(span(`fetch GET ${url}`, { "http.url": url, "url.full": url, "http.target": "/v1/consumers/8001015009087/report?key=SECRET" }, CLIENT), labeler)
+      const masked = "https://bureau.example/v1/consumers/:id/report"
+      expect(scrubbed.attributes["http.url"]).toBe(masked)
+      expect(scrubbed.attributes["url.full"]).toBe(masked)
+      expect(scrubbed.name).toBe(`fetch GET ${masked}`)
+      expect(scrubbed.attributes["http.target"]).toBe("/v1/consumers/:id/report")
+      expect(JSON.stringify(scrubbed)).not.toMatch(/8001015009087|SECRET/)
+    })
+
+    it.each([
+      ["a phone number", "https://graph.example/v20.0/27821234567/messages", "https://graph.example/:id/:id/messages"],
+      ["an email", "https://crm.example/contacts/jo@lender.example/notes", "https://crm.example/contacts/:id/notes"],
+      ["a UUID", "https://p.example/loans/3f1c8a9e-1b2c-4d3e-8f90-123456789abc", "https://p.example/loans/:id"],
+      ["a long opaque token", "https://p.example/links/Zk3-OneTimeLinkToken_9aF", "https://p.example/links/:id"],
+      ["no path at all", "https://p.example", "https://p.example"],
+    ])("masks %s in the path", (_name, url, expected) => {
+      expect(scrubSpan(fetchSpan(url), labeler).attributes["http.url"]).toBe(expected)
+    })
+
     it("does not give the provider's path an app route template, even when one would match", () => {
       const scrubbed = scrubSpan(fetchSpan("https://api.provider.example/api/loans/42?k=SECRET", { "url.full": "https://api.provider.example/api/loans/42?k=SECRET" }), labeler)
-      expect(scrubbed.attributes["http.url"]).toBe("https://api.provider.example/api/loans/42")
-      expect(scrubbed.attributes["url.full"]).toBe("https://api.provider.example/api/loans/42")
+      expect(scrubbed.attributes["http.url"]).toBe("https://api.provider.example/api/loans/:id")
+      expect(scrubbed.attributes["url.full"]).toBe("https://api.provider.example/api/loans/:id")
     })
 
     it("still removes userinfo and a header attribute", () => {
