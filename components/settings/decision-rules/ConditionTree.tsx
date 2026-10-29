@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import type { Condition, Group, Node, Operator, Scalar } from "@/lib/decisioning/types"
+import { ListField, NumberField } from "./fields"
 import { controlClass, type FactOption } from "./types"
 
 const OPERATOR_LABELS: Record<Operator, string> = {
@@ -11,7 +12,7 @@ const OPERATOR_LABELS: Record<Operator, string> = {
 const OPERATORS_BY_TYPE: Record<string, Operator[]> = {
   number: ["eq", "neq", "gt", "gte", "lt", "lte", "between", "in", "notIn", "isNull", "notNull"],
   string: ["eq", "neq", "in", "notIn", "isNull", "notNull"],
-  boolean: ["eq", "neq"],
+  boolean: ["eq", "neq", "isNull", "notNull"],
 }
 
 const isCondition = (node: Node): node is Condition => "field" in node
@@ -41,19 +42,18 @@ function ValueInput({ condition, fact, onChange }: { condition: Condition; fact:
     const [low, high] = Array.isArray(condition.value) ? condition.value : [0, 0]
     return (
       <span className="flex items-center gap-1">
-        <input aria-label="Low" type="number" className={`${controlClass} w-28`} value={String(low)} onChange={(e) => onChange({ ...condition, value: [Number(e.target.value), Number(high)] })} />
+        <NumberField label="Low" className="w-28" value={Number(low)} onChange={(n) => onChange({ ...condition, value: [n, Number(high)] })} />
         <span className="text-xs text-[var(--cf-text-muted)]">and</span>
-        <input aria-label="High" type="number" className={`${controlClass} w-28`} value={String(high)} onChange={(e) => onChange({ ...condition, value: [Number(low), Number(e.target.value)] })} />
+        <NumberField label="High" className="w-28" value={Number(high)} onChange={(n) => onChange({ ...condition, value: [Number(low), n] })} />
       </span>
     )
   }
   if (op === "in" || op === "notIn") {
     const list = Array.isArray(condition.value) ? condition.value : []
     return (
-      <input
-        aria-label="Values" className={`${controlClass} w-64`} value={list.join(", ")}
-        placeholder={fact.values ? fact.values.join(", ") : "comma separated"}
-        onChange={(e) => onChange({ ...condition, value: e.target.value.split(",").map((s) => s.trim()).filter(Boolean).map((s) => parseScalar(s, fact.type)) })}
+      <ListField
+        label="Values" className="w-64" value={list} placeholder={fact.values ? fact.values.join(", ") : "comma separated"}
+        parse={(text) => parseScalar(text, fact.type)} onChange={(value) => onChange({ ...condition, value })}
       />
     )
   }
@@ -64,11 +64,11 @@ function ValueInput({ condition, fact, onChange }: { condition: Condition; fact:
       </select>
     )
   }
+  if (fact.type === "number") {
+    return <NumberField label="Value" className="w-40" value={Number(condition.value ?? 0)} onChange={(n) => onChange({ ...condition, value: n })} />
+  }
   return (
-    <input
-      aria-label="Value" className={`${controlClass} w-40`} type={fact.type === "number" ? "number" : "text"} value={String(condition.value ?? "")}
-      onChange={(e) => onChange({ ...condition, value: parseScalar(e.target.value, fact.type) })}
-    />
+    <input aria-label="Value" className={`${controlClass} w-40`} type="text" value={String(condition.value ?? "")} onChange={(e) => onChange({ ...condition, value: e.target.value })} />
   )
 }
 

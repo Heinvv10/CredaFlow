@@ -1,6 +1,6 @@
 -- Maker-checker change requests and business-configurable decisioning (A4).
--- Additive: new tables, two enum-backed config columns' worth of state, and nullable
--- LoanApplication.riskGrade/riskScore/riskGradedAt. No existing row is touched.
+-- Additive: new tables, nullable LoanApplication.risk* columns and User.isSystem (default false).
+-- No existing row is touched.
 
 -- CreateEnum
 CREATE TYPE "DecisionEngineMode" AS ENUM ('OFF', 'SHADOW', 'LIVE');
@@ -19,8 +19,14 @@ CREATE TYPE "ChangeRequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'RE
 
 -- AlterTable
 ALTER TABLE "LoanApplication" ADD COLUMN     "riskGrade" TEXT,
+ADD COLUMN     "riskGradeRank" INTEGER,
+ADD COLUMN     "riskGradeVersionId" TEXT,
 ADD COLUMN     "riskGradedAt" TIMESTAMP(3),
+ADD COLUMN     "riskPricingTier" TEXT,
 ADD COLUMN     "riskScore" INTEGER;
+
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "isSystem" BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable
 CREATE TABLE "DecisionRuleSetVersion" (
@@ -47,10 +53,13 @@ CREATE TABLE "DecisionEngineConfig" (
     "mode" "DecisionEngineMode" NOT NULL DEFAULT 'OFF',
     "channels" TEXT[],
     "productIds" TEXT[],
-    "delegateUserId" TEXT,
     "repaymentMethod" "LoanRepaymentMethod" NOT NULL DEFAULT 'EFT',
     "challengerVersionId" TEXT,
     "challengerPercent" INTEGER NOT NULL DEFAULT 0,
+    "s71SignedOffAt" TIMESTAMP(3),
+    "s71SignedOffById" TEXT,
+    "automatedDeclineNotice" TEXT,
+    "changeRequestId" TEXT NOT NULL,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -73,6 +82,7 @@ CREATE TABLE "AutoDecisionRun" (
     "execution" "AutoDecisionExecution" NOT NULL,
     "executionNote" TEXT,
     "latencyMs" INTEGER NOT NULL,
+    "submissionLatencyMs" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AutoDecisionRun_pkey" PRIMARY KEY ("id")
@@ -91,6 +101,8 @@ CREATE TABLE "ChangeRequest" (
     "checkerId" TEXT,
     "decidedAt" TIMESTAMP(3),
     "decisionNote" TEXT,
+    "payloadVersion" INTEGER NOT NULL DEFAULT 1,
+    "baseRef" TEXT,
     "appliedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -132,6 +144,9 @@ CREATE INDEX "ChangeRequest_tenantId_kind_status_idx" ON "ChangeRequest"("tenant
 CREATE UNIQUE INDEX "ChangeRequest_tenantId_id_key" ON "ChangeRequest"("tenantId", "id");
 
 -- AddForeignKey
+ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_tenantId_riskGradeVersionId_fkey" FOREIGN KEY ("tenantId", "riskGradeVersionId") REFERENCES "DecisionRuleSetVersion"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
 ALTER TABLE "DecisionRuleSetVersion" ADD CONSTRAINT "DecisionRuleSetVersion_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -139,9 +154,6 @@ ALTER TABLE "DecisionRuleSetVersion" ADD CONSTRAINT "DecisionRuleSetVersion_tena
 
 -- AddForeignKey
 ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_tenantId_delegateUserId_fkey" FOREIGN KEY ("tenantId", "delegateUserId") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_tenantId_challengerVersionId_fkey" FOREIGN KEY ("tenantId", "challengerVersionId") REFERENCES "DecisionRuleSetVersion"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
@@ -206,7 +218,7 @@ BEGIN
   END IF;
   allowed := CASE OLD."status"::TEXT || '>' || NEW."status"::TEXT
     WHEN 'DRAFT>DRAFT' THEN ARRAY['title', 'payload', 'updatedAt']
-    WHEN 'DRAFT>SUBMITTED' THEN ARRAY['status', 'submittedAt', 'updatedAt']
+    WHEN 'DRAFT>SUBMITTED' THEN ARRAY['status', 'submittedAt', 'baseRef', 'updatedAt']
     WHEN 'DRAFT>WITHDRAWN' THEN ARRAY['status', 'decidedAt', 'decisionNote', 'updatedAt']
     WHEN 'SUBMITTED>APPROVED' THEN ARRAY['status', 'checkerId', 'decidedAt', 'decisionNote', 'appliedAt', 'updatedAt']
     WHEN 'SUBMITTED>REJECTED' THEN ARRAY['status', 'checkerId', 'decidedAt', 'decisionNote', 'updatedAt']
@@ -260,23 +272,31 @@ CREATE TRIGGER "DecisionRuleSetVersion_no_truncate" BEFORE TRUNCATE ON "Decision
 
 ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_challenger_percent" CHECK ("challengerPercent" BETWEEN 0 AND 50);
 ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_challenger_named" CHECK ("challengerPercent" = 0 OR "challengerVersionId" IS NOT NULL);
--- Live decisions are booked under a named staff user.
-ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_live_has_delegate" CHECK ("mode" <> 'LIVE' OR "delegateUserId" IS NOT NULL);
+-- The lender's legal sign-off of automated declines is recorded with who gave it, and needs the approved client notice.
+ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_s71_signoff" CHECK (
+  ("s71SignedOffAt" IS NULL) = ("s71SignedOffById" IS NULL)
+  AND ("s71SignedOffAt" IS NULL OR ("automatedDeclineNotice" IS NOT NULL AND length(btrim("automatedDeclineNotice")) >= 20))
+  AND ("automatedDeclineNotice" IS NULL OR length("automatedDeclineNotice") <= 2000)
+);
 
--- The delegate is an active staff user who could approve by hand (LOAN_ADMIN or above).
-CREATE OR REPLACE FUNCTION public."guardDecisionEngineDelegate"()
+-- The settings exist only because an approved DECISION_ENGINE_CONFIG request of this lender wrote them, and
+-- each change is a new request: the row cannot be edited under the request that last wrote it.
+CREATE OR REPLACE FUNCTION public."guardDecisionEngineConfig"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
-  IF NEW."delegateUserId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "User" u
-      WHERE u."tenantId" = NEW."tenantId" AND u."id" = NEW."delegateUserId" AND u."active"
-        AND u."role" IN ('LOAN_ADMIN', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN')) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The decision engine delegate is an active LOAN_ADMIN or above';
+  IF TG_OP = 'UPDATE' AND NEW."changeRequestId" IS NOT DISTINCT FROM OLD."changeRequestId" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Decision engine settings change only with a newly approved DECISION_ENGINE_CONFIG change request';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM "ChangeRequest" c
+      WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."changeRequestId"
+        AND c."kind" = 'DECISION_ENGINE_CONFIG' AND c."status" = 'APPROVED') THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Decision engine settings are written only by an approved DECISION_ENGINE_CONFIG change request';
   END IF;
   RETURN NEW;
 END;
 $function$;
-CREATE TRIGGER "DecisionEngineConfig_delegate" BEFORE INSERT OR UPDATE OF "delegateUserId" ON "DecisionEngineConfig"
-  FOR EACH ROW EXECUTE FUNCTION public."guardDecisionEngineDelegate"();
+CREATE TRIGGER "DecisionEngineConfig_guard" BEFORE INSERT OR UPDATE ON "DecisionEngineConfig"
+  FOR EACH ROW EXECUTE FUNCTION public."guardDecisionEngineConfig"();
 
 -- AutoDecisionRun -------------------------------------------------------------
 
@@ -288,11 +308,11 @@ ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_mode_execution" CH
   WHEN 'LIVE' THEN "execution" <> 'NOT_ACTED'
   ELSE false
 END);
--- What was done follows from the verdict; a REFERRED APPROVE is a hard gate of the staff path refusing it.
+-- What was done follows from the verdict; REFERRED is any verdict that could not be acted on (a refer, a hard gate refusing an approve, a decline held for the s71 sign-off).
 ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_execution_follows_verdict" CHECK (CASE "execution"
   WHEN 'APPROVED' THEN "verdict" = 'APPROVE'
   WHEN 'DECLINED' THEN "verdict" = 'DECLINE'
-  WHEN 'REFERRED' THEN "verdict" IN ('REFER', 'APPROVE')
+  WHEN 'REFERRED' THEN true
   ELSE true
 END);
 
@@ -311,9 +331,16 @@ CREATE TRIGGER "AutoDecisionRun_no_truncate" BEFORE TRUNCATE ON "AutoDecisionRun
 
 ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_risk_grade_shape" CHECK (
   ("riskGrade" IS NULL) = ("riskGradedAt" IS NULL)
+  AND ("riskGrade" IS NULL) = ("riskGradeVersionId" IS NULL)
+  AND ("riskGrade" IS NULL) = ("riskGradeRank" IS NULL)
   AND ("riskGrade" IS NULL OR "riskGrade" ~ '^[A-Z0-9+-]{1,4}$')
   AND ("riskScore" IS NULL OR "riskGrade" IS NOT NULL)
+  AND ("riskPricingTier" IS NULL OR "riskGrade" IS NOT NULL)
 );
+
+-- The per-lender automated decisioning actor never signs in: inactive, no usable password, one per lender.
+ALTER TABLE "User" ADD CONSTRAINT "User_system_no_login" CHECK (NOT "isSystem" OR ("active" = false AND "password" = '!' AND "tenantId" IS NOT NULL));
+CREATE UNIQUE INDEX "User_one_system_per_tenant" ON "User" ("tenantId") WHERE "isSystem";
 
 -- Tenant isolation (as 20261015130000_tenant_rls_new_scoped_models) ----------
 

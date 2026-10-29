@@ -14,7 +14,7 @@ const MAX_LIST = 50
 const OPERATORS_BY_TYPE = {
   number: ["eq", "neq", "gt", "gte", "lt", "lte", "between", "in", "notIn", "isNull", "notNull"],
   string: ["eq", "neq", "in", "notIn", "isNull", "notNull"],
-  boolean: ["eq", "neq"],
+  boolean: ["eq", "neq", "isNull", "notNull"],
 } as const
 
 function checkCondition(raw: Record<string, unknown>, path: string, problems: Problems): void {

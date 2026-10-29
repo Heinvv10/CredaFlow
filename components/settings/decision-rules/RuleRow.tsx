@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label"
 import { DECLINE_CATEGORY_LABELS } from "@/lib/applications/decline-category"
 import type { RuleDef, RuleOutcome } from "@/lib/decisioning/types"
 import { ConditionTree } from "./ConditionTree"
+import { NumberField } from "./fields"
 import { controlClass, type FactOption } from "./types"
 
 const OUTCOME_LABELS: Record<RuleOutcome, string> = {
@@ -65,7 +66,7 @@ export function RuleRow({ rule, index, facts, disabled, onChange, onRemove }: Pr
       {rule.outcome === "LIMIT_CAP" && (
         <div className="space-y-1 md:w-1/2">
           <Label htmlFor={`rule-cap-${index}`}>Largest principal allowed (cents)</Label>
-          <Input id={`rule-cap-${index}`} type="number" min={0} value={rule.limitCapCents ?? 0} onChange={(e) => onChange({ ...rule, limitCapCents: Number(e.target.value) })} />
+          <NumberField id={`rule-cap-${index}`} label="Largest principal allowed (cents)" min={0} value={rule.limitCapCents ?? 0} onChange={(n) => onChange({ ...rule, limitCapCents: Math.max(0, Math.trunc(n)) })} />
         </div>
       )}
       <div className="space-y-1">

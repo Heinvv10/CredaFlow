@@ -19,6 +19,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { sendEmail } from "@/lib/email/service"
 import { notifyPriorLeadDuplicatesBestEffort } from "@/lib/crm/lead-duplicate-notify"
 import { deferAfterResponse } from "@/lib/http/after-response"
+import { scheduleDigitalDecision } from "@/lib/decisioning/schedule-digital"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { applicationSubmittedEmail, identityConflictNoticeEmail } from "@/lib/email/templates/portal"
 import { getLenderIdentity } from "@/lib/config/identity"
@@ -1530,6 +1531,8 @@ export async function POST(req: NextRequest) {
     if (applicationId) {
       const submittedApplicationId = applicationId
       deferAfterResponse(() => screenOnSubmit({ tenantId: tenant.id, applicationId: submittedApplicationId, actor: null }))
+      // The lender's decision engine, when it covers the portal channel: reviewed and decided after this response.
+      scheduleDigitalDecision({ tenantId: tenant.id, applicationId: submittedApplicationId })
     }
 
     return NextResponse.json({ success: true, reference: responseReference, applicationId, portalAccountStatus })

@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
-import { changeRequestErrorResponse, maySeeKind, presentChangeRequest } from "@/lib/maker-checker/http"
+import { changeRequestErrorResponse, maySeeRow, presentChangeRequest } from "@/lib/maker-checker/http"
 import { getChangeRequest, updateDraft } from "@/lib/maker-checker/service"
 import { withTenantContext } from "@/lib/tenant"
 
 type Ctx = { params: Promise<{ id: string }> }
 
 export async function GET(req: NextRequest, ctx: Ctx) {
-  const guard = await requireApiRole("LOAN_ADMIN")
+  const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     try {
       const row = await getChangeRequest(tenant.id, (await ctx.params).id)
       // A kind the caller can neither make nor approve is, to them, not there.
-      if (!maySeeKind(guard.user.role, row.kind)) return NextResponse.json({ error: "Change request not found" }, { status: 404 })
+      if (!maySeeRow(guard.user.role, row)) return NextResponse.json({ error: "Change request not found" }, { status: 404 })
       return NextResponse.json({ request: presentChangeRequest(row, guard.user.id, guard.user.role) })
     } catch (error) {
       return changeRequestErrorResponse(error)
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
 /** Edits a draft: { title?, payload? }. Only its maker may. */
 export async function PATCH(req: NextRequest, ctx: Ctx) {
-  const guard = await requireApiRole("LOAN_ADMIN")
+  const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const body = (await req.json().catch(() => null)) as { title?: unknown; payload?: unknown } | null

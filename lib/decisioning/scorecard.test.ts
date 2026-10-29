@@ -56,4 +56,16 @@ describe("scoreApplication", () => {
     expect(worst.declineCategory).toBe("BUREAU_SCORE")
     expect(scoreApplication(card, facts({ bureauScore: null, employmentStatus: null })).score).toBe(50)
   })
+
+  it("a score below every band's minimum falls to the lowest band, with its rank", () => {
+    const low: Scorecard = { ...card, baseScore: -500 }
+    const r = scoreApplication(low, facts({ bureauScore: 400, employmentStatus: "STUDENT" }))
+    expect(r.score).toBeLessThan(0)
+    expect(r).toMatchObject({ grade: "D", rank: 3, action: "DECLINE" })
+  })
+
+  it("reports the rank of the band: 0 is the best", () => {
+    expect(scoreApplication(card, facts({ bureauScore: 640, employmentStatus: "EMPLOYED" })).rank).toBe(0)
+    expect(scoreApplication(card, facts({ bureauScore: 599, employmentStatus: "EMPLOYED", isRepeatClient: true })).rank).toBe(1)
+  })
 })

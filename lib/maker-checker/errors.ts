@@ -5,6 +5,8 @@ export type ChangeRequestErrorCode =
   | "SELF_APPROVAL"
   | "NOT_MAKER"
   | "WRONG_STATE"
+  | "STALE"
+  | "TOTP_REQUIRED"
   | "INVALID_PAYLOAD"
 
 const STATUS: Record<ChangeRequestErrorCode, number> = {
@@ -14,6 +16,8 @@ const STATUS: Record<ChangeRequestErrorCode, number> = {
   SELF_APPROVAL: 403,
   NOT_MAKER: 403,
   WRONG_STATE: 409,
+  STALE: 409,
+  TOTP_REQUIRED: 403,
   INVALID_PAYLOAD: 422,
 }
 

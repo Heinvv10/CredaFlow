@@ -12,7 +12,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { decisionRuleSetHandler } from "@/lib/decisioning/change-handlers"
 import { RULE_SET_KIND } from "@/lib/decisioning/change-payloads"
-import { asChecker, asMaker, asOfficer, createLender, type Lender } from "@/lib/decisioning/decisioning.integration-fixture"
+import { asChecker, asChecker2, asMaker, asOfficer, createLender, type Lender } from "@/lib/decisioning/decisioning.integration-fixture"
 import { ChangeRequestError } from "./errors"
 import { approve, createDraft, reject, submit, updateDraft, withdraw } from "./service"
 
@@ -29,6 +29,17 @@ const payload = (over: Record<string, unknown> = {}) => ({
 const draft = (over: Record<string, unknown> = {}) =>
   createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: RULE_SET_KIND, title: "Add judgement knock-out", payload: payload(over) })
 const sql = (text: string) => db.$executeRawUnsafe(text)
+const engineConfig = (over: Record<string, unknown> = {}) => ({
+  mode: "SHADOW", channels: ["STAFF"], productIds: [lender.productId], repaymentMethod: "EFT", challengerVersionId: null, challengerPercent: 0,
+  s71SignOff: false, automatedDeclineNotice: null, ...over,
+})
+async function approveChange(title: string, over: Record<string, unknown> = {}): Promise<string> {
+  const d = await draft(over)
+  await db.changeRequest.update({ where: { id: d.id }, data: { title } })
+  await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id })
+  await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id })
+  return d.id
+}
 async function refusal(promise: Promise<unknown>): Promise<string> {
   try {
     await promise
@@ -85,21 +96,21 @@ suite("maker-checker (real Postgres)", () => {
   })
 
   it("applies nothing and approves nothing when verification fails inside the approval transaction", async () => {
-    const d = await draft({ name: "Bad product", productId: null })
-    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id })
-    // The payload is frozen, so make the world invalid instead: the delegate of an engine-config change goes inactive.
+    // A rule set approved for the future, named as challenger: verification refuses it at submit, so draft it against a current one first.
+    const future = await approveChange("Future set", { productId: null, name: "Future", effectiveFrom: "2099-01-01", challengerOnly: true })
+    const version = await db.decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: lender.tenantId, changeRequestId: future } })
     const cfg = await createDraft({
-      tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Go shadow",
-      payload: { mode: "SHADOW", channels: ["PORTAL"], productIds: [lender.productId], delegateUserId: lender.delegateId, repaymentMethod: "EFT", challengerVersionId: null, challengerPercent: 0 },
+      tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Shadow with a future challenger",
+      payload: engineConfig({ challengerVersionId: version.id, challengerPercent: 10 }),
     })
-    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: cfg.id })
-    await db.user.update({ where: { id: lender.delegateId }, data: { active: false } })
-    try {
-      await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: cfg.id })).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
-    } finally {
-      await db.user.update({ where: { id: lender.delegateId }, data: { active: true } })
-    }
-    const after = await db.changeRequest.findUniqueOrThrow({ where: { id: cfg.id } })
+    await expect(submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: cfg.id })).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
+    // A fault appearing between submit and approval (the product is deleted) is refused inside the approval transaction.
+    const gone = await db.loanProduct.create({ data: { tenantId: lender.tenantId, code: "GONE", name: "Gone", productType: "MICRO", minAmount: 1, maxAmount: 10, minTermDays: 1, maxTermDays: 30, interestRatePm: 0.05, interestModel: "FLAT" } })
+    const ok = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Shadow", payload: engineConfig({ productIds: [gone.id] }) })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: ok.id })
+    await db.loanProduct.delete({ where: { id: gone.id } })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: ok.id })).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
+    const after = await db.changeRequest.findUniqueOrThrow({ where: { id: ok.id } })
     expect(after).toMatchObject({ status: "SUBMITTED", checkerId: null, appliedAt: null })
     expect(await db.decisionEngineConfig.count({ where: { tenantId: lender.tenantId } })).toBe(0)
   })
@@ -109,7 +120,7 @@ suite("maker-checker (real Postgres)", () => {
     await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id })
     const results = await Promise.allSettled([
       approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id }),
-      approve({ tenantId: lender.tenantId, actor: { ...asChecker(lender), id: lender.officerId, role: "ADMIN" }, id: d.id }),
+      approve({ tenantId: lender.tenantId, actor: asChecker2(lender), id: d.id }),
     ])
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1)
     expect(await db.decisionRuleSetVersion.count({ where: { tenantId: lender.tenantId, changeRequestId: d.id } })).toBe(1)
@@ -162,5 +173,88 @@ suite("maker-checker (real Postgres)", () => {
     const version = await db.decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: lender.tenantId } })
     expect(await refusal(sql(`UPDATE "DecisionRuleSetVersion" SET "name"='Edited' WHERE "id"='${version.id}'`))).toContain("never changes")
     expect(await refusal(sql(`DELETE FROM "DecisionRuleSetVersion" WHERE "id"='${version.id}'`))).toContain("never changes")
+  })
+
+  it("refuses an approval over a change approved in between (STALE), for rule sets and for engine settings, and applies nothing", async () => {
+    const first = await draft({ name: "Concurrent A" })
+    const second = await draft({ name: "Concurrent B" })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: first.id })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: second.id })
+    await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: first.id })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: second.id })).rejects.toMatchObject({ code: "STALE", status: 409 })
+    expect(await db.decisionRuleSetVersion.count({ where: { tenantId: lender.tenantId, changeRequestId: second.id } })).toBe(0)
+    expect((await db.changeRequest.findUniqueOrThrow({ where: { id: second.id } })).status).toBe("SUBMITTED")
+
+    const cfgA = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Settings A", payload: engineConfig() })
+    const cfgB = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Settings B", payload: engineConfig({ mode: "OFF", channels: [], productIds: [] }) })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: cfgA.id })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: cfgB.id })
+    await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: cfgA.id })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: cfgB.id })).rejects.toMatchObject({ code: "STALE" })
+    expect((await db.decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: lender.tenantId } })).mode).toBe("SHADOW")
+  })
+
+  it("two simultaneous approvals that would both create the next version number: one wins, the other is a clean STALE, never a 500", async () => {
+    const x = await draft({ name: "Race X" })
+    const y = await draft({ name: "Race Y" })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: x.id })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: y.id })
+    const results = await Promise.allSettled([
+      approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: x.id }),
+      approve({ tenantId: lender.tenantId, actor: asChecker2(lender), id: y.id }),
+    ])
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1)
+    const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult
+    expect(lost.reason).toMatchObject({ code: "STALE", status: 409 })
+    const versions = await db.decisionRuleSetVersion.findMany({ where: { tenantId: lender.tenantId, scopeKey: "ALL" }, select: { version: true } })
+    expect(new Set(versions.map((v) => v.version)).size).toBe(versions.length)
+  })
+
+  it("the database ties engine settings to an approved request: a forged row, a reused request and a hand edit are refused", async () => {
+    const pending = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Unapproved", payload: engineConfig() })
+    const insert = (tenant: string, request: string) => sql(`INSERT INTO "DecisionEngineConfig" ("id","tenantId","mode","channels","productIds","changeRequestId","updatedAt") VALUES ('forged_${request}','${tenant}','LIVE',ARRAY['STAFF'],ARRAY['p'],'${request}',now())`)
+    const other = await createLender(db)
+    await sql(`DELETE FROM "DecisionEngineConfig" WHERE "tenantId" = '${other.tenantId}'`)
+    expect(await refusal(insert(other.tenantId, pending.id))).toContain("written only by an approved DECISION_ENGINE_CONFIG")
+    expect(await refusal(insert(other.tenantId, "no-such-request"))).toContain("written only by an approved DECISION_ENGINE_CONFIG")
+    // A different tenant's approved request cannot back this tenant's settings.
+    const mine = await db.decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: lender.tenantId } })
+    expect(await refusal(insert(other.tenantId, mine.changeRequestId))).toContain("written only by an approved")
+    // The row cannot be edited under the request that last wrote it, nor under an unapproved or other-kind one.
+    expect(await refusal(sql(`UPDATE "DecisionEngineConfig" SET "mode"='LIVE' WHERE "tenantId"='${lender.tenantId}'`))).toContain("newly approved")
+    expect(await refusal(sql(`UPDATE "DecisionEngineConfig" SET "mode"='LIVE', "changeRequestId"='${pending.id}' WHERE "tenantId"='${lender.tenantId}'`))).toContain("written only by an approved")
+    const ruleSetRequest = (await db.decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: lender.tenantId } })).changeRequestId
+    expect(await refusal(sql(`UPDATE "DecisionEngineConfig" SET "mode"='LIVE', "changeRequestId"='${ruleSetRequest}' WHERE "tenantId"='${lender.tenantId}'`))).toContain("written only by an approved")
+  })
+
+  it("keeps the s71 sign-off tied to the approved notice, and the system user unable to sign in", async () => {
+    expect(await refusal(sql(`UPDATE "DecisionEngineConfig" SET "s71SignedOffAt"=now() WHERE "tenantId"='${lender.tenantId}'`))).toMatch(/s71_signoff|newly approved/)
+    const live = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Live with sign-off", payload: engineConfig({ mode: "LIVE", s71SignOff: true, automatedDeclineNotice: "This decision was made by automated means; you may ask for a person to review it." }) })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: live.id })
+    await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: live.id })
+    const config = await db.decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: lender.tenantId } })
+    expect(config).toMatchObject({ mode: "LIVE", s71SignedOffById: lender.checkerId })
+    expect(config.s71SignedOffAt).not.toBeNull()
+    const system = await db.user.findFirstOrThrow({ where: { tenantId: lender.tenantId, isSystem: true } })
+    expect(system).toMatchObject({ active: false, password: "!", role: "LOAN_ADMIN", name: "Automated decisioning" })
+    expect(await refusal(sql(`UPDATE "User" SET "active" = true WHERE "id" = '${system.id}'`))).toContain("User_system_no_login")
+    expect(await refusal(sql(`UPDATE "User" SET "password" = '$2a$10$abcdefghijklmnopqrstuv' WHERE "id" = '${system.id}'`))).toContain("User_system_no_login")
+    expect(await refusal(sql(`INSERT INTO "User" ("id","email","password","role","active","isSystem","tenantId","updatedAt") VALUES ('sys2_${lender.tenantId}','sys2@x.invalid','!','LOAN_ADMIN',false,true,'${lender.tenantId}',now())`))).toMatch(/already exists|User_one_system_per_tenant/)
+    // Re-approving the same settings keeps the one system user and the original sign-off.
+    const again = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title: "Same again", payload: engineConfig({ mode: "LIVE", s71SignOff: true, automatedDeclineNotice: "This decision was made by automated means; you may ask for a person to review it." }) })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: again.id })
+    await approve({ tenantId: lender.tenantId, actor: asChecker2(lender), id: again.id })
+    expect(await db.user.count({ where: { tenantId: lender.tenantId, isSystem: true } })).toBe(1)
+    expect((await db.decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: lender.tenantId } })).s71SignedOffById).toBe(lender.checkerId)
+  })
+
+  it("a risk grade is all-or-nothing on the application", async () => {
+    const version = await db.decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: lender.tenantId } })
+    const client = await db.client.create({ data: { tenantId: lender.tenantId, idNumber: `92${Date.now().toString().slice(-11)}`, firstName: "G", lastName: "T", email: `g${Date.now()}@c.invalid`, phone: "0820000002" } })
+    const app = await db.loanApplication.create({ data: { tenantId: lender.tenantId, reference: `APP-G${Date.now()}`, clientId: client.id, productId: lender.productId, appliedAmount: 1, appliedTermDays: 1 } })
+    expect(await refusal(sql(`UPDATE "LoanApplication" SET "riskGrade"='A', "riskGradedAt"=now() WHERE "id"='${app.id}'`))).toContain("LoanApplication_risk_grade_shape")
+    expect(await refusal(sql(`UPDATE "LoanApplication" SET "riskScore"=5 WHERE "id"='${app.id}'`))).toContain("LoanApplication_risk_grade_shape")
+    await sql(`UPDATE "LoanApplication" SET "riskGrade"='A', "riskGradedAt"=now(), "riskGradeVersionId"='${version.id}', "riskGradeRank"=0, "riskScore"=9, "riskPricingTier"='PRIME' WHERE "id"='${app.id}'`)
+    expect(await db.loanApplication.findUniqueOrThrow({ where: { id: app.id } })).toMatchObject({ riskGrade: "A", riskGradeRank: 0, riskPricingTier: "PRIME" })
   })
 })

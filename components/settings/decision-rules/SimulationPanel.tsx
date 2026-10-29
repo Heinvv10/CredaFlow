@@ -32,7 +32,7 @@ export function SimulationPanel({ source, label = "Simulate on recent applicatio
     <div className="space-y-3">
       <div className="flex items-center gap-3">
         <Button type="button" variant="outline" size="sm" disabled={busy} onClick={run}>{busy ? "Simulating…" : label}</Button>
-        <span className="text-xs text-[var(--cf-text-muted)]">Read-only: nothing is decided, written or sent.</span>
+        <span className="text-xs text-[var(--cf-text-muted)]">Read-only: nothing is decided, written or sent. Indicative: it replays recent applications on the records as they are now.</span>
       </div>
       {problem.length > 0 && (
         <ul role="alert" className="list-disc space-y-1 pl-5 text-sm text-[var(--cf-danger)]">{problem.map((p) => <li key={p}>{p}</li>)}</ul>
@@ -40,7 +40,7 @@ export function SimulationPanel({ source, label = "Simulate on recent applicatio
       {report && (
         <div className="space-y-4 rounded-lg border border-[var(--cf-border-subtle)] p-4 text-sm" aria-label="Simulation report">
           <p>
-            {report.sampled} application{report.sampled === 1 ? "" : "s"} submitted {report.window.from} to {report.window.to}; {report.withBureau} with a current bureau check.
+            Indicative result. {report.sampled} application{report.sampled === 1 ? "" : "s"} submitted {report.window.from} to {report.window.to}; {report.withBureau} with a current bureau check; {report.snapshotBacked} using the affordability figures recorded when the client applied.
             Compared with {report.liveRuleSet ? `the live rule set (${report.liveRuleSet})` : "no live rule set"}.
           </p>
           <table className="w-full max-w-md text-left">

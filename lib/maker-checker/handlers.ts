@@ -1,17 +1,12 @@
-import { decisionEngineConfigHandler, decisionRuleSetHandler } from "@/lib/decisioning/change-handlers"
+import { CHANGE_HANDLERS } from "@/lib/registry/generated/change-handlers"
 import type { ChangeHandler } from "./types"
 
-// One entry per kind of change. A new consumer adds its handler import and one
-// line to this map (lib/maker-checker/.claude.md, "Adding a kind").
-const HANDLERS: Record<string, ChangeHandler<never>> = {
-  [decisionRuleSetHandler.kind]: decisionRuleSetHandler as ChangeHandler<never>,
-  [decisionEngineConfigHandler.kind]: decisionEngineConfigHandler as ChangeHandler<never>,
-}
-
+// The kinds of change are registered in lib/registry/change-handlers/ (one file per
+// consumer; docs/ARCHITECTURE.md, "Registries"); this module never names a consumer.
 export function handlerFor(kind: string): ChangeHandler<unknown> | null {
-  return (HANDLERS[kind] as ChangeHandler<unknown> | undefined) ?? null
+  return (CHANGE_HANDLERS[kind] as unknown as ChangeHandler<unknown> | undefined) ?? null
 }
 
 export function registeredKinds(): string[] {
-  return Object.keys(HANDLERS)
+  return Object.keys(CHANGE_HANDLERS)
 }

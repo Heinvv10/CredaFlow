@@ -52,7 +52,7 @@ import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
-import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord } from "@/lib/learning-loop/records"
+import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
 // 20261021090000_credit_decision_record) holds the same 10-code-point floor:
@@ -66,15 +66,23 @@ export interface DecideUser {
   role: Parameters<typeof canDo>[0]
 }
 
+/** The transaction client of the app's (tenant-scoped) Prisma client. */
+type DecideTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+
 /**
- * Set only when the business-rules engine (lib/decisioning/) approves: the
- * approval is booked under the lender's delegate user, runs every gate below
- * unchanged, and its decision-log record is flagged as a system decision.
+ * Set only when the business-rules engine (lib/decisioning/) approves or
+ * declines: the decision is booked under the lender's system user, runs every
+ * gate below unchanged, and its decision-log record is a system decision.
  */
-export interface DecideAutomation {
-  ruleVersion: string
-  reasonCodes: readonly string[]
-  riskGrade: string | null
+export interface DecideAutomation extends AutomationFacts {
+  /** The application's updatedAt when the engine read the facts: a later change refuses with 409 rather than act on stale facts. */
+  expectedUpdatedAt: Date
+  /**
+   * Runs inside the decision's transaction, after the decision-log record: the
+   * engine's own run record and the risk grade commit with the decision or not
+   * at all, so an automatic decision can never lack its run.
+   */
+  inTransaction: (tx: DecideTx) => Promise<void>
 }
 
 export interface DecideArgs {
@@ -172,6 +180,10 @@ export async function decideApplication({ tenant, user, id, formData, automation
   // Consumer credit decision (affordability, bureau, PASQ); asset finance decides elsewhere.
   if (!hasClientBorrower(application)) {
     return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+  }
+  // The engine decides on the facts it read: anything that changed the application since is for staff.
+  if (automation && application.updatedAt.getTime() !== automation.expectedUpdatedAt.getTime()) {
+    return NextResponse.json({ error: "The application changed after the decision engine read it; it stays with staff.", applicationChanged: true }, { status: 409 })
   }
 
   if (action === "return_to_review") {
@@ -1467,6 +1479,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
           creditCheckFlags: checks?.flags ?? [],
           affordabilitySnapshot: approvalSnapshot,
         }))
+        // The engine's own run record and grade commit with the decision, or not at all.
+        await automation?.inTransaction(tx)
         // The credit-life commit invariant is deferred: run it here so a
         // refusal reaches the catch below instead of failing the commit.
         await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
@@ -1534,6 +1548,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
         {
           error: "Affordability evidence changed before the application could be approved; refresh, reassess, and try again.",
           affordabilitySnapshot: approvalWrite.reason,
+          ...(approvalWrite.reason === "application_changed" ? { applicationChanged: true } : {}),
         },
         { status: 409 }
       )
@@ -1612,10 +1627,13 @@ export async function decideApplication({ tenant, user, id, formData, automation
           tenantId: tenant.id,
           applicationId: id,
           clientId: application.clientId,
-          actor: { userId: user.id, role: user.role },
+          actor: automation ? { system: true } : { userId: user.id, role: user.role },
+          automation,
           decidedAt: decisionAt,
           declineCategory,
         })])
+        // The engine's own run record and grade commit with the decision, or not at all.
+        await automation?.inTransaction(tx)
         // The credit-life commit invariant is deferred: run it here so a
         // refusal reaches the catch below instead of failing the commit.
         await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
@@ -1634,7 +1652,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
     }
     if (!declined) {
       return NextResponse.json(
-        { error: "Application status changed before it could be declined; refresh and try again." },
+        { error: "Application status changed before it could be declined; refresh and try again.", applicationChanged: true },
         { status: 409 }
       )
     }

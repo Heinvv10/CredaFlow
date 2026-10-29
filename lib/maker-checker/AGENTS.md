@@ -15,33 +15,42 @@ consumers: decision rule sets and engine settings (`lib/decisioning/`).
 
 ## Contract for a consumer (A5 product versions, A6 approval matrix, ...)
 1. Write a `ChangeHandler<P>` (`types.ts`): `kind` (UPPER_SNAKE, 3-60), `label`,
-   `makePermission` / `approvePermission` (keys in `lib/registry/permissions/`),
-   `parse(raw)` (pure; throw `InvalidPayloadError(problems)`; return the
-   normalised payload that is stored), optional `verify(tx, tenantId, payload)`
-   (DB checks; runs on submit AND again inside the approval), and
-   `apply(tx, { tenantId, request, payload, checker, now })`.
-2. Add one import and one entry to the map in `handlers.ts`.
-3. Add audit actions via `lib/registry/audit-actions/`, write them in `apply`
-   with the same `tx`. `apply` throwing rolls the approval back.
-4. Call `service.ts` (`createDraft`, `updateDraft`, `submit`, `approve`,
-   `reject`, `withdraw`) or the generic routes `app/api/maker-checker/**`;
-   the service checks permission, maker/checker and state. Never write
+   `payloadVersion` (bump when `parse` changes meaning: older drafts then refuse
+   to approve), `makePermission`, `approvePermission` (a permission key, or a
+   function of the payload, e.g. by amount), `parse(raw)` (pure; throw
+   `InvalidPayloadError(problems)`; return the normalised stored payload),
+   optional `verify(tx, tenantId, payload)` (DB checks; runs on submit AND again
+   inside the approval), optional `baseRef(tx, tenantId, payload)` (see below),
+   and `apply(tx, { tenantId, request, payload, checker, now })`.
+2. Register it: one file in `lib/registry/change-handlers/` naming the module and
+   export (data only; the generator writes the import). No central map to edit.
+3. Add audit actions and permissions via their registries; write audit rows in
+   `apply` with the same `tx`. `apply` throwing rolls the approval back.
+4. Call `service.ts` (`createDraft`, `updateDraft`, `submit`, `approve`, `reject`,
+   `withdraw`, `listChangeRequests`) or the generic routes `app/api/maker-checker/**`
+   (they gate on the handler's own permissions, not a role floor). Never write
    `ChangeRequest` rows directly.
 
 ## Critical Rules
-- **Maker is not checker**: CHECK `ChangeRequest_four_eyes`. The service
-  answers `SELF_APPROVAL` first; the CHECK is the backstop. Do not add a path
-  that approves as a system user.
-- **The payload is frozen at submission** (trigger `guardChangeRequest`): the
-  payload the checker read is the one applied. Edit = withdraw and redraft.
-- **No delete, no truncate.** A mistake is a new request.
-- A table your `apply` fills should refuse rows no approved request made:
-  see `guardDecisionRuleSetVersion` (it checks the request is APPROVED and of
-  its kind). Store `changeRequestId` as plain text; add no relation to
-  `ChangeRequest`, so consumers never edit this module's schema file.
-- Approval is gated by `approvePermission` only: a user who both drafted and
-  holds it still needs a second approver.
+- **Maker is not checker**: CHECK `ChangeRequest_four_eyes`; the service answers
+  `SELF_APPROVAL` first. Do not add a path that approves as a system user.
+- **Step-up 2FA**: `approve` and `reject` refuse (`TOTP_REQUIRED`) a session that
+  did not verify a TOTP code when the lender requires staff TOTP. Pass
+  `actor.totpVerified` (a `StaffUser` carries it).
+- **Stale approval**: if the handler has `baseRef`, it is recorded at submit and
+  compared inside the approval; a change drafted against a state that has moved
+  is `STALE` (409). Approvals of one kind per lender are serialised by an advisory
+  lock, so the check and `apply` see one state. Use it wherever "approve over a
+  newer change" would silently undo it (versions, settings).
+- **The payload is frozen at submission** (trigger `guardChangeRequest`); no
+  delete, no truncate; a mistake is a new request.
+- **Provenance for what `apply` writes**: the table should refuse rows no approved
+  request of this kind made (`guardDecisionRuleSetVersion`,
+  `guardDecisionEngineConfig`). Store `changeRequestId` as plain text; add no
+  relation to `ChangeRequest`.
+- Lists run their filters in the database and are paged (`listChangeRequests`).
 
 ## Tests
-`RUN_MAKER_CHECKER_IT=1`: `maker-checker.integration.test.ts` (CHECKs,
-triggers, atomic rollback, concurrent approvals). `service.test.ts` is mocked.
+`RUN_MAKER_CHECKER_IT=1`: `maker-checker.integration.test.ts` (CHECKs, triggers,
+atomic rollback, concurrent and stale approvals, provenance). `service.test.ts`
+and `handlers.test.ts` (every registered handler meets the contract) are mocked.

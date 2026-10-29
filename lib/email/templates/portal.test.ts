@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { identityConflictNoticeEmail, paymentDueReminderEmail } from "./portal"
+import { applicationDeclinedEmail, identityConflictNoticeEmail, paymentDueReminderEmail } from "./portal"
 import { parseLenderIdentity } from "@/lib/config/identity"
 import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 import { expectNoOtherLender } from "@/lib/website/__fixtures__/other-lender"
@@ -61,5 +61,17 @@ describe("tenant identity in the shared layout", () => {
     expect(html).toContain("mailto:hello@acme-lending.example")
     expect(html).toContain("Acme Lending (Pty) Ltd")
     expectNoOtherLender(html)
+  })
+})
+
+describe("applicationDeclinedEmail: the automated-decision notice", () => {
+  it("is unchanged without a notice", () => {
+    expect(applicationDeclinedEmail(identity, "Thandi", "APP-1", "Affordability")).not.toContain("automated")
+  })
+
+  it("adds the lender's approved wording, escaped, when there is one", () => {
+    const html = applicationDeclinedEmail(identity, "Thandi", "APP-1", "Affordability", "This decision was made by an automated process. <b>Ask</b> for a review.")
+    expect(html).toContain("This decision was made by an automated process. &lt;b&gt;Ask&lt;/b&gt; for a review.")
+    expect(html).not.toContain("<b>Ask</b>")
   })
 })

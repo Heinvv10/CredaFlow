@@ -28,6 +28,7 @@ export function scoreApplication(card: Scorecard, facts: DecisionFacts): ScoreRe
   return {
     score,
     grade: band.grade,
+    rank: Math.max(0, card.bands.indexOf(band)),
     action: band.action,
     pricingTier: band.pricingTier ?? null,
     declineCategory: band.declineCategory ?? null,

@@ -1,9 +1,9 @@
 import type { AutoDecisionExecution, AutoDecisionRole, DecisionRuleSetVersion } from "@prisma/client"
-import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { AuditAction, logAudit } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { approveThroughStaffPath, declineAutomatically, recordShadow, refer, type Executed, type RunContext } from "./auto-actions"
+import { ApplicationChangedError, approveThroughStaffPath, declineThroughStaffPath, recordShadow, refer, type Executed, type RunContext } from "./auto-actions"
 import { decide } from "./decide"
 import { loadDecisionFacts } from "./load-facts"
 import { versionLabel } from "./records"
@@ -12,8 +12,10 @@ import type { Verdict } from "./types"
 import { parseRules } from "./validate-rules"
 import { parseScorecard } from "./validate-scorecard"
 
-export const TRIGGERS = ["REVIEW_STARTED", "MANUAL"] as const
+export const TRIGGERS = ["REVIEW_STARTED", "DIGITAL_SUBMISSION", "MANUAL"] as const
 export type Trigger = (typeof TRIGGERS)[number]
+
+export const REASON_S71_NOT_SIGNED_OFF = "S71_NOT_SIGNED_OFF"
 
 export type SkipReason =
   | "engine_off"
@@ -23,6 +25,7 @@ export type SkipReason =
   | "product_not_enabled"
   | "no_rule_set"
   | "rule_set_invalid"
+  | "application_changed"
 
 export type AutoDecisionOutcome =
   | { status: "SKIPPED"; reason: SkipReason }
@@ -41,30 +44,14 @@ const skipped = (reason: SkipReason): AutoDecisionOutcome => ({ status: "SKIPPED
 const day = (d: Date) => d.toISOString().slice(0, 10)
 const ref = (v: DecisionRuleSetVersion) => ({ id: v.id, scopeKey: v.scopeKey, version: v.version, effectiveFrom: day(v.effectiveFrom), challengerOnly: v.challengerOnly })
 
-/** Records the grade on the application (the contract in ./risk-grade.ts), once per change. */
-async function writeGrade(ctx: Pick<RunContext, "tenantId" | "applicationId" | "now" | "version">, verdict: Verdict): Promise<void> {
-  if (verdict.riskGrade === null) return
-  const current = await prisma.loanApplication.findFirst({ where: { id: ctx.applicationId, tenantId: ctx.tenantId }, select: { riskGrade: true, riskScore: true } })
-  if (current?.riskGrade === verdict.riskGrade && current.riskScore === verdict.score) return
-  const updated = await prisma.loanApplication.updateMany({
-    where: { id: ctx.applicationId, tenantId: ctx.tenantId, status: "UNDER_REVIEW" },
-    data: { riskGrade: verdict.riskGrade, riskScore: verdict.score, riskGradedAt: ctx.now },
-  })
-  if (updated.count === 1) {
-    await logAuditStrict({
-      tenantId: ctx.tenantId, action: AuditAction.APPLICATION_RISK_GRADED, entity: "LoanApplication", entityId: ctx.applicationId,
-      oldValue: { riskGrade: current?.riskGrade ?? null }, newValue: { riskGrade: verdict.riskGrade, riskScore: verdict.score, ruleSet: versionLabel(ctx.version) },
-    })
-  }
-}
-
 /**
  * Runs the lender's decision engine on one application under review and, in
- * LIVE mode, acts on the verdict: a decline is booked by the engine, an
- * approval goes through the staff approval path (every hard gate applies), a
- * referral leaves the application for staff. OFF does nothing; SHADOW grades
- * and records only. Throws only on infrastructure failure: callers treat a
- * throw as "left for staff".
+ * LIVE mode, acts on the verdict: a decline is booked by the staff decline
+ * path, an approval by the staff approval path (every hard gate applies), a
+ * referral leaves the application for staff. OFF does nothing; SHADOW records
+ * the run only (no grade on the application, no decision). A decline waits for
+ * the lender's POPIA s71 sign-off: until it is set the verdict is referred.
+ * Throws only on infrastructure failure: callers treat a throw as "left for staff".
  */
 export async function runAutoDecision(input: { tenantId: string; applicationId: string; trigger: Trigger; now?: Date }): Promise<AutoDecisionOutcome> {
   const startedAt = performance.now()
@@ -80,12 +67,15 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
     if (!config.channels.includes(loaded.facts.channel)) return skipped("channel_not_enabled")
     if (!config.productIds.includes(loaded.application.productId)) return skipped("product_not_enabled")
 
+    const today = sastCalendarDate(now)
     const rows = await prisma.decisionRuleSetVersion.findMany({ where: { tenantId, scopeKey: { in: [loaded.application.productId, "ALL"] } } })
-    const champion = pickChampion(rows.map(ref), loaded.application.productId, sastCalendarDate(now))
+    const champion = pickChampion(rows.map(ref), loaded.application.productId, today)
     const challenger = config.challengerVersionId && config.challengerPercent > 0
       ? await prisma.decisionRuleSetVersion.findFirst({ where: { id: config.challengerVersionId, tenantId } })
       : null
+    // A challenger is a version like any other: it decides only from its effective date, for its own scope.
     const challengerApplies = challenger !== null
+      && day(challenger.effectiveFrom) <= today
       && (challenger.scopeKey === "ALL" || challenger.scopeKey === loaded.application.productId)
       && inChallengerGroup(applicationId, challenger.id, config.challengerPercent)
     const row = challengerApplies ? challenger : rows.find((r) => r.id === champion?.id)
@@ -96,8 +86,13 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
     try {
       verdict = decide({ facts: loaded.facts, rules: parseRules(row.rules), scorecard: parseScorecard(row.scorecard) })
     } catch (error) {
-      // A stored set that no longer validates is never run: staff decide.
+      // A stored set that no longer validates is never run: staff decide. Say so where operations will see it.
+      // TODO: use the structured logger once lib/observability/logger.ts lands (PR #252).
       console.error("[auto-decision] stored rule set is invalid:", row.id, error)
+      await logAudit({
+        tenantId, action: AuditAction.AUTO_DECISION_RULE_SET_INVALID, entity: "DecisionRuleSetVersion", entityId: row.id,
+        newValue: { applicationId, mode: config.mode, ruleSet: versionLabel(row), role },
+      })
       return skipped("rule_set_invalid")
     }
 
@@ -105,18 +100,22 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
       tenantId, applicationId, trigger, mode: config.mode, role, loaded, verdict, startedAt, now,
       version: { id: row.id, scopeKey: row.scopeKey, version: row.version },
     }
-    await writeGrade(ctx, verdict)
-
-    let done: Executed | null
-    if (config.mode === "SHADOW") done = await recordShadow(ctx)
-    else if (verdict.decision === "DECLINE") done = await declineAutomatically(ctx)
-    else if (verdict.decision === "REFER") done = await refer(ctx, verdict.reasonCodes, null)
-    else done = await approveThroughStaffPath(ctx, config.delegateUserId, config.repaymentMethod)
-    if (!done) return skipped("not_under_review")
-
-    return {
-      status: "RAN", runId: done.runId, execution: done.execution, verdict, role, ruleSet: versionLabel(ctx.version),
-      latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), note: done.note,
+    try {
+      let done: Executed | null
+      if (config.mode === "SHADOW") done = await recordShadow(ctx)
+      else if (verdict.decision === "DECLINE" && config.s71SignedOffAt === null) {
+        done = await refer(ctx, [...verdict.reasonCodes, REASON_S71_NOT_SIGNED_OFF], "Automated declines are not yet signed off by the lender's legal team (POPIA s71); staff must decide.")
+      } else if (verdict.decision === "DECLINE") done = await declineThroughStaffPath(ctx)
+      else if (verdict.decision === "REFER") done = await refer(ctx, verdict.reasonCodes, null)
+      else done = await approveThroughStaffPath(ctx, config.repaymentMethod)
+      if (!done) return skipped("application_changed")
+      return {
+        status: "RAN", runId: done.runId, execution: done.execution, verdict, role, ruleSet: versionLabel(ctx.version),
+        latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), note: done.note,
+      }
+    } catch (error) {
+      if (error instanceof ApplicationChangedError) return skipped("application_changed")
+      throw error
     }
   })
 }

@@ -92,6 +92,8 @@ export interface RuleHit {
 export interface ScoreResult {
   score: number
   grade: string
+  /** Position of the grade's band in the scorecard, 0 = highest score. */
+  rank: number
   action: BandAction
   pricingTier: string | null
   declineCategory: DeclineCategory | null
@@ -107,6 +109,8 @@ export interface Verdict {
   reasonCodes: string[]
   declineCategory: DeclineCategory | null
   riskGrade: string | null
+  /** The grade band's rank, 0 = best; null without a scorecard. */
+  gradeRank: number | null
   score: number | null
   pricingTier: string | null
   limitCapCents: number | null

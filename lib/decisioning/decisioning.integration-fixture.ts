@@ -10,13 +10,16 @@ export interface Lender {
   productId: string
   makerId: string
   checkerId: string
-  delegateId: string
+  /** A second ADMIN, for tests that need two different approvers. */
+  checker2Id: string
   officerId: string
 }
 
-const actor = (id: string, role: string) => ({ id, email: `${id}@test.invalid`, role })
+// A TOTP-verified session: a change request is approved only from one where the lender requires TOTP.
+const actor = (id: string, role: string) => ({ id, email: `${id}@test.invalid`, role, totpVerified: true })
 export const asMaker = (l: Lender) => actor(l.makerId, "ADMIN")
 export const asChecker = (l: Lender) => actor(l.checkerId, "ADMIN")
+export const asChecker2 = (l: Lender) => ({ id: l.checker2Id, email: `${l.checker2Id}@test.invalid`, role: "ADMIN", totpVerified: true })
 export const asOfficer = (l: Lender) => actor(l.officerId, "CREDIT_OFFICER")
 
 export async function createLender(db: PrismaClient): Promise<Lender> {
@@ -25,9 +28,9 @@ export async function createLender(db: PrismaClient): Promise<Lender> {
   await db.tenant.create({ data: { id: tenantId, slug: `dec-${t}`, name: "Decisioning IT" } })
   await db.tenantConfig.create({ data: { ...VALID_LENDER_COLUMNS, tenantId } })
   const users = {
-    makerId: `u_mk_${t}`, checkerId: `u_ck_${t}`, delegateId: `u_dg_${t}`, officerId: `u_of_${t}`,
+    makerId: `u_mk_${t}`, checkerId: `u_ck_${t}`, checker2Id: `u_c2_${t}`, officerId: `u_of_${t}`,
   }
-  const roles = { makerId: "ADMIN", checkerId: "ADMIN", delegateId: "LOAN_ADMIN", officerId: "CREDIT_OFFICER" } as const
+  const roles = { makerId: "ADMIN", checkerId: "ADMIN", checker2Id: "ADMIN", officerId: "CREDIT_OFFICER" } as const
   for (const key of Object.keys(users) as (keyof typeof users)[]) {
     await db.user.create({ data: { id: users[key], tenantId, email: `${users[key]}@test.invalid`, password: "x", role: roles[key] } })
   }

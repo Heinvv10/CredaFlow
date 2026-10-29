@@ -12,7 +12,7 @@ const ACTIONS = ["submit", "approve", "reject", "withdraw"] as const
  * checker and state are enforced by the service and the database, not here.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string; action: string }> }) {
-  const guard = await requireApiRole("LOAN_ADMIN")
+  const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const { id, action } = await ctx.params

@@ -25,11 +25,11 @@ const optionsOf = (r: ReturnType<typeof create>, label: string) =>
   r.root.findAll((n) => n.type === "select" && n.props["aria-label"] === label)[0].findAllByType("option").map((o) => o.props.value as string)
 
 describe("ConditionTree", () => {
-  it("offers comparison operators for a number fact and only is/is-not for a yes/no fact", async () => {
+  it("offers comparison operators for a number fact and is/is-not and missing for a yes/no fact", async () => {
     const number = await mount(<ConditionTree node={{ field: "bureauScore", op: "lt", value: 500 }} facts={facts} onChange={() => undefined} />)
     expect(optionsOf(number, "Operator")).toEqual(expect.arrayContaining(["gt", "between", "isNull"]))
     const yesNo = await mount(<ConditionTree node={{ field: "bureauJudgement", op: "eq", value: true }} facts={facts} onChange={() => undefined} />)
-    expect(optionsOf(yesNo, "Operator")).toEqual(["eq", "neq"])
+    expect(optionsOf(yesNo, "Operator")).toEqual(["eq", "neq", "isNull", "notNull"])
   })
 
   it("adding a condition to a group reports a group with one more entry", async () => {

@@ -9,6 +9,8 @@ export interface Actor {
   id: string
   email: string
   role: string
+  /** This session's sign-in verified a TOTP code (StaffUser.totpVerified). */
+  totpVerified?: boolean
 }
 
 export interface ApplyContext<P> {
@@ -21,32 +23,48 @@ export interface ApplyContext<P> {
 
 /**
  * One kind of change. A consumer (decision rules, product versions, approval
- * matrix, ...) writes one handler and adds it to ./handlers.ts; the service,
- * the routes and the database rules are shared. See .claude.md.
+ * matrix, ...) writes one handler and registers it in
+ * lib/registry/change-handlers/; the service, the routes and the database
+ * rules are shared. See .claude.md.
  */
 export interface ChangeHandler<P = unknown> {
-  /** UPPER_SNAKE, 3-60 chars (CHECK ChangeRequest_kind); also the audit tag. */
+  /** UPPER_SNAKE, 3-60 chars (CHECK ChangeRequest_kind); also the audit tag. Must equal its registry key. */
   kind: string
   /** Shown in lists: "Decision rule set". */
   label: string
-  /** Permission keys (lib/registry/permissions/) for drafting/submitting and for approving/rejecting. */
+  /** Version of the payload format `parse` accepts; stored with each request. A request drafted under another version cannot be approved. Bump it when `parse` changes meaning. */
+  payloadVersion: number
+  /** Permission key (lib/registry/permissions/) for drafting, editing, submitting and withdrawing. */
   makePermission: string
-  approvePermission: string
+  /** Permission key for approving or rejecting; a function picks it from the payload (e.g. by amount). */
+  approvePermission: string | ((payload: P) => string)
   /**
    * Validates untrusted JSON and returns the normalised payload that is
    * stored and later applied. Pure. Throws InvalidPayloadError.
    */
   parse(raw: unknown): P
   /**
-   * Checks that need the database (a referenced product exists, the delegate is
-   * a staff user). Runs on submit and again inside the approval transaction,
-   * just before apply. Throws InvalidPayloadError.
+   * Checks that need the database (a referenced product exists, a version is in
+   * effect). Runs on submit and again inside the approval transaction, just
+   * before apply. Throws InvalidPayloadError.
    */
   verify?(tx: Tx, tenantId: string, payload: P): Promise<void>
+  /**
+   * An opaque string naming the state the change is drafted against (the
+   * latest version number, an updatedAt). Recorded at submit; approval is
+   * refused (STALE) if it differs when the checker approves, so a change cannot
+   * silently overwrite one approved in between. Runs inside the per-kind
+   * approval lock, so it cannot move between the check and `apply`.
+   */
+  baseRef?(tx: Tx, tenantId: string, payload: P): Promise<string>
   /**
    * Makes the change. Runs inside the approval transaction, after the request
    * is marked APPROVED: any throw rolls the approval back too. Write audit
    * rows for what changed with the same `tx`.
    */
   apply(tx: Tx, ctx: ApplyContext<P>): Promise<void>
+}
+
+export function approvePermissionFor<P>(handler: ChangeHandler<P>, payload: P): string {
+  return typeof handler.approvePermission === "function" ? handler.approvePermission(payload) : handler.approvePermission
 }

@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth"
 import { withTenantContext } from "@/lib/tenant"
 import { generateReference } from "@/lib/utils"
 import { triggerNotification } from "@/lib/notifications"
+import { scheduleDigitalDecision } from "@/lib/decisioning/schedule-digital"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { AuditAction } from "@/lib/audit"
 import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
@@ -942,6 +943,8 @@ export async function POST(req: NextRequest) {
     })
     // PEP / sanctions screening; never blocks or fails the submission.
     void screenOnSubmit({ tenantId: tenant.id, applicationId: application.id, actor: null })
+    // The lender's decision engine, when it covers the portal: reviewed and decided after this response (lib/decisioning/digital-submission.ts).
+    scheduleDigitalDecision({ tenantId: tenant.id, applicationId: application.id })
 
     return NextResponse.json(application, { status: 201 })
   })

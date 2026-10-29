@@ -34,6 +34,12 @@ vi.mock("@/lib/prisma", async (importOriginal) => {
 })
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 const notify = vi.hoisted(() => vi.fn(async () => undefined))
+// The bureau provider is not reachable from a test: a review's enquiry writes the check this suite hands it.
+const bureauStub = vi.hoisted(() => ({ run: null as null | ((a: { applicationId: string; clientId: string; reviewGeneration: string }) => Promise<string>) }))
+vi.mock("@/lib/compliance/bureau-review", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/compliance/bureau-review")>()),
+  runBureauReviewCheck: (a: { applicationId: string; clientId: string; reviewGeneration: string }) => bureauStub.run!(a),
+}))
 vi.mock("@/lib/notifications", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/notifications")>()),
   triggerNotification: notify,
@@ -48,8 +54,12 @@ import { createCreditLifeNoOfferDisclosureSha256 } from "@/lib/insurance/credit-
 import { approve, createDraft, submit } from "@/lib/maker-checker/service"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { listAutomatedDeclines } from "./automated-declines"
 import { runAutoDecision } from "./auto-decision"
+import { reviewDigitalSubmission } from "./digital-submission"
+import { HumanReviewError, requestHumanReview } from "./human-review"
 import { ENGINE_CONFIG_KIND, RULE_SET_KIND } from "./change-payloads"
+import { automatedDeclineNoticeFor } from "./notice"
 import { getRiskGrade } from "./risk-grade"
 import { simulateRuleSet } from "./simulate"
 import { inChallengerGroup } from "./select-version"
@@ -58,7 +68,7 @@ const RUN = process.env.RUN_DECISIONING_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
 const ROLE = "cf_decisioning_it"
 const t = randomUUID().replaceAll("-", "").slice(0, 12)
-const ids = { tenant: `decisioning-${t}`, delegate: `dec-delegate-${t}`, maker: `dec-maker-${t}`, checker: `dec-checker-${t}`, product: `dec-product-${t}` }
+const ids = { tenant: `decisioning-${t}`, officer: `dec-officer-${t}`, maker: `dec-maker-${t}`, checker: `dec-checker-${t}`, product: `dec-product-${t}` }
 const db = new PrismaClient()
 let app: ReturnType<typeof createAppPrismaClient> | undefined
 const latencies: number[] = []
@@ -70,8 +80,8 @@ const product = {
 const expenses = { housing: 400_000, transport: 150_000, food: 150_000, insurance: 50_000, medical: 50_000 }
 const longAgo = new Date(Date.now() - 2 * 365 * 86_400_000)
 const clientOf = (applicationId: string) => `${applicationId}-client`
-const maker = { id: ids.maker, email: `${ids.maker}@test.invalid`, role: "ADMIN" }
-const checker = { id: ids.checker, email: `${ids.checker}@test.invalid`, role: "ADMIN" }
+const maker = { id: ids.maker, email: `${ids.maker}@test.invalid`, role: "ADMIN", totpVerified: true }
+const checker = { id: ids.checker, email: `${ids.checker}@test.invalid`, role: "ADMIN", totpVerified: true }
 
 async function createAppRole(): Promise<string> {
   const password = randomBytes(12).toString("hex")
@@ -93,7 +103,7 @@ function roleUrl(password: string): string {
 }
 
 /** A borrower with verified KYC and an UNDER_REVIEW application with intact evidence and a current bureau check (the decide route's fixture). */
-async function underReview(id: string, opts: { bureauScore?: number; amount?: number; clearFlags?: boolean } = {}) {
+async function underReview(id: string, opts: { bureauScore?: number; amount?: number; clearFlags?: boolean; submittedAgoMs?: number } = {}) {
   const terms = { appliedAmount: opts.amount ?? 500_000, appliedTermDays: 30 }
   const clientId = clientOf(id)
   await db.client.create({
@@ -108,25 +118,25 @@ async function underReview(id: string, opts: { bureauScore?: number; amount?: nu
       data: {
         tenantId: ids.tenant, clientId, docType, fileUrl: `/synthetic/${docType}`, fileName: `${docType}.pdf`, fileSize: 1024,
         mimeType: "application/pdf", contentSha256: randomBytes(32).toString("hex"), extractionStatus: "skipped",
-        verified: true, verifiedAt: longAgo, verifiedById: ids.delegate, createdAt: longAgo, uploadedByType: "staff",
+        verified: true, verifiedAt: longAgo, verifiedById: ids.officer, createdAt: longAgo, uploadedByType: "staff",
       },
     })
   }
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId }, include: { expenseBreakdown: true } })
-  const submittedAt = new Date(Date.now() - 60 * 60_000)
+  const submittedAt = new Date(Date.now() - (opts.submittedAgoMs ?? 60 * 60_000))
   const submission = createSubmissionAffordabilitySnapshot({
-    capturedAt: submittedAt, capturedById: ids.delegate, client, applicationDebts: [], clientDebts: [],
+    capturedAt: submittedAt, capturedById: ids.officer, client, applicationDebts: [], clientDebts: [],
     application: { ...terms, productId: ids.product, initiationFeePayment: "DEFERRED" }, product,
   })
   const noOffer = { version: CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION, election: "DECLINED" as const, principalCents: terms.appliedAmount, termDays: terms.appliedTermDays }
   await db.loanApplication.create({
     data: {
       id, tenantId: ids.tenant, reference: `APP-${id}`, clientId, productId: ids.product, ...terms,
-      initiationFeePayment: "DEFERRED", status: "UNDER_REVIEW", submittedAt, assignedToId: ids.delegate,
+      initiationFeePayment: "DEFERRED", status: "UNDER_REVIEW", submittedAt, assignedToId: ids.officer,
       bureauReviewGeneration: randomUUID(), existingDebtObligations: [],
       affordabilityResult: withAffordabilitySnapshot(null, submission) as object,
       clientAffordabilityDeclaredAt: submittedAt,
-      recklessLendingAssessed: true, recklessLendingAssessedAt: submittedAt, recklessLendingAssessedById: ids.delegate,
+      recklessLendingAssessed: true, recklessLendingAssessedAt: submittedAt, recklessLendingAssessedById: ids.officer,
       creditLifeElection: "DECLINED", creditLifeMonthlyPremiumCents: 0, creditLifeDisclosureVersion: noOffer.version,
       creditLifeDisclosureSha256: createCreditLifeNoOfferDisclosureSha256(noOffer),
       creditLifeDisclosureAcknowledgedAt: submittedAt, creditLifeDisclosureAcknowledgedBy: clientId,
@@ -142,10 +152,10 @@ async function underReview(id: string, opts: { bureauScore?: number; amount?: nu
   })
   if (opts.clearFlags !== false) {
     // The real recompute raises its findings (no statement or payslip in the window); an officer clears each with a reason.
-    await runWithTenant(ids.tenant, () => recomputeApplicationFlags(ids.tenant, id, { userId: ids.delegate }))
+    await runWithTenant(ids.tenant, () => recomputeApplicationFlags(ids.tenant, id, { userId: ids.officer }))
     await db.applicationCheckFlag.updateMany({
       where: { tenantId: ids.tenant, applicationId: id, status: "OPEN" },
-      data: { status: "CLEARED", clearedById: ids.delegate, clearedAt: new Date(), clearReason: "Synthetic: income verified by other means." },
+      data: { status: "CLEARED", clearedById: ids.officer, clearedAt: new Date(), clearReason: "Synthetic: income verified by other means." },
     })
   }
 }
@@ -167,10 +177,14 @@ async function approveChange(kind: string, title: string, payload: object): Prom
   return draft.id
 }
 
+const NOTICE = "This decision was made by automated means. You may make representations and ask for a person to review it."
+// What the lender has signed off so far: every settings change carries it forward.
+const signOff = { s71SignOff: false, automatedDeclineNotice: null as string | null }
 const engine = (over: Record<string, unknown> = {}) => ({
-  mode: "LIVE", channels: ["STAFF"], productIds: [ids.product], delegateUserId: ids.delegate, repaymentMethod: "EFT",
-  challengerVersionId: null, challengerPercent: 0, ...over,
+  mode: "LIVE", channels: ["STAFF"], productIds: [ids.product], repaymentMethod: "EFT",
+  challengerVersionId: null, challengerPercent: 0, ...signOff, ...over,
 })
+const systemUser = () => db.user.findFirstOrThrow({ where: { tenantId: ids.tenant, isSystem: true } })
 const run = (applicationId: string) => runAutoDecision({ tenantId: ids.tenant, applicationId, trigger: "MANUAL" })
 const ran = async (applicationId: string) => {
   const outcome = await run(applicationId)
@@ -184,7 +198,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
   beforeAll(async () => {
     await db.tenant.create({ data: { id: ids.tenant, slug: ids.tenant, name: "Decisioning IT" } })
     await db.tenantConfig.create({ data: { tenantId: ids.tenant, bureauMinScore: 580 } })
-    for (const [id, role] of [[ids.delegate, "LOAN_ADMIN"], [ids.maker, "ADMIN"], [ids.checker, "ADMIN"]] as const) {
+    for (const [id, role] of [[ids.officer, "LOAN_ADMIN"], [ids.maker, "ADMIN"], [ids.checker, "ADMIN"]] as const) {
       await db.user.create({ data: { id, tenantId: ids.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name: id, role } })
     }
     await db.loanProduct.create({
@@ -254,29 +268,69 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(outcome).toMatchObject({ execution: "APPROVED", role: "CHAMPION", ruleSet: "ALL:v1" })
     expect(outcome.verdict).toMatchObject({ decision: "APPROVE", reasonCodes: ["RULES_PASSED"], riskGrade: "A" })
     const application = await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-approve" } })
-    expect(application).toMatchObject({ status: "APPROVED", approvedById: ids.delegate, riskGrade: "A", riskScore: 120 })
+    const system = await systemUser()
+    // Booked under the lender's system user (no person's identity), graded in the same transaction.
+    expect(application).toMatchObject({ status: "APPROVED", approvedById: system.id, riskGrade: "A", riskScore: 120, riskGradeRank: 0, riskPricingTier: "PRIME" })
+    expect(application.riskGradeVersionId).toBe(outcome.status === "RAN" ? (await db.autoDecisionRun.findFirstOrThrow({ where: { id: outcome.runId } })).ruleSetVersionId : "")
     const audit = await db.auditLog.findFirstOrThrow({ where: { tenantId: ids.tenant, entityId: "dec-approve", action: "LOAN_APPROVED" } })
+    expect(audit.userId).toBe(system.id)
     expect(audit.newValue).toMatchObject({ automated: true, ruleVersion: "ALL:v1", reasonCodes: ["RULES_PASSED"], riskGrade: "A" })
     const records = await db.creditDecisionRecord.findMany({ where: { tenantId: ids.tenant, applicationId: "dec-approve" }, orderBy: { kind: "asc" } })
     expect(records.map((r) => [r.kind, r.decision, r.actorType, r.actorUserId])).toEqual([["CREDIT_DECISION", "APPROVE", "SYSTEM", null], ["OFFER", "APPROVED_TERMS", "SYSTEM", null]])
     expect(records[0].inputsSnapshot).toMatchObject({ automated: { ruleVersion: "ALL:v1", riskGrade: "A" } })
     const runRow = await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-approve" } })
     expect(runRow).toMatchObject({ verdict: "APPROVE", execution: "APPROVED", mode: "LIVE", role: "CHAMPION", riskGrade: "A", trigger: "MANUAL" })
-    expect(await getRiskGrade(app as never, ids.tenant, "dec-approve")).toMatchObject({ grade: "A", score: 120, pricingTier: "PRIME", rank: 0 })
+    expect(await getRiskGrade(app as never, ids.tenant, "dec-approve")).toMatchObject({ grade: "A", score: 120, pricingTier: "PRIME", rank: 0, ruleSetVersionId: runRow.ruleSetVersionId })
+    expect(runRow.submissionLatencyMs).toBeNull()
   })
 
-  it("declines on a knock-out as a system decision flagged for the s71 review, with the approved client wording", async () => {
+  it("holds an automated decline until the lender has signed off (POPIA s71): the verdict is a referral, nothing is declined", async () => {
     await underReview("dec-decline", { bureauScore: 520, clearFlags: false })
     const outcome = await ran("dec-decline")
-    expect(outcome).toMatchObject({ execution: "DECLINED" })
     expect(outcome.verdict).toMatchObject({ decision: "DECLINE", reasonCodes: ["BUREAU_SCORE_LOW"], declineCategory: "BUREAU_SCORE" })
+    expect(outcome).toMatchObject({ execution: "REFERRED" })
+    expect(await statusOf("dec-decline")).toBe("UNDER_REVIEW")
+    const runRow = await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-decline" } })
+    expect(runRow).toMatchObject({ verdict: "DECLINE", execution: "REFERRED" })
+    expect(runRow.reasonCodes).toEqual(["BUREAU_SCORE_LOW", "S71_NOT_SIGNED_OFF"])
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ event: "application_declined", loanId: "dec-decline" }))
+  })
+
+  it("declines through the staff decline path once signed off: a system decision flagged for the s71 review, with the approved client wording and notice", async () => {
+    signOff.s71SignOff = true
+    signOff.automatedDeclineNotice = NOTICE
+    await approveChange(ENGINE_CONFIG_KIND, "Sign off automated declines", engine())
+    const config = await db.decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: ids.tenant } })
+    expect(config).toMatchObject({ s71SignedOffById: ids.checker, automatedDeclineNotice: NOTICE })
+    const outcome = await ran("dec-decline")
+    expect(outcome).toMatchObject({ execution: "DECLINED" })
+    const system = await systemUser()
     const application = await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-decline" } })
-    expect(application).toMatchObject({ status: "DECLINED", approvedById: null, declineCategory: "BUREAU_SCORE", decisionReason: "Your credit record at the credit bureau does not meet our lending criteria." })
+    expect(application).toMatchObject({ status: "DECLINED", approvedById: system.id, declineCategory: "BUREAU_SCORE", decisionReason: "Your credit record at the credit bureau does not meet our lending criteria.", riskGrade: "B" })
     expect(application.declineInternalNote).toContain("BUREAU_SCORE_LOW")
-    const record = await db.creditDecisionRecord.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-decline" } })
-    expect(record).toMatchObject({ decision: "DECLINE", recommendation: "BLOCK", actorType: "SYSTEM", s71ReviewRequired: true })
-    expect(record.inputsSnapshot).toMatchObject({ reasonCodes: ["BUREAU_SCORE_LOW"], declineCategory: "BUREAU_SCORE" })
+    const records = await db.creditDecisionRecord.findMany({ where: { tenantId: ids.tenant, applicationId: "dec-decline", decision: "DECLINE" } })
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({ recommendation: "BLOCK", actorType: "SYSTEM", actorUserId: null, s71ReviewRequired: true })
+    expect(records[0].inputsSnapshot).toMatchObject({ declineCategory: "BUREAU_SCORE", automated: { reasonCodes: ["BUREAU_SCORE_LOW"] } })
+    expect(await db.auditLog.count({ where: { tenantId: ids.tenant, entityId: "dec-decline", action: "LOAN_DECLINED", userId: system.id } })).toBe(1)
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ event: "application_declined", loanId: "dec-decline" }))
+    const runRow = await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-decline", execution: "DECLINED" } })
+    expect(runRow.id).toBe(outcome.status === "RAN" ? outcome.runId : "")
+    expect(await automatedDeclineNoticeFor(ids.tenant, "dec-decline")).toBe(NOTICE)
+    expect(await automatedDeclineNoticeFor(ids.tenant, "dec-approve")).toBeNull()
+  })
+
+  it("a client's request for a person to look again reopens an automated decline to UNDER_REVIEW, audited and recorded; nothing else can be reopened", async () => {
+    const officer = { id: ids.officer, email: `${ids.officer}@test.invalid`, role: "LOAN_ADMIN" }
+    const queue = await listAutomatedDeclines(ids.tenant)
+    expect(queue.rows.find((r) => r.applicationId === "dec-decline")).toMatchObject({ status: "DECLINED", reasonCodes: ["BUREAU_SCORE_LOW"], noticeSent: true })
+    await expect(requestHumanReview({ tenantId: ids.tenant, applicationId: "dec-approve", actor: officer, reason: "Client asked for a review" })).rejects.toBeInstanceOf(HumanReviewError)
+    await requestHumanReview({ tenantId: ids.tenant, applicationId: "dec-decline", actor: officer, reason: "Client asked for a person to review the decision" })
+    expect(await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-decline" } })).toMatchObject({ status: "UNDER_REVIEW", approvedById: null, declineCategory: null, decisionReason: null })
+    expect(await db.auditLog.count({ where: { tenantId: ids.tenant, entityId: "dec-decline", action: "AUTO_DECISION_HUMAN_REVIEW_REQUESTED", userId: ids.officer } })).toBe(1)
+    const record = await db.creditDecisionRecord.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-decline", decision: "RETURN_TO_REVIEW" } })
+    expect(record).toMatchObject({ actorType: "STAFF", actorUserId: ids.officer })
+    await expect(requestHumanReview({ tenantId: ids.tenant, applicationId: "dec-decline", actor: officer, reason: "Client asked again for a review" })).rejects.toMatchObject({ code: "NOT_DECLINED" })
   })
 
   it("refers when a refer rule fires: the application stays with staff, and the code says why", async () => {
@@ -331,11 +385,12 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     for (const id of [champId, challId]) {
       expect(await statusOf(id)).toBe("UNDER_REVIEW")
       expect(await db.creditDecisionRecord.count({ where: { tenantId: ids.tenant, applicationId: id } })).toBe(0)
-      expect((await db.loanApplication.findUniqueOrThrow({ where: { id } })).riskGrade).toBe("A")
+      // A rehearsal never moves the application: the grade is on the run alone.
+      expect(await db.loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ riskGrade: null, riskGradeVersionId: null, riskPricingTier: null })
     }
     const runs = await db.autoDecisionRun.findMany({ where: { tenantId: ids.tenant, applicationId: { in: [champId, challId] } } })
-    expect(runs.map((r) => [r.applicationId === champId ? "champ" : "chall", r.role, r.mode, r.execution, r.ruleSetVersionId === challenger.id]).sort()).toEqual([
-      ["chall", "CHALLENGER", "SHADOW", "NOT_ACTED", true], ["champ", "CHAMPION", "SHADOW", "NOT_ACTED", false],
+    expect(runs.map((r) => [r.applicationId === champId ? "champ" : "chall", r.role, r.mode, r.execution, r.ruleSetVersionId === challenger.id, r.riskGrade]).sort()).toEqual([
+      ["chall", "CHALLENGER", "SHADOW", "NOT_ACTED", true, "A"], ["champ", "CHAMPION", "SHADOW", "NOT_ACTED", false, "A"],
     ])
   })
 
@@ -351,6 +406,8 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
       tenantId: ids.tenant,
       candidate: { productId: null, scorecard: CARD, rules: [{ id: "bureau-650", name: "Bureau below 650", outcome: "KNOCK_OUT", reasonCode: "BUREAU_BELOW_650", declineCategory: "BUREAU_SCORE", when: { field: "bureauScore", op: "lt", value: 650 } }] },
     })
+    expect(report.indicative).toBe(true)
+    expect(report.snapshotBacked).toBeGreaterThan(0)
     expect(report.liveRuleSet).toBe("ALL:v1")
     expect(report.sampled).toBeGreaterThanOrEqual(7)
     expect(report.withBureau).toBe(report.sampled)
@@ -359,9 +416,37 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(report.candidate.DECLINE).toBeGreaterThan(report.live!.DECLINE)
     expect(report.changes).toContainEqual(expect.objectContaining({ from: "APPROVE", to: "DECLINE" }))
     expect(report.ruleHits).toEqual([expect.objectContaining({ ruleId: "bureau-650", hits: report.candidate.DECLINE })])
-    expect(report.againstStaff).toMatchObject({ approvedByStaff: 1, candidateWouldDecline: 1, declinedByStaff: 1 })
+    // The engine's own approvals and declines are not staff decisions: nothing here was decided by a person.
+    expect(report.againstStaff).toEqual({ approvedByStaff: 0, candidateWouldDecline: 0, declinedByStaff: 0, candidateWouldApprove: 0 })
     expect(report.byGrade).toMatchObject({ A: expect.any(Number) })
     expect(await before()).toEqual(snapshot)
+  })
+
+  it("reviews and decides a digitally submitted application after the response, as the system user, and records submission-to-decision latency", async () => {
+    await approveChange(ENGINE_CONFIG_KIND, "Staff only again", engine({ channels: ["STAFF"] }))
+    await underReview("dec-digital", { bureauScore: 640, submittedAgoMs: 5_000 })
+    // Back to SUBMITTED, as a client's application arrives, with the audit row the portal writes.
+    await db.loanApplication.update({ where: { id: "dec-digital" }, data: { status: "SUBMITTED" } })
+    await db.auditLog.create({ data: { tenantId: ids.tenant, action: "APPLICATION_SUBMITTED_BY_CLIENT", entity: "LoanApplication", entityId: "dec-digital", newValue: {} } })
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital" })).toEqual({ status: "SKIPPED", reason: "channel_not_enabled" })
+    expect(await statusOf("dec-digital")).toBe("SUBMITTED")
+
+    await approveChange(ENGINE_CONFIG_KIND, "Digital channel on", engine({ channels: ["PORTAL", "STAFF"] }))
+    bureauStub.run = async ({ applicationId, clientId, reviewGeneration }) => {
+      const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
+      await db.creditBureauCheck.create({ data: { tenantId: ids.tenant, clientId, applicationId, reviewGeneration, subjectFingerprint: bureauSubjectFingerprint(client), provider: "experian", score: 640, riskGrade: "LOW", adverseInfo: [], declineReasons: [], obligations: { totalMonthly: 0 }, ok: true } })
+      return "completed"
+    }
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital" })).toEqual({ status: "REVIEWED" })
+    const application = await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-digital" } })
+    const runRow = await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-digital" } })
+    expect(application, JSON.stringify([runRow.execution, runRow.executionNote, runRow.reasonCodes])).toMatchObject({ status: "APPROVED", approvedById: (await systemUser()).id, riskGrade: "A" })
+    expect(runRow).toMatchObject({ trigger: "DIGITAL_SUBMISSION", execution: "APPROVED", mode: "LIVE" })
+    expect(runRow.submissionLatencyMs).toBeGreaterThanOrEqual(5_000)
+    expect(runRow.submissionLatencyMs).toBeLessThan(60_000)
+    latencies.push(runRow.submissionLatencyMs ?? 0)
+    // Not submitted any more: nothing to review.
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital" })).toEqual({ status: "SKIPPED", reason: "application_not_submitted" })
   })
 
   it("decides well inside the 60 second target", () => {

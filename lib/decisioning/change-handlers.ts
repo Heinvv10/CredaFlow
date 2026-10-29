@@ -6,12 +6,12 @@ import {
   ENGINE_CONFIG_KIND, RULE_SET_KIND, parseEngineConfigPayload, parseRuleSetPayload,
   type EngineConfigPayload, type RuleSetPayload,
 } from "./change-payloads"
-
-const DELEGATE_ROLES = ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"] as const
+import { ensureSystemUser } from "./system-user"
 
 export const decisionRuleSetHandler: ChangeHandler<RuleSetPayload> = {
   kind: RULE_SET_KIND,
   label: "Decision rule set",
+  payloadVersion: 1,
   makePermission: "manage_decision_rules",
   approvePermission: "approve_decision_rules",
   parse: parseRuleSetPayload,
@@ -19,6 +19,11 @@ export const decisionRuleSetHandler: ChangeHandler<RuleSetPayload> = {
     if (!payload.productId) return
     const product = await tx.loanProduct.findFirst({ where: { id: payload.productId, tenantId }, select: { id: true } })
     if (!product) throw new InvalidPayloadError(["payload.productId: that product does not exist"])
+  },
+  // A new version is drafted against the latest one of its scope: if another is approved first, this one is stale.
+  async baseRef(tx: Tx, tenantId, payload) {
+    const latest = await tx.decisionRuleSetVersion.aggregate({ where: { tenantId, scopeKey: payload.productId ?? "ALL" }, _max: { version: true } })
+    return `v${latest._max.version ?? 0}`
   },
   async apply(tx: Tx, { tenantId, request, payload, checker, now }) {
     const scopeKey = payload.productId ?? "ALL"
@@ -56,6 +61,7 @@ export const decisionRuleSetHandler: ChangeHandler<RuleSetPayload> = {
 export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
   kind: ENGINE_CONFIG_KIND,
   label: "Decision engine settings",
+  payloadVersion: 1,
   makePermission: "manage_decision_rules",
   approvePermission: "approve_decision_rules",
   parse: parseEngineConfigPayload,
@@ -64,15 +70,13 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
     const products = await tx.loanProduct.findMany({ where: { tenantId, id: { in: payload.productIds } }, select: { id: true } })
     const missing = payload.productIds.filter((id) => !products.some((p) => p.id === id))
     if (missing.length > 0) problems.push(`payload.productIds: unknown product ${missing.join(", ")}`)
-    if (payload.delegateUserId) {
-      const user = await tx.user.findFirst({ where: { id: payload.delegateUserId, tenantId, active: true }, select: { role: true } })
-      if (!user || !(DELEGATE_ROLES as readonly string[]).includes(user.role)) {
-        problems.push("payload.delegateUserId: the delegate must be an active user of LOAN_ADMIN or above")
-      }
-    }
     if (payload.challengerVersionId) {
-      const version = await tx.decisionRuleSetVersion.findFirst({ where: { id: payload.challengerVersionId, tenantId }, select: { id: true } })
+      const version = await tx.decisionRuleSetVersion.findFirst({ where: { id: payload.challengerVersionId, tenantId }, select: { effectiveFrom: true } })
       if (!version) problems.push("payload.challengerVersionId: no such rule set version")
+      // A version runs only from its effective date, as champion or challenger.
+      else if (version.effectiveFrom.toISOString().slice(0, 10) > sastCalendarDate(new Date())) {
+        problems.push("payload.challengerVersionId: that version is not in effect yet; name it once its effective date has come")
+      }
     }
     if (payload.mode !== "OFF") {
       const sets = await tx.decisionRuleSetVersion.findMany({ where: { tenantId, challengerOnly: false }, select: { scopeKey: true }, distinct: ["scopeKey"] })
@@ -82,17 +86,28 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
     }
     if (problems.length > 0) throw new InvalidPayloadError(problems)
   },
-  async apply(tx: Tx, { tenantId, request, payload, checker }) {
+  // Drafted against the settings now in force: approving over a newer change would silently undo it.
+  async baseRef(tx: Tx, tenantId) {
+    const current = await tx.decisionEngineConfig.findUnique({ where: { tenantId }, select: { changeRequestId: true } })
+    return current?.changeRequestId ?? "none"
+  },
+  async apply(tx: Tx, { tenantId, request, payload, checker, now }) {
     const previous = await tx.decisionEngineConfig.findUnique({ where: { tenantId } })
+    // Sign-off is kept while the wording it covered is unchanged; any other change to the notice needs a fresh one.
+    const keepSignOff = payload.s71SignOff && previous?.s71SignedOffAt != null && previous.automatedDeclineNotice === payload.automatedDeclineNotice
     const data = {
       mode: payload.mode,
       channels: payload.channels,
       productIds: payload.productIds,
-      delegateUserId: payload.delegateUserId,
       repaymentMethod: payload.repaymentMethod,
       challengerVersionId: payload.challengerVersionId,
       challengerPercent: payload.challengerPercent,
+      automatedDeclineNotice: payload.automatedDeclineNotice,
+      s71SignedOffAt: payload.s71SignOff ? (keepSignOff ? previous!.s71SignedOffAt : now) : null,
+      s71SignedOffById: payload.s71SignOff ? (keepSignOff ? previous!.s71SignedOffById : checker.id) : null,
+      changeRequestId: request.id,
     }
+    if (payload.mode !== "OFF") await ensureSystemUser(tx, tenantId)
     await tx.decisionEngineConfig.upsert({ where: { tenantId }, create: { tenantId, ...data }, update: data })
     await logAuditStrict({
       tenantId,
@@ -101,8 +116,8 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
       action: AuditAction.DECISION_ENGINE_CONFIG_APPLIED,
       entity: "DecisionEngineConfig",
       entityId: tenantId,
-      oldValue: previous ? { mode: previous.mode, channels: previous.channels, productIds: previous.productIds, challengerPercent: previous.challengerPercent } : { mode: "OFF" },
-      newValue: { ...data, changeRequestId: request.id, makerId: request.makerId },
+      oldValue: previous ? { mode: previous.mode, channels: previous.channels, productIds: previous.productIds, challengerPercent: previous.challengerPercent, s71SignedOff: previous.s71SignedOffAt !== null } : { mode: "OFF" },
+      newValue: { mode: data.mode, channels: data.channels, productIds: data.productIds, repaymentMethod: data.repaymentMethod, challengerVersionId: data.challengerVersionId, challengerPercent: data.challengerPercent, s71SignedOff: data.s71SignedOffAt !== null, noticeSet: data.automatedDeclineNotice !== null, changeRequestId: request.id, makerId: request.makerId },
     }, tx)
   },
 }

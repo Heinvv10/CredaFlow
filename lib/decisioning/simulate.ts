@@ -11,9 +11,10 @@ import { parseScorecard } from "./validate-scorecard"
 export const SIMULATION_DEFAULT_LIMIT = 200
 export const SIMULATION_MAX_LIMIT = 500
 export const SIMULATION_DEFAULT_DAYS = 180
+export const SIMULATION_MAX_DAYS = 730
 const BATCH = 10
 
-type Db = Pick<typeof prisma, "loanApplication" | "decisionRuleSetVersion" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan">
+type Db = Pick<typeof prisma, "loanApplication" | "autoDecisionRun" | "decisionRuleSetVersion" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant">
 
 export interface SimulationInput {
   tenantId: string
@@ -25,6 +26,8 @@ export interface SimulationInput {
 }
 
 export interface SimulationReport extends SimulationSummary {
+  /** Always true: a replay rebuilds facts from the records on file now (bureau, client data), with affordability from the recorded snapshots where there are any. It estimates, it does not reproduce. */
+  indicative: true
   window: { from: string; to: string }
   /** The version in force today for the product (or lender-wide) the candidate is compared with; null: none. */
   liveRuleSet: string | null
@@ -45,8 +48,10 @@ export async function simulateRuleSet(input: SimulationInput, db: Db = prisma): 
   const rules: RuleDef[] = parseRules(input.candidate.rules)
   const scorecard: Scorecard | null = parseScorecard(input.candidate.scorecard)
   const now = input.now ?? new Date()
+  const days = input.sinceDays ?? SIMULATION_DEFAULT_DAYS
+  if (!Number.isInteger(days) || days < 1 || days > SIMULATION_MAX_DAYS) throw new RangeError(`sinceDays must be a whole number from 1 to ${SIMULATION_MAX_DAYS}`)
   const limit = Math.min(Math.max(1, input.limit ?? SIMULATION_DEFAULT_LIMIT), SIMULATION_MAX_LIMIT)
-  const from = new Date(now.getTime() - (input.sinceDays ?? SIMULATION_DEFAULT_DAYS) * 86_400_000)
+  const from = new Date(now.getTime() - days * 86_400_000)
 
   const applications = await db.loanApplication.findMany({
     where: {
@@ -66,17 +71,23 @@ export async function simulateRuleSet(input: SimulationInput, db: Db = prisma): 
     return champion ? { row: versions.find((v) => v.id === champion.id)!, label: `${champion.scopeKey}:v${champion.version}` } : null
   }
 
+  const automated = new Set((await db.autoDecisionRun.findMany({
+    where: { tenantId: input.tenantId, applicationId: { in: applications.map((a) => a.id) }, execution: { in: ["APPROVED", "DECLINED"] } },
+    select: { applicationId: true },
+  })).map((r) => r.applicationId))
+
   const entries: SimulationEntry[] = []
   for (let i = 0; i < applications.length; i += BATCH) {
     const batch = await Promise.all(applications.slice(i, i + BATCH).map(async (application): Promise<SimulationEntry | null> => {
-      const loaded = await loadDecisionFacts(db, input.tenantId, application.id, application.submittedAt ?? now)
+      const loaded = await loadDecisionFacts(db, input.tenantId, application.id, application.submittedAt ?? now, { preferSnapshot: true })
       if (!loaded) return null
       const live = liveFor(application.productId)
       return {
         facts: loaded.facts,
         live: live ? decide({ facts: loaded.facts, rules: parseRules(live.row.rules), scorecard: parseScorecard(live.row.scorecard) }) : null,
         candidate: decide({ facts: loaded.facts, rules, scorecard }),
-        actual: staffOutcome(application.status),
+        actual: automated.has(application.id) ? "AUTOMATED" : staffOutcome(application.status),
+        affordabilitySource: loaded.affordabilitySource,
       }
     }))
     entries.push(...batch.filter((e): e is SimulationEntry => e !== null))
@@ -85,6 +96,7 @@ export async function simulateRuleSet(input: SimulationInput, db: Db = prisma): 
   const labels = new Set(applications.map((a) => liveFor(a.productId)?.label ?? null))
   return {
     ...summarise(entries, rules),
+    indicative: true as const,
     window: { from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) },
     liveRuleSet: labels.size === 1 ? ([...labels][0] ?? null) : labels.size > 1 ? "several (by product)" : null,
   }

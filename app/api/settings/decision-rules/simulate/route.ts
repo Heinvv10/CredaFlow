@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
 import { simulateRuleSet } from "@/lib/decisioning/simulate"
+import { parseSimulationWindow } from "@/lib/decisioning/simulate-window"
 import { ChangeRequestError } from "@/lib/maker-checker/errors"
 import { changeRequestErrorResponse } from "@/lib/maker-checker/http"
 import { canDo } from "@/lib/permissions"
@@ -18,6 +19,8 @@ export async function POST(req: NextRequest) {
   return withTenantContext(req, async (tenant) => {
     const body = (await req.json().catch(() => null)) as { versionId?: unknown; draft?: { productId?: unknown; rules?: unknown; scorecard?: unknown }; limit?: unknown; sinceDays?: unknown } | null
     if (!body) return NextResponse.json({ error: "Expected a JSON body" }, { status: 400 })
+    const window = parseSimulationWindow(body)
+    if (!window.ok) return NextResponse.json({ error: window.error }, { status: 400 })
     try {
       let candidate: { rules: unknown; scorecard: unknown; productId: string | null }
       if (typeof body.versionId === "string") {
@@ -31,8 +34,8 @@ export async function POST(req: NextRequest) {
       }
       const report = await simulateRuleSet({
         tenantId: tenant.id, candidate,
-        limit: typeof body.limit === "number" ? body.limit : undefined,
-        sinceDays: typeof body.sinceDays === "number" ? body.sinceDays : undefined,
+        limit: window.limit,
+        sinceDays: window.sinceDays,
       })
       return NextResponse.json({ report })
     } catch (error) {

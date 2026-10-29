@@ -7,7 +7,7 @@ import { runAutoDecisionSafely, statusAfterAutoDecision } from "./run-safely"
 import type { AutoDecisionOutcome } from "./auto-decision"
 
 const ran = (execution: "APPROVED" | "DECLINED" | "REFERRED" | "NOT_ACTED"): AutoDecisionOutcome => ({
-  status: "RAN", runId: "r", execution, verdict: { decision: "APPROVE", reasonCodes: ["X"], declineCategory: null, riskGrade: null, score: null, pricingTier: null, limitCapCents: null, hits: [] },
+  status: "RAN", runId: "r", execution, verdict: { decision: "APPROVE", reasonCodes: ["X"], declineCategory: null, riskGrade: null, gradeRank: null, score: null, pricingTier: null, limitCapCents: null, hits: [] },
   role: "CHAMPION", ruleSet: "ALL:v1", latencyMs: 1, note: null,
 })
 

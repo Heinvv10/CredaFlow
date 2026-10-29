@@ -25,6 +25,7 @@ export function decide(input: { facts: DecisionFacts; rules: readonly RuleDef[];
   const score = scorecard ? scoreApplication(scorecard, facts) : null
   const base = {
     riskGrade: score?.grade ?? null,
+    gradeRank: score?.rank ?? null,
     score: score?.score ?? null,
     pricingTier: score?.pricingTier ?? null,
     hits,

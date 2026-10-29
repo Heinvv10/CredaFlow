@@ -172,6 +172,12 @@ model LoanApplication {
   riskGrade                               String?
   riskScore                               Int?
   riskGradedAt                            DateTime?
+  /// The rule set version whose scorecard produced the grade, and the grade band's
+  /// rank (0 = best) and pricing tier at that time (lib/decisioning/risk-grade.ts).
+  riskGradeVersionId                      String?
+  riskGradeRank                           Int?
+  riskPricingTier                         String?
+  riskGradeVersion                        DecisionRuleSetVersion? @relation("ApplicationRiskGradeVersion", fields: [tenantId, riskGradeVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt                               DateTime             @default(now())
   updatedAt                               DateTime             @updatedAt
   client                                  Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)

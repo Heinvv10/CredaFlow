@@ -4,7 +4,8 @@ import { parseEngineConfigPayload, parseRuleSetPayload } from "./change-payloads
 
 const rule = { id: "r", name: "R", outcome: "REFER", reasonCode: "R_CODE", when: { field: "bureauScore", op: "lt", value: 500 } }
 const ruleSet = { productId: null, name: "Baseline", effectiveFrom: "2026-11-01", challengerOnly: false, rules: [rule], scorecard: null }
-const engine = { mode: "SHADOW", channels: ["PORTAL"], productIds: ["p1"], delegateUserId: null, repaymentMethod: "EFT", challengerVersionId: null, challengerPercent: 0 }
+const NOTICE = "This decision was made by automated means; you may make representations and ask for a person to review it."
+const engine = { mode: "SHADOW", channels: ["PORTAL"], productIds: ["p1"], repaymentMethod: "EFT", challengerVersionId: null, challengerPercent: 0, s71SignOff: false, automatedDeclineNotice: null }
 const problems = (fn: () => unknown) => { try { fn() } catch (e) { if (e instanceof InvalidPayloadError) return e.problems.join("\n") } return "" }
 
 describe("parseRuleSetPayload", () => {
@@ -27,10 +28,15 @@ describe("parseEngineConfigPayload", () => {
   it("accepts off, shadow and a full live config", () => {
     expect(parseEngineConfigPayload({ ...engine, mode: "OFF", channels: [], productIds: [] }).mode).toBe("OFF")
     expect(parseEngineConfigPayload(engine).mode).toBe("SHADOW")
-    expect(parseEngineConfigPayload({ ...engine, mode: "LIVE", delegateUserId: "u1", challengerVersionId: "v1", challengerPercent: 50 }).challengerPercent).toBe(50)
+    expect(parseEngineConfigPayload({ ...engine, mode: "LIVE", challengerVersionId: "v1", challengerPercent: 50, s71SignOff: true, automatedDeclineNotice: NOTICE }).challengerPercent).toBe(50)
   })
   it.each([
-    ["live with no delegate", { ...engine, mode: "LIVE" }, /named staff user/],
+    ["a sign-off with no notice", { ...engine, s71SignOff: true }, /approved wording/],
+    ["a notice that is a draft", { ...engine, automatedDeclineNotice: "DRAFT: the client may ask for a review of the decision" }, /placeholder/],
+    ["a notice with a TODO", { ...engine, automatedDeclineNotice: "TODO get this reviewed by the legal team please" }, /placeholder/],
+    ["a notice that is too short", { ...engine, automatedDeclineNotice: "short" }, /characters/],
+    ["a notice with surrounding spaces", { ...engine, automatedDeclineNotice: ` ${NOTICE}` }, /characters/],
+    ["an s71 flag that is not a boolean", { ...engine, s71SignOff: "yes" }, /true or false/],
     ["shadow with nothing selected", { ...engine, channels: [] }, /at least one channel/],
     ["a challenger share with no challenger", { ...engine, challengerPercent: 10 }, /challenger version/],
     ["a share above 50", { ...engine, challengerPercent: 51 }, /0 to 50/],

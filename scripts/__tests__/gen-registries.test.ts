@@ -12,6 +12,7 @@ const VALID: Record<string, string> = {
   "lib/registry/cron-jobs/a.ts": `export default [{ route: "dpd-update", owner: "external" }]`,
   "lib/registry/simulated-integrations/a.ts": `export default { netcash: { sandboxEnvVar: null, sandboxSafeValues: [] } }`,
   "lib/registry/permissions/a.ts": `export default { view_reports: "READONLY" }`,
+  "lib/registry/change-handlers/a.ts": `export default [{ kind: "DECISION_RULE_SET", module: "@/lib/decisioning/change-handlers", export: "decisionRuleSetHandler" }]`,
   "lib/pdf/.claude.md": "# Module: pdf\n<!-- summary: NCA document hygiene -->\n",
   "prisma/schema/auth.prisma": "enum UserRole {\n  ADMIN\n  // a comment\n  READONLY\n}\n",
 }
@@ -203,5 +204,26 @@ describe("gen-registries", () => {
     await expect(
       buildRegistries(repo({ "lib/registry/permissions/b.ts": `export default { y: ${bad} }` })),
     ).rejects.toThrow(/y must name a UserRole or a non-empty list of distinct UserRoles/)
+  })
+
+  it("writes a static import and a map entry for each change handler", async () => {
+    const out = await buildRegistries(repo({}))
+    const file = out["lib/registry/generated/change-handlers.ts"]
+    expect(file).toContain('import { decisionRuleSetHandler as handler0 } from "@/lib/decisioning/change-handlers"')
+    expect(file).toMatch(/"DECISION_RULE_SET": handler0/)
+  })
+
+  it.each([
+    ["a kind that is not UPPER_SNAKE", `export default [{ kind: "rule", module: "@/lib/x", export: "h" }]`, /kind "rule"/],
+    ["a module outside lib/", `export default [{ kind: "RULE_SET", module: "../evil", export: "h" }]`, /module "\.\.\/evil"/],
+    ["an export that is not an identifier", `export default [{ kind: "RULE_SET", module: "@/lib/x", export: "a b" }]`, /export "a b"/],
+    ["a non-array", `export default { kind: "RULE_SET" }`, /expected an array/],
+  ])("refuses %s", async (_name, body, message) => {
+    await expect(buildRegistries(repo({ "lib/registry/change-handlers/b.ts": body }))).rejects.toThrow(message)
+  })
+
+  it("refuses a kind two files declare, naming both", async () => {
+    const r = repo({ "lib/registry/change-handlers/b.ts": `export default [{ kind: "DECISION_RULE_SET", module: "@/lib/y", export: "other" }]` })
+    await expect(buildRegistries(r)).rejects.toThrow(/"DECISION_RULE_SET" is declared twice/)
   })
 })

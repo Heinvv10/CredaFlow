@@ -74,4 +74,29 @@ describe("evaluateRules", () => {
     // A stored set is validated, but a bad one must still fail closed (no hit, no throw).
     expect(evaluateRules([rule({ field: "bureauScore", op: "lt", value: "high" })], facts())).toHaveLength(0)
   })
+
+  it("notIn and in on a missing fact fire nothing: an unknown value is not 'none of the list'", () => {
+    const f = facts({ employmentStatus: null })
+    expect(evaluateRules([rule({ field: "employmentStatus", op: "notIn", value: ["STUDENT"] })], f)).toHaveLength(0)
+    expect(evaluateRules([rule({ field: "employmentStatus", op: "in", value: ["STUDENT"] })], f)).toHaveLength(0)
+  })
+
+  it("eq is strict: a number never equals its text, and yes/no never equals 1", () => {
+    expect(evaluateRules([rule({ field: "bureauScore", op: "eq", value: "640" })], facts({ bureauScore: 640 }))).toHaveLength(0)
+    expect(evaluateRules([rule({ field: "bureauJudgement", op: "eq", value: 1 as never })], facts({ bureauJudgement: true }))).toHaveLength(0)
+    expect(evaluateRules([rule({ field: "employmentStatus", op: "neq", value: "employed" })], facts({ employmentStatus: "EMPLOYED" }))).toHaveLength(1)
+  })
+
+  it("a bureau flag is missing, not false, without a bureau check: 'no judgement' does not pass an applicant nobody checked", () => {
+    const unchecked = facts({ bureauAvailable: false, bureauScore: null, bureauJudgement: null, bureauAdverse: null })
+    expect(evaluateRules([rule({ field: "bureauJudgement", op: "eq", value: false })], unchecked)).toHaveLength(0)
+    expect(evaluateRules([rule({ field: "bureauJudgement", op: "neq", value: true })], unchecked)).toHaveLength(0)
+    expect(evaluateRules([rule({ field: "bureauJudgement", op: "isNull" })], unchecked)).toHaveLength(1)
+    expect(evaluateRules([rule({ field: "bureauJudgement", op: "eq", value: false })], facts({ bureauJudgement: false }))).toHaveLength(1)
+  })
+
+  it("compares a fractional figure with the exact threshold (no rounding)", () => {
+    expect(evaluateRules([rule({ field: "ndiCoverPct", op: "lt", value: 110 })], facts({ ndiCoverPct: 109.99 }))).toHaveLength(1)
+    expect(evaluateRules([rule({ field: "ndiCoverPct", op: "lt", value: 110 })], facts({ ndiCoverPct: 110 }))).toHaveLength(0)
+  })
 })

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -82,7 +83,7 @@ export function ActivityCard({ stats }: { stats: Overview["stats"] }) {
     <Card>
       <CardHeader>
         <CardTitle>Activity, last {stats.sinceDays} days</CardTitle>
-        <CardDescription>Every run is recorded with the version that decided; the decision latency target is under 60 seconds.</CardDescription>
+        <CardDescription>Every run is recorded with the version that decided; the decision latency target is under 60 seconds. <Link className="underline" href="/applications/automated-decisions">Automated declines to review</Link></CardDescription>
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -94,6 +95,7 @@ export function ActivityCard({ stats }: { stats: Overview["stats"] }) {
           <Stat label="By challenger" value={stats.byRole.CHALLENGER ?? 0} />
           <Stat label="Latency avg / p95 (ms)" value={stats.latencyMs ? `${stats.latencyMs.avg} / ${stats.latencyMs.p95}` : "—"} />
           <Stat label="Slowest (ms)" value={stats.latencyMs?.max ?? "—"} />
+          <Stat label="Submission to decision avg / p95 (ms)" value={stats.submissionLatencyMs ? `${stats.submissionLatencyMs.avg} / ${stats.submissionLatencyMs.p95}` : "—"} />
         </dl>
       </CardContent>
     </Card>

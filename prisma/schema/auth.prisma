@@ -6,6 +6,8 @@ model User {
   role                     UserRole  @default(CREDIT_OFFICER)
   isCommsAgent             Boolean   @default(false)
   active                   Boolean   @default(true)
+  // The per-lender automated decisioning actor (lib/decisioning/system-user.ts): never signs in (CHECK User_system_no_login).
+  isSystem                 Boolean   @default(false)
   tenantId                 String?
   tenant                   Tenant?   @relation(fields: [tenantId], references: [id])
   // Operator staff (OPERATOR_ADMIN / OPERATOR_SUPPORT) are bound to an
@@ -86,7 +88,6 @@ model User {
   dealersDeactivated           Dealer[]                              @relation("DealerDeactivatedBy")
   dealerUsersCreated           DealerUser[]                          @relation("DealerUserCreatedBy")
   debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
-  decisionEngineDelegations    DecisionEngineConfig[]                @relation("DecisionEngineDelegate")
   disbursedApplications        LoanApplication[]                     @relation("DisbursedBy")
   fitAndProper                 FitAndProper?
   kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")

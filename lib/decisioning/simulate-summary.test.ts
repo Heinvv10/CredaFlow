@@ -5,7 +5,7 @@ import type { DecisionKind, RuleDef, Verdict } from "./types"
 
 const rule = (id: string, outcome: RuleDef["outcome"] = "REFER"): RuleDef => ({ id, name: id.toUpperCase(), outcome, reasonCode: id.toUpperCase().replaceAll("-", "_"), when: { field: "bureauScore", op: "lt", value: 1 } })
 const verdict = (decision: DecisionKind, over: Partial<Verdict> = {}): Verdict => ({
-  decision, reasonCodes: ["X"], declineCategory: null, riskGrade: null, score: null, pricingTier: null, limitCapCents: null, hits: [], ...over,
+  decision, reasonCodes: ["X"], declineCategory: null, riskGrade: null, gradeRank: null, score: null, pricingTier: null, limitCapCents: null, hits: [], ...over,
 })
 const hit = (id: string) => ({ ruleId: id, name: id, outcome: "REFER" as const, reasonCode: id.toUpperCase() })
 const entry = (live: Verdict | null, candidate: Verdict, actual: SimulationEntry["actual"] = "OPEN"): SimulationEntry => ({ facts: facts(), live, candidate, actual })
@@ -67,5 +67,15 @@ describe("summarise", () => {
     expect(r.sampled).toBe(0)
     expect(r.ruleHits.every((h) => h.hitRatePct === 0)).toBe(true)
     expect(r.withBureau).toBe(0)
+  })
+
+  it("leaves decisions the engine itself took out of the comparison with staff", () => {
+    const r = summarise([entry(null, verdict("DECLINE"), "AUTOMATED"), entry(null, verdict("DECLINE"), "APPROVED")], rules)
+    expect(r.againstStaff).toEqual({ approvedByStaff: 1, candidateWouldDecline: 1, declinedByStaff: 0, candidateWouldApprove: 0 })
+  })
+
+  it("counts the applications whose affordability came from a recorded snapshot", () => {
+    const r = summarise([{ ...entry(null, verdict("APPROVE")), affordabilitySource: "SNAPSHOT" }, entry(null, verdict("APPROVE"))], rules)
+    expect(r.snapshotBacked).toBe(1)
   })
 })

@@ -18,10 +18,11 @@ export interface EnginePayload {
   mode: "OFF" | "SHADOW" | "LIVE"
   channels: string[]
   productIds: string[]
-  delegateUserId: string | null
   repaymentMethod: "EFT" | "DEBIT_ORDER"
   challengerVersionId: string | null
   challengerPercent: number
+  s71SignOff: boolean
+  automatedDeclineNotice: string | null
 }
 
 export interface VersionRow {
@@ -53,7 +54,6 @@ export interface ChangeRow {
 export interface Overview {
   facts: FactOption[]
   products: { id: string; code: string; name: string }[]
-  delegates: { id: string; name: string | null; email: string; role: string }[]
   versions: VersionRow[]
   config: EnginePayload
   requests: ChangeRow[]
@@ -64,6 +64,7 @@ export interface Overview {
     byVerdict: Record<string, number>
     byRole: Record<string, number>
     latencyMs: { avg: number; p95: number; max: number } | null
+    submissionLatencyMs: { avg: number; p95: number; max: number } | null
   }
   canManage: boolean
   canApprove: boolean

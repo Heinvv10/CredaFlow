@@ -36,6 +36,11 @@ model ChangeRequest {
   /// When the checker approved or rejected, or the maker withdrew.
   decidedAt    DateTime?
   decisionNote String?
+  /// The handler's payload format version when drafted (ChangeHandler.payloadVersion).
+  payloadVersion Int @default(1)
+  /// What the change was drafted against, recorded at submit (ChangeHandler.baseRef):
+  /// approval refuses if it has moved since (STALE).
+  baseRef      String?
   /// Set with APPROVED, in the transaction that ran the handler (CHECK).
   appliedAt    DateTime?
   createdAt    DateTime            @default(now())

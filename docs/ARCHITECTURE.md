@@ -29,9 +29,9 @@ routes, each with its own session secret (`docker-compose.yml`).
 - **Decisioning** — `decisioning/` (lender-configured rules, scorecards, risk
   grades, automatic approve/decline/refer, simulation, champion/challenger) and
   `maker-checker/` (generic four-eyes change requests it and later
-  configuration modules use). An automatic approval runs through the staff
-  approval path's gates; the engine is off until a lender's settings, approved
-  by a second person, turn it on.
+  configuration modules use). An automatic approval or decline runs through the
+  staff decision path's gates as the lender's system user; the engine is off
+  until a lender's settings, approved by a second person, turn it on.
 - **Servicing** — `loan/` (schedules, balances, default charges), `payments/`,
   `bank-sync/` (statement import and reconciliation), `collections/`
   (escalation, arrangements, Section 129).
@@ -383,6 +383,7 @@ change that domain's entries.
 | Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST; `singleRun: true` claims the SAST day in `CronRunClaim` first, so one replica runs it, and fires it again +30 and +60 minutes later to run it over a FAILED or dead run only; `after: "<route>"` holds it until that single-run job is DONE or its final scheduled firing has passed with nothing running; the call is on loopback, `CRON_BASE_URL` overrides it); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
 | Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
 | Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })` — a minimum role on the ladder (`ROLE_HIERARCHY`), a Prisma `UserRole`; or `key: ["ROLE", …]`, the exact roles that hold it, when a minimum would also grant a role that must not have it (a specialist role ranked above the roles it is kept from, e.g. `capture_payment` without INSURANCE_OFFICER). Prefer the minimum: a role added to the ladder inherits it, while a list names everyone by hand | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
+| Change handlers | `lib/registry/change-handlers/` | `defineChangeHandlers([{ kind, module, export }])`; data only (the generator writes the import) | `handlerFor` (`lib/maker-checker/handlers.ts`) |
 | Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |
 
 ### The Prisma schema

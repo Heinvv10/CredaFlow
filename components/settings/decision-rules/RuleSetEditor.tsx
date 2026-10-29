@@ -32,19 +32,23 @@ export function RuleSetEditor({ overview, initial, request, onDone, onCancel }: 
   const [busy, setBusy] = useState(false)
   const [problems, setProblems] = useState<string[]>([])
   const [saved, setSaved] = useState<string | null>(null)
+  // The request this form has created: a second save edits it rather than drafting a duplicate.
+  const [requestId, setRequestId] = useState<string | null>(request?.id ?? null)
+  const [submitted, setSubmitted] = useState(false)
   const patch = (p: Partial<RuleSetPayload>) => setPayload((cur) => ({ ...cur, ...p }))
 
   async function save(andSubmit: boolean) {
     setBusy(true)
     setProblems([])
-    const saveRes = request
-      ? await api<{ request: ChangeRow }>(`/api/maker-checker/${request.id}`, "PATCH", { title, payload })
+    const saveRes = requestId
+      ? await api<{ request: ChangeRow }>(`/api/maker-checker/${requestId}`, "PATCH", { title, payload })
       : await api<{ request: ChangeRow }>("/api/maker-checker", "POST", { kind: "DECISION_RULE_SET", title, payload })
     if (!saveRes.ok || !saveRes.data) {
       setBusy(false)
       setProblems(saveRes.problems.length > 0 ? saveRes.problems : [saveRes.error ?? "Could not save."])
       return
     }
+    setRequestId(saveRes.data.request.id)
     if (andSubmit) {
       const submitRes = await api(`/api/maker-checker/${saveRes.data.request.id}/submit`, "POST", {})
       if (!submitRes.ok) {
@@ -54,6 +58,7 @@ export function RuleSetEditor({ overview, initial, request, onDone, onCancel }: 
       }
     }
     setBusy(false)
+    setSubmitted(andSubmit)
     setSaved(andSubmit ? "Submitted: a second person must approve it before it can run." : "Draft saved.")
     onDone()
   }
@@ -113,8 +118,8 @@ export function RuleSetEditor({ overview, initial, request, onDone, onCancel }: 
         {problems.length > 0 && <ul role="alert" className="list-disc space-y-1 pl-5 text-sm text-[var(--cf-danger)]">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
         {saved && <p role="status" className="text-sm text-[var(--cf-success)]">{saved}</p>}
         <div className="flex gap-2">
-          <Button type="button" disabled={busy} onClick={() => save(true)}>Submit for approval</Button>
-          <Button type="button" variant="outline" disabled={busy} onClick={() => save(false)}>Save draft</Button>
+          <Button type="button" disabled={busy || submitted} onClick={() => save(true)}>Submit for approval</Button>
+          <Button type="button" variant="outline" disabled={busy || submitted} onClick={() => save(false)}>Save draft</Button>
           <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>Close</Button>
         </div>
       </CardContent>

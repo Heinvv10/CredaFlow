@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
-import { ChangeRequestError } from "./errors"
-import { handlerFor } from "./handlers"
-import { canDo } from "@/lib/permissions"
 import type { ChangeRequest } from "@prisma/client"
+import { canDo } from "@/lib/permissions"
+import { ChangeRequestError } from "./errors"
+import { handlerFor, registeredKinds } from "./handlers"
+import { approvePermissionFor } from "./types"
 
 /** A ChangeRequestError as the JSON answer a route gives; anything else is rethrown for the route's own 500. */
 export function changeRequestErrorResponse(error: unknown): NextResponse {
@@ -12,10 +13,33 @@ export function changeRequestErrorResponse(error: unknown): NextResponse {
   throw error
 }
 
-/** Whether a role may see requests of this kind: it can make or approve them. */
-export function maySeeKind(role: string, kind: string): boolean {
-  const handler = handlerFor(kind)
-  return handler !== null && (canDo(role, handler.makePermission) || canDo(role, handler.approvePermission))
+function mayApproveRow(role: string, row: Pick<ChangeRequest, "kind" | "payload">): boolean {
+  const handler = handlerFor(row.kind)
+  if (!handler) return false
+  try {
+    return canDo(role, approvePermissionFor(handler, handler.parse(row.payload)))
+  } catch {
+    // A stored payload this version cannot read cannot be approved by anyone.
+    return false
+  }
+}
+
+/** Whether a role may see a request: it can make that kind of change or approve this one. */
+export function maySeeRow(role: string, row: Pick<ChangeRequest, "kind" | "payload">): boolean {
+  const handler = handlerFor(row.kind)
+  return handler !== null && (canDo(role, handler.makePermission) || mayApproveRow(role, row))
+}
+
+/**
+ * The kinds worth querying for a role, so the database does the narrowing:
+ * those it can make, and those whose approval permission is a plain key it holds
+ * or depends on the payload (the caller then thins with maySeeRow).
+ */
+export function candidateKinds(role: string): string[] {
+  return registeredKinds().filter((kind) => {
+    const handler = handlerFor(kind)!
+    return canDo(role, handler.makePermission) || typeof handler.approvePermission === "function" || canDo(role, handler.approvePermission)
+  })
 }
 
 /** The request as a client sees it: who may act on it is decided by the service, not by this shape. */
@@ -36,6 +60,6 @@ export function presentChangeRequest(row: ChangeRequest, viewerId: string, role:
     decidedAt: row.decidedAt,
     // Hints for the UI only; the service enforces every one of these.
     mine: row.makerId === viewerId,
-    canApprove: row.status === "SUBMITTED" && row.makerId !== viewerId && handler !== null && canDo(role, handler.approvePermission),
+    canApprove: row.status === "SUBMITTED" && row.makerId !== viewerId && mayApproveRow(role, row),
   }
 }

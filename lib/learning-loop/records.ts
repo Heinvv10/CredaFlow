@@ -15,6 +15,7 @@ import {
   instalmentBand,
   ndiCoverBand,
   type DecisionRecordInput,
+  type Plain,
 } from "./decision-log"
 
 export interface DecisionThresholds {
@@ -36,9 +37,14 @@ export interface SystemActor {
 
 /** What the rules engine decided on, kept in the record next to the gates' verdicts. */
 export interface AutomationFacts {
+  /** The rule set version's label, "<scope>:v<N>". */
   ruleVersion: string
+  ruleSetVersionId: string
   reasonCodes: readonly string[]
   riskGrade: string | null
+  bureauCheckId: string | null
+  /** The exact facts the rules read: hashed into the record, never stored (lib/decisioning/facts.ts holds no identifiers). */
+  exactInputs: { [key: string]: Plain }
 }
 
 /** The credit-check rules carry no version id of their own yet (DESIGN.md, "Rule versions"). */
@@ -186,23 +192,46 @@ export function consumerApprovalRecords(f: ConsumerApprovalFacts): DecisionRecor
   return [decision, offer]
 }
 
-export function consumerDeclineRecord(f: ApplicationSubject & { declineCategory: string }): DecisionRecordInput {
+export function consumerDeclineRecord(f: ApplicationSubject & { declineCategory: string; automation?: AutomationFacts }): DecisionRecordInput {
+  const ruleVersion = `${DECISION_LOG_VERSION}+${APPROVAL_AFFORDABILITY_POLICY_VERSION}`
+  if (!f.automation) {
+    return {
+      tenantId: f.tenantId,
+      kind: "CREDIT_DECISION",
+      decision: "DECLINE",
+      // The decline path evaluates no gate (docs/learning-loop/DESIGN.md, deferred).
+      recommendation: "NONE",
+      overrideReason: null,
+      actor: staff(f.actor),
+      subject: subjectOf(f),
+      source: applicationSource(f),
+      ruleVersion,
+      policy: {},
+      snapshot: { declineCategory: f.declineCategory },
+      evidenceRefs: {},
+      exactInputs: { declineCategory: f.declineCategory },
+      decidedAt: f.decidedAt,
+    }
+  }
+  const a = f.automation
   return {
     tenantId: f.tenantId,
     kind: "CREDIT_DECISION",
     decision: "DECLINE",
-    // The decline path evaluates no gate (docs/learning-loop/DESIGN.md, deferred).
-    recommendation: "NONE",
+    // The engine's rules are the gate that said no.
+    recommendation: "BLOCK",
     overrideReason: null,
     actor: staff(f.actor),
     subject: subjectOf(f),
     source: applicationSource(f),
-    ruleVersion: `${DECISION_LOG_VERSION}+${APPROVAL_AFFORDABILITY_POLICY_VERSION}`,
-    policy: {},
-    snapshot: { declineCategory: f.declineCategory },
-    evidenceRefs: {},
-    exactInputs: { declineCategory: f.declineCategory },
+    ruleVersion: `${ruleVersion}+${a.ruleVersion}`,
+    policy: { ruleSetVersionId: a.ruleSetVersionId },
+    snapshot: { declineCategory: f.declineCategory, automated: { ruleVersion: a.ruleVersion, reasonCodes: [...a.reasonCodes], riskGrade: a.riskGrade } },
+    evidenceRefs: { ruleSetVersionId: a.ruleSetVersionId, bureauCheckId: a.bureauCheckId },
+    exactInputs: { ...a.exactInputs, declineCategory: f.declineCategory },
     decidedAt: f.decidedAt,
+    // A decision taken without a person is reviewable under POPIA s71 (DB CHECK: only SYSTEM rows).
+    s71ReviewRequired: true,
   }
 }
 

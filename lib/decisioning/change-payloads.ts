@@ -25,11 +25,19 @@ export interface EngineConfigPayload {
   mode: "OFF" | "SHADOW" | "LIVE"
   channels: string[]
   productIds: string[]
-  delegateUserId: string | null
   repaymentMethod: "EFT" | "DEBIT_ORDER"
   challengerVersionId: string | null
   challengerPercent: number
+  /** The lender's legal sign-off of automated declines (POPIA s71); needs the notice. Until set, a LIVE engine never declines. */
+  s71SignOff: boolean
+  /** The paragraph the client's decline message carries for an automated decision, as the lender's legal team approved it. */
+  automatedDeclineNotice: string | null
 }
+
+/** Draft or placeholder wording must never be approvable as the lender's notice. */
+const PLACEHOLDER_NOTICE = /\b(draft|todo|tbc|lorem)\b/i
+export const NOTICE_MIN_LENGTH = 20
+export const NOTICE_MAX_LENGTH = 2000
 
 const isDay = (v: unknown): v is string => {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
@@ -62,7 +70,7 @@ export function parseRuleSetPayload(raw: unknown): RuleSetPayload {
 export function parseEngineConfigPayload(raw: unknown): EngineConfigPayload {
   if (!isObject(raw)) throw new InvalidPayloadError(["payload: expected an object"])
   const problems = new Problems()
-  rejectUnknownKeys(raw, ["mode", "channels", "productIds", "delegateUserId", "repaymentMethod", "challengerVersionId", "challengerPercent"], "payload", problems)
+  rejectUnknownKeys(raw, ["mode", "channels", "productIds", "repaymentMethod", "challengerVersionId", "challengerPercent", "s71SignOff", "automatedDeclineNotice"], "payload", problems)
   if (raw.mode !== "OFF" && raw.mode !== "SHADOW" && raw.mode !== "LIVE") problems.add("payload.mode", "OFF, SHADOW or LIVE")
   const list = (value: unknown, path: string, allowed?: readonly string[]) => {
     if (!Array.isArray(value) || value.length > 100 || value.some((v) => typeof v !== "string" || v.length === 0) || new Set(value).size !== value.length) {
@@ -73,13 +81,19 @@ export function parseEngineConfigPayload(raw: unknown): EngineConfigPayload {
   }
   list(raw.channels, "payload.channels", CHANNELS)
   list(raw.productIds, "payload.productIds")
-  if (raw.delegateUserId !== null && (typeof raw.delegateUserId !== "string" || raw.delegateUserId.length === 0)) problems.add("payload.delegateUserId", "a staff user id, or null")
   if (raw.repaymentMethod !== "EFT" && raw.repaymentMethod !== "DEBIT_ORDER") problems.add("payload.repaymentMethod", "EFT or DEBIT_ORDER")
   if (raw.challengerVersionId !== null && (typeof raw.challengerVersionId !== "string" || raw.challengerVersionId.length === 0)) problems.add("payload.challengerVersionId", "a rule set version id, or null")
   if (typeof raw.challengerPercent !== "number" || !Number.isInteger(raw.challengerPercent) || raw.challengerPercent < 0 || raw.challengerPercent > 50) problems.add("payload.challengerPercent", "a whole number from 0 to 50")
+  if (typeof raw.s71SignOff !== "boolean") problems.add("payload.s71SignOff", "true or false")
+  const notice = raw.automatedDeclineNotice
+  if (notice !== null && (typeof notice !== "string" || notice !== notice.trim() || notice.length < NOTICE_MIN_LENGTH || notice.length > NOTICE_MAX_LENGTH)) {
+    problems.add("payload.automatedDeclineNotice", `null, or ${NOTICE_MIN_LENGTH} to ${NOTICE_MAX_LENGTH} characters with no surrounding spaces`)
+  } else if (typeof notice === "string" && PLACEHOLDER_NOTICE.test(notice)) {
+    problems.add("payload.automatedDeclineNotice", "placeholder wording (draft, TODO, TBC) cannot be approved as the client notice")
+  }
   problems.throwIfAny()
   const payload = raw as unknown as EngineConfigPayload
-  if (payload.mode === "LIVE" && !payload.delegateUserId) problems.add("payload.delegateUserId", "live decisions are booked under a named staff user")
+  if (payload.s71SignOff && payload.automatedDeclineNotice === null) problems.add("payload.s71SignOff", "the sign-off covers the client notice: provide the approved wording")
   if (payload.mode !== "OFF" && (payload.channels.length === 0 || payload.productIds.length === 0)) problems.add("payload", "choose at least one channel and one product, or switch the engine off")
   if (payload.challengerPercent > 0 && !payload.challengerVersionId) problems.add("payload.challengerVersionId", "name the challenger version to send applications to")
   problems.throwIfAny()

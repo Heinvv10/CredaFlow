@@ -63,6 +63,7 @@ model DecisionRuleSetVersion {
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   autoDecisionRuns         AutoDecisionRun[]
   engineConfigsChallenging DecisionEngineConfig[] @relation("DecisionEngineChallenger")
+  gradedApplications       LoanApplication[]      @relation("ApplicationRiskGradeVersion")
 
   @@unique([tenantId, id])
   @@unique([tenantId, scopeKey, version])
@@ -79,14 +80,21 @@ model DecisionEngineConfig {
   channels            String[]
   /// Product ids the engine may decide. Empty: no product.
   productIds          String[]
-  /// The staff user an automatic approval is booked under (LOAN_ADMIN or above; CHECK: LIVE needs one).
-  delegateUserId      String?
-  delegateUser        User?                   @relation("DecisionEngineDelegate", fields: [tenantId, delegateUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   repaymentMethod     LoanRepaymentMethod     @default(EFT)
   challengerVersionId String?
   challengerVersion   DecisionRuleSetVersion? @relation("DecisionEngineChallenger", fields: [tenantId, challengerVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   /// 0..50: the share of applications the challenger decides.
   challengerPercent   Int                     @default(0)
+  /// The lender's legal sign-off of automated decline decisions (POPIA s71), set
+  /// by an approved engine-settings change. Until it is set a LIVE engine never
+  /// declines: a decline verdict is referred to staff.
+  s71SignedOffAt      DateTime?
+  s71SignedOffById    String?
+  /// The paragraph added to the client's decline message for an automated
+  /// decision, as approved by the lender's legal team (lib/decisioning/notice.ts).
+  automatedDeclineNotice String?
+  /// The approved ChangeRequest that wrote this row (trigger guardDecisionEngineConfig).
+  changeRequestId     String
   updatedAt           DateTime                @updatedAt
   createdAt           DateTime                @default(now())
 
@@ -113,6 +121,8 @@ model AutoDecisionRun {
   /// Staff-only context: the staff-path gate message that turned an APPROVE into a referral.
   executionNote    String?
   latencyMs        Int
+  /// From the client's submission to this run, when the application was submitted by the client.
+  submissionLatencyMs Int?
   createdAt        DateTime                @default(now())
 
   @@unique([tenantId, id])

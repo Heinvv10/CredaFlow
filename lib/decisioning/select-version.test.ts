@@ -52,3 +52,27 @@ describe("inChallengerGroup", () => {
     expect(at10.every((id) => inChallengerGroup(id, "ver_9", 25))).toBe(true)
   })
 })
+
+describe("inChallengerGroup: boundaries and salt", () => {
+  const ids = Array.from({ length: 1000 }, (_, i) => `app_${i}`)
+
+  it("1 percent routes about one in a hundred, 50 about half, and never more than the percent plus noise", () => {
+    expect(ids.filter((id) => inChallengerGroup(id, "ver_9", 1)).length).toBeLessThan(30)
+    const half = ids.filter((id) => inChallengerGroup(id, "ver_9", 50)).length
+    expect(half).toBeGreaterThan(440)
+    expect(half).toBeLessThan(560)
+  })
+
+  it("the challenger version salts the hash: another version gets a different share of the same applications", () => {
+    const a = new Set(ids.filter((id) => inChallengerGroup(id, "ver_A", 50)))
+    const b = new Set(ids.filter((id) => inChallengerGroup(id, "ver_B", 50)))
+    const overlap = [...a].filter((id) => b.has(id)).length
+    // Independent halves overlap by about a quarter of the applications, not all of them.
+    expect(overlap).toBeGreaterThan(180)
+    expect(overlap).toBeLessThan(320)
+  })
+
+  it("a negative percent routes nobody", () => {
+    expect(ids.some((id) => inChallengerGroup(id, "ver_9", -5))).toBe(false)
+  })
+})

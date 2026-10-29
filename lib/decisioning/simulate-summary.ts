@@ -2,7 +2,8 @@ import type { DecisionFacts } from "./facts"
 import type { DecisionKind, RuleDef, RuleOutcome, Verdict } from "./types"
 
 /** What staff did with the application in the real world. */
-export type StaffOutcome = "APPROVED" | "DECLINED" | "OPEN"
+/** What happened to the application in the real world; AUTOMATED: the decision engine decided it, so it says nothing about staff. */
+export type StaffOutcome = "APPROVED" | "DECLINED" | "OPEN" | "AUTOMATED"
 
 export interface SimulationEntry {
   facts: DecisionFacts
@@ -10,6 +11,7 @@ export interface SimulationEntry {
   live: Verdict | null
   candidate: Verdict
   actual: StaffOutcome
+  affordabilitySource?: "SNAPSHOT" | "LIVE"
 }
 
 export interface RuleHitRate {
@@ -24,6 +26,8 @@ export interface SimulationSummary {
   sampled: number
   /** Applications whose facts included a current bureau check. */
   withBureau: number
+  /** Applications whose affordability came from the snapshot recorded when they were submitted. */
+  snapshotBacked: number
   live: Record<DecisionKind, number> | null
   candidate: Record<DecisionKind, number>
   unchanged: number
@@ -74,6 +78,7 @@ export function summarise(entries: readonly SimulationEntry[], rules: readonly R
   return {
     sampled: entries.length,
     withBureau: entries.filter((e) => e.facts.bureauAvailable).length,
+    snapshotBacked: entries.filter((e) => e.affordabilitySource === "SNAPSHOT").length,
     live,
     candidate,
     unchanged,

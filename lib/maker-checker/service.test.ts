@@ -1,36 +1,62 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ChangeRequestError } from "./errors"
+import type { ChangeHandler } from "./types"
 
+const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: async () => h.totpRequired }))
+vi.mock("./handlers", () => ({ handlerFor: (kind: string) => (kind === "TEST_KIND" ? h.handler : null) }))
+
 import { approve, createDraft, reject, submit, updateDraft, withdraw } from "./service"
 
-const maker = { id: "u-maker", email: "m@x.invalid", role: "ADMIN" }
-const checker = { id: "u-checker", email: "c@x.invalid", role: "ADMIN" }
-const officer = { id: "u-off", email: "o@x.invalid", role: "CREDIT_OFFICER" }
-const row = (over: Record<string, unknown> = {}) => ({ id: "cr1", tenantId: "t", kind: "DECISION_RULE_SET", status: "SUBMITTED", makerId: "u-maker", payload: {}, ...over })
+const maker = { id: "u-maker", email: "m@x.invalid", role: "ADMIN", totpVerified: true }
+const checker = { id: "u-checker", email: "c@x.invalid", role: "ADMIN", totpVerified: true }
+const officer = { id: "u-off", email: "o@x.invalid", role: "CREDIT_OFFICER", totpVerified: true }
+const row = (over: Record<string, unknown> = {}) => ({ id: "cr1", tenantId: "t", kind: "TEST_KIND", status: "SUBMITTED", makerId: "u-maker", payload: { amount: 5 }, payloadVersion: 1, baseRef: null, ...over })
+
+function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeHandler<{ amount: number }> {
+  return {
+    kind: "TEST_KIND", label: "Test change", payloadVersion: 1,
+    makePermission: "manage_decision_rules", approvePermission: "approve_decision_rules",
+    parse: (raw) => raw as { amount: number }, apply: vi.fn(async () => undefined), ...over,
+  }
+}
 
 /** A db whose transaction hands the callback a tx that finds `found` and records writes. */
 function fakeDb(found: unknown, count = 1) {
   const tx = {
-    changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn() },
+    changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
     auditLog: { create: vi.fn() },
+    $executeRaw: vi.fn(async () => 0),
   }
   const db = { $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)), changeRequest: tx.changeRequest }
   return { db: db as never, tx }
 }
 const scope = { tenantId: "t", id: "cr1" }
 
-describe("maker-checker service (state and permission checks; the database rules are in the integration suite)", () => {
+beforeEach(() => { h.totpRequired = true; h.handler = handler() })
+
+describe("maker-checker service (state, permission, staleness; the database rules are in the integration suite)", () => {
   it("refuses an unknown kind before touching the database", async () => {
     const { db, tx } = fakeDb(null)
     await expect(createDraft({ tenantId: "t", actor: maker, kind: "NOPE", title: "t", payload: {} }, db)).rejects.toMatchObject({ code: "UNKNOWN_KIND" })
     expect(tx.changeRequest.create).not.toHaveBeenCalled()
   })
 
-  it("refuses a user without the kind's permission", async () => {
-    const { db } = fakeDb(row())
-    await expect(createDraft({ tenantId: "t", actor: officer, kind: "DECISION_RULE_SET", title: "t", payload: {} }, db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+  it("refuses a user without the kind's permission, for every step that needs one", async () => {
+    await expect(createDraft({ tenantId: "t", actor: officer, kind: "TEST_KIND", title: "t", payload: {} }, fakeDb(row()).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
     await expect(approve({ ...scope, actor: officer }, fakeDb(row()).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+    await expect(reject({ ...scope, actor: officer, note: "x" }, fakeDb(row()).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+    // The maker lost the make permission: withdrawing needs it too.
+    await expect(withdraw({ ...scope, actor: { ...maker, role: "CREDIT_OFFICER" } }, fakeDb(row()).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("an approve permission may depend on the payload", async () => {
+    // LOAN_ADMIN holds disburse_loan but not delete_client (ADMIN).
+    h.handler = handler({ approvePermission: (p) => (p.amount > 10 ? "delete_client" : "disburse_loan") })
+    const loanAdmin = { ...checker, role: "LOAN_ADMIN" }
+    await expect(approve({ ...scope, actor: loanAdmin }, fakeDb(row({ payload: { amount: 50 } })).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+    expect((await approve({ ...scope, actor: loanAdmin }, fakeDb(row({ payload: { amount: 5 } })).db)).id).toBe("cr1")
   })
 
   it("answers not found for a request outside the tenant, without writing", async () => {
@@ -60,12 +86,70 @@ describe("maker-checker service (state and permission checks; the database rules
 
   it("only the maker edits, submits or withdraws", async () => {
     const { db } = fakeDb(row({ status: "DRAFT" }))
-    await expect(updateDraft({ ...scope, actor: { ...checker, role: "ADMIN" }, title: "x" }, db)).rejects.toMatchObject({ code: "NOT_MAKER" })
+    await expect(updateDraft({ ...scope, actor: checker, title: "x" }, db)).rejects.toMatchObject({ code: "NOT_MAKER" })
     await expect(submit({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "NOT_MAKER" })
     await expect(withdraw({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "NOT_MAKER" })
   })
 
   it("rejecting needs a reason", async () => {
     await expect(reject({ ...scope, actor: checker, note: "   " }, fakeDb(row()).db)).rejects.toBeInstanceOf(ChangeRequestError)
+  })
+
+  it("refuses a title that is empty or too long with a 4xx, not a database error", async () => {
+    for (const title of ["   ", "x".repeat(201)]) {
+      await expect(createDraft({ tenantId: "t", actor: maker, kind: "TEST_KIND", title, payload: {} }, fakeDb(null).db)).rejects.toMatchObject({ code: "INVALID_PAYLOAD", status: 422 })
+    }
+  })
+})
+
+describe("step-up two-factor", () => {
+  it("refuses approve and reject from a session that did not verify a TOTP code when the lender requires it, before any write", async () => {
+    const { db, tx } = fakeDb(row({ makerId: "someone-else" }))
+    const noTotp = { ...checker, totpVerified: false }
+    await expect(approve({ ...scope, actor: noTotp }, db)).rejects.toMatchObject({ code: "TOTP_REQUIRED", status: 403 })
+    await expect(reject({ ...scope, actor: noTotp, note: "x" }, db)).rejects.toMatchObject({ code: "TOTP_REQUIRED" })
+    expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("does not ask for it where the lender has switched the requirement off", async () => {
+    h.totpRequired = false
+    const { db } = fakeDb(row({ makerId: "someone-else" }))
+    expect((await approve({ ...scope, actor: { ...checker, totpVerified: false } }, db)).id).toBe("cr1")
+  })
+})
+
+describe("stale approval", () => {
+  it("records what the change was drafted against at submit", async () => {
+    h.handler = handler({ baseRef: vi.fn(async () => "v7") })
+    const { db, tx } = fakeDb(row({ status: "DRAFT" }))
+    await submit({ ...scope, actor: maker }, db)
+    expect(tx.changeRequest.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ baseRef: "v7", status: "SUBMITTED" }) }))
+  })
+
+  it("refuses to approve (STALE, 409) when what it was drafted against has moved, and applies nothing", async () => {
+    const apply = vi.fn()
+    h.handler = handler({ baseRef: async () => "v8", apply })
+    const { db } = fakeDb(row({ makerId: "someone-else", baseRef: "v7" }))
+    await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "STALE", status: 409 })
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it("approves when it has not moved, serialising approvals of the kind first", async () => {
+    const apply = vi.fn()
+    h.handler = handler({ baseRef: async () => "v7", apply })
+    const { db, tx } = fakeDb(row({ makerId: "someone-else", baseRef: "v7" }))
+    await approve({ ...scope, actor: checker }, db)
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  it("refuses a request drafted under an older payload format", async () => {
+    h.handler = handler({ payloadVersion: 2 })
+    await expect(approve({ ...scope, actor: checker }, fakeDb(row({ makerId: "someone-else", payloadVersion: 1 })).db)).rejects.toMatchObject({ code: "STALE" })
+  })
+
+  it("a unique violation from apply (two approvals racing for one version number) is a clean 409", async () => {
+    h.handler = handler({ apply: async () => { throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" }) } })
+    await expect(approve({ ...scope, actor: checker }, fakeDb(row({ makerId: "someone-else" })).db)).rejects.toMatchObject({ code: "STALE", status: 409 })
   })
 })

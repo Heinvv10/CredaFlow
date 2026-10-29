@@ -13,6 +13,8 @@ const notificationLogCreateMock = vi.fn()
 const contactFindFirstMock = vi.fn()
 const consentFindFirstMock = vi.fn()
 
+// The automated-decision notice (lib/decisioning/notice.ts) is covered in lib/decisioning/notice.test.ts; a person's decline carries none.
+vi.mock("@/lib/decisioning/notice", () => ({ automatedDeclineNoticeFor: async () => null }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenant: { findUnique: (a: unknown) => tenantFindUniqueMock(a) },

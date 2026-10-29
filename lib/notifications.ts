@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "@/lib/prisma"
+import { automatedDeclineNoticeFor } from "@/lib/decisioning/notice"
 import { dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { sendEmail } from "@/lib/email/service"
 import { sendSms } from "@/lib/integrations/bulksms"
@@ -263,12 +264,14 @@ async function buildTemplate(
       }
     }
 
-    // application_declined
+    // application_declined. An automated decision also carries the lender's
+    // approved notice (lib/decisioning/notice.ts); a person's decline is unchanged.
     const reason = String(app?.decisionReason ?? d.reason ?? "")
+    const automatedNotice = app ? await automatedDeclineNoticeFor(opts.tenantId, app.id) : null
     return {
       subject: "Update on Your Loan Application",
-      html: applicationDeclinedEmail(identity, fullName, reference, reason),
-      text: `Dear ${fullName}, we regret that your application (${reference}) was unsuccessful. ${reason}`,
+      html: applicationDeclinedEmail(identity, fullName, reference, reason, automatedNotice),
+      text: `Dear ${fullName}, we regret that your application (${reference}) was unsuccessful. ${reason}${automatedNotice ? ` ${automatedNotice}` : ""}`,
       waVars: { ...EMPTY_WA_VARS, reference },
     }
   }
