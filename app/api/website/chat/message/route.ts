@@ -15,6 +15,7 @@ import { chatBotsEnabled } from "@/lib/website-chat/settings"
 import { loadChat, recordAssistantReply, recordVisitorMessage, recordVisitorMessageToStaff } from "@/lib/website-chat/store"
 import { isChatConfigured, verifyChatToken } from "@/lib/website-chat/token"
 import { cleanChatText } from "@/lib/website-chat/validate"
+import { limiterAddress } from "@/lib/limiter-address"
 
 const MESSAGE_RATE_LIMIT = { limit: 30, windowMs: 10 * 60 * 1000 } as const
 const BAD_TOKEN_RATE_LIMIT = { limit: 30, windowMs: 10 * 60 * 1000 } as const
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
     const conversationId = verifyChatToken(body.token, now)
     if (!conversationId) {
       // Charged only on failure, per IP, so it throttles token guessing without touching real visitors.
-      const bad = await checkRateLimit(`website:chat:badtoken:${ip}`, BAD_TOKEN_RATE_LIMIT)
+      const bad = await checkRateLimit(`website:chat:badtoken:${limiterAddress(ip)}`, BAD_TOKEN_RATE_LIMIT)
       return bad.allowed ? NextResponse.json(EXPIRED, { status: 401 }) : tooMany(bad.retryAfterSeconds)
     }
     const gate = await checkRateLimit(`website:chat:msg:${conversationId}`, MESSAGE_RATE_LIMIT)

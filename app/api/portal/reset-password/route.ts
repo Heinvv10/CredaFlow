@@ -7,6 +7,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { passwordPolicyError } from "@/lib/security/password-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 // Per-EMAIL brute-force bound on the OTP (the load-bearing gate below).
 const OTP_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
@@ -19,7 +20,7 @@ const OTP_IP_CALL_CAP = { limit: 30, windowMs: 15 * 60 * 1000 } as const
 
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)
-  const gate = await checkRateLimit(`reset-otp:${ip}`, OTP_IP_CALL_CAP)
+  const gate = await checkRateLimit(`reset-otp:${limiterAddress(ip)}`, OTP_IP_CALL_CAP)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

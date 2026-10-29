@@ -7,6 +7,7 @@ import { _resetRateLimitStore, assertRateLimitStoreConfig, checkRateLimit, creat
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
 
 const down = (message = "connection refused") => new SharedStoreUnavailableError(message, { cause: new Error(message), kind: "error" })
+const full = () => new SharedStoreUnavailableError("no free connection", { kind: "saturated" })
 const slow = (message = "lock wait") => new SharedStoreUnavailableError(message, { cause: new Error(message), kind: "timeout" })
 
 const OPTS = { limit: 3, windowMs: 60_000 }
@@ -137,6 +138,17 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
       shared.mockResolvedValue(ALLOWED)
       expect(await checkRateLimit("login:email:fresh@x.example", OPTS)).toEqual(ALLOWED)
       expect(shared).toHaveBeenCalledTimes(9)
+    })
+
+    it("decides a call in memory when its pool is full, even an authentication call, and opens nothing", async () => {
+      quiet()
+      shared.mockRejectedValue(full())
+      for (let i = 0; i < 10; i++) expect((await checkRateLimit("login:ip:1.2.3.4", { limit: 10, windowMs: 60_000 })).allowed).toBe(true)
+      expect((await checkRateLimit("login:ip:1.2.3.4", { limit: 10, windowMs: 60_000 })).allowed).toBe(false)
+      // the next key still reaches the store: nothing was opened
+      shared.mockResolvedValue(ALLOWED)
+      expect(await checkRateLimit("login:ip:5.6.7.8", OPTS)).toEqual(ALLOWED)
+      expect(shared).toHaveBeenCalledTimes(12)
     })
 
     it("serves a timed-out call of any other limit from memory, again without opening anything", async () => {

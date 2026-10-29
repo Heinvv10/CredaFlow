@@ -34,20 +34,31 @@ describe("GET /api/cron/rate-limit-cleanup", () => {
 
   it("then caps each group's rows and says so when it had to", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
+    queryRaw.mockResolvedValueOnce([]).mockResolvedValue([])
     executeRaw.mockResolvedValueOnce(0).mockResolvedValueOnce(1200)
     const body = await (await GET(request("cron-secret-for-tests-0123456789"))).json()
     expect(body).toMatchObject({ ok: true, deleted: 0, capped: 1200 })
     expect((executeRaw.mock.calls[1]![0] as TemplateStringsArray).join("?")).toMatch(/PARTITION BY "ns"/)
+    expect(body.hardEvicted).toEqual([])
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("1200"))
   })
 
   it("raises an alert for a group still over the ceiling after the cap, and names it in the answer", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     executeRaw.mockResolvedValue(0)
-    queryRaw.mockResolvedValue([{ ns: "login:", rows: BigInt(250_000) }])
+    queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ ns: "login:", rows: BigInt(250_000) }])
     const body = await (await GET(request("cron-secret-for-tests-0123456789"))).json()
     expect(body.overCap).toEqual([{ ns: "login:", rows: 250_000 }])
     expect(error).toHaveBeenCalledWith(expect.stringContaining('ALERT: limiter group "login:"'))
+  })
+
+  it("raises an alert for each group that went past the hard ceiling, where even lockouts were evicted", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    executeRaw.mockResolvedValue(0)
+    queryRaw.mockResolvedValueOnce([{ ns: "login:", rows: 900_000 }]).mockResolvedValueOnce([])
+    const body = await (await GET(request("cron-secret-for-tests-0123456789"))).json()
+    expect(body.hardEvicted).toEqual([{ ns: "login:", rows: 900_000 }])
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('limiter group "login:" exceeded its hard ceiling'))
   })
 
   it("answers 503 when the delete fails, so the run is recorded as failed", async () => {

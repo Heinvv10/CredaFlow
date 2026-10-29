@@ -10,6 +10,7 @@ import { resolveSigningSubject, SIGNING_OTP_PURPOSES } from "@/lib/signing-otp/s
 import { OTP_CHANNELS, type OtpChannel } from "@/lib/signing-otp/deliver"
 import { requestSigningOtp } from "@/lib/signing-otp/request"
 import { SIGNING_OTP_REFUSAL_MESSAGES } from "@/lib/signing-otp/challenge"
+import { limiterAddress } from "@/lib/limiter-address"
 
 // Loose per-IP cap on top of the per-subject budget counted in the database.
 const IP_LIMIT = { limit: 30, windowMs: 15 * 60 * 1000 } as const
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
   if ("error" in resolved) return resolved.error
   const { caller } = resolved
 
-  const gate = await checkRateLimit(`signing-otp:request:ip:${callerIp(req)}`, IP_LIMIT)
+  const gate = await checkRateLimit(`signing-otp:request:ip:${limiterAddress(callerIp(req))}`, IP_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

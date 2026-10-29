@@ -170,11 +170,15 @@ key already carries the scope it needs (an address, an account, a key id) and th
 
 Any other value stops the boot (`instrumentation.ts`).
 
-**Failure mode.** The store has its own small connection pool (5 connections, 2 s wait unless `DATABASE_URL` sets
-`connection_limit` / `pool_timeout`) and cancels any one statement after 1 s server-side (`-c statement_timeout=1000`,
-sent as the connection's `options`; behind PgBouncer add `ignore_startup_parameters = options`). A busy application,
-or a transaction that calls a limiter, cannot starve it.
+**Failure mode.** The store has its own connection pools, not the application's, and two of them: one of 5 connections for
+the authentication limits and one of 3 for every other limit, so a flood on the ordinary limits cannot take the
+connections sign-in needs. A connection is waited for 1 s (`pool_timeout`, unless `DATABASE_URL` sets it). The server
+gives up on a wait for a locked row after 0.8 s and on any statement after 1 s (`-c lock_timeout=800 -c
+statement_timeout=1000`, sent as the connection's `options`; behind PgBouncer add `ignore_startup_parameters = options`),
+both under the limiter's own 1.5 s timeout. A busy application, or a transaction that calls a limiter, cannot starve it.
 
+- **A call that finds its pool full** is decided by the in-memory limiter for that call, whatever its group: that is local
+  congestion, not an outage, and nothing else changes.
 - **A call that times out** (a lock held on its key, no free connection) concerns that call alone. An
   authentication limit refuses it (429, `Retry-After` 30); any other limit is decided by the in-memory limiter.
   Nothing else changes: whoever can stall one key cannot switch the others off.
@@ -189,12 +193,15 @@ or a transaction that calls a limiter, cannot starve it.
   lock. The per-address and per-identity limits beside them are the ones that hold across pods.
 - Cost: one database round trip per rate-limited call. The unattributed ApiRequestLog sample stays per pod too.
 
-**Table care.** Every hit rewrites its row (and moves `expiresAt` in an index, so no update is HOT): `RateLimitHit` is pure
-churn. The migration sets aggressive per-table autovacuum (`autovacuum_vacuum_scale_factor = 0.01`); on a busy lender
-watch `pg_stat_user_tables.n_dead_tup` for it. The cleanup job caps each group other than the authentication ones at
-200 000 rows, deleting the least recently used, and never a row that is a lockout (its hits have reached its limit and
-its window is open). Authentication groups are never evicted: their growth is bounded by the gate order (the address
-bucket is checked before any key an attacker chooses), and the job logs an `ALERT` line for any group over the ceiling.
+**Keys and table care.** An IPv4 address is a key as it is; an IPv6 address is keyed by its /64 (one subscriber holds a
+whole /64, and keying the full address would give an attacker a fresh budget and a fresh row per address;
+`lib/limiter-address.ts`). Audit and login records keep the full address. Every hit rewrites its row (and moves
+`expiresAt` in an index, so no update is HOT): `RateLimitHit` is pure churn. The migration sets aggressive per-table
+autovacuum (`autovacuum_vacuum_scale_factor = 0.01`); on a busy lender watch `pg_stat_user_tables.n_dead_tup` for it.
+The cleanup job bounds every group, authentication groups included, in two steps: above 200 000 rows it deletes the
+least recently used rows that are **not** lockouts (a lockout is a key whose hits have reached its limit with its window
+open); above 5 times that it deletes the rows expiring soonest even if they are lockouts, and logs an `ALERT` line per
+group each time. It also alerts for a group that is still over 200 000 rows because the excess is all lockouts.
 
 Still worth an edge limit at the ingress for the login and portal OTP paths
 (`nginx.ingress.kubernetes.io/limit-rps`): it absorbs a flood before it reaches the database.

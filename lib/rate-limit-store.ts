@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import type { RateLimitOptions, RateLimitResult } from "./rate-limit"
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
+import { isAuthGroup } from "./rate-limit-groups"
 
 /** The part of a Prisma client the store uses: the application client or any other. */
 export interface RawQueryClient {
@@ -23,20 +24,23 @@ const TIMED_OUT_SQLSTATES = new Set(["57014", "55P03"])
 /** Prisma's own timeout waiting for a free connection from the limiter's pool. */
 const POOL_TIMEOUT_CODE = "P2024"
 
-function isTimeout(error: unknown): boolean {
+function failureKind(error: unknown): "timeout" | "saturated" | "error" {
   const e = error as { code?: unknown; meta?: { code?: unknown } } | null
-  return e?.code === POOL_TIMEOUT_CODE || (typeof e?.meta?.code === "string" && TIMED_OUT_SQLSTATES.has(e.meta.code))
+  if (e?.code === POOL_TIMEOUT_CODE) return "saturated"
+  return typeof e?.meta?.code === "string" && TIMED_OUT_SQLSTATES.has(e.meta.code) ? "timeout" : "error"
 }
 
 /** Server-side cap on one limiter statement; below the limiter's own SHARED_TIMEOUT_MS (lib/rate-limit.ts). */
 export const STATEMENT_TIMEOUT_MS = 1000
+/** Server-side cap on waiting for one row lock. */
+export const LOCK_TIMEOUT_MS = 800
 
 /** Anything the database call throws is the store being unavailable (a timeout, or an error); the code around it stays a bug if it throws. */
 async function queryStore<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run()
   } catch (error) {
-    const kind = isTimeout(error) ? "timeout" : "error"
+    const kind = failureKind(error)
     throw new SharedStoreUnavailableError(`shared rate-limit query failed (${kind})`, { cause: error, kind })
   }
 }
@@ -79,37 +83,46 @@ export function createPostgresStore(client: RawQueryClient) {
 }
 
 /**
- * The limiter's own connection pool. It must not share the application's: a limiter call made while the
- * application holds every connection (inside an interactive transaction, under load) would wait for one, time out
- * and count as an outage, which is how a busy portal could switch the shared limits off. The URL is the
- * application's, with a small pool and a short wait for a connection unless the URL already sets them.
+ * The limiter's own connection pools, not the application's: a limiter call made while the application holds every
+ * connection (inside an interactive transaction, under load) would wait for one, time out and look like an outage.
+ * Two of them, so that traffic on the ordinary limits (a flood of form posts) cannot take the connections the
+ * authentication limits need: sign-in has its own. Each waits for a connection for 1 s (under the limiter's own
+ * 1.5 s timeout); an authentication call that finds its pool full is decided in memory for that call (the congestion
+ * is local, not an outage).
  */
-export function limiterDatabaseUrl(url: string): string {
+const POOL_SIZE = { auth: 5, other: 3 } as const
+
+export function limiterDatabaseUrl(url: string, connections: number = POOL_SIZE.other): string {
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
     return url
   }
-  if (!parsed.searchParams.has("connection_limit")) parsed.searchParams.set("connection_limit", "5")
-  if (!parsed.searchParams.has("pool_timeout")) parsed.searchParams.set("pool_timeout", "2")
-  // A statement (a wait for a locked row included) is cancelled by the server before the limiter's own timeout fires,
-  // so a stalled key fails that one call and frees its connection instead of holding it while the limiter has moved on.
-  const options = parsed.searchParams.get("options") ?? ""
-  if (!/statement_timeout/.test(options)) parsed.searchParams.set("options", `${options} -c statement_timeout=${STATEMENT_TIMEOUT_MS}`.trim())
+  if (!parsed.searchParams.has("connection_limit")) parsed.searchParams.set("connection_limit", String(connections))
+  if (!parsed.searchParams.has("pool_timeout")) parsed.searchParams.set("pool_timeout", "1")
+  // A wait for a locked row gives up after LOCK_TIMEOUT_MS, and any statement after STATEMENT_TIMEOUT_MS, both server-side
+  // and before the limiter's own timeout: a stalled key fails that one call and frees its connection instead of holding
+  // it while the limiter has moved on.
+  let options = parsed.searchParams.get("options") ?? ""
+  if (!/lock_timeout/.test(options)) options = `${options} -c lock_timeout=${LOCK_TIMEOUT_MS}`.trim()
+  if (!/statement_timeout/.test(options)) options = `${options} -c statement_timeout=${STATEMENT_TIMEOUT_MS}`.trim()
+  parsed.searchParams.set("options", options)
   return parsed.toString()
 }
 
-const globalForLimiter = globalThis as unknown as { rateLimitStore?: ReturnType<typeof createPostgresStore> }
+const globalForLimiter = globalThis as unknown as { rateLimitStores?: Partial<Record<"auth" | "other", ReturnType<typeof createPostgresStore>>> }
 
-/** The store on the limiter's own Prisma client, made on first use (callerIp-only importers never load Prisma). */
+/** The store on the limiter's own Prisma client for `group`'s pool, made on first use (callerIp-only importers never load Prisma). */
 export async function checkSharedRateLimit(namespace: string, key: string, opts: RateLimitOptions, group = namespace): Promise<RateLimitResult> {
-  if (!globalForLimiter.rateLimitStore) {
+  const pool = isAuthGroup(group) ? "auth" : "other"
+  const stores = (globalForLimiter.rateLimitStores ??= {})
+  if (!stores[pool]) {
     const url = process.env.DATABASE_URL?.trim()
     if (!url) throw new SharedStoreUnavailableError("DATABASE_URL is not set")
     const { PrismaClient } = await import("@prisma/client")
     // A plain client: the tenant-scope and RLS hooks of lib/prisma.ts have nothing to do with this table.
-    globalForLimiter.rateLimitStore = createPostgresStore(new PrismaClient({ datasourceUrl: limiterDatabaseUrl(url) }) as unknown as RawQueryClient)
+    stores[pool] = createPostgresStore(new PrismaClient({ datasourceUrl: limiterDatabaseUrl(url, POOL_SIZE[pool]) }) as unknown as RawQueryClient)
   }
-  return globalForLimiter.rateLimitStore(namespace, key, opts, group)
+  return stores[pool]!(namespace, key, opts, group)
 }

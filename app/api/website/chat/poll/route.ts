@@ -7,6 +7,7 @@ import { readJsonObject, safeErrorInfo } from "@/lib/website-chat/http"
 import { chatBotsEnabled } from "@/lib/website-chat/settings"
 import { loadChat } from "@/lib/website-chat/store"
 import { isChatConfigured, verifyChatToken } from "@/lib/website-chat/token"
+import { limiterAddress } from "@/lib/limiter-address"
 
 const POLL_RATE_LIMIT = { limit: 40, windowMs: 60_000 } as const
 const BAD_TOKEN_RATE_LIMIT = { limit: 30, windowMs: 10 * 60 * 1000 } as const
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     const now = new Date()
     const conversationId = verifyChatToken(body.token, now)
     if (!conversationId) {
-      const bad = await checkRateLimit(`website:chat:badtoken:${ip}`, BAD_TOKEN_RATE_LIMIT)
+      const bad = await checkRateLimit(`website:chat:badtoken:${limiterAddress(ip)}`, BAD_TOKEN_RATE_LIMIT)
       return bad.allowed ? NextResponse.json(EXPIRED, { status: 401 }) : tooMany(bad.retryAfterSeconds)
     }
     const gate = await checkRateLimit(`website:chat:poll:${conversationId}`, POLL_RATE_LIMIT)

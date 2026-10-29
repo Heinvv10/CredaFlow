@@ -1,5 +1,4 @@
 /** Housekeeping for RateLimitHit (lib/rate-limit-store.ts): expired rows, and a ceiling on each group's row count. */
-import { FAIL_CLOSED_KEY_PREFIXES, FAIL_CLOSED_NAMESPACES } from "./rate-limit-groups"
 
 interface ExecClient {
   $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>
@@ -7,41 +6,36 @@ interface ExecClient {
 }
 
 /**
- * Most rows one group may hold. A group's rows are one per distinct key, and a key can be chosen by the caller (an
- * email address typed into a login form). Generous next to any real population of limited keys.
+ * Most rows one group may hold before the cleanup starts evicting the rows that are not lockouts. A group's rows are one
+ * per distinct key, and a key can be chosen by the caller (an email address typed into a login form). Generous next to
+ * any real population of limited keys.
  */
 export const MAX_ROWS_PER_GROUP = 200_000
 
-const AUTH_GROUPS: readonly string[] = [...FAIL_CLOSED_KEY_PREFIXES, ...FAIL_CLOSED_NAMESPACES]
+/**
+ * The second, higher ceiling, a multiple of the first: beyond it even lockouts are evicted (the ones expiring soonest),
+ * because a table that grows without bound hurts every limit and a flood that fills it with lockouts is bounded only
+ * this way. Each such eviction is an alert (the route logs it).
+ */
+export const HARD_CEILING_MULTIPLIER = 5
 
 /** Rows whose window has passed hold no hit that still counts: deleting them changes no decision. */
 export async function purgeExpired(db: ExecClient): Promise<number> {
   return db.$executeRaw`DELETE FROM "RateLimitHit" WHERE "expiresAt" < now()`
 }
 
-/**
- * Bounds the other groups, never an authentication one. In a group over `cap` rows it deletes the rows that expire
- * soonest (the least recently used keys), down to `cap`, but only rows that do NOT still hold a full window: a key
- * that is locked out (its hits have reached its limit and its window is open) is never evicted, or the cap would be
- * a way to lift a lockout. An authentication group (sign-in, codes, OAuth) is not evicted at all: its growth is
- * bounded by the gate order (the address bucket is checked first) and it is reported by `groupsOverCap` instead.
- * `onlyGroups` limits it to those groups (suites sharing a database). Returns the number deleted.
- */
-export async function capRowsPerGroup(db: ExecClient, cap = MAX_ROWS_PER_GROUP, onlyGroups?: readonly string[]): Promise<number> {
-  const groups = onlyGroups ?? null
-  return db.$executeRaw`
-    DELETE FROM "RateLimitHit" WHERE "keyHash" IN (
-      SELECT e."keyHash" FROM (
-        SELECT "keyHash", "ns",
-               row_number() OVER (PARTITION BY "ns" ORDER BY "expiresAt", "keyHash") AS rn
-        FROM "RateLimitHit"
-        WHERE NOT (cardinality("hits") >= "maxHits" AND "maxHits" > 0 AND "expiresAt" > now())
-          AND NOT ("ns" = ANY(${AUTH_GROUPS}::text[]))
-          AND (${groups}::text[] IS NULL OR "ns" = ANY(${groups}::text[]))
-      ) e
-      JOIN (SELECT "ns", count(*) AS total FROM "RateLimitHit" GROUP BY "ns") t ON t."ns" = e."ns"
-      WHERE e.rn <= t.total - ${cap}::int
-    )`
+export interface CapOptions {
+  cap?: number
+  hardCeiling?: number
+  /** Limits the cleanup to those groups (suites sharing a database). */
+  onlyGroups?: readonly string[]
+}
+
+export interface CapResult {
+  /** Rows deleted above `cap`: the least recently used ones that were not lockouts. */
+  evicted: number
+  /** Rows deleted above `hardCeiling`, lockouts included, per group. Each is an alert. */
+  hardEvicted: GroupSize[]
 }
 
 export interface GroupSize {
@@ -49,7 +43,45 @@ export interface GroupSize {
   rows: number
 }
 
-/** Groups holding more than `cap` rows: for an authentication group that is an alert, since nothing evicts it. */
+/**
+ * Bounds every group, authentication groups included. A group over `cap` rows loses the rows that expire soonest
+ * (the least recently used keys), down to `cap`, but only rows that do NOT still hold a full window: a key that is
+ * locked out (its hits have reached its limit and its window is open) is not evicted, or the cap would be a way to
+ * lift a lockout. If a group is still over `hardCeiling` (a flood of lockouts), the rows expiring soonest are evicted
+ * whatever they hold, and reported.
+ */
+export async function capRowsPerGroup(db: ExecClient, options: CapOptions = {}): Promise<CapResult> {
+  const cap = options.cap ?? MAX_ROWS_PER_GROUP
+  const hardCeiling = options.hardCeiling ?? cap * HARD_CEILING_MULTIPLIER
+  const groups = options.onlyGroups ?? null
+  const evicted = await db.$executeRaw`
+    DELETE FROM "RateLimitHit" WHERE "keyHash" IN (
+      SELECT e."keyHash" FROM (
+        SELECT "keyHash", "ns",
+               row_number() OVER (PARTITION BY "ns" ORDER BY "expiresAt", "keyHash") AS rn
+        FROM "RateLimitHit"
+        WHERE NOT (cardinality("hits") >= "maxHits" AND "maxHits" > 0 AND "expiresAt" > now())
+          AND (${groups}::text[] IS NULL OR "ns" = ANY(${groups}::text[]))
+      ) e
+      JOIN (SELECT "ns", count(*) AS total FROM "RateLimitHit" GROUP BY "ns") t ON t."ns" = e."ns"
+      WHERE e.rn <= t.total - ${cap}::int
+    )`
+  const hard = await db.$queryRaw<Array<{ ns: string; rows: number }>>`
+    WITH ranked AS (
+      SELECT "keyHash", "ns",
+             row_number() OVER (PARTITION BY "ns" ORDER BY "expiresAt", "keyHash") AS rn,
+             count(*) OVER (PARTITION BY "ns") AS total
+      FROM "RateLimitHit"
+      WHERE (${groups}::text[] IS NULL OR "ns" = ANY(${groups}::text[]))
+    ), removed AS (
+      DELETE FROM "RateLimitHit" WHERE "keyHash" IN (SELECT "keyHash" FROM ranked WHERE rn <= total - ${hardCeiling}::int)
+      RETURNING "ns"
+    )
+    SELECT "ns", count(*)::int AS rows FROM removed GROUP BY "ns" ORDER BY 2 DESC`
+  return { evicted, hardEvicted: hard.map((r) => ({ ns: r.ns, rows: Number(r.rows) })) }
+}
+
+/** Groups holding more than `cap` rows now: after the cleanup these are the ones whose excess is all lockouts. */
 export async function groupsOverCap(db: ExecClient, cap = MAX_ROWS_PER_GROUP): Promise<GroupSize[]> {
   const rows = await db.$queryRaw<Array<{ ns: string; rows: bigint }>>`
     SELECT "ns", count(*) AS rows FROM "RateLimitHit" GROUP BY "ns" HAVING count(*) > ${cap}::int ORDER BY 2 DESC`

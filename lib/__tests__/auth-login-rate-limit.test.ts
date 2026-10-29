@@ -79,4 +79,11 @@ describe("authorize(): sign-in rate gate", () => {
     expect(spy.mock.calls.map((c) => c[0])).toEqual(["login:ip:203.0.113.51"])
     spy.mockRestore()
   })
+
+  // Round 2 (PR #259): an IPv6 subscriber holds a whole /64; the address bucket must not be escapable by rotating inside it.
+  it("shares one address budget across every IPv6 address of a /64, and not with another /64", async () => {
+    for (let i = 0; i < 30; i++) expect(await code(authorize(`v6user${i}@lender.example`, `2001:db8:aa:bb:${i.toString(16)}::${i + 1}`))).not.toBe("rate_limited")
+    expect(await code(authorize("v6user-next@lender.example", "2001:db8:aa:bb:ffff:ffff:ffff:ffff"))).toBe("rate_limited")
+    expect(await code(authorize("v6user-other@lender.example", "2001:db8:aa:cc::1"))).not.toBe("rate_limited")
+  })
 })

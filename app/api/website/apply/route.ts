@@ -49,6 +49,7 @@ import {
   updateClientWithBiometricIdentityRevocation,
   type BiometricIdentityRevocation,
 } from "@/lib/kyc/identity-revocation"
+import { limiterAddress } from "@/lib/limiter-address"
 
 // Public unauthenticated form. Bot defences: rate limit (per-IP) + Cloudflare
 // Turnstile challenge token. Rate limit is the cheap first gate; Turnstile
@@ -94,7 +95,7 @@ function safeMoneyCents(value: unknown): number {
 export async function POST(req: NextRequest) {
   try {
     const ip = callerIp(req)
-    const gate = await checkRateLimit(`website:apply:${ip}`, FORM_RATE_LIMIT)
+    const gate = await checkRateLimit(`website:apply:${limiterAddress(ip)}`, FORM_RATE_LIMIT)
     if (!gate.allowed) {
       return NextResponse.json(
         { success: false, error: "Too many submissions. Please try again later." },

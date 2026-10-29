@@ -20,6 +20,7 @@ import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/s
 import { isPortalEnabled } from "@/lib/portal/portal-policy"
 import { authorizeSsoCredentials } from "@/lib/sso/provider"
 import { PASSWORD_POLICY_SELECT, auditBreakGlassSignIn, passwordBlockedBySso, passwordLoginOff } from "@/lib/sso/password-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 export { claimTotpCounter }
 
@@ -123,9 +124,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // attempt at their real surface. This is deliberate — cross-audience
         // probing should be rate-limited as aggressively as same-audience
         // brute-force.
-        const ipGate = await checkRateLimit(`login:ip:${ip}`, PER_IP_LIMIT)
+        const ipGate = await checkRateLimit(`login:ip:${limiterAddress(ip)}`, PER_IP_LIMIT)
         const emailGate = ipGate.allowed ? await checkRateLimit(`login:email:${email}`, PER_EMAIL_LIMIT) : null
-        const combinedGate = ipGate.allowed ? await checkRateLimit(`login:${email}:${ip}`, COMBINED_LIMIT) : null
+        const combinedGate = ipGate.allowed ? await checkRateLimit(`login:${email}:${limiterAddress(ip)}`, COMBINED_LIMIT) : null
         if (!ipGate.allowed || !emailGate?.allowed || !combinedGate?.allowed) {
           await recordFailure("rate_limited")
           throw new RateLimitedError()

@@ -1,6 +1,19 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+const clients = vi.hoisted(() => [] as Array<{ url: string; query: ReturnType<typeof vi.fn> }>)
+vi.mock("@prisma/client", () => ({
+  PrismaClient: class {
+    query = vi.fn(async (..._args: unknown[]) => [{ n: 1, retry_ms: null }])
+    constructor(options: { datasourceUrl: string }) {
+      clients.push({ url: options.datasourceUrl, query: this.query })
+    }
+    $queryRaw(...args: unknown[]) {
+      return this.query(...args)
+    }
+  },
+}))
+
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
-import { createPostgresStore, keyHash, limiterDatabaseUrl, STATEMENT_TIMEOUT_MS } from "./rate-limit-store"
+import { checkSharedRateLimit, createPostgresStore, keyHash, limiterDatabaseUrl, LOCK_TIMEOUT_MS, STATEMENT_TIMEOUT_MS } from "./rate-limit-store"
 
 const OPTS = { limit: 3, windowMs: 60_000 }
 
@@ -16,7 +29,7 @@ describe("createPostgresStore", () => {
   it.each([
     ["a statement timeout", { code: "P2010", meta: { code: "57014" } }, "timeout"],
     ["a lock timeout", { code: "P2010", meta: { code: "55P03" } }, "timeout"],
-    ["no free connection in the pool", { code: "P2024" }, "timeout"],
+    ["no free connection in the pool", { code: "P2024" }, "saturated"],
     ["a refused connection", { code: "P1001" }, "error"],
     ["a failed query", { code: "P2010", meta: { code: "42P01" } }, "error"],
     ["an unknown failure", new Error("boom"), "error"],
@@ -46,18 +59,49 @@ describe("createPostgresStore", () => {
     expect(keyHash("ns", "k")).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it("gives the limiter its own small pool unless the URL already says otherwise", () => {
+  it("gives the limiter its own small pool unless the URL already says otherwise, and each pool its own size", () => {
     const own = new URL(limiterDatabaseUrl("postgresql://u:p@db:5432/app?schema=public"))
-    expect(own.searchParams.get("connection_limit")).toBe("5")
-    expect(own.searchParams.get("pool_timeout")).toBe("2")
+    expect(own.searchParams.get("connection_limit")).toBe("3")
+    expect(new URL(limiterDatabaseUrl("postgresql://u:p@db:5432/app", 5)).searchParams.get("connection_limit")).toBe("5")
+    // a connection is waited for for 1 s: under the limiter's own 1.5 s timeout
+    expect(own.searchParams.get("pool_timeout")).toBe("1")
     expect(own.searchParams.get("schema")).toBe("public")
     const set = new URL(limiterDatabaseUrl("postgresql://u:p@db:5432/app?connection_limit=2&pool_timeout=9"))
     expect([set.searchParams.get("connection_limit"), set.searchParams.get("pool_timeout")]).toEqual(["2", "9"])
     expect(limiterDatabaseUrl("not a url")).toBe("not a url")
-    // the server cancels a statement (a wait for a locked row too) before the limiter's own timeout
-    expect(own.searchParams.get("options")).toBe(`-c statement_timeout=${STATEMENT_TIMEOUT_MS}`)
+    // a lock wait and a statement are cancelled by the server before the limiter's own timeout
+    expect(own.searchParams.get("options")).toBe(`-c lock_timeout=${LOCK_TIMEOUT_MS} -c statement_timeout=${STATEMENT_TIMEOUT_MS}`)
+    expect(LOCK_TIMEOUT_MS).toBeLessThan(STATEMENT_TIMEOUT_MS)
     expect(STATEMENT_TIMEOUT_MS).toBeLessThan(1500)
-    expect(new URL(limiterDatabaseUrl("postgresql://u:p@db/app?options=-c%20search_path%3Dx")).searchParams.get("options")).toBe(`-c search_path=x -c statement_timeout=${STATEMENT_TIMEOUT_MS}`)
-    expect(new URL(limiterDatabaseUrl("postgresql://u:p@db/app?options=-c%20statement_timeout%3D50")).searchParams.get("options")).toBe("-c statement_timeout=50")
+    expect(new URL(limiterDatabaseUrl("postgresql://u:p@db/app?options=-c%20search_path%3Dx")).searchParams.get("options")).toBe(`-c search_path=x -c lock_timeout=${LOCK_TIMEOUT_MS} -c statement_timeout=${STATEMENT_TIMEOUT_MS}`)
+    expect(new URL(limiterDatabaseUrl("postgresql://u:p@db/app?options=-c%20statement_timeout%3D50%20-c%20lock_timeout%3D10")).searchParams.get("options")).toBe("-c statement_timeout=50 -c lock_timeout=10")
+  })
+})
+
+describe("checkSharedRateLimit: pools", () => {
+  beforeEach(() => {
+    clients.length = 0
+    delete (globalThis as { rateLimitStores?: unknown }).rateLimitStores
+    vi.stubEnv("DATABASE_URL", "postgresql://u:p@db:5432/app")
+  })
+  afterEach(() => vi.unstubAllEnvs())
+
+  it("keeps authentication limits on a pool of their own, apart from the ordinary limits", async () => {
+    const opts = { limit: 5, windowMs: 1000 }
+    await checkSharedRateLimit("", "login:ip:1.2.3.4", opts, "login:")
+    await checkSharedRateLimit("oauth:client", "c1", opts, "oauth:client")
+    await checkSharedRateLimit("", "website:contact:1.2.3.4", opts, "")
+    await checkSharedRateLimit("lender-api:key", "k1", opts, "lender-api:key")
+    expect(clients).toHaveLength(2)
+    const sizes = clients.map((c) => new URL(c.url).searchParams.get("connection_limit"))
+    expect(sizes).toEqual(["5", "3"])
+    // the auth calls went to the first client, the ordinary ones to the second
+    expect(clients[0]!.query).toHaveBeenCalledTimes(2)
+    expect(clients[1]!.query).toHaveBeenCalledTimes(2)
+  })
+
+  it("is unavailable, not a bug, when there is no database to ask", async () => {
+    vi.stubEnv("DATABASE_URL", "")
+    await expect(checkSharedRateLimit("", "login:ip:1.2.3.4", { limit: 5, windowMs: 1000 }, "login:")).rejects.toBeInstanceOf(SharedStoreUnavailableError)
   })
 })

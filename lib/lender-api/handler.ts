@@ -7,6 +7,7 @@ import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
 import { apiError } from "@/lib/lender-api/api-error"
 import { sourceAddressAllowed } from "@/lib/lender-api/ip-restriction"
 import { authenticateAccessToken, looksLikeAccessToken } from "@/lib/lender-api/oauth/authenticate"
+import { limiterAddress } from "@/lib/limiter-address"
 
 /**
  * The one entry point for /api/v1 routes. Every call:
@@ -177,7 +178,7 @@ export async function withApiKey(
       response = tooMany(keyLimit.retryAfterSeconds, kind === "oauth_client" ? "Too many requests for this OAuth client." : "Too many requests for this API key.")
     } else if (!auth.ok) {
       const ip = recordedCallerIp(req)
-      const failLimit = ip ? await failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
+      const failLimit = ip ? await failedAuthByAddress(limiterAddress(ip), API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
       response = failLimit.allowed ? auth.response : tooMany(failLimit.retryAfterSeconds, "Too many failed requests.")
     } else if (!sourceAddressAllowed(req, auth.ipAllowlist)) {
       // The key (or client) is real and valid but not from here: its allowlist, on the TRUSTED_PROXY-aware caller address.

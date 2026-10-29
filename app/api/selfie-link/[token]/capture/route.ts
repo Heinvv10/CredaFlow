@@ -10,6 +10,7 @@ import {
   type SelfieLinkRejection,
 } from "@/lib/kyc/selfie-link-token.server"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 export const dynamic = "force-dynamic"
 
@@ -111,7 +112,7 @@ export async function POST(
     // already passed its own per-token bucket and must never be refused by a
     // bucket an attacker can fill.
     const ip = callerIp(req as NextRequest)
-    if (!(await checkRateLimit(`selfie-link:capture:unresolved:${ip}`, UNRESOLVED_LIMIT)).allowed) {
+    if (!(await checkRateLimit(`selfie-link:capture:unresolved:${limiterAddress(ip)}`, UNRESOLVED_LIMIT)).allowed) {
       return tooMany
     }
     return NextResponse.json(

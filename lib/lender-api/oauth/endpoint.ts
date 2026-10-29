@@ -9,6 +9,7 @@ import { isApiScope } from "@/lib/lender-api/scopes"
 import { mintAccessToken } from "./access-token"
 import { isClientId, oauthClientState } from "./clients"
 import { checkClientCertificate } from "./mtls"
+import { limiterAddress } from "@/lib/limiter-address"
 
 /**
  * POST /api/auth/oauth/token: the OAuth 2.0 client-credentials grant (RFC 6749 §4.4)
@@ -67,7 +68,7 @@ export async function handleTokenRequest(req: Request, now: Date = new Date()): 
   // Counted only for refusals that name no real, secret-proven client.
   const failed = async (error: OAuthError, description: string) => {
     const ip = recordedCallerIp(req)
-    const gate = ip ? await failedByAddress(ip, TOKEN_FAILED_IP_LIMIT) : failedGlobal("unknown-address", TOKEN_FAILED_GLOBAL_LIMIT)
+    const gate = ip ? await failedByAddress(limiterAddress(ip), TOKEN_FAILED_IP_LIMIT) : failedGlobal("unknown-address", TOKEN_FAILED_GLOBAL_LIMIT)
     if (!gate.allowed) {
       return finish(NextResponse.json({ error: "invalid_request", error_description: "Too many failed requests." }, {
         status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds), "Cache-Control": "no-store" },

@@ -17,6 +17,7 @@ import { portalOffRefusal } from "@/lib/portal/portal-policy"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
 import { clientReachableOnWhatsApp, portalOtpChannelFrom, sendPortalOtpByWhatsApp } from "@/lib/portal/portal-otp-whatsapp"
+import { limiterAddress } from "@/lib/limiter-address"
 
 // Per-EMAIL send cap: bounds OTP-email spam on a single account regardless of
 // source IP (distributed / CGNAT), and is the invariant a brute-force campaign
@@ -31,7 +32,7 @@ const FORGOT_IP_CALL_CAP = { limit: 30, windowMs: 15 * 60 * 1000 } as const
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)
 
-  const ipCallCap = await checkRateLimit(`forgot:ip:${ip}`, FORGOT_IP_CALL_CAP)
+  const ipCallCap = await checkRateLimit(`forgot:ip:${limiterAddress(ip)}`, FORGOT_IP_CALL_CAP)
   if (!ipCallCap.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
