@@ -149,24 +149,26 @@ describe("POST /api/auth/oauth/token", () => {
   })
 
   describe("mutual TLS", () => {
-    const pinned = () => h.clientFindUnique.mockResolvedValue(row({ requireMtls: true, mtlsSubjectDn: "CN=lpb-core,O=LPB" }))
+    const FP = "d".repeat(64)
+    const pinned = () => h.clientFindUnique.mockResolvedValue(row({ requireMtls: true, mtlsCertSha256: FP }))
+    const cert = { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-sha256": FP }
 
     it("refuses a client that requires a certificate when the proxy is not trusted", async () => {
       pinned()
-      const res = await tokenCall(grant, { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-dn": "CN=lpb-core,O=LPB" })
+      const res = await tokenCall(grant, cert)
       expect(res.status).toBe(401)
     })
 
     it("issues a token when the trusted proxy forwards the pinned, verified certificate", async () => {
       process.env.MTLS_TRUSTED_PROXY = "1"
       pinned()
-      expect((await tokenCall(grant, { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-dn": "CN=lpb-core,O=LPB" })).status).toBe(200)
+      expect((await tokenCall(grant, cert)).status).toBe(200)
     })
 
     it("refuses another certificate subject or none", async () => {
       process.env.MTLS_TRUSTED_PROXY = "1"
       pinned()
-      expect((await tokenCall(grant, { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-dn": "CN=intruder,O=LPB" })).status).toBe(401)
+      expect((await tokenCall(grant, { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-sha256": "e".repeat(64) })).status).toBe(401)
       expect((await tokenCall(grant)).status).toBe(401)
     })
   })
@@ -241,10 +243,10 @@ describe("/api/v1 with an access token", () => {
   })
 
   it("binds the token to the client certificate: a stolen token without it is refused", async () => {
-    h.clientFindFirst.mockResolvedValue(row({ requireMtls: true, mtlsSubjectDn: "CN=lpb-core,O=LPB" }))
+    h.clientFindFirst.mockResolvedValue(row({ requireMtls: true, mtlsCertSha256: "d".repeat(64) }))
     process.env.MTLS_TRUSTED_PROXY = "1"
     expect((await call(await bearer())).res.status).toBe(401)
-    expect((await call(await bearer(), "clients:read", { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-dn": "CN=lpb-core,O=LPB" })).res.status).toBe(200)
+    expect((await call(await bearer(), "clients:read", { "x-ssl-client-verify": "SUCCESS", "x-ssl-client-sha256": "d".repeat(64) })).res.status).toBe(200)
   })
 
   it("rate limits per client, sharing nothing with API keys", async () => {

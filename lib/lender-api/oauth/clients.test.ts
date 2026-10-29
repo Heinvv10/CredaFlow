@@ -35,18 +35,19 @@ describe("generateClientCredentials", () => {
 })
 
 describe("parseMtlsPin", () => {
-  it("accepts a subject, a fingerprint, or both", () => {
-    expect(parseMtlsPin({ subjectDn: "CN=a,O=b" })).toEqual({ subjectDn: "CN=a,O=b", certSha256: null })
+  const FP = "a".repeat(64)
+  it("requires the fingerprint and accepts it with colons and any case", () => {
     expect(parseMtlsPin({ certSha256: "AA:" + "bb".repeat(31) })).toEqual({ subjectDn: null, certSha256: "aa" + "bb".repeat(31) })
-    expect(parseMtlsPin({ subjectDn: "CN=a", certSha256: "a".repeat(64) })).toMatchObject({ subjectDn: "CN=a" })
+    expect(parseMtlsPin({ subjectDn: "CN=a,O=b", certSha256: FP })).toEqual({ subjectDn: "CN=a,O=b", certSha256: FP })
   })
   it.each([
+    ["a subject alone", { subjectDn: "CN=a,O=b" }],
     ["nothing", {}],
-    ["blank strings", { subjectDn: " ", certSha256: "" }],
-    ["a subject with no attribute", { subjectDn: "just text" }],
     ["a short fingerprint", { certSha256: "abc" }],
     ["a non-hex fingerprint", { certSha256: "z".repeat(64) }],
-    ["a malformed fingerprint beside a good subject", { subjectDn: "CN=a", certSha256: "nope" }],
+    ["a subject with no attribute", { subjectDn: "just text", certSha256: FP }],
+    ["a slash-form subject", { subjectDn: "/C=LS/O=b/CN=a", certSha256: FP }],
+    ["a non-string subject", { subjectDn: 5, certSha256: FP }],
   ])("refuses %s", (_l, input) => expect(parseMtlsPin(input)).toBeNull())
 })
 
@@ -67,8 +68,8 @@ describe("createOauthClient", () => {
   })
 
   it("records the pin and requires mTLS when one is given", async () => {
-    await createOauthClient({ ...args, mtls: { subjectDn: "CN=a,O=b", certSha256: null } })
-    expect(h.create.mock.calls[0][0].data).toMatchObject({ requireMtls: true, mtlsSubjectDn: "CN=a,O=b", mtlsCertSha256: null })
+    await createOauthClient({ ...args, mtls: { subjectDn: "CN=a,O=b", certSha256: "c".repeat(64) } })
+    expect(h.create.mock.calls[0][0].data).toMatchObject({ requireMtls: true, mtlsSubjectDn: "CN=a,O=b", mtlsCertSha256: "c".repeat(64) })
   })
 
   it("refuses beyond the cap and writes nothing", async () => {

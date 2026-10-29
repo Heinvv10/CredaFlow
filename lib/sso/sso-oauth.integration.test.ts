@@ -48,6 +48,7 @@ suite("SSO and OAuth (real database)", () => {
   afterAll(async () => {
     await db.apiRequestLog.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
     await db.oauthClient.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
+    await db.ssoIdentity.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
     await db.ssoConnection.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
     await db.auditLog.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
     await db.ssoCacheEntry.deleteMany({ where: { key: { contains: t } } })
@@ -56,8 +57,8 @@ suite("SSO and OAuth (real database)", () => {
     await db.$disconnect()
   })
 
-  const oidc = { protocol: "OIDC" as const, oidcIssuer: "https://idp.example.test", oidcClientId: "cid", oidcClientSecretSealed: "enc:v1:x", oidcScopes: ["openid"] }
-  const saml = { protocol: "SAML" as const, samlEntityId: "urn:x", samlIdpEntityId: "https://idp", samlIdpSsoUrl: "https://idp/sso", samlIdpCert: "pem" }
+  const oidc = { protocol: "OIDC" as const, allowedEmailDomains: ["bank.example.test"], oidcIssuer: "https://idp.example.test", oidcClientId: "cid", oidcClientSecretSealed: "enc:v1:x", oidcScopes: ["openid"] }
+  const saml = { protocol: "SAML" as const, allowedEmailDomains: ["bank.example.test"], samlEntityId: "urn:x", samlIdpEntityId: "https://idp", samlIdpSsoUrl: "https://idp/sso", samlIdpCert: "pem" }
   const refuses = (promise: Promise<unknown>, constraint: string) => expect(promise).rejects.toThrow(new RegExp(constraint))
   const make = (tenantId: string, data: Record<string, unknown>) => db.ssoConnection.create({ data: { tenantId, ...data } as never })
 
@@ -84,6 +85,10 @@ suite("SSO and OAuth (real database)", () => {
       await refuses(make(tenantA, { ...oidc, groupRoleMap: ["ADMIN"] }), "SsoConnection_group_map_check")
     })
 
+    it("refuses switching SSO on with no allowed email domains", async () => {
+      await refuses(make(tenantA, { ...oidc, enabled: true, allowedEmailDomains: [] }), "SsoConnection_domains_needed_check")
+    })
+
     it("refuses turning password sign-in off while SSO is off", async () => {
       await refuses(make(tenantA, { ...oidc, enabled: false, passwordLoginDisabled: true }), "SsoConnection_password_off_needs_sso_check")
     })
@@ -98,7 +103,7 @@ suite("SSO and OAuth (real database)", () => {
 
   describe("saveConnection and the per-request revalidation", () => {
     const body = (extra: Record<string, unknown> = {}) => ({
-      protocol: "SAML", enabled: true,
+      protocol: "SAML", enabled: true, allowedEmailDomains: ["test.invalid"],
       saml: { entityId: "urn:cf:a", idpEntityId: "https://idp.example.test/saml", idpSsoUrl: "https://idp.example.test/sso", idpCert: testCertificatePem() },
       trustIdpMfa: true, ...extra,
     })
@@ -121,6 +126,35 @@ suite("SSO and OAuth (real database)", () => {
       await saveConnection({ tenantId: tenantA, actor: { id: rootA, email: "root@test.invalid" }, body: body({ trustIdpMfa: false }) })
       expect(await revalidatePrincipal(adminA, 0, { ...claims, idpMfa: true })).toMatchObject({ totpEnrolmentRequired: true })
       await db.tenantConfig.delete({ where: { tenantId: tenantA } })
+    })
+  })
+
+  describe("SsoIdentity (subject binding)", () => {
+    const link = (userId: string, subject: string, tenantId = tenantA) => db.ssoIdentity.create({ data: { tenantId, userId, subject } })
+
+    it("binds one subject per user and one user per subject within a lender", async () => {
+      await link(adminA, `https://idp|s-${t}`)
+      await expect(link(adminA, `https://idp|other-${t}`)).rejects.toThrow(/Unique constraint/)
+      await expect(link(rootA, `https://idp|s-${t}`)).rejects.toThrow(/Unique constraint/)
+      await db.ssoIdentity.deleteMany({ where: { tenantId: tenantA } })
+    })
+
+    it("refuses binding a subject to another lender's user", async () => {
+      await expect(link(adminB, `https://idp|x-${t}`, tenantA)).rejects.toThrow(/Foreign key|tenantId_userId_fkey/)
+    })
+
+    it("is cleared when the provider changes, and not when only settings change", async () => {
+      await link(adminA, `https://idp.example.test/saml|s-${t}`)
+      const actor = { id: rootA, email: "root@test.invalid" }
+      const saml = (idpEntityId: string, extra = {}) => ({
+        protocol: "SAML", enabled: true, allowedEmailDomains: ["test.invalid"],
+        saml: { entityId: "urn:cf:a", idpEntityId, idpSsoUrl: "https://idp.example.test/sso", idpCert: testCertificatePem() }, ...extra,
+      })
+      await saveConnection({ tenantId: tenantA, actor, body: saml("https://idp.example.test/saml") })
+      await saveConnection({ tenantId: tenantA, actor, body: saml("https://idp.example.test/saml", { trustIdpMfa: true }) })
+      expect(await db.ssoIdentity.count({ where: { tenantId: tenantA } })).toBe(1)
+      await saveConnection({ tenantId: tenantA, actor, body: saml("https://other-idp.example.test/saml") })
+      expect(await db.ssoIdentity.count({ where: { tenantId: tenantA } })).toBe(0)
     })
   })
 
@@ -157,6 +191,9 @@ suite("SSO and OAuth (real database)", () => {
       await refuses(insert({ scopes: ["admin"] }), "OauthClient_scopes_check")
       await refuses(insert({ scopes: [] }), "OauthClient_scopes_check")
       await refuses(insert({ requireMtls: true }), "OauthClient_mtls_pin_check")
+      await refuses(insert({ requireMtls: true, mtlsSubjectDn: "CN=a,O=b" }), "OauthClient_mtls_pin_check")
+      await refuses(insert({ requireMtls: true, mtlsCertSha256: "ABC" }), "OauthClient_mtls_pin_check")
+      await refuses(insert({ mtlsSubjectDn: "/C=LS/CN=a" }), "OauthClient_mtls_dn_form_check")
       await refuses(insert({ createdById: adminB }), "Foreign key|OauthClient_tenantId_createdById_fkey")
       await refuses(insert({ revokedAt: new Date() }), "OauthClient_revocation_check")
       await refuses(insert({ expiresAt: new Date(Date.now() - 86_400_000) }), "OauthClient_expiry_check")

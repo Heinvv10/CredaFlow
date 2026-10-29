@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest"
 import { parseConnectionInput } from "./connection-input"
 import { testCertificatePem } from "./test-support/saml-fixture"
 
-const oidc = { protocol: "OIDC", enabled: true, oidc: { issuer: "https://idp.example.test", clientId: "cid", clientSecret: "shh" } }
-const saml = { protocol: "SAML", enabled: true, saml: { entityId: "urn:cf:t1", idpEntityId: "https://idp.example.test/saml", idpSsoUrl: "https://idp.example.test/sso", idpCert: testCertificatePem() } }
+const domains = ["bank.example.test"]
+const oidc = { protocol: "OIDC", enabled: true, allowedEmailDomains: domains, oidc: { issuer: "https://idp.example.test", clientId: "cid", clientSecret: "shh" } }
+const saml = { protocol: "SAML", enabled: true, allowedEmailDomains: domains, saml: { entityId: "urn:cf:t1", idpEntityId: "https://idp.example.test/saml", idpSsoUrl: "https://idp.example.test/sso", idpCert: testCertificatePem() } }
 
 describe("parseConnectionInput", () => {
   it("accepts a minimal OIDC connection and applies defaults", () => {
@@ -35,8 +36,22 @@ describe("parseConnectionInput", () => {
     ["JIT with no default role", { ...oidc, jitProvisioning: true }],
     ["password login off while SSO is off", { ...oidc, enabled: false, passwordLoginDisabled: true }],
     ["a bad email domain", { ...oidc, allowedEmailDomains: ["not a domain"] }],
+    ["enabling with no allowed email domains", { ...oidc, allowedEmailDomains: [] }],
+    ["enabling with the domains left out", { protocol: "OIDC", enabled: true, oidc: oidc.oidc }],
+    ["a non-boolean unverified-email opt-in", { ...oidc, allowUnverifiedEmail: "yes" }],
   ])("refuses %s", (_label, body) => {
     expect(parseConnectionInput(body, null).ok).toBe(false)
+  })
+
+  it("lets a connection be saved switched off without domains", () => {
+    expect(parseConnectionInput({ ...oidc, enabled: false, allowedEmailDomains: [] }, null).ok).toBe(true)
+  })
+
+  it("defaults allowUnverifiedEmail to off and takes an explicit opt-in", () => {
+    const off = parseConnectionInput(oidc, null)
+    expect(off.ok && off.value.allowUnverifiedEmail).toBe(false)
+    const on = parseConnectionInput({ ...oidc, allowUnverifiedEmail: true }, null)
+    expect(on.ok && on.value.allowUnverifiedEmail).toBe(true)
   })
 
   it("keeps the stored OIDC secret when none is sent", () => {

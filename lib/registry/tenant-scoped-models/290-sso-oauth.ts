@@ -7,4 +7,5 @@ export default defineTenantScopedModels([
   // is known, in withoutTenantScope.
   "SsoConnection",
   "OauthClient",
+  "SsoIdentity",
 ] as const)

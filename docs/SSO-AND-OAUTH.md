@@ -23,10 +23,19 @@ Set at the identity provider:
 
 Who gets in:
 
-- The identity provider's email must equal a staff user's email in THAT lender.
-  Nothing is created unless "Create staff accounts on first sign-in" is on (off
+- Allowed email domains are required before SSO can be switched on.
+- The identity provider's email must be verified (OIDC `email_verified` true; a
+  missing claim is refused unless the lender ticks "Accept emails the provider does
+  not mark as verified"; SAML assertions are signed by the lender's provider and
+  taken as verified) and must equal a staff user's email in THAT lender, once. That
+  first sign-in binds the provider's stable subject (OIDC issuer+sub, SAML IdP entity
+  id+NameID) to the user. From then on the subject decides: a different subject
+  presenting that email is refused. Changing the provider (protocol, issuer, entity
+  id) clears the bindings; people then re-link by email at their next sign-in.
+- Nothing is created unless "Create staff accounts on first sign-in" is on (off
   by default). A Super Admin or operator user is never created, mapped or changed
-  by the provider (also enforced by CHECK constraints on `SsoConnection`).
+  by the provider (also enforced by CHECK constraints on `SsoConnection`), and a
+  Super Admin cannot sign in through the provider: password plus authenticator code only.
 - Group to role mapping: a user in mapped groups gets the highest mapped role at
   each sign-in (audited `SSO_ROLE_SYNCED`); a user in none keeps their role.
 - Optional allowed email domains.
@@ -109,9 +118,13 @@ Rules that make this safe:
    caller sent (an empty value if there is no certificate).
 2. The app port must be unreachable except through the proxy (bind to the proxy
    network or firewall it), as for the IP allowlist (`lib/security/.claude.md`).
-3. Pin the certificate on the client: its subject DN (`CN=...,O=...`; RFC 4514 or
-   OpenSSL slash form, order ignored) and/or its SHA-256 fingerprint. Every pin that
-   is set must match. A client that requires mTLS and pins nothing is refused by the form and by a CHECK constraint.
+3. Pin the certificate on the client by its SHA-256 fingerprint (required; 64 hex
+   characters, colons and case ignored). Optionally also pin the subject DN: it is
+   compared as ONE exact string against `X-SSL-Client-DN`, so set the proxy to emit RFC 4514
+   form (nginx: `$ssl_client_s_dn`) and enter the DN as the proxy writes it. The app does
+   not parse or normalise DNs: reordered RDNs, the OpenSSL slash form (`/C=LS/CN=...`), other
+   case and `+` multi-valued RDNs written differently do not match. A client that requires
+   mTLS without a fingerprint is refused by the form, the CHECK constraint and the check itself.
 4. Header names are configurable: `MTLS_VERIFY_HEADER`, `MTLS_DN_HEADER`,
    `MTLS_FINGERPRINT_HEADER`.
 

@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const h = vi.hoisted(() => ({
   existing: null as Record<string, unknown> | null,
   upsert: vi.fn(),
+  clearLinks: vi.fn(),
   audit: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => {
   const tx = {
     $executeRaw: async () => 1,
     ssoConnection: { findUnique: async () => h.existing, upsert: h.upsert },
+    ssoIdentity: { deleteMany: h.clearLinks },
     auditLog: { create: h.audit },
   }
   return { prisma: { $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) } }
@@ -19,13 +21,14 @@ import { openSecret } from "@/lib/crypto/secret-box"
 
 const KEY = Buffer.alloc(32, 5).toString("base64")
 const actor = { id: "u1", email: "root@lender.example" }
-const body = { protocol: "OIDC", enabled: true, oidc: { issuer: "https://idp.example.test", clientId: "cid", clientSecret: "very-secret-value" }, groupRoleMap: { admins: "ADMIN" } }
+const body = { protocol: "OIDC", enabled: true, allowedEmailDomains: ["bank.example.test"], oidc: { issuer: "https://idp.example.test", clientId: "cid", clientSecret: "very-secret-value" }, groupRoleMap: { admins: "ADMIN" } }
 
 beforeEach(() => {
   process.env.SSO_SECRET_KEY = KEY
   h.existing = null
   h.upsert.mockReset().mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({ id: "c1", updatedAt: new Date(), ...create }))
   h.audit.mockReset().mockResolvedValue({})
+  h.clearLinks.mockReset().mockResolvedValue({ count: 0 })
 })
 
 describe("saveConnection", () => {
@@ -51,6 +54,28 @@ describe("saveConnection", () => {
     expect(out.ok).toBe(true)
     expect(h.upsert.mock.calls[0][0].update.oidcClientSecretSealed).toBe("enc:v1:old")
     expect(h.audit.mock.calls[0][0].data.newValue.clientSecretChanged).toBe(false)
+  })
+
+  it("refuses enabling with no allowed email domains and writes nothing", async () => {
+    const out = await saveConnection({ tenantId: "t1", actor, body: { ...body, allowedEmailDomains: [] } })
+    expect(out).toMatchObject({ ok: false, status: 400 })
+    expect(h.upsert).not.toHaveBeenCalled()
+  })
+
+  it("clears the bound subjects when the provider changes, and says so in the audit row", async () => {
+    h.existing = { protocol: "OIDC", oidcIssuer: "https://old-idp.example.test", oidcClientSecretSealed: "enc:v1:old", enabled: true }
+    h.clearLinks.mockResolvedValue({ count: 3 })
+    h.upsert.mockImplementation(async ({ update }: { update: Record<string, unknown> }) => ({ id: "c1", updatedAt: new Date(), ...update }))
+    await saveConnection({ tenantId: "t1", actor, body })
+    expect(h.clearLinks).toHaveBeenCalledWith({ where: { tenantId: "t1" } })
+    expect(h.audit.mock.calls[0][0].data.newValue.subjectLinksCleared).toBe(3)
+  })
+
+  it("keeps the bound subjects when only settings change", async () => {
+    h.existing = { protocol: "OIDC", oidcIssuer: "https://idp.example.test", oidcClientSecretSealed: "enc:v1:old", enabled: true }
+    h.upsert.mockImplementation(async ({ update }: { update: Record<string, unknown> }) => ({ id: "c1", updatedAt: new Date(), ...update }))
+    await saveConnection({ tenantId: "t1", actor, body })
+    expect(h.clearLinks).not.toHaveBeenCalled()
   })
 
   it("refuses a Super Admin mapping and writes nothing", async () => {

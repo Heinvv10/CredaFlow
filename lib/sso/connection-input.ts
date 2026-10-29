@@ -23,6 +23,7 @@ export interface ConnectionFields {
   emailClaim: string
   groupsClaim: string
   allowedEmailDomains: string[]
+  allowUnverifiedEmail: boolean
   groupRoleMap: GroupRoleMap
   jitProvisioning: boolean
   jitDefaultRole: MappableRole | null
@@ -116,6 +117,9 @@ export function parseConnectionInput(body: unknown, existing: Existing): Connect
   const allowedEmailDomains = domains?.map((d) => d.toLowerCase())
   if (!allowedEmailDomains || !allowedEmailDomains.every((d) => DOMAIN.test(d))) return fail("Allowed email domains are not valid.")
 
+  if (body.enabled && allowedEmailDomains.length === 0) return fail("Name the email domains that may sign in before single sign-on is switched on.")
+  if (body.allowUnverifiedEmail !== undefined && typeof body.allowUnverifiedEmail !== "boolean") return fail("allowUnverifiedEmail must be true or false.")
+
   const groupRoleMap = parseGroupRoleMap(body.groupRoleMap ?? {})
   if (!groupRoleMap) return fail("Group mappings may only assign lender roles below Super Admin.")
 
@@ -135,7 +139,7 @@ export function parseConnectionInput(body: unknown, existing: Existing): Connect
     clientSecret,
     value: {
       protocol, enabled: body.enabled, oidcIssuer, oidcClientId, oidcScopes, samlEntityId, samlIdpEntityId, samlIdpSsoUrl, samlIdpCert,
-      emailClaim, groupsClaim, allowedEmailDomains, groupRoleMap, jitProvisioning, jitDefaultRole,
+      emailClaim, groupsClaim, allowedEmailDomains, allowUnverifiedEmail: body.allowUnverifiedEmail === true, groupRoleMap, jitProvisioning, jitDefaultRole,
       trustIdpMfa: body.trustIdpMfa === true, mfaAcrValues, passwordLoginDisabled,
     },
   }

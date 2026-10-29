@@ -33,16 +33,21 @@ export function oauthClientState(row: { revokedAt: Date | null; expiresAt: Date 
 
 interface Actor { id: string; email: string; ipAddress?: string }
 
-export interface MtlsPin { subjectDn: string | null; certSha256: string | null }
+export interface MtlsPin { subjectDn: string | null; certSha256: string }
 
-/** A pin from request input, or null when it is malformed. */
+/**
+ * A pin from request input, or null when malformed. The SHA-256 fingerprint is required; the
+ * subject DN is optional and must be the RFC 4514 string the proxy emits (not the OpenSSL slash form).
+ */
 export function parseMtlsPin(input: { subjectDn?: unknown; certSha256?: unknown }): MtlsPin | null {
-  const dn = typeof input.subjectDn === "string" && input.subjectDn.trim() !== "" ? input.subjectDn.trim() : null
-  const sha = typeof input.certSha256 === "string" && input.certSha256.trim() !== "" ? input.certSha256.trim().replace(/:/g, "") : null
-  if (input.subjectDn !== undefined && input.subjectDn !== null && input.subjectDn !== "" && (dn === null || dn.length > 512 || !dn.includes("="))) return null
-  if (input.certSha256 !== undefined && input.certSha256 !== null && input.certSha256 !== "" && (sha === null || !SHA256_HEX.test(sha))) return null
-  if (dn === null && sha === null) return null
-  return { subjectDn: dn, certSha256: sha ? sha.toLowerCase() : null }
+  const sha = typeof input.certSha256 === "string" ? input.certSha256.trim().replace(/:/g, "") : ""
+  if (!SHA256_HEX.test(sha)) return null
+  const rawDn = input.subjectDn
+  if (rawDn === undefined || rawDn === null || (typeof rawDn === "string" && rawDn.trim() === "")) return { subjectDn: null, certSha256: sha.toLowerCase() }
+  if (typeof rawDn !== "string") return null
+  const dn = rawDn.trim()
+  if (dn.length > 512 || dn.startsWith("/") || !dn.includes("=")) return null
+  return { subjectDn: dn, certSha256: sha.toLowerCase() }
 }
 
 export type CreateClientOutcome =

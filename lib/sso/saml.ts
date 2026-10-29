@@ -102,7 +102,11 @@ export async function completeSaml(
   if (!email) throw new SamlFlowError("no_email")
   const display = profile.displayName ?? profile.name
   return {
+    subject: `${conn.samlIdpEntityId}|${profile.nameID}`,
     email,
+    // The assertion is signed by the lender's own identity provider, and subjects are bound to the account: SAML has no
+    // email_verified, the provider vouches for the attribute it signs.
+    emailVerified: true,
     name: typeof display === "string" ? display : null,
     groups: asList(profile[conn.groupsClaim]),
     mfaProven: samlMfaProven(classRefOf(assertionXml), conn.mfaAcrValues),

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     let mtls = null
     if (body?.requireMtls === true) {
       mtls = parseMtlsPin({ subjectDn: body.mtlsSubjectDn, certSha256: body.mtlsCertSha256 })
-      if (!mtls) return NextResponse.json({ error: "Mutual TLS needs the certificate's subject DN (CN=…,O=…) and/or its SHA-256 fingerprint (64 hex characters)." }, { status: 400 })
+      if (!mtls) return NextResponse.json({ error: "Mutual TLS needs the certificate's SHA-256 fingerprint (64 hex characters). A subject DN is optional and must be in RFC 4514 form (CN=…,O=…), exactly as your gateway forwards it." }, { status: 400 })
     }
 
     const outcome = await createOauthClient({

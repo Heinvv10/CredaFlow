@@ -7,6 +7,7 @@ const h = vi.hoisted(() => {
     failures: [] as string[],
     audits: [] as string[],
     cache: new Map<string, { value: string; expiresAt: Date }>(),
+    links: [] as Array<{ tenantId: string; userId: string; subject: string }>,
     conn: null as Record<string, unknown> | null,
     totp: { kind: "not_enrolled" } as { kind: string },
   }
@@ -18,6 +19,11 @@ vi.mock("@/lib/prisma", () => {
       findUnique: async ({ where }: { where: { email?: string; id?: string } }) =>
         where.email ? h.users.get(where.email) ?? null : [...h.users.values()].find((u) => u.id === where.id) ?? null,
       update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => Object.assign([...h.users.values()].find((u) => u.id === where.id)!, data),
+    },
+    ssoIdentity: {
+      findFirst: async ({ where }: { where: { subject?: string; userId?: string } }) =>
+        h.links.find((l) => (where.subject === undefined || l.subject === where.subject) && (where.userId === undefined || l.userId === where.userId)) ?? null,
+      create: async ({ data }: { data: { tenantId: string; userId: string; subject: string } }) => { h.links.push(data); return data },
     },
     auditLog: { create: async ({ data }: { data: { action: string } }) => { h.audits.push(data.action) } },
   }
@@ -79,17 +85,18 @@ const cookieOf = (res: Response, name: string) => {
 
 beforeEach(() => {
   _resetRateLimitStore()
-  h.users.clear(); h.failures.length = 0; h.audits.length = 0; h.cache.clear(); h.totp = { kind: "not_enrolled" }
+  h.users.clear(); h.failures.length = 0; h.audits.length = 0; h.cache.clear(); h.links.length = 0; h.totp = { kind: "not_enrolled" }
   h.users.set("ann@bank.example.test", { id: "u1", email: "ann@bank.example.test", name: "Ann", role: "CREDIT_OFFICER", tenantId: "t1", operatorId: null, active: true, tokenVersion: 0, totpEnabled: false, totpSecret: null })
   h.conn = {
     id: "c1", tenantId: "t1", protocol: "OIDC", enabled: true, oidcIssuer: idp.issuer, oidcClientId: idp.clientId,
     oidcClientSecretSealed: sealSecret(idp.clientSecret, KEY), oidcScopes: ["openid", "email", "profile"], emailClaim: "email", groupsClaim: "groups",
-    allowedEmailDomains: [], groupRoleMap: { admins: "ADMIN" }, jitProvisioning: false, jitDefaultRole: null, trustIdpMfa: false, mfaAcrValues: [], passwordLoginDisabled: false,
+    allowedEmailDomains: ["bank.example.test", "acme-lending.example"], allowUnverifiedEmail: false, groupRoleMap: { admins: "ADMIN" }, jitProvisioning: false, jitDefaultRole: null, trustIdpMfa: false, mfaAcrValues: [], passwordLoginDisabled: false,
   }
 })
 
 /** Start, let the provider authenticate, return to the callback. */
-async function signInVia(claims: Record<string, unknown>, tweak: { dropCookie?: boolean; reuse?: boolean } = {}) {
+async function signInVia(rawClaims: Record<string, unknown>, tweak: { dropCookie?: boolean; reuse?: boolean } = {}) {
+  const claims = { email_verified: true, ...rawClaims }
   const start = await handleSsoStart(req("/api/auth/sso/start?callbackUrl=/loans"), TEST)
   const auth = new URL(start.headers.get("location")!)
   const flow = cookieOf(start, flowCookieName())
@@ -214,6 +221,30 @@ describe("SSO sign-in refusals", () => {
     expect(h.failures).toContain("sso_domain_not_allowed")
   })
 
+  it("refuses an email the provider did not verify, and one it did not mention", async () => {
+    refused((await signInVia({ email: "ann@bank.example.test", email_verified: false })).cb)
+    refused((await signInVia({ email: "ann@bank.example.test", email_verified: undefined })).cb)
+    expect(h.failures.filter((f) => f === "sso_email_unverified")).toHaveLength(2)
+    expect(h.links).toHaveLength(0)
+  })
+
+  it("refuses a different provider subject that claims a bound user's email (account takeover)", async () => {
+    const first = await signInVia({ email: "ann@bank.example.test" })
+    expect(first.cb.headers.getSetCookie().some((c) => c.startsWith(ticketCookieName()))).toBe(true)
+    expect(h.links).toHaveLength(1)
+    const sub = h.links[0].subject
+    h.links[0].subject = `${idp.issuer}|someone-else`
+    refused((await signInVia({ email: "ann@bank.example.test" })).cb)
+    expect(h.failures).toContain("sso_subject_mismatch")
+    h.links[0].subject = sub
+  })
+
+  it("refuses a Super Admin at the callback", async () => {
+    h.users.get("ann@bank.example.test")!.role = "SUPER_ADMIN"
+    refused((await signInVia({ email: "ann@bank.example.test" })).cb)
+    expect(h.failures).toContain("sso_super_admin_password_only")
+  })
+
   it("is not served on the client portal host", async () => {
     process.env.APP_MODE = "client"
     try {
@@ -226,7 +257,7 @@ describe("SSO sign-in refusals", () => {
   it("never lands on an external URL after sign-in", async () => {
     const start = await handleSsoStart(req("/api/auth/sso/start?callbackUrl=https://evil.example.test/x"), TEST)
     const auth = new URL(start.headers.get("location")!)
-    const code = await idp.issueCode({ nonce: auth.searchParams.get("nonce")!, codeChallenge: auth.searchParams.get("code_challenge")!, redirectUri: "https://app.example.test/api/auth/sso/oidc/callback", claims: { email: "ann@bank.example.test" } })
+    const code = await idp.issueCode({ nonce: auth.searchParams.get("nonce")!, codeChallenge: auth.searchParams.get("code_challenge")!, redirectUri: "https://app.example.test/api/auth/sso/oidc/callback", claims: { email: "ann@bank.example.test", email_verified: true } })
     const cb = await handleOidcCallback(req(`/api/auth/sso/oidc/callback?code=${code}&state=${auth.searchParams.get("state")}`, cookieOf(start, flowCookieName()) ?? undefined), TEST)
     expect(new URL(cb.headers.get("location")!).searchParams.get("callbackUrl")).toBe("/dashboard")
   })

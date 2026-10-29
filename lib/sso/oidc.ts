@@ -121,6 +121,7 @@ export async function completeOidc(
   const email = claims[conn.emailClaim]
   if (typeof email !== "string" || !email) throw new OidcFlowError("no_email")
   return {
+    subject: `${idToken.iss}|${idToken.sub}`,
     email,
     emailVerified: typeof claims.email_verified === "boolean" ? claims.email_verified : undefined,
     name: typeof claims.name === "string" ? claims.name : null,

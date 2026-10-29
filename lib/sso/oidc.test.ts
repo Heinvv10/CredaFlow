@@ -59,7 +59,12 @@ describe("OIDC sign-in against a local provider", () => {
 
   it("reads email, name, groups and MFA from the ID token", async () => {
     const who = await run({ claims: { email: "ann@bank.example.test", name: "Ann", groups: ["admins"], amr: ["pwd", "mfa"], email_verified: true } })
-    expect(who).toEqual({ email: "ann@bank.example.test", emailVerified: true, name: "Ann", groups: ["admins"], mfaProven: true })
+    expect(who).toEqual({ subject: `${idp.issuer}|user-1`, email: "ann@bank.example.test", emailVerified: true, name: "Ann", groups: ["admins"], mfaProven: true })
+  })
+
+  it("reports a missing email_verified as unknown, never as verified", async () => {
+    expect((await run({ claims: { email: "ann@bank.example.test" } })).emailVerified).toBeUndefined()
+    expect((await run({ claims: { email: "ann@bank.example.test", email_verified: false } })).emailVerified).toBe(false)
   })
 
   it("does not claim MFA when the provider did not prove it", async () => {

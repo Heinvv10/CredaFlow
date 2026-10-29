@@ -66,6 +66,15 @@ export async function authorizeSso(input: {
   const conn = await runWithTenant(ticket.tenantId, () => getEnabledConnection(ticket.tenantId))
   if (!conn) return refused("sso_disabled", user.email)
 
+  // A Super Admin signs in with password and CredaFlow TOTP (also the break-glass path), never through the provider.
+  if (user.role === "SUPER_ADMIN") {
+    await logAudit({
+      tenantId: ticket.tenantId, userId: user.id, userEmail: user.email, action: AuditAction.SSO_SIGN_IN_REFUSED,
+      entity: "User", entityId: user.id, newValue: { reason: "super_admin" }, ipAddress: input.ip === "unknown" ? undefined : input.ip,
+    })
+    return refused("sso_super_admin", user.email)
+  }
+
   const refusal = principalRefusal(user, "staff")
   if (refusal) {
     await logAudit({

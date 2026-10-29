@@ -22,6 +22,7 @@ CREATE TABLE "SsoConnection" (
     "groupsClaim" TEXT NOT NULL DEFAULT 'groups',
     "allowedEmailDomains" TEXT[],
     "groupRoleMap" JSONB NOT NULL DEFAULT '{}',
+    "allowUnverifiedEmail" BOOLEAN NOT NULL DEFAULT false,
     "jitProvisioning" BOOLEAN NOT NULL DEFAULT false,
     "jitDefaultRole" "UserRole",
     "trustIdpMfa" BOOLEAN NOT NULL DEFAULT false,
@@ -32,6 +33,17 @@ CREATE TABLE "SsoConnection" (
     "updatedById" TEXT,
 
     CONSTRAINT "SsoConnection_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SsoIdentity" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "subject" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SsoIdentity_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -68,6 +80,12 @@ CREATE TABLE "OauthClient" (
 CREATE UNIQUE INDEX "SsoConnection_tenantId_key" ON "SsoConnection"("tenantId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "SsoIdentity_tenantId_subject_key" ON "SsoIdentity"("tenantId", "subject");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SsoIdentity_tenantId_userId_key" ON "SsoIdentity"("tenantId", "userId");
+
+-- CreateIndex
 CREATE INDEX "SsoCacheEntry_expiresAt_idx" ON "SsoCacheEntry"("expiresAt");
 
 -- CreateIndex
@@ -87,6 +105,12 @@ ALTER TABLE "ApiRequestLog" ADD CONSTRAINT "ApiRequestLog_oauthClientId_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "SsoConnection" ADD CONSTRAINT "SsoConnection_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SsoIdentity" ADD CONSTRAINT "SsoIdentity_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SsoIdentity" ADD CONSTRAINT "SsoIdentity_tenantId_userId_fkey" FOREIGN KEY ("tenantId", "userId") REFERENCES "User"("tenantId", "id") ON DELETE CASCADE ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -117,6 +141,11 @@ ALTER TABLE "SsoConnection" ADD CONSTRAINT "SsoConnection_group_map_check" CHECK
   AND NOT jsonb_path_exists("groupRoleMap", '$.* ? (@ == "SUPER_ADMIN" || @ == "OPERATOR_ADMIN" || @ == "OPERATOR_SUPPORT")')
 );
 
+-- Single sign-on is switched on only with the email domains that may use it.
+ALTER TABLE "SsoConnection" ADD CONSTRAINT "SsoConnection_domains_needed_check" CHECK (
+  "enabled" = false OR cardinality("allowedEmailDomains") > 0
+);
+
 -- Password sign-in is turned off only while single sign-on is on.
 ALTER TABLE "SsoConnection" ADD CONSTRAINT "SsoConnection_password_off_needs_sso_check" CHECK (
   "passwordLoginDisabled" = false OR "enabled" = true
@@ -129,9 +158,13 @@ ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_scopes_check" CHECK (
 );
 ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_revocation_check" CHECK (("revokedAt" IS NULL) = ("revokedById" IS NULL));
 ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_expiry_check" CHECK ("expiresAt" > "createdAt");
--- A client that requires mutual TLS names the certificate it is pinned to.
+-- A client that requires mutual TLS is pinned to its certificate by SHA-256 fingerprint
+-- (64 hex characters); a subject DN is an optional extra. A slash-form DN is never stored.
 ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_mtls_pin_check" CHECK (
-  "requireMtls" = false OR "mtlsSubjectDn" IS NOT NULL OR "mtlsCertSha256" IS NOT NULL
+  "requireMtls" = false OR ("mtlsCertSha256" IS NOT NULL AND "mtlsCertSha256" ~ '^[0-9a-f]{64}$')
+);
+ALTER TABLE "OauthClient" ADD CONSTRAINT "OauthClient_mtls_dn_form_check" CHECK (
+  "mtlsSubjectDn" IS NULL OR ("mtlsSubjectDn" !~ '^/' AND "mtlsSubjectDn" LIKE '%=%')
 );
 
 -- Row-level security, the policy every model in TENANT_SCOPED_MODELS carries
@@ -143,3 +176,7 @@ CREATE POLICY "tenant_isolation" ON "SsoConnection" USING (public.cf_rls_unrestr
 ALTER TABLE "OauthClient" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "OauthClient" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "OauthClient" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+ALTER TABLE "SsoIdentity" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "SsoIdentity" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "SsoIdentity" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());

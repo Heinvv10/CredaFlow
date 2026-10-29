@@ -47,7 +47,7 @@ export function connectionView(c: LoadedConnection | null) {
     protocol: c.protocol, enabled: c.enabled,
     oidc: { issuer: c.oidcIssuer, clientId: c.oidcClientId, hasClientSecret: !!c.oidcClientSecretSealed, scopes: c.oidcScopes },
     saml: { entityId: c.samlEntityId, idpEntityId: c.samlIdpEntityId, idpSsoUrl: c.samlIdpSsoUrl, hasIdpCert: !!c.samlIdpCert },
-    emailClaim: c.emailClaim, groupsClaim: c.groupsClaim, allowedEmailDomains: c.allowedEmailDomains,
+    emailClaim: c.emailClaim, groupsClaim: c.groupsClaim, allowedEmailDomains: c.allowedEmailDomains, allowUnverifiedEmail: c.allowUnverifiedEmail,
     groupRoleMap: c.groupRoleMap, jitProvisioning: c.jitProvisioning, jitDefaultRole: c.jitDefaultRole,
     trustIdpMfa: c.trustIdpMfa, mfaAcrValues: c.mfaAcrValues, passwordLoginDisabled: c.passwordLoginDisabled,
     updatedAt: c.updatedAt.toISOString(),
@@ -78,6 +78,9 @@ export async function saveConnection(args: { tenantId: string; actor: Actor; bod
       oidcClientSecretSealed: value.protocol === "OIDC" ? sealed : null,
       updatedById: actor.id,
     }
+    // Subjects are only meaningful to the provider that issued them: a different issuer, entity id or protocol voids them.
+    const providerChanged = existing !== null && providerKey(existing) !== providerKey(value)
+    const cleared = providerChanged ? (await tx.ssoIdentity.deleteMany({ where: { tenantId } })).count : 0
     const saved = await tx.ssoConnection.upsert({ where: { tenantId }, create: { tenantId, ...data }, update: data })
     await logAuditStrict({
       tenantId,
@@ -87,7 +90,7 @@ export async function saveConnection(args: { tenantId: string; actor: Actor; bod
       entity: "SsoConnection",
       entityId: saved.id,
       oldValue: existing ? auditShape(existing) : null,
-      newValue: { ...auditShape(saved), clientSecretChanged: parsed.clientSecret !== null },
+      newValue: { ...auditShape(saved), clientSecretChanged: parsed.clientSecret !== null, subjectLinksCleared: cleared },
       ipAddress: actor.ipAddress,
     }, tx)
     const loaded = load(saved) as LoadedConnection
@@ -95,11 +98,14 @@ export async function saveConnection(args: { tenantId: string; actor: Actor; bod
   })
 }
 
+const providerKey = (c: { protocol: string; oidcIssuer: string | null; samlIdpEntityId: string | null }) =>
+  c.protocol === "OIDC" ? `OIDC|${c.oidcIssuer}` : `SAML|${c.samlIdpEntityId}`
+
 function auditShape(c: SsoConnection) {
   return {
     protocol: c.protocol, enabled: c.enabled, oidcIssuer: c.oidcIssuer, oidcClientId: c.oidcClientId,
     samlEntityId: c.samlEntityId, samlIdpEntityId: c.samlIdpEntityId, samlIdpSsoUrl: c.samlIdpSsoUrl,
-    allowedEmailDomains: c.allowedEmailDomains, groupRoleMap: c.groupRoleMap,
+    allowedEmailDomains: c.allowedEmailDomains, allowUnverifiedEmail: c.allowUnverifiedEmail, groupRoleMap: c.groupRoleMap,
     jitProvisioning: c.jitProvisioning, jitDefaultRole: c.jitDefaultRole, trustIdpMfa: c.trustIdpMfa,
     passwordLoginDisabled: c.passwordLoginDisabled,
   }

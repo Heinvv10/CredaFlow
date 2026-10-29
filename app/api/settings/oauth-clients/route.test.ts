@@ -54,6 +54,8 @@ describe("POST /api/settings/oauth-clients", () => {
     ["an unknown scope", { ...valid, scopes: ["admin"] }],
     ["a lifetime that is not offered", { ...valid, lifetimeDays: 1000 }],
     ["mutual TLS with no pin", { ...valid, requireMtls: true }],
+    ["mutual TLS with only a subject", { ...valid, requireMtls: true, mtlsSubjectDn: "CN=core,O=Bank" }],
+    ["mutual TLS with a slash-form subject", { ...valid, requireMtls: true, mtlsSubjectDn: "/CN=core/O=Bank", mtlsCertSha256: "a".repeat(64) }],
     ["mutual TLS with a bad fingerprint", { ...valid, requireMtls: true, mtlsCertSha256: "abc" }],
   ])("refuses %s", async (_l, body) => {
     expect((await post(body)).status).toBe(400)
@@ -61,8 +63,8 @@ describe("POST /api/settings/oauth-clients", () => {
   })
 
   it("passes a certificate pin through", async () => {
-    await post({ ...valid, requireMtls: true, mtlsSubjectDn: "CN=core,O=Bank" })
-    expect(h.create).toHaveBeenCalledWith(expect.objectContaining({ mtls: { subjectDn: "CN=core,O=Bank", certSha256: null } }))
+    await post({ ...valid, requireMtls: true, mtlsSubjectDn: "CN=core,O=Bank", mtlsCertSha256: "a".repeat(64) })
+    expect(h.create).toHaveBeenCalledWith(expect.objectContaining({ mtls: { subjectDn: "CN=core,O=Bank", certSha256: "a".repeat(64) } }))
   })
 
   it("passes the cap refusal through", async () => {

@@ -48,6 +48,7 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
   const [groupsClaim, setGroupsClaim] = useState(initial?.groupsClaim ?? "groups")
   const [domains, setDomains] = useState((initial?.allowedEmailDomains ?? []).join(", "))
   const [groupMap, setGroupMap] = useState(mapToText(initial?.groupRoleMap ?? {}))
+  const [unverified, setUnverified] = useState(initial?.allowUnverifiedEmail ?? false)
   const [jit, setJit] = useState(initial?.jitProvisioning ?? false)
   const [jitRole, setJitRole] = useState<string>(initial?.jitDefaultRole ?? "READONLY")
   const [trustMfa, setTrustMfa] = useState(initial?.trustIdpMfa ?? false)
@@ -67,7 +68,7 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
       ...(protocol === "OIDC"
         ? { oidc: { issuer, clientId, clientSecret, scopes: scopes.split(/\s+/).filter(Boolean) } }
         : { saml: { entityId, idpEntityId, idpSsoUrl, idpCert } }),
-      emailClaim, groupsClaim, allowedEmailDomains: list(domains), groupRoleMap: textToMap(groupMap),
+      emailClaim, groupsClaim, allowedEmailDomains: list(domains), allowUnverifiedEmail: unverified, groupRoleMap: textToMap(groupMap),
       jitProvisioning: jit, jitDefaultRole: jit ? jitRole : null, trustIdpMfa: trustMfa, mfaAcrValues: list(acr), passwordLoginDisabled: passwordOff,
     }
     try {
@@ -102,7 +103,7 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
         <CardTitle>Single sign-on</CardTitle>
         <CardDescription>
           Let staff sign in with the lender&apos;s identity provider (OpenID Connect or SAML 2.0). Staff must already have a CredaFlow account:
-          they are matched by email. A Super Admin is never created or changed by the provider.
+          they are matched by email the first time and bound to the provider&apos;s stable subject after that. A Super Admin never signs in through the provider (password and authenticator code only) and is never created or changed by it.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -145,7 +146,7 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
               <div className="space-y-2"><Label htmlFor="ssoGroupsClaim">Groups {protocol === "OIDC" ? "claim" : "attribute"}</Label><Input id="ssoGroupsClaim" value={groupsClaim} disabled={!canManage} onChange={(e) => setGroupsClaim(e.target.value)} /></div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ssoDomains">Allowed email domains (optional, comma separated)</Label>
+              <Label htmlFor="ssoDomains">Allowed email domains (required to switch single sign-on on, comma separated)</Label>
               <Input id="ssoDomains" value={domains} disabled={!canManage} placeholder="bank.example.com" onChange={(e) => setDomains(e.target.value)} />
             </div>
             <div className="space-y-2">
@@ -156,6 +157,7 @@ export function SsoConnectionCard({ initial, redirectUri, acsUrl, canManage }: P
           </div>
 
           <div className="space-y-3">
+            {check("ssoUnverified", unverified, setUnverified, "Accept emails the provider does not mark as verified", "Off by default: the provider must say email_verified is true (SAML assertions are taken as verified). Turn on only if this provider never sends the claim and its directory is trusted.")}
             {check("ssoJit", jit, setJit, "Create staff accounts on first sign-in", "Off by default. New accounts get the mapped role, or the default below; never Super Admin.")}
             {jit && (
               <div className="max-w-xs space-y-2">

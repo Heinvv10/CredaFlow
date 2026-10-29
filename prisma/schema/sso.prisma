@@ -29,6 +29,7 @@ model SsoConnection {
   groupsClaim            String      @default("groups")
   allowedEmailDomains    String[]
   groupRoleMap           Json        @default("{}")
+  allowUnverifiedEmail   Boolean     @default(false)
   jitProvisioning        Boolean     @default(false)
   jitDefaultRole         UserRole?
   trustIdpMfa            Boolean     @default(false)
@@ -37,6 +38,24 @@ model SsoConnection {
   createdAt              DateTime    @default(now())
   updatedAt              DateTime    @updatedAt
   updatedById            String?
+}
+
+// The stable identity-provider subject a staff user is bound to, written at the
+// first SSO sign-in (email matches only that once). OIDC: "<issuer>|<sub>"; SAML:
+// "<IdP entity id>|<NameID>". From then on sign-in matches the subject, never the
+// email, so a re-used or re-pointed email at the provider cannot take the account.
+// Changing the provider (protocol, issuer, entity id) clears the links.
+model SsoIdentity {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userId    String
+  user      User     @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade, onUpdate: Restrict)
+  subject   String
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, subject])
+  @@unique([tenantId, userId])
 }
 
 // Single-use and short-lived values shared by every replica: SAML request and
@@ -52,7 +71,7 @@ model SsoCacheEntry {
 // An OAuth2 client-credentials client for /api/v1 (POST /api/oauth/token). Only
 // the SHA-256 of the secret is stored; the secret is 256 random bits, so no slow
 // hash is needed (as ApiKey). Scopes are the API key scopes. A client that
-// requires mTLS must pin a certificate subject DN or SHA-256 fingerprint.
+// requires mTLS must pin the certificate's SHA-256 fingerprint; a subject DN (exact RFC 4514 string) is an optional extra.
 model OauthClient {
   id             String          @id @default(cuid())
   tenantId       String

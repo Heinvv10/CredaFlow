@@ -180,6 +180,7 @@ model Tenant {
   selfieCaptureTokens        SelfieCaptureToken[]
   signingOtpChallenges       SigningOtpChallenge[]
   ssoConnection              SsoConnection?
+  ssoIdentities              SsoIdentity[]
   statementAiOutputs         StatementAiOutput[]
   statementAiUsages          StatementAiUsage[]
   statementAnalyses          StatementAnalysis[]

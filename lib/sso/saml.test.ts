@@ -68,7 +68,7 @@ describe("SAML sign-in", () => {
       acsUrl: ACS, flow, relayState: relay,
       samlResponse: samlResponse({ inResponseTo: requestId, attributes: attrs, authnContext: "urn:oasis:names:tc:SAML:2.0:ac:classes:MobileTwoFactorContract" }),
     })
-    expect(who).toMatchObject({ email: "ann@bank.example.test", groups: ["admins", "staff"], mfaProven: true })
+    expect(who).toMatchObject({ email: "ann@bank.example.test", groups: ["admins", "staff"], mfaProven: true, subject: `${IDP_ID}|staff@bank.example.test` })
   })
 
   it("falls back to an email NameID and reports no MFA for password-only", async () => {

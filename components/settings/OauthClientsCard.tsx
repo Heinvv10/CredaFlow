@@ -180,12 +180,13 @@ export function OauthClientsCard({ clients, canManage }: Props) {
             {requireMtls && (
               <div className="grid max-w-xl gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="oauthClientDn">Certificate subject DN</Label>
-                  <Input id="oauthClientDn" value={subjectDn} maxLength={512} placeholder="CN=core-banking,O=Example Bank,C=LS" onChange={(e) => setSubjectDn(e.target.value)} />
+                  <Label htmlFor="oauthClientSha">Certificate SHA-256 fingerprint (required)</Label>
+                  <Input id="oauthClientSha" value={sha256} maxLength={95} required placeholder="64 hex characters" onChange={(e) => setSha256(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="oauthClientSha">Certificate SHA-256 fingerprint (optional if a subject is given)</Label>
-                  <Input id="oauthClientSha" value={sha256} maxLength={95} placeholder="64 hex characters" onChange={(e) => setSha256(e.target.value)} />
+                  <Label htmlFor="oauthClientDn">Certificate subject DN (optional extra pin)</Label>
+                  <Input id="oauthClientDn" value={subjectDn} maxLength={512} placeholder="CN=core-banking,O=Example Bank,C=LS" onChange={(e) => setSubjectDn(e.target.value)} />
+                  <p className="text-xs text-[var(--cf-text-muted)]">Compared as one exact string, in the RFC 4514 form your gateway forwards. Reordered, slash-form or differently cased subjects do not match.</p>
                 </div>
               </div>
             )}

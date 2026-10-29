@@ -138,6 +138,14 @@ describe("authorizeSso: ticket and principal", () => {
     expect(h.audits).toEqual(["SSO_SIGN_IN_REFUSED"])
   })
 
+  it("refuses a SUPER_ADMIN even with a valid ticket, and audits it", async () => {
+    h.user = { ...baseUser, role: "SUPER_ADMIN" }
+    expect(await call()).toEqual({ ok: false, error: "refused" })
+    expect(h.audits).toEqual(["SSO_SIGN_IN_REFUSED"])
+    expect(h.failures).toContain("sso_super_admin")
+    expect(h.claims.size).toBe(0)
+  })
+
   it("refuses a user of a suspended lender", async () => {
     h.user = { ...baseUser, tenant: { status: "SUSPENDED" } }
     expect(await call()).toEqual({ ok: false, error: "refused" })

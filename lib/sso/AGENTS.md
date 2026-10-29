@@ -24,8 +24,16 @@ suites sign real XML with a throwaway key made by the `openssl` CLI.
   `revalidatePrincipal` (`lib/auth-principal.ts`) honours per request only while
   the lender still trusts it. Do not add a path that skips this.
 - **Never SUPER_ADMIN.** The provider cannot create, map or change a SUPER_ADMIN
-  or operator user (`groups.ts`, `identity.ts`, CHECKs on `SsoConnection`).
-  Just-in-time creation is off by default.
+  or operator user (`groups.ts`, `identity.ts`, CHECKs on `SsoConnection`), and a
+  SUPER_ADMIN cannot sign in through it at all (`identity.ts`, again in
+  `authorize.ts`): password plus CredaFlow TOTP only. Just-in-time creation is off by default.
+- **Email is not identity.** `identity.ts` needs `email_verified === true` (a
+  missing claim is a no, unless `allowUnverifiedEmail`), links the email to a
+  staff user only at the first sign-in and binds the provider subject
+  (`SsoIdentity`: iss+sub / IdP entity id+NameID). After that the subject decides;
+  another subject with that email is refused. Changing issuer, entity id or
+  protocol clears the links (`connection.ts`). SSO cannot be enabled without
+  `allowedEmailDomains` (CHECK + form).
 - **Password sign-in off** (`password-policy.ts`, used in `lib/auth.ts`): only a
   SUPER_ADMIN with a valid TOTP code still gets in (break-glass), audited.
 - **Replay.** SAML request and assertion ids and tickets live in `SsoCacheEntry`
