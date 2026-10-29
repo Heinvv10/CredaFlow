@@ -58,7 +58,11 @@ describe("startTracing", () => {
       vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", `http://127.0.0.1:${(sink.address() as AddressInfo).port}`)
       handle = await startTracing(process.env)
       const span = trace.getTracer("t").startSpan("GET /portal/reset?token=SECRET-TOKEN-VALUE", {
-        attributes: { "http.target": "/portal/reset?token=SECRET-TOKEN-VALUE" },
+        attributes: {
+          "http.target": "/portal/reset?token=SECRET-TOKEN-VALUE",
+          "next.span_name": "GET /portal/reset?token=SECRET-TOKEN-VALUE",
+          "http.request.header.cookie": "session=SECRET-TOKEN-VALUE",
+        },
       })
       span.end()
       await handle!.shutdown()

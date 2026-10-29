@@ -41,6 +41,53 @@ describe("scrubSpan", () => {
     expect(scrubbed.attributes["http.url"]).toBe("https://h.example/api/pasq-link/[token]/acknowledge")
   })
 
+  it("scrubs every string attribute, not a fixed list of keys", () => {
+    const scrubbed = scrubSpan(
+      span("GET /x", {
+        "next.span_name": "GET /portal/reset?token=SECRET",
+        "http.route": "/portal/reset?token=SECRET",
+        "url.original": "/portal/reset?token=SECRET#frag",
+        "some.future.attribute": "https://user:hunter2@host.example:8443/p?token=SECRET",
+        "peer.address": "10.0.0.1:5432",
+        "http.status_code": 200,
+        "plain": "no url here",
+      }),
+    )
+    expect(scrubbed.attributes).toEqual({
+      "next.span_name": "GET /portal/reset",
+      "http.route": "/portal/reset",
+      "url.original": "/portal/reset",
+      "some.future.attribute": "https://host.example:8443/p",
+      "peer.address": "10.0.0.1:5432",
+      "http.status_code": 200,
+      plain: "no url here",
+    })
+  })
+
+  it("scrubs string arrays", () => {
+    const scrubbed = scrubSpan(span("x", { "some.list": ["/a?token=SECRET", "ok"] as unknown as string }))
+    expect(scrubbed.attributes["some.list"]).toEqual(["/a", "ok"])
+  })
+
+  it("drops request and response header attributes entirely", () => {
+    const scrubbed = scrubSpan(
+      span("x", {
+        "http.request.header.cookie": "session=SECRET",
+        "http.request.header.authorization": "Bearer SECRET",
+        "http.response.header.set-cookie": "session=SECRET",
+        "http.request.header_names": 1,
+        "http.method": "GET",
+      }),
+    )
+    expect(Object.keys(scrubbed.attributes)).toEqual(["http.request.header_names", "http.method"])
+  })
+
+  it("scrubs the attributes of span events (exception messages quote URLs)", () => {
+    const withEvent = { ...span("x", {}), events: [{ name: "exception", time: [0, 0], attributes: { "exception.message": "fetch https://u:p@h/x?token=SECRET failed" } }] } as unknown as ReadableSpan
+    const [event] = scrubSpan(withEvent).events
+    expect(event!.attributes).toEqual({ "exception.message": "fetch https://h/x" })
+  })
+
   it("leaves the span's other behaviour (methods) intact", () => {
     expect(scrubSpan(span("x", {})).spanContext().traceId).toBe("t")
   })
@@ -53,6 +100,24 @@ describe("scrubSpan", () => {
 })
 
 describe("scrubbingExporter", () => {
+  it("passes nothing secret to the inner exporter, whatever the attribute is called", async () => {
+    const seen: string[] = []
+    const inner: SpanExporter = {
+      export: (spans, done) => {
+        seen.push(JSON.stringify(spans.map((s) => ({ name: s.name, attributes: s.attributes }))))
+        done({ code: 0 })
+      },
+      shutdown: async () => {},
+    }
+    await new Promise((resolve) =>
+      scrubbingExporter(inner).export(
+        [span("GET /r?token=SECRET", { "next.span_name": "GET /r?token=SECRET", "http.request.header.cookie": "SECRET", "x.y": "https://u:SECRET@h/p?q=SECRET" })],
+        resolve,
+      ),
+    )
+    expect(seen.join("")).not.toContain("SECRET")
+  })
+
   it("hands the inner exporter scrubbed spans and passes shutdown/flush through", async () => {
     const seen: ReadableSpan[] = []
     let shutdowns = 0

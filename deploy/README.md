@@ -63,7 +63,7 @@ response fails the Job; the `CredaFlowExternalCronFailed` alert watches `kube_jo
 | `lead-task-reminders` | 09:00 | demo simulator slot (`scripts/demo/sim/cron.ts`) |
 | `cleanup-notifications` | 23:30 | demo simulator slot |
 
-The last two have no authoritative production schedule in the repository: confirm both with the lender before go-live.
+09:00 and 23:30 were confirmed for the Lesotho PostBank bid. A lender with other times overrides `externalCrons.jobs` in its values file; Helm replaces a list whole, so give all four entries, e.g. `externalCrons.jobs: [{ route: messaging-retry, schedule: "* * * * *" }, ...]`.
 `external-crons.test.ts` fails when the registry gains an external route the chart does not list. Set
 `externalCrons.enabled=false` if the operator already runs these from their own scheduler (never both: duplicate borrower
 messages), and in a `web.appMode=client` release (the audience gate 404s cron routes). `messaging-retry` creates a pod a
