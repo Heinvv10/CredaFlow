@@ -129,10 +129,10 @@ migrate:
   enabled: true
   # The OWNER login: it owns the schema and the audit functions. The pods do NOT use it
   # (their DATABASE_URL is appRole.name's), so a compromised pod cannot switch an audit
-  # trigger off. Only this key of an existing Secret reaches the Job (not the whole of
-  # existingSecrets).
+  # trigger off. It lives in a Secret of its own that no pod mounts: rendering fails if this
+  # name is in existingSecrets. Only this key reaches the Jobs.
   databaseUrlSecret:
-    name: credaflow-app
+    name: credaflow-migrate
     key: MIGRATE_DATABASE_URL
   image:
     repository: credaflow-migrate

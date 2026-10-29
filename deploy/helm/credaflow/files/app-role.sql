@@ -13,7 +13,11 @@
 -- audit_grant_runtime() takes the audit evidence tables back: the role ends with
 -- INSERT and SELECT on "AuditLog" and EXECUTE on the audit functions, and
 -- nothing on the links, checkpoints, redactions or SIEM outbox. It refuses a
--- superuser, a BYPASSRLS role and a role that owns tables.
+-- superuser, a BYPASSRLS role, a role that owns tables and a MEMBER of a role that
+-- owns an audit table or the redaction function.
+--
+-- Optional: -v delivery_role=<role> (an existing login) gives the SIEM outbox functions to
+-- that role ALONE (the delivery worker's AUDIT_DELIVERY_DATABASE_URL) and none to app_role.
 \set ON_ERROR_STOP on
 
 \if :{?app_password}
@@ -27,4 +31,10 @@ SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'app_role') \gexec
 SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', :'app_role') \gexec
 SELECT format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', :'app_role') \gexec
 
-SELECT audit_grant_runtime(:'app_role');
+\if :{?delivery_role}
+  SELECT format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'delivery_role') \gexec
+  SELECT audit_grant_runtime(:'app_role', false);
+  SELECT audit_grant_delivery(:'delivery_role');
+\else
+  SELECT audit_grant_runtime(:'app_role');
+\endif

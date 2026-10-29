@@ -140,6 +140,38 @@ both keys by re-running `provision-lender.sh` (it only adds what is missing). `d
 `AUDIT_CHAIN_KEY` shorter than 32 characters. Back the key up with the other secrets: without it the
 earlier part of the chain can no longer be verified.
 
+The owner password must not reach the app containers. The compose files blank `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `POSTGRES_DB`, `MIGRATE_DATABASE_URL` and `OWNER_DATABASE_URL` in the `app` and
+`app-portal` environments even though their env file may still carry them (the file is also what compose
+interpolates, and what the `db` container reads), and `deploy.sh` refuses to run when the rendered
+config shows any of them non-empty (`scripts/__tests__/compose-owner-credentials.test.ts`).
+
+### Moving an existing stack to two logins (operator steps)
+
+Do this by hand on the host, after hours, once per stack (a lender-script lender, or a stack run from
+`docker-compose.yml` such as the Tsela and Fair Score demos). Nothing here is done by a deploy script
+for you except where stated, and no agent edits these files.
+
+1. Take a backup (`scripts/lender/backup.sh <lender-dir>`, or `pg_dump` for a compose stack).
+2. Add three values to the stack's env file(s): `APP_DB_USER=credaflow_app`, `APP_DB_PASSWORD=$(openssl rand -hex 24)`
+   (alphanumeric only) and `AUDIT_CHAIN_KEY=$(openssl rand -hex 32)`. For a lender-script lender, running
+   `scripts/lender/provision-lender.sh` again does this and keeps everything else. For a compose stack put
+   them in `.env` (interpolation) and the app's env file (`.env.production`). Copy `AUDIT_CHAIN_KEY` to the
+   place the other secrets are backed up.
+3. Leave `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` where they are (the `db` container and the
+   migration tools read them). They are blanked inside the app containers by the new compose files.
+4. Deploy the new image. Lender-script: `scripts/lender/deploy.sh <lender-dir> <image>`; it migrates as the
+   owner, runs `ensure_app_role`, then switches. Compose stack:
+   `docker compose --profile tools run --rm db-migrate && docker compose --profile tools run --rm db-roles && docker compose up -d app app-portal`.
+5. Check: `curl -s localhost:<port>/api/health` with the cron secret header lists no `audit_runtime_role_*` or
+   `audit_chain_key_missing` warning, and `docker compose exec app printenv POSTGRES_PASSWORD` prints an empty line.
+6. The demo-sim stacks (`docker-compose.demo-sim.yml`) stay on one superuser login on purpose and keep
+   showing `audit_runtime_role_owns_tables`; do not use them as a pattern for a real lender.
+
+For a separate SIEM delivery login, create the role by hand, pass `-v delivery_role=<role>` to
+`app-role.sql`, and give only the worker `AUDIT_DELIVERY_DATABASE_URL` (the Helm chart mounts one Secret
+into web and worker alike in this release, so a worker-only Secret needs your own `worker.extraEnv` source).
+
 ## Deploy
 
 ```bash

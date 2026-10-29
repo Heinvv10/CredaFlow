@@ -22,6 +22,14 @@ const deploy = (env: Record<string, string> = {}) => sh("deploy.sh", [lender, "c
 const PASSED_GATE = /cannot find or pull|cannot inspect image|No such image/
 
 describe.skipIf(!compose)("deploy gate on the rendered compose config", () => {
+  it("refuses a compose file whose app no longer blanks the owner login, whatever .env carries", () => {
+    realFixture(`STAFF_AUTH_SECRET=${S}\nPORTAL_AUTH_SECRET=${P}\n`)
+    writeFileSync(join(lender, "docker-compose.yml"), readFileSync(join(lender, "docker-compose.yml"), "utf8").replaceAll('POSTGRES_PASSWORD: ""', "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}"))
+    const r = deploy()
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/owner database login/)
+  })
+
   it("accepts distinct secrets (control: the run gets past the gate)", () => {
     realFixture(`STAFF_AUTH_SECRET=${S}\nPORTAL_AUTH_SECRET=${P}\n`)
     expect(deploy().out).toMatch(PASSED_GATE)

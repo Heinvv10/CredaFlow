@@ -40,6 +40,13 @@ services:
       DATABASE_URL: postgresql://${APP_DB_USER:?APP_DB_USER is unset in .env (provision-lender.sh adds it)}:${APP_DB_PASSWORD:?APP_DB_PASSWORD is unset in .env (provision-lender.sh adds it)}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
       NODE_ENV: production
       PORT: "3300"
+      # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
+      # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      POSTGRES_DB: ""
+      MIGRATE_DATABASE_URL: ""
+      OWNER_DATABASE_URL: ""
       HOSTNAME: 0.0.0.0
       APP_MODE: staff
       # Per-host session secret, interpolated from secrets/auth.env (an --env-file
@@ -76,6 +83,13 @@ services:
       DATABASE_URL: postgresql://${APP_DB_USER:?APP_DB_USER is unset in .env (provision-lender.sh adds it)}:${APP_DB_PASSWORD:?APP_DB_PASSWORD is unset in .env (provision-lender.sh adds it)}@db:5432/${POSTGRES_DB}?schema=public&connection_limit=10
       NODE_ENV: production
       PORT: "3300"
+      # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
+      # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      POSTGRES_DB: ""
+      MIGRATE_DATABASE_URL: ""
+      OWNER_DATABASE_URL: ""
       HOSTNAME: 0.0.0.0
       APP_MODE: client
       NEXTAUTH_URL: ${PORTAL_NEXTAUTH_URL:?PORTAL_NEXTAUTH_URL is unset in .env}

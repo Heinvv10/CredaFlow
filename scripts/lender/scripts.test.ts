@@ -60,6 +60,13 @@ describe("deploy.sh", () => {
     expect(r.calls.some((c) => c.includes("migrate deploy") || c.includes("pg_dump"))).toBe(false)
   })
 
+  it("refuses to deploy when the owner database password reaches an app container, before anything changes", () => {
+    const r = sh("deploy.sh", [lender, "cf:new"], { STUB_OWNER_LEAK: "owner-pw" })
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/owner database login/)
+    expect(r.calls.some((c) => c.includes("migrate deploy") || c.includes("pg_dump") || c.includes("up -d --no-deps"))).toBe(false)
+  })
+
   it("does not switch the app when the migration fails", () => {
     writeFileSync(join(lender, "state/current-image"), "cf:old\n")
     const r = sh("deploy.sh", [lender, "cf:new"], { STUB_MIGRATE_RC: "1" })

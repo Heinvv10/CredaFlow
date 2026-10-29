@@ -35,8 +35,8 @@ case "$*" in
     e="$STUB_LENDER"; g() { sed -n "s/^$1=//p" "$e/$2" | head -1; }
     bind="$(g APP_BIND .env)"; [ -n "$bind" ] || bind=127.0.0.1
     jq -n --arg s "$(g STAFF_AUTH_SECRET secrets/auth.env)" --arg p "$(g PORTAL_AUTH_SECRET secrets/auth.env)" --arg sh "$(g NEXTAUTH_SECRET .env)" \
-      --arg b "$bind" --arg ap "$(g APP_PORT .env)" --arg pp "$(g PORTAL_PORT .env)" --arg leak "$(g STAFF_AUTH_SECRET .env)" \
-      '{services:{db:{}, app:{environment:({AUTH_SECRET:$s,NEXTAUTH_SECRET:$sh} + (if $leak != "" then {STAFF_AUTH_SECRET:$leak} else {} end)), ports:[{host_ip:$b,published:$ap}]}, "app-portal":{environment:{AUTH_SECRET:$p,NEXTAUTH_SECRET:$sh}, ports:[{host_ip:$b,published:$pp}]}}}' ;;
+      --arg b "$bind" --arg ap "$(g APP_PORT .env)" --arg pp "$(g PORTAL_PORT .env)" --arg leak "$(g STAFF_AUTH_SECRET .env)" --arg owner "$STUB_OWNER_LEAK" \
+      '{services:{db:{}, app:{environment:({AUTH_SECRET:$s,NEXTAUTH_SECRET:$sh} + (if $owner != "" then {POSTGRES_PASSWORD:$owner} else {} end) + (if $leak != "" then {STAFF_AUTH_SECRET:$leak} else {} end)), ports:[{host_ip:$b,published:$ap}]}, "app-portal":{environment:{AUTH_SECRET:$p,NEXTAUTH_SECRET:$sh}, ports:[{host_ip:$b,published:$pp}]}}}' ;;
   "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
   "image inspect "*) exit 0 ;;
   "ps -q --filter label=com.docker.compose.project="*"status=running --filter status=restarting") echo "$STUB_OUR_CONTAINER" ;;

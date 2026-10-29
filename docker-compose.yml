@@ -34,6 +34,13 @@ services:
       PORT: 3300
       HOSTNAME: 0.0.0.0
       GIT_SHA: ${GIT_SHA:-unknown}
+      # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
+      # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      POSTGRES_DB: ""
+      MIGRATE_DATABASE_URL: ""
+      OWNER_DATABASE_URL: ""
       BUILD_TIME: ${BUILD_TIME:-unknown}
       # "all" serves staff and portal routes from this one service. Once the
       # portal host is routed to app-portal, set APP_MODE_STAFF=staff in
@@ -96,6 +103,13 @@ services:
       PORT: 3300
       HOSTNAME: 0.0.0.0
       GIT_SHA: ${GIT_SHA:-unknown}
+      # The OWNER login (it migrates and owns the audit tables) must never reach this process, whatever the
+      # env file carries: blank it here, where `environment:` wins over `env_file:`. scripts/__tests__/compose-owner-credentials.test.ts.
+      POSTGRES_USER: ""
+      POSTGRES_PASSWORD: ""
+      POSTGRES_DB: ""
+      MIGRATE_DATABASE_URL: ""
+      OWNER_DATABASE_URL: ""
       BUILD_TIME: ${BUILD_TIME:-unknown}
       APP_MODE: client
       # NEXTAUTH_URL / AUTH_URL override per-container so cookies + signOut

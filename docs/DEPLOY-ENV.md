@@ -16,6 +16,7 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | required | generated; the OWNER login: it owns the schema and runs migrations (`db-migrate`). The app does not connect as it |
 | `APP_DB_USER`, `APP_DB_PASSWORD` | required | generated; the application's login (default user `credaflow_app`), created by `db-roles` after each migration. It owns nothing and cannot touch the audit evidence tables; compose builds the app's `DATABASE_URL` from it |
 | `AUDIT_CHAIN_KEY` | required | 32+ characters (`openssl rand -hex 32`); keys the audit hash chain (HMAC). Never store it in the database. Unset, nothing is chained or verified and `/api/health` warns `audit_chain_key_missing`. Losing it makes earlier links unverifiable |
+| `AUDIT_DELIVERY_DATABASE_URL` | optional | a separate login (`audit_grant_delivery`) for the SIEM delivery worker only; with it the web processes need no outbox functions (`audit_grant_runtime(role, false)`). Unset, delivery uses `DATABASE_URL` |
 | `AUDIT_SYSLOG_PEN` | optional | the deployment's IANA private enterprise number for syslog structured data (`cf@<number>`); default 32473, the documentation number |
 | `AUDIT_SIEM_ALLOW_PRIVATE` | optional | `1` admits SIEM destinations on private networks (RFC 1918, ULA, CGNAT); loopback and link-local are never admitted |
 | `APP_PORT`, `APP_BIND` | required / optional | staff host port (compose only, not an app variable); bind address, default `127.0.0.1` |

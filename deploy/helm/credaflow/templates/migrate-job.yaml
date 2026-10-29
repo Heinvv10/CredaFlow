@@ -1,4 +1,5 @@
 {{- if .Values.migrate.enabled }}
+{{- include "credaflow.assertOwnerSecretApart" . }}
 apiVersion: batch/v1
 kind: Job
 metadata:

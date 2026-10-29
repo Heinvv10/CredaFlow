@@ -48,6 +48,11 @@ jobs:
           ! helm template rel deploy/helm/credaflow
           ! helm template rel deploy/helm/credaflow --set image.tag=latest
           ! helm template rel deploy/helm/credaflow --set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000
+      # The owner database login must not be in a Secret the pods mount (deploy/README.md, "Two database logins").
+      - name: Chart refuses the owner database login in a pod-mounted Secret
+        run: |
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set migrate.databaseUrlSecret.name=credaflow-app
+          ! helm template rel deploy/helm/credaflow --set image.tag=v1 --set migrate.databaseUrlSecret.name=
       # Each variant is a release shape the README documents. The ServiceMonitor CRD has no schema here.
       - name: helm template | kubeconform
         run: |

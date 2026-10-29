@@ -200,3 +200,21 @@ capabilities:
 {{ toYaml . }}
 {{- end }}
 {{- end -}}
+
+{{/*
+The owner database login (migrate.databaseUrlSecret) must not sit in a Secret the web or
+worker pods mount: a pod holding it can switch the audit triggers off and rewrite the trail.
+It also may not share a Secret with the cron Jobs. Rendering fails if it does.
+*/}}
+{{- define "credaflow.assertOwnerSecretApart" -}}
+{{- $owner := .Values.migrate.databaseUrlSecret.name -}}
+{{- if not $owner -}}
+{{- fail "migrate.databaseUrlSecret.name is required: the owner database login lives in its own Secret" -}}
+{{- end -}}
+{{- if has $owner .Values.existingSecrets -}}
+{{- fail (printf "migrate.databaseUrlSecret.name %q is also in existingSecrets, so the web and worker pods would mount the owner database login. Put MIGRATE_DATABASE_URL in a separate Secret (default credaflow-migrate) that no pod mounts; the pods' DATABASE_URL is the application login." $owner) -}}
+{{- end -}}
+{{- if eq $owner .Values.externalCrons.secret.name -}}
+{{- fail (printf "migrate.databaseUrlSecret.name %q is also externalCrons.secret.name: keep the owner database login in a Secret of its own" $owner) -}}
+{{- end -}}
+{{- end -}}
