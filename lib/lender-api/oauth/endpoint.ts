@@ -24,9 +24,10 @@ export const TOKEN_FAILED_IP_LIMIT = { limit: 30, windowMs: 60_000 }
 export const TOKEN_FAILED_GLOBAL_LIMIT = { limit: 300, windowMs: 60_000 }
 const MAX_BODY_BYTES = 8 * 1024
 
-const clientLimiter = createRateLimiter(10_000)
-const failedByAddress = createRateLimiter(10_000)
-const failedGlobal = createRateLimiter(1)
+// Namespaces are in the shared store's keys (lib/rate-limit.ts): never rename one.
+const clientLimiter = createRateLimiter(10_000, "oauth-token:client")
+const failedByAddress = createRateLimiter(10_000, "oauth-token:failed:address")
+const failedGlobal = createRateLimiter(1, "oauth-token:failed:global")
 const LAST_USED_RESOLUTION_MS = 60_000
 
 type OAuthError = "invalid_request" | "invalid_client" | "unsupported_grant_type" | "invalid_scope"
@@ -65,7 +66,7 @@ export async function handleTokenRequest(req: Request, now: Date = new Date()): 
   // Counted only for refusals that name no real, secret-proven client.
   const failed = async (error: OAuthError, description: string) => {
     const ip = recordedCallerIp(req)
-    const gate = ip ? failedByAddress(ip, TOKEN_FAILED_IP_LIMIT) : failedGlobal("unknown-address", TOKEN_FAILED_GLOBAL_LIMIT)
+    const gate = ip ? await failedByAddress(ip, TOKEN_FAILED_IP_LIMIT) : await failedGlobal("unknown-address", TOKEN_FAILED_GLOBAL_LIMIT)
     if (!gate.allowed) {
       return finish(NextResponse.json({ error: "invalid_request", error_description: "Too many failed requests." }, {
         status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds), "Cache-Control": "no-store" },
@@ -108,7 +109,7 @@ export async function handleTokenRequest(req: Request, now: Date = new Date()): 
     tenantId = row.tenantId
     clientRowId = row.id
 
-    const limit = clientLimiter(row.id, TOKEN_CLIENT_RATE_LIMIT)
+    const limit = await clientLimiter(row.id, TOKEN_CLIENT_RATE_LIMIT)
     if (!limit.allowed) {
       return finish(NextResponse.json({ error: "invalid_request", error_description: "Too many token requests for this client." }, {
         status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds), "Cache-Control": "no-store" },

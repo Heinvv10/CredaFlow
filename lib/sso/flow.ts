@@ -52,7 +52,7 @@ type Ready = { tenantId: string; conn: LoadedConnection }
 async function ready(req: Request, limit: typeof START_LIMIT | typeof RETURN_LIMIT, bucket: string): Promise<Ready | NextResponse> {
   // Staff hosts only; the client portal host has no staff sign-in (proxy.ts also 404s these paths there).
   if (process.env.APP_MODE === "client") return new NextResponse("Not found", { status: 404 })
-  if (!checkRateLimit(`sso:${bucket}:${callerIp(req)}`, limit).allowed) return toLogin({ sso_error: "rate_limited" }, false)
+  if (!(await checkRateLimit(`sso:${bucket}:${callerIp(req)}`, limit)).allowed) return toLogin({ sso_error: "rate_limited" }, false)
   const tenant = await getTenantFromRequest(req)
   if (!tenant) return refuse(req, "no_tenant")
   const conn = await runWithTenant(tenant.id, () => getEnabledConnection(tenant.id))

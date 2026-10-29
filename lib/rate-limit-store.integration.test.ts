@@ -68,6 +68,17 @@ suite("shared rate limit on Postgres", () => {
     expect((await storeA("s", key, opts)).allowed).toBe(false)
   })
 
+  it("drops hits that left the window when it appends, so a steadily used key's row stays bounded by its limit", async () => {
+    const key = fresh()
+    const opts = { limit: 2, windowMs: 800 }
+    await storeA("b", key, opts)
+    await storeA("b", key, opts)
+    await sleep(1000)
+    await storeA("b", key, opts)
+    const rows = await replicaA.$queryRaw<{ n: number }[]>`SELECT cardinality("hits")::int AS n FROM "RateLimitHit" WHERE "keyHash" = ${keyHash("b", key)}`
+    expect(rows[0]!.n).toBe(1)
+  })
+
   it("keeps namespaces and keys apart", async () => {
     const key = fresh()
     const opts = { limit: 1, windowMs: 60_000 }

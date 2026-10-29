@@ -151,13 +151,31 @@ Too low: the proxy's own address is used (everyone shares a bucket). Too high: t
 sending its own `X-Forwarded-For`. The pods must not be reachable except through the proxies; the default
 NetworkPolicy enforces that for the web pods.
 
-### Rate limits are per pod
+### Rate limits are shared across pods
 
-`lib/rate-limit.ts` keeps its counters in memory ("single-replica deployments only" in its header). With N web
-replicas the effective limit on a login, OTP or API key is up to N times the configured one, and a restart resets it.
-That is a known limit of this release, not a feature of the chart; a Postgres-backed limiter is a separate work item.
-Until then, enforce an edge limit at the ingress for the login and portal OTP paths
-(`nginx.ingress.kubernetes.io/limit-rps`).
+`lib/rate-limit.ts` keeps each limit's window in Postgres (table `RateLimitHit`, one row per limited key), so a
+limit on a login, OTP or API key holds across every web replica and survives a restart. One atomic
+`INSERT ... ON CONFLICT DO UPDATE` per check, stamped with the database clock, so replicas with skewed clocks agree;
+a refused attempt writes nothing. Keys are stored as a SHA-256 hash (they name emails and addresses). Expired rows
+are purged every 10 minutes by `/api/cron/rate-limit-cleanup`. The table is deliberately not tenant-scoped: a limit
+key already carries the scope it needs (an address, an account, a key id) and the check runs before a tenant is known.
+
+`RATE_LIMIT_STORE` chooses the store:
+
+| Value | Behaviour |
+|---|---|
+| unset | `postgres` when `DATABASE_URL` is set, otherwise `memory`. The safe default for a replicated deployment. |
+| `postgres` | Shared, as above. |
+| `memory` | Per pod (and reset on restart): up to N times the configured limit with N replicas. For tests, local development and a database-less run only. |
+
+Any other value fails the check with an error. **Failure mode:** if the database errors, or does not answer within
+1.5 s, the call is decided by the in-memory limiter, and the database is not asked again for 30 s. An outage therefore
+makes limits per pod, never absent; each outage logs one line (`[rate-limit] shared store failed`). Cost: one
+database round trip on every rate-limited call (sign-in, OTP, portal forms, API-key requests). A limit that only
+decides how many log rows to write (the unattributed ApiRequestLog sample) stays per pod on purpose.
+
+Still worth an edge limit at the ingress for the login and portal OTP paths
+(`nginx.ingress.kubernetes.io/limit-rps`): it absorbs a flood before it reaches the database.
 
 ### Releases and migrations
 
