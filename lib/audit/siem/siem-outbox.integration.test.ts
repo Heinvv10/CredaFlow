@@ -1,70 +1,21 @@
 /**
- * Real-Postgres proof of SIEM forwarding: what the chainer queues, ordered
- * at-least-once delivery per lender, poison splitting, pruning, anchors, the
- * policy-change row going to the old destination, and checkpoints.
+ * Real-Postgres proof of SIEM delivery: what the chainer queues, ordered at-least-once delivery per lender, backoff held by the database, poison splitting, and checkpoints.
  *
  *   RUN_DB_IT=1 AUDIT_CHAIN_KEY=<32+ chars> DATABASE_URL=postgresql://... \
  *     npx vitest run lib/audit/siem/siem-outbox.integration.test.ts
  */
-import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { PrismaClient } from "@prisma/client"
-import { logAuditStrict } from "@/lib/audit"
-import { runWithTenant } from "@/lib/tenant-scope"
-import { runChainer } from "@/lib/audit/chainer"
 import { checkpointNow } from "@/lib/audit/checkpoint.test-helpers"
-import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
-import { deliverSiemOutbox, type SiemSender } from "./deliver"
-import { saveAuditPolicy } from "./policy"
-import type { SiemEvent } from "./format"
+import type { SiemSender } from "./deliver"
+import { siemFixture } from "./siem-it.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 
-suite("SIEM forwarding", () => {
-  process.env.AUDIT_CHAIN_KEY ??= "it-audit-chain-key-0123456789abcdef0123456789"
-  const db = new PrismaClient()
-  const token = randomUUID().replaceAll("-", "").slice(0, 12)
-  const tenantIds: string[] = []
-  type Writer = Parameters<typeof logAuditStrict>[1]
-  const T0 = new Date(Date.now() + 60_000) // the outbox is stamped by the database clock; deliver a minute ahead of it
-  const at = (seconds: number) => new Date(T0.getTime() + seconds * 1000)
-
-  const tenant = async (label: string) => {
-    const id = `siem-${label}-${token}`
-    await db.tenant.create({ data: { id, slug: id, name: id } })
-    tenantIds.push(id)
-    return id
-  }
-  const enable = (tenantId: string, url = "https://siem.example.invalid/ingest") =>
-    db.auditPolicy.upsert({
-      where: { tenantId },
-      create: { tenantId, siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: url },
-      update: { siemEnabled: true, siemUrl: url },
-    })
-  const write = (tenantId: string, n: number, action = "LOAN_NOTE_ADDED", client: unknown = db) =>
-    logAuditStrict({ tenantId, action, entity: "Thing", entityId: `e${n}`, userEmail: `p${n}@it.invalid`, ipAddress: "10.0.0.1", oldValue: { n }, newValue: { n, idNumber: "8001015009087" } }, client as Writer)
-  const chain = (tenantId: string) => runChainer({ db, deep: true, only: [tenantId] })
-  const outbox = (tenantId: string) => db.auditSiemOutbox.findMany({ where: { tenantId }, orderBy: { id: "asc" } })
-  const recorder = (answer: (events: SiemEvent[], url: string | null) => { ok: boolean; error?: string; permanent?: boolean } = () => ({ ok: true })) => {
-    const calls: Array<{ url: string | null; events: SiemEvent[] }> = []
-    const send: SiemSender = async (target, events) => {
-      calls.push({ url: target.url, events })
-      const r = answer(events, target.url)
-      return r.ok ? { ok: true, error: null } : { ok: false, error: (r.error ?? "siem_unavailable") as never, ...(r.permanent ? { permanent: true } : {}) }
-    }
-    return { calls, send, seqs: () => calls.flatMap((c) => c.events.map((e) => e.chain.seq)) }
-  }
-  const deliver = (send: SiemSender, now: Date) => deliverSiemOutbox({ db, send, now })
-
-  beforeAll(() => { process.env.WABA_ENC_KEY ??= Buffer.alloc(32, 5).toString("base64") })
-  afterAll(async () => {
-    await purgeAuditRowsForTest(db, { tenantId: { in: tenantIds } })
-    await db.auditSiemOutbox.deleteMany({ where: { tenantId: { in: tenantIds } } })
-    await db.$executeRawUnsafe(`SET session_replication_role = replica`).catch(() => undefined)
-    await db.auditPolicy.deleteMany({ where: { tenantId: { in: tenantIds } } })
-    await db.tenant.deleteMany({ where: { id: { in: tenantIds } } })
-    await db.$disconnect()
-  })
+suite("siem-outbox", () => {
+  const fx = siemFixture()
+  const { db, T0, at, tenant, enable, write, chain, outbox, recorder, deliver, elapse } = fx
+  beforeAll(fx.setup)
+  afterAll(fx.teardown)
 
   it("queues a row only once it is chained and only while the lender forwards; a rolled-back row never", async () => {
     const t = await tenant("q")
@@ -117,6 +68,7 @@ suite("SIEM forwarding", () => {
     expect(backingOff.calls).toHaveLength(0)
 
     const later = recorder()
+    await elapse(t)
     await deliver(later.send, at(120))
     expect(later.seqs()).toEqual(Array.from({ length: 30 }, (_, i) => 101 + i))
     expect(failing.calls[1].events.map((e) => e.chain.seq)).toEqual(later.calls[0].events.map((e) => e.chain.seq).slice(0, 0).concat(failing.calls[1].events.map((e) => e.chain.seq)))
@@ -132,6 +84,7 @@ suite("SIEM forwarding", () => {
     const rec = recorder()
     await deliver(rec.send, T0)
     expect(rec.calls).toHaveLength(0)
+    await elapse(t)
     await deliver(rec.send, at(7200))
     expect(rec.seqs()).toEqual([1, 2, 3, 4])
   })
@@ -170,124 +123,12 @@ suite("SIEM forwarding", () => {
     const r1 = await deliver(rec.send, T0)
     expect(r1.sent).toBe(7 - 3) // seq 1-4 shipped; 5 isolated and held; 6-8 wait behind it
     let r = r1
-    for (const s of [100, 300]) r = await deliver(rec.send, at(s))
+    for (const s of [100, 300]) { await elapse(t); r = await deliver(rec.send, at(s)) }
     const rows = await outbox(t)
     expect(rows.filter((o) => o.deadAt !== null).map((o) => o.seq)).toEqual([5])
     expect(rows.filter((o) => o.sentAt !== null).map((o) => o.seq)).toEqual([1, 2, 3, 4, 6, 7, 8])
     expect(r.dead).toBeGreaterThanOrEqual(0)
     expect(rows.find((o) => o.seq === 5)).toMatchObject({ lastError: "rejected_by_siem", attempts: 3 })
-  })
-
-  it("sends the backlog to the old destination when forwarding is switched off, rows chained later included, and queues nothing new", async () => {
-    const t = await tenant("off")
-    await enable(t, "https://old.example.invalid/ingest")
-    for (let i = 1; i <= 3; i++) await write(t, i)
-    await chain(t)
-    await write(t, 4) // committed before the switch-off, chained after it
-    await db.auditPolicy.update({ where: { tenantId: t }, data: { siemEnabled: false } })
-    await chain(t)
-    await write(t, 5) // after: nothing to forward
-    await chain(t)
-    const rec = recorder()
-    await deliver(rec.send, T0)
-    expect(rec.calls.map((c) => c.url)).toEqual(["https://old.example.invalid/ingest"])
-    expect(rec.calls[0].events.map((e) => e.entityId)).toEqual(["e1", "e2", "e3", "e4"])
-    expect((await outbox(t)).every((o) => o.sentAt !== null)).toBe(true)
-    expect(await db.auditSiemDelivery.count({ where: { tenantId: t } })).toBe(4)
-  })
-
-  it("prunes an unstamped leftover of a lender that is not forwarding, and records the pruning as an audit row", async () => {
-    const t = await tenant("prune")
-    await write(t, 1)
-    await chain(t)
-    const [row] = await db.auditLog.findMany({ where: { tenantId: t } })
-    await db.auditSiemOutbox.create({ data: { tenantId: t, kind: "EVENT", auditLogId: row.id } })
-    const rec = recorder()
-    await deliver(rec.send, T0)
-    expect(rec.calls).toHaveLength(0)
-    expect(await outbox(t)).toEqual([])
-    const pruned = await db.auditLog.findMany({ where: { tenantId: t, action: "AUDIT_SIEM_QUEUE_PRUNED" } })
-    expect(pruned.map((r) => r.newValue)).toEqual([{ pruned: 1 }])
-  })
-
-  it("routes a policy change that only rotates the credential to the old snapshot without rerouting the backlog", async () => {
-    const t = await tenant("rot")
-    const actor = await db.user.create({ data: { id: `siem-r-${token}`, email: `siem-r-${token}@it.invalid`, password: "x", tenantId: t, role: "ADMIN" } })
-    const resolve = async () => [{ address: "8.8.8.8", family: 4 }]
-    const save = (input: Record<string, unknown>) => runWithTenant(t, () => saveAuditPolicy(t, { id: actor.id, email: actor.email }, input, { resolve }))
-    await save({ siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: "https://same.example.invalid/ingest", siemToken: "first-token" })
-    await write(t, 1)
-    await chain(t)
-    await save({ siemToken: "second-token" })
-    const [rev] = await db.auditPolicyRevision.findMany({ where: { tenantId: t }, orderBy: { id: "desc" }, take: 1 })
-    expect(rev).toMatchObject({ oldEnabled: true, newEnabled: true, rerouted: false })
-    const pending = await outbox(t)
-    expect(pending.filter((o) => o.targetSnapshot !== null).map((o) => o.kind)).toEqual(["EVENT"]) // the change row only
-    expect(pending.find((o) => o.kind === "EVENT" && o.targetSnapshot === null)).toBeDefined() // the backlog stays on the current stream
-  })
-
-  it("sends an anchor (the chain head) when forwarding starts, and the policy change to the destination it left", async () => {
-    const t = await tenant("pol")
-    const actor = await db.user.create({ data: { id: `siem-u-${token}`, email: `siem-u-${token}@it.invalid`, password: "x", tenantId: t, role: "ADMIN" } })
-    for (let i = 1; i <= 3; i++) await write(t, i)
-    await chain(t)
-    const resolve = async () => [{ address: "8.8.8.8", family: 4 }]
-    const save = (input: Record<string, unknown>) =>
-      runWithTenant(t, () => saveAuditPolicy(t, { id: actor.id, email: actor.email }, input, { resolve }))
-
-    await save({ siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: "https://old.example.invalid/ingest", siemToken: "s3cret" })
-    expect((await outbox(t)).map((o) => o.kind)).toContain("ANCHOR")
-    await chain(t) // links the policy row (and queues it: forwarding is on)
-    const anchor = recorder()
-    await deliver(anchor.send, T0)
-    const started = anchor.calls.flatMap((c) => c.events).find((e) => e.action === "AUDIT_FORWARDING_STARTED")
-    const [head] = await db.$queryRaw<Array<{ seq: number; rowHash: string }>>`SELECT "seq", "rowHash" FROM "AuditChainLink" WHERE "chainKey" = ${t} ORDER BY "seq" DESC LIMIT 1`
-    expect(started?.chain.seq).toBeGreaterThanOrEqual(3)
-    expect(started?.chain.seq).toBeLessThanOrEqual(head.seq)
-    expect(JSON.stringify(anchor.calls)).not.toContain("s3cret")
-
-    // Redirect the feed: the row recording it goes to the OLD destination, the new one starts with an anchor.
-    await save({ siemUrl: "https://new.example.invalid/ingest" })
-    await chain(t)
-    const moved = recorder()
-    await deliver(moved.send, at(10))
-    const toOld = moved.calls.filter((c) => c.url === "https://old.example.invalid/ingest").flatMap((c) => c.events)
-    expect(toOld.map((e) => e.action)).toEqual(["AUDIT_POLICY_UPDATED"])
-    expect(JSON.stringify(toOld)).not.toContain("new.example.invalid/ingest?")
-    const toNew = moved.calls.filter((c) => c.url === "https://new.example.invalid/ingest").flatMap((c) => c.events)
-    expect(toNew.map((e) => e.action)).toContain("AUDIT_FORWARDING_STARTED")
-    expect(toNew.map((e) => e.action)).not.toContain("AUDIT_POLICY_UPDATED")
-
-    // Switch it off: the row recording that goes to the destination it was switched off from.
-    await save({ siemEnabled: false })
-    await chain(t)
-    const off = recorder()
-    await deliver(off.send, at(20))
-    expect(off.calls.flatMap((c) => c.events).map((e) => e.action)).toEqual(["AUDIT_POLICY_UPDATED"])
-    expect(off.calls[0].url).toBe("https://new.example.invalid/ingest")
-  })
-
-  it("drains what was queued for the old destination to it, in order, before the change event; the new one gets only its anchor", async () => {
-    const t = await tenant("backlog")
-    const actor = await db.user.create({ data: { id: `siem-b-${token}`, email: `siem-b-${token}@it.invalid`, password: "x", tenantId: t, role: "ADMIN" } })
-    const resolve = async () => [{ address: "8.8.8.8", family: 4 }]
-    const save = (input: Record<string, unknown>) =>
-      runWithTenant(t, () => saveAuditPolicy(t, { id: actor.id, email: actor.email }, input, { resolve }))
-    await save({ siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: "https://old.example.invalid/ingest" })
-    for (let i = 1; i <= 3; i++) await write(t, i)
-    await chain(t) // three events and the first policy row are queued for the old destination, not yet sent
-
-    await save({ siemUrl: "https://new.example.invalid/ingest" })
-    await chain(t)
-    const rec = recorder()
-    await deliver(rec.send, T0)
-    const toOld = rec.calls.filter((c) => c.url === "https://old.example.invalid/ingest").flatMap((c) => c.events)
-    const seqs = toOld.flatMap((e) => (e.chain.seq === null ? [] : [e.chain.seq]))
-    expect(seqs).toEqual([...seqs].sort((a, b) => a - b))
-    expect(toOld.filter((e) => e.action === "LOAN_NOTE_ADDED")).toHaveLength(3)
-    expect(toOld.at(-1)?.action).toBe("AUDIT_POLICY_UPDATED")
-    const toNew = rec.calls.filter((c) => c.url === "https://new.example.invalid/ingest").flatMap((c) => c.events)
-    expect(toNew.map((e) => e.action)).toEqual(["AUDIT_FORWARDING_STARTED"])
   })
 
   it("queues a daily checkpoint for forwarding lenders and ships it with its HMAC", async () => {

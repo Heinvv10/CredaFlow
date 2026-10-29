@@ -54,6 +54,21 @@ describe("buildPolicyWrite", () => {
     await expect(buildPolicyWrite({ siemClientCert: "-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----" }, null)).rejects.toThrow(/go together/)
   })
 
+  it("shows a URL as its origin and says whether a path or query is set, never the path or query", async () => {
+    const view = (siemUrl: string | null) => policyView({ id: "p", tenantId: "t", createdAt: new Date(), siemUrl } as unknown as AuditPolicy)
+    expect(view("https://siem.example.invalid/ingest/KEY123?token=abc")).toMatchObject({ siemOrigin: "https://siem.example.invalid", siemUrlHasPathOrQuery: true })
+    expect(view("https://siem.example.invalid")).toMatchObject({ siemOrigin: "https://siem.example.invalid", siemUrlHasPathOrQuery: false })
+    expect(view("https://siem.example.invalid:8443/")).toMatchObject({ siemOrigin: "https://siem.example.invalid:8443", siemUrlHasPathOrQuery: false })
+    expect(view(null)).toMatchObject({ siemOrigin: null, siemUrlHasPathOrQuery: false })
+    expect(JSON.stringify(view("https://siem.example.invalid/ingest/KEY123?token=abc"))).not.toMatch(/KEY123|token=abc/)
+  })
+
+  it("keeps the stored URL when the input does not change it", async () => {
+    const row = { id: "p1", tenantId: "t1", retentionMonths: 12, hotMonths: 3, siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null,
+      siemUrl: "https://siem.example.invalid/ingest/KEY123", siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null, createdAt: new Date() } as unknown as AuditPolicy
+    expect((await buildPolicyWrite({ retentionMonths: 18 }, row, publicHost)).siemUrl).toBe("https://siem.example.invalid/ingest/KEY123")
+  })
+
   it("never returns a secret in the view", async () => {
     const data = await buildPolicyWrite({ siemToken: "s3cret" }, null)
     const view = policyView({ ...data, id: "p", tenantId: "t", createdAt: new Date() } as unknown as AuditPolicy)

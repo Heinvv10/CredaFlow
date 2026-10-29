@@ -9,15 +9,17 @@ import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { AuditPolicyError, policyView, saveAuditPolicy, siemTarget, type AuditPolicyInput } from "@/lib/audit/siem/policy"
 import { sendTestEvent } from "@/lib/audit/siem/deliver"
 
-// The lender's audit retention and SIEM forwarding (AuditPolicy). ADMIN and
-// above of the tenant. Changing it needs a session that verified TOTP where the
-// lender requires staff 2FA: it decides where the audit trail is sent. Secrets
-// are write-only: a response says whether one is set. The test POST sends a real
-// event to the stored destination, so it is gated, limited and audited like a change.
+// The lender's audit retention and SIEM forwarding (AuditPolicy). SUPER_ADMIN of the
+// tenant only: it decides where the audit trail is sent. Changing it, and the test POST,
+// need a session that verified TOTP where the lender requires staff 2FA. Secrets are
+// write-only: a response says whether one is set, and shows the SIEM URL as its origin
+// (a path or query may carry a key). The test POST sends a real event to the stored
+// destination, so it is gated, limited and audited like a change. Retention is recorded
+// policy; nothing deletes audit rows yet.
 const TEST_LIMIT = { limit: 5, windowMs: 3_600_000 } as const
 
 export async function GET(req: NextRequest) {
-  const guard = await requireApiRole("ADMIN")
+  const guard = await requireApiRole("SUPER_ADMIN")
   if (guard.error) return guard.error
 
   return withTenantContext(req, async (tenant) => {
@@ -27,7 +29,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = await requireApiRole("ADMIN")
+  const guard = await requireApiRole("SUPER_ADMIN")
   if (guard.error) return guard.error
   const actor = guard.user
 
@@ -50,7 +52,7 @@ export async function PUT(req: NextRequest) {
 
 /** Sends one synthetic event to the stored SIEM target. Answers a coarse error class only. */
 export async function POST(req: NextRequest) {
-  const guard = await requireApiRole("ADMIN")
+  const guard = await requireApiRole("SUPER_ADMIN")
   if (guard.error) return guard.error
   const actor = guard.user
 

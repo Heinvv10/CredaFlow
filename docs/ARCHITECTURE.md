@@ -241,58 +241,81 @@ migrations declare.
 it append-only and a keyed hash chain makes it tamper-evident; module rules in
 `lib/audit/.claude.md`.
 
-- **Append-only.** Triggers refuse UPDATE, DELETE and TRUNCATE on `AuditLog`,
-  `AuditChainLink`, `AuditChainCheckpoint` and `AuditRedaction`. The only change
-  a row ever sees is `audit_log_redact()` nulling personal data (POPIA), which
-  records the digests and writes its own audit row.
-- **Chain, after commit.** An audit insert touches no chain. The chainer
-  (cron `audit-chainer`, every few seconds, advisory lock per chain) appends a
-  link per committed row; `rowHash` is an HMAC under `AUDIT_CHAIN_KEY`, which is
-  not in the database. A rolled-back transaction leaves no link; a Serializable
-  one never waits on a chain.
-- **Verification.** `npm run audit:verify`, `/api/admin/audit/verify` and the
-  daily `audit-chain-verify` cron walk it and name the first broken link. A daily
-  signed checkpoint per chain bounds the walk and is sent to the lender's SIEM.
-- **Two database logins (deploy requirement).** The owner login (`POSTGRES_USER`,
-  Helm `migrate.databaseUrlSecret`) owns the schema, runs migrations and owns the
-  SECURITY DEFINER audit functions. The application connects as another login that
-  owns nothing, is neither superuser nor `BYPASSRLS`, and after
-  `SELECT audit_grant_runtime('<role>')` holds INSERT and SELECT on `AuditLog` and
-  EXECUTE on the audit functions, and **no privilege** on `AuditChainLink`,
-  `AuditChainCheckpoint`, `AuditRedaction` or `AuditSiemOutbox`. The chainer, the
-  verifier, checkpoints and SIEM delivery reach those tables only through
-  `audit_chain_append`, `audit_checkpoint_write`, `audit_verify_links`,
-  `audit_outbox_*` (`lib/audit/store.ts`), each of which checks what it is given
-  (a link must continue its chain, a checkpoint must name a real link). The role
-  cannot `DISABLE TRIGGER`, set `session_replication_role`, drop or replace a
-  function, or call `audit_log_redact`; `lib/audit/runtime-role.integration.test.ts`
-  proves each. `deploy/helm/credaflow/files/app-role.sql` creates the login and
-  grants it (re-run after every migration: compose `db-roles`, `scripts/lender`
-  `ensure_app_role`, the chart's `app-role` Job). `/api/health` and the boot log
-  warn when the runtime role owns an audit table, is a superuser, can write the
-  evidence tables, or `AUDIT_CHAIN_KEY` is unset. "Owns" includes being a MEMBER
-  (`pg_has_role`) of a table owner or of `audit_redactor`; `audit_grant_runtime`
-  refuses such a role. The owner login never reaches the app containers (the
-  compose files blank it; the chart keeps it in a Secret no pod mounts). The demo-sim stacks run as a
-  superuser on purpose and show that warning.
-- **Redaction is a role, not a setting.** `audit_log_redact` is owned by the NOLOGIN
-  role `audit_redactor`; the append-only trigger lets an UPDATE through only when
-  `current_user = 'audit_redactor'` and an `AuditRedaction` row records the digest of
-  each column being nulled. The app login is not a member and cannot write `AuditRedaction`.
-- **Outbox functions trust nothing.** The destination a lender leaves is read from the
-  committed `AuditPolicy` change (trigger `audit_policy_revision`, table
-  `AuditPolicyRevision`), never passed in. `audit_outbox_mark` takes the tenant, accepts
-  only delivery-attempt transitions, stamps `sentAt` with the database clock and writes an
-  append-only receipt (`AuditSiemDelivery`). `audit_outbox_prune_unsent` refuses while the
-  lender forwards and audits the pruning; `audit_outbox_purge_sent` has a fixed 7-day
-  retention. The outbox functions can go to a separate delivery login
-  (`audit_grant_delivery`, `AUDIT_DELIVERY_DATABASE_URL`).
-- **SIEM.** A lender's `AuditPolicy` turns forwarding on; the chainer queues each
-  chained row in `AuditSiemOutbox` and the `audit-siem-deliver` cron ships it as
-  RFC 5424 syslog over TLS (CEF body) or an HTTPS JSON batch, in order, at least
-  once, with backoff. What leaves is minimised (`lib/audit/siem/minimise.ts`).
-- **Retention.** At least 12 months (a CHECK on `AuditPolicy`), the latest 3
-  "hot". No row is ever deleted; an archive table is not built.
+- **Append-only.** Triggers refuse UPDATE, DELETE and TRUNCATE on `AuditLog` and on the
+  evidence tables (`AuditChainLink`, `AuditChainCheckpoint`, `AuditRedaction`,
+  `AuditChainRepair`, `AuditPolicyRevision`, `AuditSiemDelivery`), and DELETE and TRUNCATE
+  on `AuditPolicy`. An audit row's `createdAt` is the database clock at insertion
+  (trigger), whatever the caller sent. The only change a row ever sees is
+  `audit_log_redact()` nulling personal data (POPIA).
+- **Chain, after commit.** An audit insert touches no chain. The chainer (cron
+  `audit-chainer`, every few seconds, advisory lock per chain) appends a link per
+  committed row; `rowHash` is an HMAC under `AUDIT_CHAIN_KEY`, which is not in the
+  database, over **keyed digests** of the personal-data columns (also under the key,
+  computed by the worker, so the database never holds an unkeyed hash of an email or
+  an address). A rolled-back transaction leaves no link; a Serializable one never
+  waits on a chain. There is no wall-clock window: each chain has a high-water mark
+  (newest `createdAt` among its last 1000 links), a pass looks past the mark less an
+  hour, and a deep pass with no floor (at boot, hourly, in the daily job) finds a
+  row that committed long after it was made. A backfill or an outage of any length
+  resumes from the mark, in batches of 500, until done.
+- **Verification.** `npm run audit:verify` and the daily `audit-chain-verify` cron
+  (the worker, which holds the key) walk every chain, report **every** break (not
+  the first), skip a checkpoint whose signature fails, and list the breaks an operator
+  signed off (`npm run audit:accept-break`: an HMAC-signed, audited
+  `AuditChainRepair`; a repair without the key is itself reported). A daily signed
+  checkpoint per chain signs exactly the (seq, hash) the walk verified, bounds
+  the next walk and is sent to the lender's SIEM. The web process only reports
+  status (`GET /api/admin/audit/verify`): it has neither the key nor the access.
+- **Three database logins (deploy requirement).** The **owner** (`POSTGRES_USER`, Helm
+  `migrate.databaseUrlSecret`) owns the schema, runs migrations and owns the SECURITY
+  DEFINER audit functions. The **web** login (`audit_grant_web`) holds INSERT and SELECT on
+  `AuditLog`, SELECT on `AuditPolicy`, and EXECUTE on `audit_policy_save` and
+  `audit_chain_status`; the **worker** login (`audit_grant_worker`) the chainer, verifier,
+  checkpoint and SIEM-delivery functions. Neither owns anything, is a superuser,
+  `BYPASSRLS`, `CREATEROLE`/`CREATEDB`, holds `CREATE` on `public`, or is a MEMBER
+  (`pg_has_role`) of a table owner or `audit_redactor`; the grants refuse such a role. Neither
+  has any privilege on the links, checkpoints, redactions, repairs, revisions, receipts,
+  outbox, lease, or the sequences behind them: everything goes through `audit_*` functions
+  that check what they are given (`lib/audit/store.ts`). `AUDIT_CHAIN_KEY` and the worker
+  login live in the worker's Secret only (Helm `worker.existingSecrets`); a single process that
+  runs the app and the crons shares one login (`audit_grant_runtime`) and one key: weaker, and
+  `/api/health` says so on a web process that holds the worker functions or the key. The
+  role/ACL tests are `runtime-role`, `grant-refusals` and `outbox-functions` integration
+  suites. `deploy/helm/credaflow/files/app-role.sql` creates the logins and grants them (re-run
+  after every migration: compose `db-roles`, `scripts/lender` `ensure_app_role`, the chart's
+  `app-role` Job). In production a process whose role owns a table, is a superuser or can
+  create roles refuses to start unless `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1`. The owner login never
+  reaches the app containers (compose blanks it; the chart keeps it in a Secret no pod
+  mounts). A restore with `--no-owner --no-acl` loses ownership and ACLs: the restore scripts
+  run `audit_reassert_protections()` and the grants again.
+- **Redaction is a role, not a setting.** `audit_log_redact` is owned by the NOLOGIN role
+  `audit_redactor`; the append-only trigger lets an UPDATE through only when
+  `current_user = 'audit_redactor'` and an `AuditRedaction` row records the keyed digest of
+  each column being nulled (computed by `npm run audit:redact`, which holds the key). No login
+  is a member and none can write `AuditRedaction`. The `AUDIT_ROW_REDACTED` row (an operator's
+  free-text reason) is never forwarded to a SIEM.
+- **Policy changes go through one function.** `audit_policy_save` is the only way an
+  `AuditPolicy` changes (no login has DML on it; a trigger refuses DELETE). In one transaction
+  it writes the policy, the `AuditPolicyRevision` (trigger), stamps the queued backlog with the
+  destination being left, writes the `AUDIT_POLICY_UPDATED` row itself (URL as origin only) and
+  queues it, and an anchor, for the right destinations. A late-chained row made before a change
+  is stamped too.
+- **Outbox functions trust nothing.** `audit_outbox_mark` takes the tenant, accepts only
+  delivery-attempt transitions on entries whose backoff has elapsed (a retry in the future, a
+  give-up only after three attempts or when the audit row is gone), stamps `sentAt` with the
+  database clock and writes an append-only receipt (`AuditSiemDelivery`, with the SIEM's own ack
+  id when it sends one). `audit_outbox_prune_unsent` refuses while the lender forwards, or when
+  history says it did and the policy row is gone, and audits itself; `audit_outbox_purge_sent` has
+  a fixed 7-day retention. Delivery runs under a lease (`audit_outbox_lease`), in short calls, with
+  nothing held open while the SIEM is talked to. The SIEM sees seq + hash on every event and the
+  daily signed checkpoint, so a suppressed event shows as a gap there.
+- **SIEM.** A lender's `AuditPolicy` turns forwarding on; the chainer queues each chained row in
+  `AuditSiemOutbox` and the `audit-siem-deliver` cron ships it as RFC 5424 syslog over TLS (CEF
+  body) or an HTTPS JSON batch, in order, at least once, with backoff. What leaves is minimised
+  (`lib/audit/siem/minimise.ts`). Only a SUPER_ADMIN (TOTP where required) changes the policy.
+- **Retention is recorded policy, not enforced.** At least 12 months (a CHECK on `AuditPolicy`),
+  the latest 3 "hot". Nothing deletes or archives audit rows (they are append-only); archiving
+  up to a checkpoint is a follow-up.
 
 | AuditLog | JSON | CEF | RFC 5424 |
 |---|---|---|---|

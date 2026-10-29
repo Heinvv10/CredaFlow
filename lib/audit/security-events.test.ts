@@ -9,6 +9,8 @@ vi.mock("@/lib/audit", () => ({
   logAudit: (...a: unknown[]) => logAudit(...a),
 }))
 
+vi.mock("@/lib/observability/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
+
 import { recordSecurityEvent, resetSecurityEventWindows, SECURITY_EVENT_WINDOW_MS } from "./security-events"
 
 const failed = { kind: "login_failed" as const, tenantId: "t1", userId: "u1", email: "a@lender.invalid", ipAddress: "10.0.0.1", reason: "wrong_password" }
@@ -57,9 +59,10 @@ describe("recordSecurityEvent", () => {
     expect(logAudit).toHaveBeenCalledTimes(4)
   })
 
-  it("never throws into the sign-in when the audit write fails", async () => {
-    logAudit.mockRejectedValue(new Error("db down"))
-    vi.spyOn(console, "error").mockImplementation(() => undefined)
+  it("never throws into the sign-in when the audit write fails, and a failed write does not open the window", async () => {
+    logAudit.mockRejectedValueOnce(new Error("db down"))
     await expect(recordSecurityEvent(failed, 0)).resolves.toBeUndefined()
+    await recordSecurityEvent(failed, 1000)
+    expect(logAudit).toHaveBeenCalledTimes(2)
   })
 })

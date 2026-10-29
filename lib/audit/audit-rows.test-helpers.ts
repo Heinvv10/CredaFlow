@@ -10,7 +10,7 @@
  *
  * A purge also removes what hangs off the rows it removes: their AuditChainLink,
  * AuditRedaction and AuditSiemOutbox rows, and every AuditChainCheckpoint,
- * AuditPolicyRevision and AuditSiemDelivery of the chains they were in. A partial purge leaves a chain with a gap, which the
+ * AuditPolicyRevision, AuditSiemDelivery and AuditChainRepair of the chains they were in. A partial purge leaves a chain with a gap, which the
  * verifier reports; that is for a tenant a suite made and is dropping anyway. A
  * suite that creates a tenant, audits for it and then deletes the tenant (or one
  * of its users) must call purgeAuditRowsForTest for the tenant first: the foreign
@@ -51,6 +51,7 @@ export function purgeAuditRowsForTest(db: AuditTestDb, where: Prisma.AuditLogWhe
       await tx.$executeRawUnsafe(`DELETE FROM "AuditChainCheckpoint" WHERE "chainKey" = '${q}'`)
       await tx.$executeRawUnsafe(`DELETE FROM "AuditPolicyRevision" WHERE "tenantId" = '${q}'`)
       await tx.$executeRawUnsafe(`DELETE FROM "AuditSiemDelivery" WHERE "tenantId" = '${q}'`)
+      await tx.$executeRawUnsafe(`DELETE FROM "AuditChainRepair" WHERE "chainKey" = '${q}'`)
     }
     return tx.auditLog.deleteMany({ where })
   })
@@ -72,5 +73,19 @@ export function tamperAuditRowsForTest(db: AuditTestDb, sql: string): Promise<nu
   return db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(REPLICA)
     return tx.$executeRawUnsafe(sql)
+  })
+}
+
+/**
+ * Deletes lenders' AuditPolicy rows (and their delivery leases), which a trigger refuses to delete
+ * (stopping forwarding is an UPDATE), the way only a superuser can: with the triggers off.
+ */
+export function purgeAuditPolicyForTest(db: AuditTestDb, tenantIds: readonly string[]): Promise<void> {
+  return db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(REPLICA)
+    const list = tenantIds.map((t) => `'${t.replaceAll("'", "''")}'`).join(",")
+    if (list === "") return
+    await tx.$executeRawUnsafe(`DELETE FROM "AuditSiemLease" WHERE "tenantId" IN (${list})`)
+    await tx.$executeRawUnsafe(`DELETE FROM "AuditPolicy" WHERE "tenantId" IN (${list})`)
   })
 }

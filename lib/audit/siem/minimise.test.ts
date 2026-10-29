@@ -7,6 +7,11 @@ describe("SIEM minimisation", () => {
     for (const a of ["LOAN_APPROVED", "CLIENT_UPDATED", "PAYMENT_CAPTURED", "CREDIT_CHECK_RUN", "USER_PASSWORD_VIEWED", "BANK_ACCOUNT_CHANGED"]) expect(isValueAction(a), a).toBe(false)
   })
 
+  it("sends no values for the audit housekeeping rows that carry an operator's free-text reason", () => {
+    for (const a of ["AUDIT_ROW_REDACTED", "AUDIT_CHAIN_BREAK_ACCEPTED"]) expect(isValueAction(a), a).toBe(false)
+    for (const a of ["AUDIT_ROW_REDACTED_X", "AUDIT_CHAIN_BROKEN", "AUDIT_SIEM_QUEUE_PRUNED"]) expect(isValueAction(a), a).toBe(true)
+  })
+
   it("masks identity numbers, bank accounts, income, credentials and contact details by field name", () => {
     expect(maskValue({
       role: "ADMIN", idNumber: "8001015009087", bankAccountNumber: "62000000000", monthlyIncome: 25000, apiToken: "abc", password: "x",

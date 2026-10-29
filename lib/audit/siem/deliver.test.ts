@@ -5,9 +5,11 @@ import type { OutboxSource } from "@/lib/audit/store"
 const state = vi.hoisted(() => ({
   rows: [] as Array<{ id: number; kind: string; auditLogId: string | null; checkpointId: string | null; seq: number | null; targetSnapshot: unknown; attempts: number; nextAttemptAt: Date; createdAt: Date; sentAt: Date | null; deadAt: Date | null; lastError: string | null }>,
   lockHeld: false,
+  leased: [] as string[],
   policy: { siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest", siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null } as Record<string, unknown> | undefined,
   pruned: 0,
   receipts: [] as string[],
+  released: 0,
 }))
 
 const pending = () => state.rows.filter((r) => !r.sentAt && !r.deadAt)
@@ -15,7 +17,10 @@ const pending = () => state.rows.filter((r) => !r.sentAt && !r.deadAt)
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/tenant-scope", () => ({ withoutTenantScope: <T,>(fn: () => Promise<T>) => fn() }))
 vi.mock("./policy", () => ({
-  siemTarget: (p: { siemUrl: string | null }) => ({ transport: "HTTPS_JSON", host: null, port: null, url: p.siemUrl, token: null, caCertPem: null, clientCertPem: null, clientKeyPem: null }),
+  siemTarget: (p: { siemUrl: string | null; siemSealedToken?: string | null }) => {
+    if (p.siemSealedToken === "bad") throw new Error("sealed secret no longer opens")
+    return { transport: "HTTPS_JSON", host: null, port: null, url: p.siemUrl, token: null, caCertPem: null, clientCertPem: null, clientKeyPem: null }
+  },
 }))
 vi.mock("@/lib/audit/store", () => ({
   dueTenants: async (_db: unknown, now: Date) => [...new Set(pending().filter((r) => r.nextAttemptAt <= now).map(() => "t1"))],
@@ -38,16 +43,19 @@ vi.mock("@/lib/audit/store", () => ({
   checkpointById: async () => null,
   linkHashAt: async () => "c".repeat(64),
   chainHead: async () => null,
+  takeLease: async (_db: unknown, _t: string, holder: string) => {
+    if (state.lockHeld) return false
+    state.leased.push(holder)
+    return true
+  },
+  releaseLease: async () => { state.released++ },
+  deliveryPolicy: async () => state.policy ?? null,
 }))
 
 import { backoffSeconds, deliverSiemOutbox, type SiemSender } from "./deliver"
 
 const NOW = new Date("2026-10-29T12:00:00Z")
-const tx = {
-  $queryRaw: async (strings: TemplateStringsArray) =>
-    strings.join("").includes("pg_try_advisory_xact_lock") ? [{ ok: !state.lockHeld }] : state.policy ? [state.policy] : [],
-}
-const db = { $transaction: async (fn: (t: typeof tx) => Promise<void>) => fn(tx) } as never
+const db = {} as never
 
 const queue = (n: number, extra: Partial<(typeof state.rows)[number]> = {}) => {
   for (let i = 1; i <= n; i++) {
@@ -73,6 +81,8 @@ beforeEach(() => {
   state.lockHeld = false
   state.pruned = 0
   state.receipts = []
+  state.leased = []
+  state.released = 0
   state.policy = { siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest", siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null }
   vi.spyOn(console, "error").mockImplementation(() => undefined)
 })
@@ -175,8 +185,9 @@ describe("deliverSiemOutbox", () => {
   it("keeps going with the other lenders when one lender's delivery throws", async () => {
     queue(1)
     const rec = recorder()
-    const failing = { $transaction: async () => { throw new Error("sealed secret no longer opens") } } as never
-    const result = await deliverSiemOutbox({ db: failing, send: rec.send, now: NOW })
+    state.policy = { ...(state.policy as object), siemSealedToken: "bad" }
+    const result = await deliverSiemOutbox({ db, send: rec.send, now: NOW })
     expect(result).toMatchObject({ failedTenants: 1, sent: 0 })
+    expect(state.released).toBe(1) // the lease is given back even when delivery throws
   })
 })

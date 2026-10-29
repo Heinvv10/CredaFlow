@@ -124,7 +124,32 @@ model AuditSiemDelivery {
   kind        String
   seq         Int?
   destination String
+  ackId       String?
   recordedAt  DateTime @default(now())
 
   @@index([tenantId, outboxId])
+}
+
+/// An operator's signed acceptance of a break the verifier reported at a link, so verification
+/// continues past it (audit_chain_accept_break). hmac = HMAC(AUDIT_CHAIN_KEY, chain, seq, kind,
+/// reason, operator): a repair without the key is ignored. Insert-only.
+model AuditChainRepair {
+  id        String   @id @default(cuid())
+  chainKey  String
+  tenantId  String?
+  seq       Int
+  kind      String
+  reason    String
+  operator  String
+  hmac      String
+  createdAt DateTime @default(now())
+
+  @@index([chainKey, seq])
+}
+
+/// The delivery lease of a lender's SIEM queue: one deliverer at a time, expiring by itself.
+model AuditSiemLease {
+  tenantId  String   @id
+  holder    String
+  expiresAt DateTime
 }

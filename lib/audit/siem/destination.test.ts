@@ -23,6 +23,12 @@ describe("SIEM destination guard", () => {
     expect(siemAddressAllowed("not-an-ip", true)).toBe(false)
   })
 
+  it("never admits other clouds' metadata addresses, even with the private opt-in, wrapped or not", () => {
+    for (const a of ["100.100.100.200", "192.0.0.192", "fd00:ec2::254", "::ffff:100.100.100.200", "64:ff9b::6464:64c8", "2002:c000:00c0::1"]) expect(siemAddressAllowed(a, true), a).toBe(false)
+    expect(siemAddressAllowed("100.100.100.201", true)).toBe(true)
+    expect(siemAddressAllowed("fd00:ec2::255", true)).toBe(true)
+  })
+
   it("judges an IPv4 address wrapped in IPv6 (mapped, NAT64, 6to4) as that IPv4 address, so private opt-in cannot reach loopback or metadata through it", () => {
     for (const wrapped of ["::ffff:127.0.0.1", "::ffff:7f00:1", "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe", "2002:7f00:0001::1", "2002:a9fe:a9fe::1", "::ffff:169.254.169.254"]) {
       expect(siemAddressAllowed(wrapped, true), wrapped).toBe(false)

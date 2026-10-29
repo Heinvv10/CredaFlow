@@ -1,26 +1,31 @@
 /**
- * Ships the SIEM outbox. At-least-once, and in order per lender: one delivery
- * transaction per lender holds pg_try_advisory_xact_lock (a second replica skips
- * that lender), sends the oldest pending rows in batches, and stops at the first
- * batch that fails, so a lender's SIEM never sees seq 9 before seq 8. A batch is
- * marked sent only after the SIEM acknowledges it; one whose answer was lost is
- * sent again (the receiver de-duplicates on eventId). A failure backs the batch
- * off exponentially (30 s doubling to 1 h) and never drops it, except a row the
- * SIEM rejects with a 4xx that retrying cannot fix: the batch is split until the
- * bad row stands alone, and that row is marked dead after PERMANENT_ATTEMPTS.
+ * Ships the SIEM outbox. At-least-once, and in order per lender: a lender is delivered under
+ * a lease (audit_outbox_lease: one deliverer at a time across processes, expiring by itself), in
+ * short database calls with nothing held open while the SIEM is talked to. It sends the oldest
+ * pending rows in batches and stops at the first batch that fails, so a lender's SIEM never sees
+ * seq 9 before seq 8. A batch is marked sent only after the SIEM acknowledges it (and a receipt
+ * naming the destination and the SIEM's ack id is written); one whose answer was lost is sent again
+ * (the receiver de-duplicates on eventId). A failure backs the batch off exponentially (30 s
+ * doubling to 1 h) and never drops it, except a row the SIEM rejects with a 4xx that retrying
+ * cannot fix: the batch is split until the bad row stands alone, and that row is marked dead
+ * after PERMANENT_ATTEMPTS. The database refuses a mark that is not a delivery attempt's outcome
+ * (a backoff not yet elapsed, a dead row before three attempts).
  *
- * Only chained rows ship (their seq and hash go with them). Rows queued for a
- * lender that has switched forwarding off are pruned; the history is in AuditLog
- * and the anchor event sent when forwarding starts again names where it resumes.
+ * Only chained rows ship (their seq and hash go with them). Rows queued for a lender that has
+ * switched forwarding off are pruned (the database audits that); the backlog from before the
+ * switch-off was stamped with its old destination by the policy trigger and drains there.
+ * The policy is read through audit_delivery_policy (past row-level security).
  */
-import type { Prisma, PrismaClient } from "@prisma/client"
-import { deliveryClient } from "./delivery-db"
+import { randomUUID } from "node:crypto"
+import type { PrismaClient } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { GENESIS_HASH } from "@/lib/audit/chain-hash"
 import {
-  checkpointById, dueTenants, linkHashAt, markOutbox, oldestPending, outboxSources, pruneUnsent, purgeSent, snapshotRows, streamRows,
-  type OutboxRow as StoredRow,
+  checkpointById, deliveryPolicy, dueTenants, linkHashAt, markOutbox, oldestPending, outboxSources, pruneUnsent, purgeSent, releaseLease, snapshotRows, streamRows, takeLease,
+  type AuditDb, type OutboxRow as StoredRow,
 } from "@/lib/audit/store"
+import { logger } from "@/lib/observability/logger"
 import { siemTarget, type TargetSnapshot } from "./policy"
 import { toSiemEvent, type SiemEvent, type SiemSourceRow } from "./format"
 import { sendToSiem, type SendResult, type SiemTarget, type TransportDeps } from "./transport"
@@ -49,8 +54,7 @@ export function backoffSeconds(attempts: number): number {
 }
 
 type OutboxRow = StoredRow<TargetSnapshot>
-type Tx = Prisma.TransactionClient
-interface Ctx { tx: Tx; tenantId: string; now: Date; send: SiemSender; deps: TransportDeps; result: DeliveryResult }
+interface Ctx { tx: AuditDb; tenantId: string; now: Date; send: SiemSender; deps: TransportDeps; result: DeliveryResult }
 interface Item { row: OutboxRow; event: SiemEvent }
 
 /** The destination a receipt names: a host or origin, never a credential or a path (which may carry a key). */
@@ -113,7 +117,7 @@ async function sendItems(ctx: Ctx, target: SiemTarget, items: Item[]): Promise<b
   const rows = items.map((i) => i.row)
   const ids = rows.map((x) => x.id)
   if (r.ok) {
-    await markOutbox(ctx.tx, ctx.tenantId, ids, "sent", null, ctx.now, destinationOf(target))
+    await markOutbox(ctx.tx, ctx.tenantId, ids, "sent", null, ctx.now, destinationOf(target), r.ackId ?? null)
     ctx.result.sent += rows.length
     return true
   }
@@ -131,7 +135,7 @@ async function sendItems(ctx: Ctx, target: SiemTarget, items: Item[]): Promise<b
     await markOutbox(ctx.tx, ctx.tenantId, ids, "retry", error, new Date(ctx.now.getTime() + backoffSeconds(attempts) * 1000), destinationOf(target))
   }
   ctx.result.failedBatches++
-  console.error("[audit-siem] delivery failed", { tenantId: ctx.tenantId, rows: rows.length, error: r.error, dead })
+  logger.error("[audit-siem] delivery failed", { tenantId: ctx.tenantId, rows: rows.length, error: r.error, dead })
   // A row dead for poison no longer blocks the stream; anything else does.
   return dead
 }
@@ -175,7 +179,7 @@ async function drainSnapshots(ctx: Ctx): Promise<void> {
       try {
         target = siemTarget(group[0].targetSnapshot as TargetSnapshot)
       } catch (error) {
-        console.error("[audit-siem] snapshot target unusable", { tenantId: ctx.tenantId, error })
+        logger.error("[audit-siem] snapshot target unusable", { tenantId: ctx.tenantId, error })
         await markOutbox(ctx.tx, ctx.tenantId, due.map((r) => r.id), "retry", "config_invalid", new Date(ctx.now.getTime() + backoffSeconds(1) * 1000), "-")
         continue
       }
@@ -186,44 +190,51 @@ async function drainSnapshots(ctx: Ctx): Promise<void> {
   }
 }
 
+const LEASE_SECONDS = 300
+
 async function deliverTenant(ctx: Ctx): Promise<void> {
   const { tx, tenantId, now } = ctx
-  const [lock] = await tx.$queryRaw<Array<{ ok: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtextextended(${`audit-siem:${tenantId}`}, 0)) AS ok`
-  if (!lock.ok) return
-  const [policy] = await tx.$queryRaw<Array<{ siemEnabled: boolean } & TargetSnapshot>>`SELECT * FROM "AuditPolicy" WHERE "tenantId" = ${tenantId}`
+  const holder = `${process.pid}:${randomUUID()}`
+  if (!(await takeLease(tx, tenantId, holder, LEASE_SECONDS))) return
+  try {
+    const policy = await deliveryPolicy<{ siemEnabled: boolean } & TargetSnapshot>(tx, tenantId)
 
-  await drainSnapshots(ctx)
+    await drainSnapshots(ctx)
 
-  if (!policy?.siemEnabled) {
-    await pruneUnsent(tx, tenantId)
-    return
-  }
-  const target = siemTarget(policy)
-  for (let n = 0; n < MAX_BATCHES_PER_TENANT; n++) {
-    const due = duePrefix((await streamRows(tx, tenantId, BATCH)) as OutboxRow[], now)
-    if (due.length === 0) return
-    const items = withinSize(await eventsFor(ctx, due))
-    if (items.length === 0) continue
-    if (!(await sendItems(ctx, target, items))) return
+    if (!policy?.siemEnabled) {
+      await pruneUnsent(tx, tenantId)
+      return
+    }
+    const target = siemTarget(policy)
+    for (let n = 0; n < MAX_BATCHES_PER_TENANT; n++) {
+      await takeLease(tx, tenantId, holder, LEASE_SECONDS) // renew
+      const due = duePrefix((await streamRows(tx, tenantId, BATCH)) as OutboxRow[], now)
+      if (due.length === 0) return
+      const items = withinSize(await eventsFor(ctx, due))
+      if (items.length === 0) continue
+      if (!(await sendItems(ctx, target, items))) return
+    }
+  } finally {
+    await releaseLease(tx, tenantId, holder).catch(() => undefined)
   }
 }
 
-export async function deliverSiemOutbox(opts: { db?: PrismaClient; now?: Date; send?: SiemSender; deps?: TransportDeps } = {}): Promise<DeliveryResult> {
-  const db = (opts.db ?? deliveryClient()) as unknown as PrismaClient
+export async function deliverSiemOutbox(opts: { db?: PrismaClient; now?: Date; send?: SiemSender; deps?: TransportDeps; only?: readonly string[] } = {}): Promise<DeliveryResult> {
+  const db = (opts.db ?? prisma) as unknown as PrismaClient
   const now = opts.now ?? new Date()
   const send = opts.send ?? sendToSiem
   const result: DeliveryResult = { tenants: 0, sent: 0, dead: 0, failedBatches: 0, failedTenants: 0, oldestPendingSeconds: null }
 
   return withoutTenantScope(async () => {
-    const due = await dueTenants(db, now)
+    const due = (await dueTenants(db, now)).filter((t) => !opts.only || opts.only.includes(t))
     result.tenants = due.length
     for (const tenantId of due) {
       try {
-        await db.$transaction((tx: Tx) => deliverTenant({ tx, tenantId, now, send, deps: opts.deps ?? {}, result }), { timeout: 5 * 60_000, maxWait: 10_000 })
+        await deliverTenant({ tx: db, tenantId, now, send, deps: opts.deps ?? {}, result })
       } catch (error) {
         // A sealed secret that no longer opens, a database fault: this lender's feed waits, the others go on.
         result.failedTenants++
-        console.error("[audit-siem] tenant failed", { tenantId, error })
+        logger.error("[audit-siem] tenant failed", { tenantId, error })
       }
     }
     const oldest = await oldestPending(db)

@@ -6,12 +6,14 @@
  * source address go out only for actions on VALUE_ACTIONS (security and
  * configuration events, whose values are settings and reason codes, not
  * borrower data), and even then every field whose name says identity number,
- * account, income or credential, and every long digit run, is masked.
+ * account, income or credential, and every long digit run, is masked. The audit
+ * housekeeping rows that carry an operator's free-text reason (a redaction, an
+ * accepted chain break) send no values at all.
  */
 
 /** Actions whose values (and source address) may be sent. */
 export const VALUE_ACTIONS: RegExp =
-  /^(SECURITY_|AUDIT_|STAFF_ACCESS_|STAFF_TOTP_|TOTP_|USER_(CREATED|UPDATED|DEACTIVATED|DELETED|WRITE_REFUSED)$|TENANT_(CREATED|SUSPENDED|REACTIVATED|COLOURS_UPDATED|LANGUAGES_UPDATED)$)/
+  /^(SECURITY_|AUDIT_(?!ROW_REDACTED$|CHAIN_BREAK_ACCEPTED$)|STAFF_ACCESS_|STAFF_TOTP_|TOTP_|USER_(CREATED|UPDATED|DEACTIVATED|DELETED|WRITE_REFUSED)$|TENANT_(CREATED|SUSPENDED|REACTIVATED|COLOURS_UPDATED|LANGUAGES_UPDATED)$)/
 
 const SENSITIVE_KEY = /(id.?number|idnum|passport|account|iban|branch.?code|sort.?code|card|pan$|income|salary|wage|earning|password|passwd|secret|token|key|pin$|otp|cert|email|phone|mobile|msisdn|address|birth|dob|name)/i
 const MASK = "[masked]"

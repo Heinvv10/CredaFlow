@@ -15,6 +15,7 @@
  * guessed password worked.
  */
 import { AuditAction, logAudit } from "@/lib/audit"
+import { logger } from "@/lib/observability/logger"
 
 export type SecurityEventKind = "login_succeeded" | "login_failed" | "totp_failed" | "permission_denied"
 
@@ -40,18 +41,28 @@ export interface SecurityEvent {
 
 const windows = new Map<string, { start: number; suppressed: number }>()
 
-/** The suppressed count to record if this event is the first of its window, else null. */
-function claimWindow(e: SecurityEvent, now: number): number | null {
+const keyOf = (e: SecurityEvent) => `${e.tenantId}|${e.userId}|${e.kind}|${e.ipAddress ?? ""}`
+
+/**
+ * The suppressed count to record if this event is the first of its window, else null (and the
+ * suppressed one is counted). Nothing is claimed here: the window opens only once the row is
+ * written, so a write that failed does not silence the next attempt.
+ */
+function peekWindow(e: SecurityEvent, now: number): number | null {
   if (e.kind === "login_succeeded") return 0
-  const key = `${e.tenantId}|${e.userId}|${e.kind}|${e.ipAddress ?? ""}`
-  const seen = windows.get(key)
+  const seen = windows.get(keyOf(e))
   if (seen && now - seen.start < SECURITY_EVENT_WINDOW_MS) {
     seen.suppressed++
     return null
   }
-  if (!seen && windows.size >= MAX_TRACKED) windows.delete(windows.keys().next().value as string)
-  windows.set(key, { start: now, suppressed: 0 })
   return seen?.suppressed ?? 0
+}
+
+function openWindow(e: SecurityEvent, now: number): void {
+  if (e.kind === "login_succeeded") return
+  const key = keyOf(e)
+  if (!windows.has(key) && windows.size >= MAX_TRACKED) windows.delete(windows.keys().next().value as string)
+  windows.set(key, { start: now, suppressed: 0 })
 }
 
 export function resetSecurityEventWindows(): void {
@@ -59,7 +70,7 @@ export function resetSecurityEventWindows(): void {
 }
 
 export async function recordSecurityEvent(e: SecurityEvent, now: number = Date.now()): Promise<void> {
-  const suppressed = claimWindow(e, now)
+  const suppressed = peekWindow(e, now)
   if (suppressed === null) return
   try {
     await logAudit({
@@ -71,7 +82,8 @@ export async function recordSecurityEvent(e: SecurityEvent, now: number = Date.n
       newValue: { ...(e.reason ? { reason: e.reason } : {}), ...(suppressed > 0 ? { suppressedSincePrevious: suppressed } : {}) },
       ipAddress: e.ipAddress ?? undefined,
     })
+    openWindow(e, now)
   } catch (error) {
-    console.error("[security-events] not recorded:", { kind: e.kind, error })
+    logger.error("[security-events] not recorded", { kind: e.kind, error })
   }
 }

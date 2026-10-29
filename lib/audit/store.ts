@@ -1,15 +1,15 @@
 /**
  * The application's only access to the audit evidence tables (AuditChainLink,
- * AuditChainCheckpoint, AuditRedaction, AuditSiemOutbox): the SECURITY DEFINER
- * functions of migration 20261029100000. The application's database role holds
- * no privilege on those tables, so every read and write of them is one of these
- * calls, and each function checks what it is given (a link continues its chain,
- * a checkpoint names a real link). Times travel as ISO text cast to `timestamp`
- * in SQL: the columns are UTC `timestamp(3)` and this does not depend on the
- * session time zone.
+ * AuditChainCheckpoint, AuditRedaction, AuditSiemOutbox, ...): the SECURITY DEFINER
+ * functions of migration 20261029100000. The application's database roles hold no
+ * privilege on those tables, so every read and write of them is one of these calls, and each
+ * function checks what it is given (a link continues its chain, a checkpoint names a real link).
+ * The WEB login may call only audit_policy_save and audit_chain_status; the WORKER login the
+ * rest (audit_grant_web / audit_grant_worker). Times travel as ISO text cast to `timestamp` in
+ * SQL: the columns are UTC `timestamp(3)` and this does not depend on the session time zone.
  */
 import { Prisma } from "@prisma/client"
-import type { HashedRow } from "./chain-hash"
+import type { RowInputs } from "./chain-hash"
 
 /** A transaction client or the client itself. */
 export interface AuditDb {
@@ -17,25 +17,32 @@ export interface AuditDb {
 }
 
 const ts = (d: Date) => Prisma.sql`${d.toISOString()}::timestamp`
-const tsOrNull = (d: Date | null) => (d ? ts(d) : Prisma.sql`NULL::timestamp`)
 
 export interface ChainHead { seq: number; rowHash: string }
 export interface NewLink { seq: number; auditLogId: string; prevHash: string; rowHash: string }
 export interface CheckpointRow { id: string; seq: number; rowHash: string; hmac: string; createdAt: Date }
-export type LinkRow = Partial<HashedRow> & { seq: number; linkAuditLogId: string; prevHash: string; rowHash: string; present: boolean }
+export interface RepairRow { id: string; seq: number; kind: string; reason: string; operator: string; hmac: string }
+export type LinkRow = Partial<RowInputs> & { seq: number; linkAuditLogId: string; prevHash: string; rowHash: string; present: boolean }
 
 export async function chainHead(db: AuditDb, key: string): Promise<ChainHead | null> {
   const [head] = await db.$queryRaw<ChainHead[]>`SELECT * FROM audit_chain_head(${key})`
   return head ?? null
 }
 
-export async function candidateChains(db: AuditDb, since: Date): Promise<string[]> {
-  const rows = await db.$queryRaw<Array<{ k: string }>>(Prisma.sql`SELECT audit_chain_candidates(${ts(since)}) AS k`)
+/** What the web login may see of a chain: how far it is chained and the latest checkpoint. */
+export async function chainStatus(db: AuditDb, key: string): Promise<{ headSeq: number; checkpointSeq: number | null; checkpointAt: Date | null }> {
+  const [r] = await db.$queryRaw<Array<{ headSeq: number; checkpointSeq: number | null; checkpointAt: Date | null }>>`SELECT * FROM audit_chain_status(${key})`
+  return r ?? { headSeq: 0, checkpointSeq: null, checkpointAt: null }
+}
+
+/** Chains with committed unlinked rows: after each chain's high-water mark less the margin, or all of them when `deep`. */
+export async function candidateChains(db: AuditDb, deep: boolean, marginSeconds: number): Promise<string[]> {
+  const rows = await db.$queryRaw<Array<{ k: string }>>`SELECT audit_chain_candidates(${deep}, ${marginSeconds}::int) AS k`
   return rows.map((r) => r.k)
 }
 
-export function unlinkedRows(db: AuditDb, key: string, since: Date | null, limit: number): Promise<HashedRow[]> {
-  return db.$queryRaw<HashedRow[]>(Prisma.sql`SELECT * FROM audit_chain_unlinked(${key}, ${tsOrNull(since)}, ${limit}::int)`)
+export function unlinkedRows(db: AuditDb, key: string, deep: boolean, marginSeconds: number, limit: number): Promise<RowInputs[]> {
+  return db.$queryRaw<RowInputs[]>`SELECT * FROM audit_chain_unlinked(${key}, ${deep}, ${marginSeconds}::int, ${limit}::int)`
 }
 
 /** Appends links in order; the database refuses a link that does not continue the chain. */
@@ -46,6 +53,10 @@ export async function appendLinks(db: AuditDb, key: string, links: readonly NewL
 
 export function checkpoints(db: AuditDb, key: string): Promise<CheckpointRow[]> {
   return db.$queryRaw<CheckpointRow[]>`SELECT * FROM audit_checkpoints(${key})`
+}
+
+export function chainRepairs(db: AuditDb, key: string): Promise<RepairRow[]> {
+  return db.$queryRaw<RepairRow[]>`SELECT * FROM audit_chain_repairs(${key})`
 }
 
 export async function checkpointById(db: AuditDb, id: string): Promise<CheckpointRow | null> {
@@ -68,8 +79,8 @@ export function verifyLinks(db: AuditDb, key: string, after: number, limit: numb
   return db.$queryRaw<LinkRow[]>`SELECT * FROM audit_verify_links(${key}, ${after}::int, ${limit}::int)`
 }
 
-export async function unchainedOld(db: AuditDb, key: string, cutoff: Date, floor: Date | null): Promise<string | null> {
-  const [r] = await db.$queryRaw<Array<{ id: string | null }>>(Prisma.sql`SELECT audit_unchained_old(${key}, ${ts(cutoff)}, ${tsOrNull(floor)}) AS id`)
+export async function unchainedOld(db: AuditDb, key: string, cutoff: Date): Promise<string | null> {
+  const [r] = await db.$queryRaw<Array<{ id: string | null }>>(Prisma.sql`SELECT audit_unchained_old(${key}, ${ts(cutoff)}) AS id`)
   return r?.id ?? null
 }
 
@@ -113,6 +124,26 @@ export async function dueTenants(db: AuditDb, now: Date): Promise<string[]> {
   return rows.map((r) => r.t)
 }
 
+/**
+ * Takes (or renews) the delivery lease on a lender for `seconds`: one deliverer at a time,
+ * across processes, without holding a database connection or a transaction while it sends. The
+ * lease expires by itself, so a crashed deliverer does not block the lender for long.
+ */
+export async function takeLease(db: AuditDb, tenantId: string, holder: string, seconds: number): Promise<boolean> {
+  const [r] = await db.$queryRaw<Array<{ ok: boolean }>>`SELECT audit_outbox_lease(${tenantId}, ${holder}, ${seconds}::int) AS ok`
+  return r.ok
+}
+
+export async function releaseLease(db: AuditDb, tenantId: string, holder: string): Promise<void> {
+  await db.$queryRaw`SELECT audit_outbox_release(${tenantId}, ${holder})::text`
+}
+
+/** The lender's AuditPolicy row, read past row-level security (strict mode shows a delivery worker no tenant). */
+export async function deliveryPolicy<T>(db: AuditDb, tenantId: string): Promise<T | null> {
+  const [p] = await db.$queryRaw<T[]>`SELECT * FROM audit_delivery_policy(${tenantId})`
+  return p ?? null
+}
+
 export function snapshotRows<T>(db: AuditDb, tenantId: string, limit: number): Promise<OutboxRow<T>[]> {
   return db.$queryRaw<OutboxRow<T>[]>`SELECT * FROM audit_outbox_snapshot_rows(${tenantId}, ${limit}::int)`
 }
@@ -127,22 +158,25 @@ export function outboxSources(db: AuditDb, auditLogIds: readonly string[]): Prom
 
 /**
  * Marks entries of one lender after a delivery attempt. The database accepts only that
- * lender's pending entries and only a transition a delivery attempt can end in; 'sent'
- * records a receipt naming `destination` (host or origin, never a credential).
+ * lender's pending entries whose backoff has elapsed, and only a transition a delivery attempt
+ * can end in; 'sent' records a receipt naming `destination` (host or origin, never a credential)
+ * and the SIEM's own acknowledgement id when its answer carried one.
  */
 export async function markOutbox(
-  db: AuditDb, tenantId: string, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string,
+  db: AuditDb, tenantId: string, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string, ackId: string | null = null,
 ): Promise<void> {
-  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${tenantId}, ${[...ids]}::int[], ${state}, ${error}, ${ts(at)}, ${destination})`)
+  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${tenantId}, ${[...ids]}::int[], ${state}, ${error}, ${ts(at)}, ${destination}, ${ackId})`)
 }
 
 /**
- * Routes the audit row recording a policy change to the destination the lender left, and
- * starts an anchor for the one it moves to. The database reads both from the committed
- * AuditPolicy change in this transaction; the caller names only the audit row.
+ * Saves a lender's audit policy through audit_policy_save, the only way it changes: the
+ * database writes the policy, the revision, the AUDIT_POLICY_UPDATED row and the outbox routing
+ * in one transaction. `data` carries the whole policy (sealed secrets already sealed).
  */
-export async function queuePolicyChange(db: AuditDb, tenantId: string, auditLogId: string): Promise<void> {
-  await db.$queryRaw`SELECT audit_outbox_policy_change(${tenantId}, ${auditLogId})`
+export async function savePolicy(db: AuditDb, tenantId: string, data: Record<string, unknown>, actor: { id: string; email?: string | null }, ipAddress?: string | null): Promise<string> {
+  const [r] = await db.$queryRaw<Array<{ id: string }>>`
+    SELECT audit_policy_save(${tenantId}, ${JSON.stringify(data)}::jsonb, ${actor.id}, ${actor.email ?? null}, ${ipAddress ?? null}) AS id`
+  return r.id
 }
 
 /** Drops the unsent queue of a lender that is not forwarding (the database refuses otherwise, and records it). */

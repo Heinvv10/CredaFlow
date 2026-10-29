@@ -38,7 +38,7 @@ const req = (method: string, body?: unknown) => new NextRequest("http://localhos
 })
 
 beforeEach(() => {
-  h.session = caller("ADMIN")
+  h.session = caller("SUPER_ADMIN")
   h.totpRequired = true
   h.findUnique.mockReset().mockResolvedValue(null)
   h.save.mockReset().mockResolvedValue({ retentionMonths: 24 })
@@ -48,13 +48,26 @@ beforeEach(() => {
 })
 
 describe("/api/settings/audit-policy", () => {
-  it("is for ADMIN and above: a credit officer and a signed-out caller are refused", async () => {
-    h.session = caller("CREDIT_OFFICER")
-    expect((await GET(req("GET"))).status).toBe(403)
-    expect((await PUT(req("PUT", { retentionMonths: 24 }))).status).toBe(403)
+  it("is for SUPER_ADMIN only: an admin, a credit officer and a signed-out caller are refused", async () => {
+    for (const role of ["ADMIN", "CREDIT_OFFICER"]) {
+      h.session = caller(role)
+      expect((await GET(req("GET"))).status, role).toBe(403)
+      expect((await PUT(req("PUT", { retentionMonths: 24 }))).status, role).toBe(403)
+      expect((await POST(req("POST"))).status, role).toBe(403)
+    }
     h.session = null
     expect((await GET(req("GET"))).status).toBe(401)
     expect(h.save).not.toHaveBeenCalled()
+  })
+
+  it("shows the SIEM URL as its origin only: a path or query (which may carry a key) is never returned", async () => {
+    h.findUnique.mockResolvedValue({
+      id: "p1", tenantId: "t1", retentionMonths: 12, hotMonths: 3, siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null,
+      siemUrl: "https://siem.example.invalid/ingest/KEY123?token=abc", siemSealedToken: "enc:v1:x", siemCaCertPem: null, siemClientCert: null, siemSealedKey: null,
+    })
+    const body = await (await GET(req("GET"))).json()
+    expect(body).toMatchObject({ siemOrigin: "https://siem.example.invalid", siemUrlHasPathOrQuery: true, siemTokenSet: true })
+    expect(JSON.stringify(body)).not.toMatch(/KEY123|token=abc|siemUrl"|enc:v1/)
   })
 
   it("reads the default policy when the lender has none, with no secrets", async () => {
@@ -76,7 +89,7 @@ describe("/api/settings/audit-policy", () => {
   })
 
   it("needs a session that verified TOTP where the lender requires it, and refuses a non-object body", async () => {
-    h.session = caller("ADMIN", { totpVerified: false })
+    h.session = caller("SUPER_ADMIN", { totpVerified: false })
     expect((await PUT(req("PUT", { retentionMonths: 24 }))).status).toBe(403)
     h.totpRequired = false
     expect((await PUT(req("PUT", { retentionMonths: 24 }))).status).toBe(200)
@@ -96,9 +109,9 @@ describe("/api/settings/audit-policy", () => {
 
   it("gates the test like a change: TOTP where required, and rate-limited", async () => {
     h.findUnique.mockResolvedValue({ id: "pol-1", siemEnabled: true })
-    h.session = caller("ADMIN", { totpVerified: false })
+    h.session = caller("SUPER_ADMIN", { totpVerified: false })
     expect((await POST(req("POST"))).status).toBe(403)
-    h.session = caller("ADMIN")
+    h.session = caller("SUPER_ADMIN")
     h.rate = false
     expect((await POST(req("POST"))).status).toBe(429)
     expect(h.sendTest).not.toHaveBeenCalled()

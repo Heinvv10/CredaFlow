@@ -1,6 +1,6 @@
 /**
- * Walks the AuditLog hash chains of the database in DATABASE_URL and prints the
- * first broken link of each broken chain. Exit 0 when every chain holds, 1 on a
+ * Walks the AuditLog hash chains of the database in DATABASE_URL (needs AUDIT_CHAIN_KEY and
+ * the worker's database access) and prints every break, and every break an operator accepted. Exit 0 when every chain holds, 1 on a
  * break, 2 on bad arguments or an error. Read-only.
  *
  *   npm run audit:verify                 # every chain, in full from the genesis
@@ -28,8 +28,11 @@ async function main(): Promise<number> {
     if (json) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     } else if (result.ok) {
-      process.stdout.write(`OK: ${result.chains} chain(s), ${result.rowsChecked} links verified (${result.mode}), ${result.pendingUnchained} awaiting the chainer\n`)
+      process.stdout.write(`OK: ${result.chains} chain(s), ${result.rowsChecked} links verified (${result.mode}), ${result.pendingUnchained} awaiting the chainer, ${result.accepted.length} accepted break(s)\n`)
     } else {
+      for (const b of result.accepted) {
+        process.stdout.write(`ACCEPTED chain "${b.chainKey || "(platform)"}": ${b.kind} at seq ${b.chainSeq ?? "-"}\n`)
+      }
       for (const b of result.breaks) {
         process.stdout.write(`BROKEN chain "${b.chainKey || "(platform)"}": ${b.kind} at seq ${b.chainSeq ?? "-"} (row ${b.auditLogId ?? "-"}): ${b.detail}\n`)
       }

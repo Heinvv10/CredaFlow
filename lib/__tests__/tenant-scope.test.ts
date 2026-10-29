@@ -205,6 +205,7 @@ describe("tenant-scope — ALS primitives", () => {
       "AuditSiemOutbox",
       "AuditPolicyRevision",
       "AuditSiemDelivery",
+      "AuditSiemLease",
       // Enterprise sign-in and API OAuth (lib/sso, lib/lender-api/oauth) — non-null tenantId.
       "SsoConnection",
       "OauthClient",

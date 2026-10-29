@@ -84,18 +84,27 @@ suite("SIEM transports", () => {
     const server = https.createServer({ cert, key }, (req, res) => {
       const chunks: Buffer[] = []
       req.on("data", (c: Buffer) => chunks.push(c))
-      req.on("end", () => { seen = { auth: req.headers.authorization, body: Buffer.concat(chunks).toString("utf8") }; res.statusCode = status; res.end() })
+      req.on("end", () => { seen = { auth: req.headers.authorization, body: Buffer.concat(chunks).toString("utf8") }; res.statusCode = status; if (status === 204) res.setHeader("x-request-id", "siem-req-77"); res.end() })
     })
     servers.push(server)
     const port = await listen(server)
     const target: SiemTarget = { ...base, transport: "HTTPS_JSON", host: null, port: null, url: `https://${address}:${port}/ingest`, caCertPem: cert }
 
-    expect(await sendHttpsJson(target, [event], { allowPrivate: true })).toEqual({ ok: true, error: null })
+    // The SIEM's own request id comes back as the acknowledgement id, for the delivery receipt.
+    expect(await sendHttpsJson(target, [event], { allowPrivate: true })).toEqual({ ok: true, error: null, ackId: "siem-req-77" })
     expect(seen.auth).toBe("Bearer tok")
     expect(JSON.parse(seen.body!)).toMatchObject({ source: "credaflow", events: [{ eventId: "ev-1", action: "USER_UPDATED", newValue: { k: "v" } }] })
 
     status = 503
     expect(await sendHttpsJson(target, [event], { allowPrivate: true })).toEqual({ ok: false, error: "siem_unavailable" })
+  })
+
+  it("reports a malformed certificate or key as a TLS fault instead of throwing, on both transports", async () => {
+    const bad = "-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----"
+    const syslog = await sendSyslogTls({ ...base, transport: "SYSLOG_TLS", host: address!, port: 6514, url: null, clientCertPem: bad, clientKeyPem: key }, [event], { allowPrivate: true })
+    expect(syslog).toEqual({ ok: false, error: "tls_failed" })
+    const https = await sendHttpsJson({ ...base, transport: "HTTPS_JSON", host: null, port: null, url: `https://${address}:8443/x`, caCertPem: bad, clientCertPem: bad, clientKeyPem: key }, [event], { allowPrivate: true })
+    expect(https).toEqual({ ok: false, error: "tls_failed" })
   })
 
   it("refuses a private address unless the operator opted in, and never connects", async () => {

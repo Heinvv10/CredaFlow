@@ -1,10 +1,10 @@
 /**
- * Real-Postgres proof of the two-login deployment (migration 20261029100000,
- * audit_grant_runtime): the application's role owns nothing, holds INSERT and
- * SELECT on AuditLog, and reaches the evidence tables only through the database's
- * SECURITY DEFINER functions. It cannot switch a trigger off, skip triggers with
- * session_replication_role, write or read a link, checkpoint or outbox row, or
- * redact; and the chainer, verifier and SIEM delivery still work through it.
+ * Real-Postgres proof of the three-login deployment (migration 20261029100000,
+ * audit_grant_web / audit_grant_worker / audit_grant_runtime): the WEB login serves requests and
+ * can insert and read AuditLog, save the lender's audit policy and read a chain's status, and
+ * nothing else; the WORKER login runs the chainer, the verifier and the SIEM delivery through the
+ * database's SECURITY DEFINER functions; neither can switch a trigger off, skip triggers with
+ * session_replication_role, touch the evidence tables, the outbox or their sequences, or redact.
  *
  *   RUN_DB_IT=1 AUDIT_CHAIN_KEY=<32+ chars> DATABASE_URL=postgresql://<superuser>... \
  *     npx vitest run lib/audit/runtime-role.integration.test.ts
@@ -17,281 +17,209 @@ import { verifyAuditChains } from "./chain-verify"
 import { runChainer } from "./chainer"
 import { checkpointNow } from "./checkpoint.test-helpers"
 import { auditSetupWarnings } from "./deployment-check"
-import { purgeAuditRowsForTest } from "./audit-rows.test-helpers"
+import { purgeAuditPolicyForTest, purgeAuditRowsForTest } from "./audit-rows.test-helpers"
+import { savePolicy } from "./store"
 import { deliverSiemOutbox, type SiemSender } from "./siem/deliver"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 
-suite("the application's database role", () => {
+suite("the web and worker database logins", () => {
   process.env.AUDIT_CHAIN_KEY ??= "it-audit-chain-key-0123456789abcdef0123456789"
   const owner = new PrismaClient()
   const token = randomUUID().replaceAll("-", "").slice(0, 12)
-  const role = `cf_app_it_${token}`
+  const roles = { web: `cf_web_it_${token}`, worker: `cf_wrk_it_${token}`, both: `cf_both_it_${token}` }
   const tenantId = `rt-${token}`
   const other = `rt-o-${token}`
   type Writer = Parameters<typeof logAuditStrict>[1]
-  let app: PrismaClient
+  const clients: Record<keyof typeof roles, PrismaClient> = {} as never
+  const WORKER_ENV = { AUDIT_CHAIN_KEY: "k".repeat(40), CRON_SCHEDULER: "on", APP_MODE: "all" }
+  const WEB_ENV = { CRON_SCHEDULER: "off", APP_MODE: "staff" }
 
-  const asApp = () => {
+  const login = (name: string) => {
     const url = new URL(process.env.DATABASE_URL as string)
-    url.username = role
-    url.password = "app-it-password"
+    url.username = name
+    url.password = "it-password"
     return new PrismaClient({ datasourceUrl: url.toString() })
   }
-  const write = (n: number, client: unknown = app) =>
-    logAuditStrict({ tenantId, action: "AUDIT_IT", entity: "Thing", entityId: `e${n}`, oldValue: { n }, newValue: { n: n + 1 }, userEmail: `p${n}@it.invalid`, ipAddress: "10.0.0.1" }, client as Writer)
-  const denied = (sql: string, client: PrismaClient = app) =>
+  const write = (n: number, client: PrismaClient) =>
+    logAuditStrict({ tenantId, action: "AUDIT_IT", entity: "Thing", entityId: `e${n}`, oldValue: { n }, newValue: { n: n + 1 }, userEmail: `p${n}@it.invalid`, ipAddress: "10.0.0.1" }, client as unknown as Writer)
+  const denied = (client: PrismaClient, sql: string) =>
     expect(client.$executeRawUnsafe(sql)).rejects.toThrow(/permission denied|must be owner|must be superuser|not permitted/i)
 
   beforeAll(async () => {
     process.env.WABA_ENC_KEY ??= Buffer.alloc(32, 5).toString("base64")
     await owner.tenant.createMany({ data: [tenantId, other].map((id) => ({ id, slug: id, name: id })) })
-    // What the deployment gives the application's login: everything on the schema (the usual
-    // grant), then audit_grant_runtime takes the evidence tables back.
-    await owner.$executeRawUnsafe(`CREATE ROLE "${role}" LOGIN PASSWORD 'app-it-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`)
-    await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${role}"`)
-    await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${role}"`)
-    await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${role}"`)
-    await owner.$executeRaw`SELECT audit_grant_runtime(${role})`
-    app = asApp()
+    // What a deployment gives an application login: everything on the schema (the usual grant), then
+    // the audit_grant_* function takes the audit tables and their sequences back.
+    for (const name of Object.values(roles)) {
+      await owner.$executeRawUnsafe(`CREATE ROLE "${name}" LOGIN PASSWORD 'it-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`)
+      await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${name}"`)
+      await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${name}"`)
+      await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${name}"`)
+    }
+    await owner.$executeRaw`SELECT audit_grant_web(${roles.web})`
+    await owner.$executeRaw`SELECT audit_grant_worker(${roles.worker})`
+    await owner.$executeRaw`SELECT audit_grant_runtime(${roles.both})`
+    for (const key of Object.keys(roles) as Array<keyof typeof roles>) clients[key] = login(roles[key])
   })
 
   afterAll(async () => {
-    await app?.$disconnect()
+    await Promise.all(Object.values(clients).map((c) => c.$disconnect()))
+    await purgeAuditPolicyForTest(owner, [tenantId, other])
     await purgeAuditRowsForTest(owner, { tenantId: { in: [tenantId, other] } })
-    await owner.auditPolicy.deleteMany({ where: { tenantId: { in: [tenantId, other] } } })
     await owner.tenant.deleteMany({ where: { id: { in: [tenantId, other] } } })
-    await owner.$executeRawUnsafe(`REASSIGN OWNED BY "${role}" TO CURRENT_USER`).catch(() => undefined)
-    await owner.$executeRawUnsafe(`DROP OWNED BY "${role}"`).catch(() => undefined)
-    await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS "${role}"`)
+    for (const name of Object.values(roles)) {
+      await owner.$executeRawUnsafe(`DROP OWNED BY "${name}"`).catch(() => undefined)
+      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS "${name}"`)
+    }
     await owner.$disconnect()
   })
 
-  it("is not a superuser, owns no audit table and cannot bypass row-level security", async () => {
-    const [r] = await app.$queryRaw<Array<{ su: boolean; bypass: boolean; owns: number }>>`
-      SELECT r.rolsuper AS su, r.rolbypassrls AS bypass,
-             (SELECT count(*)::int FROM pg_tables WHERE schemaname = 'public' AND tableowner = current_user) AS owns
-      FROM pg_roles r WHERE r.rolname = current_user`
-    expect(r).toEqual({ su: false, bypass: false, owns: 0 })
-    expect(await auditSetupWarnings(app)).toEqual([])
-    expect(await auditSetupWarnings(owner)).toEqual(expect.arrayContaining(["audit_runtime_role_owns_tables", "audit_runtime_role_can_write_evidence"]))
+  it("none of them is a superuser, owns an audit table, or can bypass row-level security; the health check is quiet for each in its shape", async () => {
+    for (const key of Object.keys(roles) as Array<keyof typeof roles>) {
+      const [r] = await clients[key].$queryRaw<Array<{ su: boolean; bypass: boolean; owns: number }>>`
+        SELECT r.rolsuper AS su, r.rolbypassrls AS bypass,
+               (SELECT count(*)::int FROM pg_tables WHERE schemaname = 'public' AND tableowner = current_user) AS owns
+        FROM pg_roles r WHERE r.rolname = current_user`
+      expect(r, key).toEqual({ su: false, bypass: false, owns: 0 })
+    }
+    expect(await auditSetupWarnings(clients.web, WEB_ENV)).toEqual([])
+    expect(await auditSetupWarnings(clients.worker, WORKER_ENV)).toEqual([])
+    expect(await auditSetupWarnings(clients.both, WORKER_ENV)).toEqual([])
+    expect(await auditSetupWarnings(owner, WORKER_ENV)).toEqual(expect.arrayContaining(["audit_runtime_role_owns_tables", "audit_runtime_role_can_write_evidence"]))
+    // A single login on a web process holds the worker functions: said so.
+    expect(await auditSetupWarnings(clients.both, WEB_ENV)).toEqual(["audit_web_holds_worker_functions"])
   })
 
-  it("inserts and reads AuditLog, and cannot update, delete or truncate it", async () => {
-    await write(1)
-    const [row] = await app.auditLog.findMany({ where: { tenantId } })
-    expect(row.entityId).toBe("e1")
-    await denied(`UPDATE "AuditLog" SET "action" = 'EDITED' WHERE id = '${row.id}'`)
-    await denied(`DELETE FROM "AuditLog" WHERE id = '${row.id}'`)
-    await denied(`TRUNCATE "AuditLog"`)
-  })
-
-  it("cannot switch a trigger off, skip triggers, or take ownership of anything", async () => {
-    await denied(`ALTER TABLE "AuditLog" DISABLE TRIGGER ALL`)
-    await denied(`ALTER TABLE "AuditLog" DISABLE TRIGGER "AuditLog_a_append_only"`)
-    await denied(`DROP TRIGGER "AuditLog_a_append_only" ON "AuditLog"`)
-    await denied(`ALTER TABLE "AuditChainLink" DISABLE TRIGGER ALL`)
-    await denied(`SET session_replication_role = replica`)
-    await denied(`ALTER TABLE "AuditLog" OWNER TO CURRENT_USER`)
-    await denied(`ALTER FUNCTION audit_chain_append(text, jsonb) OWNER TO CURRENT_USER`)
-    await denied(`CREATE OR REPLACE FUNCTION audit_chain_append(p_key text, p_links jsonb) RETURNS int LANGUAGE sql AS 'SELECT 0'`)
-    await denied(`ALTER TABLE "AuditLog" DISABLE ROW LEVEL SECURITY`)
-  })
-
-  it("has no privilege at all on the links, checkpoints, redactions and outbox", async () => {
-    for (const table of ["AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox"]) {
-      await denied(`SELECT 1 FROM "${table}"`)
-      await denied(`INSERT INTO "${table}" DEFAULT VALUES`)
-      await denied(`UPDATE "${table}" SET "tenantId" = "tenantId"`)
-      await denied(`DELETE FROM "${table}"`)
-      await denied(`TRUNCATE "${table}"`)
+  it("insert and read AuditLog, and cannot update, delete or truncate it", async () => {
+    for (const key of ["web", "worker"] as const) {
+      await write(key === "web" ? 1 : 2, clients[key])
+    }
+    const rows = await clients.web.auditLog.findMany({ where: { tenantId }, orderBy: { createdAt: "asc" } })
+    expect(rows.map((r) => r.entityId)).toEqual(["e1", "e2"])
+    for (const key of ["web", "worker"] as const) {
+      await denied(clients[key], `UPDATE "AuditLog" SET "action" = 'EDITED' WHERE id = '${rows[0].id}'`)
+      await denied(clients[key], `DELETE FROM "AuditLog" WHERE id = '${rows[0].id}'`)
+      await denied(clients[key], `TRUNCATE "AuditLog"`)
     }
   })
 
-  it("cannot redact", async () => {
-    const [row] = await app.auditLog.findMany({ where: { tenantId } })
-    await denied(`SELECT audit_log_redact('${row.id}', ARRAY['ipAddress']::text[], 'erasure request 12345', 'app')`)
+  it("cannot switch a trigger off, skip triggers, take ownership, or replace a function", async () => {
+    for (const key of ["web", "worker"] as const) {
+      const c = clients[key]
+      await denied(c, `ALTER TABLE "AuditLog" DISABLE TRIGGER ALL`)
+      await denied(c, `ALTER TABLE "AuditLog" DISABLE TRIGGER "AuditLog_a_append_only"`)
+      await denied(c, `ALTER TABLE "AuditLog" DISABLE TRIGGER "AuditLog_created_at"`)
+      await denied(c, `DROP TRIGGER "AuditLog_a_append_only" ON "AuditLog"`)
+      await denied(c, `ALTER TABLE "AuditChainLink" DISABLE TRIGGER ALL`)
+      await denied(c, `ALTER TABLE "AuditPolicy" DISABLE TRIGGER "AuditPolicy_no_delete"`)
+      await denied(c, `SET session_replication_role = replica`)
+      await denied(c, `ALTER TABLE "AuditLog" OWNER TO CURRENT_USER`)
+      await denied(c, `ALTER FUNCTION audit_chain_append(text, jsonb) OWNER TO CURRENT_USER`)
+      await denied(c, `CREATE OR REPLACE FUNCTION audit_chain_append(p_key text, p_links jsonb) RETURNS int LANGUAGE sql AS 'SELECT 0'`)
+      await denied(c, `CREATE FUNCTION public.audit_shadow() RETURNS int LANGUAGE sql AS 'SELECT 0'`)
+      await denied(c, `ALTER TABLE "AuditLog" DISABLE ROW LEVEL SECURITY`)
+    }
   })
 
-  it("chains, verifies and checkpoints through the functions, and delivers the SIEM queue", async () => {
-    await app.auditPolicy.create({ data: { tenantId, siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: "https://siem.example.invalid/ingest" } })
-    for (let i = 2; i <= 5; i++) await write(i)
-    expect(await runChainer({ db: app, deep: true, only: [tenantId] })).toMatchObject({ chains: 1, linked: 5 })
-    expect(await verifyAuditChains(app, { chainKey: tenantId, mode: "full" })).toMatchObject({ ok: true, rowsChecked: 5 })
-    expect(await checkpointNow(app, tenantId)).toBe(1)
-    expect(await verifyAuditChains(app, { chainKey: tenantId, mode: "incremental" })).toMatchObject({ ok: true })
+  it("have no privilege on the links, checkpoints, redactions, repairs, revisions, receipts, outbox or lease; the policy is read-only", async () => {
+    for (const key of ["web", "worker"] as const) {
+      const c = clients[key]
+      for (const table of ["AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditChainRepair", "AuditPolicyRevision", "AuditSiemDelivery", "AuditSiemOutbox", "AuditSiemLease"]) {
+        await denied(c, `SELECT 1 FROM "${table}"`)
+        await denied(c, `INSERT INTO "${table}" DEFAULT VALUES`)
+        await denied(c, `UPDATE "${table}" SET "tenantId" = "tenantId"`)
+        await denied(c, `DELETE FROM "${table}"`)
+        await denied(c, `TRUNCATE "${table}"`)
+      }
+      await expect(c.$queryRawUnsafe(`SELECT 1 FROM "AuditPolicy" LIMIT 1`)).resolves.toBeDefined()
+      await denied(c, `INSERT INTO "AuditPolicy" ("id", "tenantId", "updatedAt") VALUES ('x', '${tenantId}', now())`)
+      await denied(c, `UPDATE "AuditPolicy" SET "siemEnabled" = false`)
+      await denied(c, `DELETE FROM "AuditPolicy"`)
+    }
+  })
+
+  it("have no privilege on the sequences behind the audit tables, so nobody can exhaust them", async () => {
+    for (const key of ["web", "worker"] as const) {
+      for (const seq of ["AuditSiemOutbox_id_seq", "AuditPolicyRevision_id_seq", "AuditSiemDelivery_id_seq"]) {
+        await expect(clients[key].$queryRawUnsafe(`SELECT nextval('"${seq}"')`), `${key} ${seq}`).rejects.toThrow(/permission denied/)
+        await expect(clients[key].$queryRawUnsafe(`SELECT setval('"${seq}"', 9223372036854775000)`), `${key} ${seq}`).rejects.toThrow(/permission denied/)
+      }
+    }
+  })
+
+  it("cannot redact or accept a break, and the web login cannot call any worker function", async () => {
+    const [row] = await clients.web.auditLog.findMany({ where: { tenantId }, take: 1 })
+    for (const key of ["web", "worker", "both"] as const) {
+      const c = clients[key]
+      await expect(c.$queryRaw`SELECT audit_log_redact(${row.id}, ARRAY['ipAddress']::text[], 'erasure request 12345', 'app', ${JSON.stringify({ ipAddress: "a".repeat(64) })}::jsonb)`).rejects.toThrow(/permission denied/)
+      await expect(c.$queryRaw`SELECT audit_chain_accept_break(${tenantId}, 1, 'seq_gap', 'a proper reason here', 'app', ${"b".repeat(64)})`).rejects.toThrow(/permission denied/)
+    }
+    for (const call of [
+      (c: PrismaClient) => c.$queryRaw`SELECT audit_chain_append(${tenantId}, '[]'::jsonb)`,
+      (c: PrismaClient) => c.$queryRaw`SELECT audit_checkpoint_write(${tenantId}, 1, ${"a".repeat(64)}, ${"b".repeat(64)})`,
+      (c: PrismaClient) => c.$queryRaw`SELECT * FROM audit_verify_links(${tenantId}, 0, 10)`,
+      (c: PrismaClient) => c.$queryRaw`SELECT * FROM audit_outbox_stream_rows(${tenantId}, 10)`,
+      (c: PrismaClient) => c.$queryRaw`SELECT audit_outbox_mark(${tenantId}, ARRAY[1]::int[], 'sent', NULL, now()::timestamp, 'x')`,
+      (c: PrismaClient) => c.$queryRaw`SELECT audit_outbox_prune_unsent(${tenantId})`,
+      (c: PrismaClient) => c.$queryRaw`SELECT audit_outbox_purge_sent()`,
+      (c: PrismaClient) => c.$queryRaw`SELECT audit_outbox_lease(${tenantId}, 'me', 60)`,
+      (c: PrismaClient) => c.$queryRaw`SELECT * FROM audit_delivery_policy(${tenantId})`,
+    ]) await expect(call(clients.web)).rejects.toThrow(/permission denied/)
+    // The web login's two functions work.
+    expect(await clients.web.$queryRaw`SELECT * FROM audit_chain_status(${tenantId})`).toEqual([{ headSeq: 0, checkpointSeq: null, checkpointAt: null }])
+  })
+
+  it("the worker chains, verifies and checkpoints through the functions, and delivers the SIEM queue", async () => {
+    const policyId = await savePolicy(clients.web, tenantId, {
+      retentionMonths: 12, hotMonths: 3, siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest",
+      siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null,
+    }, { id: (await owner.user.create({ data: { id: `rt-u-${token}`, email: `rt-u-${token}@it.invalid`, password: "x", tenantId, role: "SUPER_ADMIN" } })).id })
+    expect(policyId).toMatch(/^cap_/)
+    for (let i = 3; i <= 5; i++) await write(i, clients.web)
+
+    expect(await runChainer({ db: clients.worker, deep: true, only: [tenantId] })).toMatchObject({ chains: 1, linked: 6 })
+    expect(await verifyAuditChains(clients.worker, { chainKey: tenantId, mode: "full" })).toMatchObject({ ok: true, rowsChecked: 6 })
+    expect(await checkpointNow(clients.worker, tenantId)).toBe(1)
+    expect(await verifyAuditChains(clients.worker, { chainKey: tenantId, mode: "incremental" })).toMatchObject({ ok: true })
+
+    // What the web login may see of it.
+    expect(await clients.web.$queryRaw`SELECT "headSeq", "checkpointSeq" FROM audit_chain_status(${tenantId})`).toEqual([{ headSeq: 6, checkpointSeq: 6 }])
 
     const sent: number[] = []
     const send: SiemSender = async (_target, events) => {
       sent.push(...events.flatMap((e) => (e.chain.seq === null ? [] : [e.chain.seq])))
-      return { ok: true, error: null }
+      return { ok: true, error: null, ackId: "ack-1" }
     }
-    const result = await deliverSiemOutbox({ db: app, send, now: new Date(Date.now() + 60_000) })
+    const result = await deliverSiemOutbox({ db: clients.worker, send, now: new Date(Date.now() + 60_000), only: [tenantId] })
     expect(result.failedTenants).toBe(0)
-    expect(sent).toEqual([1, 2, 3, 4, 5, 5])
+    expect(sent).toEqual([0, 1, 2, 3, 4, 5, 6, 6]) // the anchor (chain position 0 when forwarding began), the six events, the checkpoint
+    expect((await owner.auditSiemDelivery.findMany({ where: { tenantId } })).every((d) => d.ackId === "ack-1")).toBe(true)
   })
 
-  it("cannot forge a link, a checkpoint or a queued event through the functions", async () => {
-    const [head] = await app.$queryRaw<Array<{ seq: number; rowHash: string }>>`SELECT * FROM audit_chain_head(${tenantId})`
-    const [last] = await app.auditLog.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take: 1 })
-    const link = (over: Record<string, unknown>) => JSON.stringify([{ seq: head.seq + 1, auditLogId: last.id, prevHash: head.rowHash, rowHash: "a".repeat(64), ...over }])
-    const append = (links: string, key = tenantId) => app.$queryRaw`SELECT audit_chain_append(${key}, ${links}::jsonb)`
-    await write(6)
-    const [fresh] = await app.auditLog.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take: 1 })
+  it("cannot forge a link or a checkpoint through the functions", async () => {
+    const c = clients.worker
+    const [head] = await c.$queryRaw<Array<{ seq: number; rowHash: string }>>`SELECT * FROM audit_chain_head(${tenantId})`
+    await write(6, clients.web)
+    const [fresh] = await c.auditLog.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take: 1 })
+    const link = (over: Record<string, unknown>) => JSON.stringify([{ seq: head.seq + 1, auditLogId: fresh.id, prevHash: head.rowHash, rowHash: "a".repeat(64), ...over }])
+    const append = (links: string, key = tenantId) => c.$queryRaw`SELECT audit_chain_append(${key}, ${links}::jsonb)`
 
-    await expect(append(link({ auditLogId: fresh.id, prevHash: "b".repeat(64) }))).rejects.toThrow(/does not continue the chain/)
-    await expect(append(link({ auditLogId: fresh.id, seq: head.seq + 2 }))).rejects.toThrow(/does not continue the chain/)
+    await expect(append(link({ prevHash: "b".repeat(64) }))).rejects.toThrow(/does not continue the chain/)
+    await expect(append(link({ seq: head.seq + 2 }))).rejects.toThrow(/does not continue the chain/)
     await expect(append(link({ auditLogId: "no-such-row" }))).rejects.toThrow(/names no audit row/)
-    await expect(append(link({ auditLogId: fresh.id }), other)).rejects.toThrow(/does not continue|names no audit row/)
-    await expect(append(link({ auditLogId: fresh.id, rowHash: "short" }))).rejects.toThrow(/malformed rowHash/)
-    await expect(app.$queryRaw`SELECT audit_checkpoint_write(${tenantId}, ${head.seq + 5}::int, ${"c".repeat(64)}, ${"d".repeat(64)})`).rejects.toThrow(/no such link/)
-    await expect(app.$queryRaw`SELECT audit_checkpoint_write(${tenantId}, ${head.seq}::int, ${"c".repeat(64)}, ${"d".repeat(64)})`).rejects.toThrow(/no such link/)
+    await expect(append(link({}), other)).rejects.toThrow(/does not continue|names no audit row/)
+    await expect(append(link({ rowHash: "short" }))).rejects.toThrow(/malformed rowHash/)
+    await expect(c.$queryRaw`SELECT audit_checkpoint_write(${tenantId}, ${head.seq + 5}::int, ${"c".repeat(64)}, ${"d".repeat(64)})`).rejects.toThrow(/no such link/)
+    await expect(c.$queryRaw`SELECT audit_checkpoint_write(${tenantId}, ${head.seq}::int, ${"c".repeat(64)}, ${"d".repeat(64)})`).rejects.toThrow(/no such link/)
 
     // Nothing the refused calls tried is in the chain.
-    expect(await runChainer({ db: app, deep: true, only: [tenantId] })).toMatchObject({ linked: 1 })
-    expect(await verifyAuditChains(app, { chainKey: tenantId, mode: "full" })).toMatchObject({ ok: true, rowsChecked: 6 })
+    expect(await runChainer({ db: c, deep: true, only: [tenantId] })).toMatchObject({ linked: 1 })
+    expect(await verifyAuditChains(c, { chainKey: tenantId, mode: "full" })).toMatchObject({ ok: true, rowsChecked: 7 })
   })
 
-  describe("the outbox functions trust nothing they are given", () => {
-    const queued = async (kind = "EVENT") => {
-      const [r] = await app.auditLog.findMany({ where: { tenantId }, orderBy: { createdAt: "asc" }, take: 1 })
-      return owner.auditSiemOutbox.create({ data: { tenantId, kind, auditLogId: kind === "EVENT" ? `${r.id}` : null, ...(kind === "ANCHOR" ? { seq: 0 } : {}) } })
-    }
-    const mark = (tenant: string, ids: number[], state: string, error: string | null = null, at = new Date(), destination = "https://x.invalid") =>
-      app.$queryRaw`SELECT audit_outbox_mark(${tenant}, ${ids}::int[], ${state}, ${error}, ${at.toISOString()}::timestamp, ${destination})`
-
-    it("will not mark another lender's entries, an unknown state, or a retry more than two hours out", async () => {
-      await owner.auditSiemOutbox.deleteMany({ where: { tenantId } })
-      const row = await queued()
-      await expect(mark(other, [row.id], "sent")).rejects.toThrow(/not all rows are this lender/)
-      await expect(mark(tenantId, [row.id], "bogus")).rejects.toThrow(/unknown state/)
-      await expect(mark(tenantId, [row.id], "retry", "x", new Date(Date.now() + 3 * 3_600_000))).rejects.toThrow(/too far ahead/)
-      await expect(mark(tenantId, [row.id, 999999999], "sent")).rejects.toThrow(/not all rows are this lender/)
-      expect(await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ sentAt: null, deadAt: null, attempts: 0 })
-    })
-
-    it("will not give a row up before three attempts unless what it names is really gone", async () => {
-      await owner.auditSiemOutbox.deleteMany({ where: { tenantId } })
-      const row = await queued()
-      await expect(mark(tenantId, [row.id], "dead", "siem_rejected")).rejects.toThrow(/before three attempts/)
-      await expect(mark(tenantId, [row.id], "dead", "row_missing")).rejects.toThrow(/before three attempts/) // its audit row is chained and present
-      await owner.auditSiemOutbox.update({ where: { id: row.id }, data: { attempts: 2 } })
-      await mark(tenantId, [row.id], "dead", "siem_rejected")
-      expect((await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).deadAt).not.toBeNull()
-    })
-
-    it("stamps sent with the database clock and leaves a receipt naming the destination; a sent entry cannot be marked again", async () => {
-      await owner.auditSiemOutbox.deleteMany({ where: { tenantId } })
-      const row = await queued()
-      await expect(mark(tenantId, [row.id], "sent", null, new Date(), " ")).rejects.toThrow(/names its destination/)
-      await mark(tenantId, [row.id], "sent", null, new Date("2001-01-01T00:00:00Z"), "https://siem.example.invalid")
-      const sent = await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })
-      expect(sent.sentAt!.getUTCFullYear()).toBeGreaterThan(2020) // the caller's time was ignored
-      expect(await owner.auditSiemDelivery.findMany({ where: { outboxId: row.id } })).toEqual([expect.objectContaining({ tenantId, kind: "EVENT", destination: "https://siem.example.invalid" })])
-      await expect(mark(tenantId, [row.id], "sent")).rejects.toThrow(/not all rows are this lender/)
-      await expect(app.$executeRawUnsafe(`DELETE FROM "AuditSiemDelivery"`)).rejects.toThrow(/permission denied/)
-    })
-
-    it("refuses to prune while the lender forwards, and a forged policy change has no effect", async () => {
-      await app.$queryRaw`SELECT 1` // the policy created above is enabled
-      await expect(app.$queryRaw`SELECT audit_outbox_prune_unsent(${tenantId})`).rejects.toThrow(/is forwarding/)
-      await owner.auditSiemOutbox.deleteMany({ where: { tenantId } })
-      const [audit] = await app.auditLog.findMany({ where: { tenantId }, take: 1 })
-      // No AuditPolicy change in this transaction: nothing is queued, whatever the audit row.
-      expect(await app.$queryRaw<Array<{ n: number }>>`SELECT audit_outbox_policy_change(${tenantId}, ${audit.id}) AS n`).toEqual([{ n: 0 }])
-      expect(await owner.auditSiemOutbox.count({ where: { tenantId } })).toBe(0)
-      // The old destination is not an argument at all: the four-argument form no longer exists.
-      await expect(app.$queryRaw`SELECT audit_outbox_policy_change(${tenantId}, ${audit.id}, '{"siemUrl":"https://evil.invalid"}'::jsonb, true)`).rejects.toThrow(/does not exist/)
-    })
-
-    it("keeps the sent entries for seven days whatever cutoff anyone would like", async () => {
-      await owner.auditSiemOutbox.deleteMany({ where: { tenantId } })
-      const row = await queued()
-      await mark(tenantId, [row.id], "sent")
-      await expect(app.$queryRaw`SELECT audit_outbox_purge_sent(now()::timestamp + interval '1 year')`).rejects.toThrow(/does not exist/)
-      await app.$queryRaw`SELECT audit_outbox_purge_sent()`
-      expect(await owner.auditSiemOutbox.count({ where: { id: row.id } })).toBe(1)
-    })
-  })
-
-  describe("redaction needs the redaction role, not a session setting", () => {
-    it("is not unlocked by the old session flag, by any role short of audit_redactor, or by a redaction row the app could not write", async () => {
-      const [row] = await app.auditLog.findMany({ where: { tenantId }, take: 1 })
-      await expect(app.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe(`SELECT set_config('cf.audit_redaction', 'on', true)`)
-        await tx.$executeRawUnsafe(`UPDATE "AuditLog" SET "userEmail" = NULL WHERE id = '${row.id}'`)
-      })).rejects.toThrow(/permission denied/)
-      await denied(`SET ROLE audit_redactor`) // not a member
-      await denied(`INSERT INTO "AuditRedaction" ("id", "auditLogId", "columns", "userEmailDigest", "ipAddressDigest", "oldValueDigest", "newValueDigest", "reason", "operator") VALUES ('x', '${row.id}', '{userEmail}', '-', '-', '-', '-', 'a reason here', 'x')`)
-    })
-
-    it("lets even the redactor role null a column only where a redaction row recorded its digest", async () => {
-      const t = await owner.auditLog.create({ data: { tenantId, action: "AUDIT_IT", entity: "Thing", userEmail: "p@it.invalid", ipAddress: "10.0.0.9" } })
-      const nulling = (col: string) => owner.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe(`SET LOCAL ROLE audit_redactor`)
-        await tx.$executeRawUnsafe(`UPDATE "AuditLog" SET "${col}" = NULL WHERE id = '${t.id}'`)
-      })
-      await expect(nulling("userEmail")).rejects.toThrow(/append-only/)
-      await owner.$executeRaw`SELECT public.audit_log_redact(${t.id}, ARRAY['ipAddress']::text[], 'POPIA erasure request ref 8', 'it-operator')`
-      expect(await owner.auditLog.findUniqueOrThrow({ where: { id: t.id } })).toMatchObject({ ipAddress: null, userEmail: "p@it.invalid" })
-      await expect(nulling("userEmail")).rejects.toThrow(/append-only/)
-    })
-
-    it("is refused to a role that is a member of the redactor or of a table owner, by the grant and by the health warning", async () => {
-      const member = `${role}_m`
-      await owner.$executeRawUnsafe(`CREATE ROLE "${member}" LOGIN PASSWORD 'x' NOSUPERUSER`)
-      try {
-        await owner.$executeRawUnsafe(`GRANT audit_redactor TO "${member}"`)
-        await expect(owner.$executeRaw`SELECT audit_grant_runtime(${member})`).rejects.toThrow(/member of audit_redactor|is, or is a member of/)
-        await expect(owner.$executeRaw`SELECT audit_grant_delivery(${member})`).rejects.toThrow(/is, or is a member of/)
-        const [me] = await owner.$queryRaw<Array<{ owner: string }>>`SELECT tableowner AS owner FROM pg_tables WHERE tablename = 'AuditLog'`
-        await owner.$executeRawUnsafe(`REVOKE audit_redactor FROM "${member}"`)
-        await owner.$executeRawUnsafe(`GRANT "${me.owner}" TO "${member}"`)
-        await expect(owner.$executeRaw`SELECT audit_grant_runtime(${member})`).rejects.toThrow(/is, or is a member of/)
-        // the same role, connecting: the health check sees it
-        const url = new URL(process.env.DATABASE_URL as string); url.username = member; url.password = "x"
-        const asMember = new PrismaClient({ datasourceUrl: url.toString() })
-        try {
-          expect(await auditSetupWarnings(asMember)).toContain("audit_runtime_role_owns_tables")
-        } finally { await asMember.$disconnect() }
-      } finally {
-        await owner.$executeRawUnsafe(`DROP OWNED BY "${member}"`).catch(() => undefined)
-        await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS "${member}"`)
-      }
-    })
-  })
-
-  describe("a separate delivery login", () => {
-    const delivery = `${role}_d`
-    it("holds the outbox functions and the web login does not", async () => {
-      await owner.$executeRawUnsafe(`CREATE ROLE "${delivery}" LOGIN PASSWORD 'd' NOSUPERUSER NOBYPASSRLS`)
-      await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${delivery}"`)
-      await owner.$executeRaw`SELECT audit_grant_delivery(${delivery})`
-      const web = `${role}_w`
-      await owner.$executeRawUnsafe(`CREATE ROLE "${web}" LOGIN PASSWORD 'w' NOSUPERUSER NOBYPASSRLS`)
-      await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${web}"`)
-      await owner.$executeRaw`SELECT audit_grant_runtime(${web}, false)`
-      const as = (name: string, pw: string) => { const u = new URL(process.env.DATABASE_URL as string); u.username = name; u.password = pw; return new PrismaClient({ datasourceUrl: u.toString() }) }
-      const d = as(delivery, "d"); const w = as(web, "w")
-      try {
-        await expect(w.$queryRaw`SELECT * FROM audit_outbox_stream_rows(${tenantId}, 10)`).rejects.toThrow(/permission denied/)
-        await expect(w.$queryRaw`SELECT audit_outbox_mark(${tenantId}, ARRAY[1]::int[], 'sent', NULL, now()::timestamp, 'x')`).rejects.toThrow(/permission denied/)
-        await expect(w.$queryRaw`SELECT * FROM audit_chain_head(${tenantId})`).resolves.toBeDefined()
-        await expect(d.$queryRaw`SELECT * FROM audit_outbox_stream_rows(${tenantId}, 10)`).resolves.toBeDefined()
-        await expect(d.$queryRaw`SELECT audit_chain_append(${tenantId}, '[]'::jsonb)`).rejects.toThrow(/permission denied/)
-        await expect(d.$queryRawUnsafe(`SELECT 1 FROM "AuditLog"`)).rejects.toThrow(/permission denied/)
-      } finally {
-        await Promise.all([d.$disconnect(), w.$disconnect()])
-        for (const r of [delivery, web]) {
-          await owner.$executeRawUnsafe(`DROP OWNED BY "${r}"`).catch(() => undefined)
-          await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS "${r}"`)
-        }
-      }
-    })
-  })
-
-  it("leaves the function's row-level-security bypass behind when it returns", async () => {
-    await app.$transaction(async (tx) => {
+  it("leaves the functions' row-level-security bypass behind when they return", async () => {
+    await clients.worker.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT * FROM audit_chain_head(${tenantId})`
       const [r] = await tx.$queryRaw<Array<{ v: string | null }>>`SELECT current_setting('app.rls_bypass', true) AS v`
       expect(r.v ?? "").not.toBe("on")

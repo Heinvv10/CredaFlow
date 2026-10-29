@@ -1,16 +1,21 @@
 /**
  * A lender's audit policy (AuditPolicy): retention and SIEM forwarding.
  * The only reader and writer of the sealed columns; a response shows whether a
- * secret is set, never any of it. Secrets are sealed with the same key as the
- * provider credentials (lib/integrations/tenant-credentials.ts).
+ * secret is set, never any of it, and a SIEM URL as its origin only (its path or query
+ * may carry a key). Secrets are sealed with the same key as the provider credentials
+ * (lib/integrations/tenant-credentials.ts). The policy changes only through the
+ * database function audit_policy_save, which also writes the audit row.
+ *
+ * retentionMonths / hotMonths are recorded policy only: nothing deletes or archives audit
+ * rows yet (they are append-only), so they state what the lender must keep, not what the
+ * system enforces. Archiving up to a checkpoint is a follow-up.
  */
-import { randomUUID } from "node:crypto"
 import { isIP } from "node:net"
-import type { AuditPolicy, Prisma } from "@prisma/client"
+import type { AuditPolicy } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { logAuditStrict, AuditAction } from "@/lib/audit"
 import { openCredential, sealCredential } from "@/lib/integrations/tenant-credentials"
-import { queuePolicyChange } from "@/lib/audit/store"
+import { logger } from "@/lib/observability/logger"
+import { savePolicy } from "@/lib/audit/store"
 import { resolveSiemHost } from "./destination"
 import type { SiemTarget } from "./transport"
 import type { Resolver } from "@/lib/lender-api/webhooks/ssrf"
@@ -40,7 +45,9 @@ export interface AuditPolicyView {
   siemTransport: "SYSLOG_TLS" | "HTTPS_JSON"
   siemHost: string | null
   siemPort: number | null
-  siemUrl: string | null
+  /** The SIEM URL's origin; the path and query are never returned. */
+  siemOrigin: string | null
+  siemUrlHasPathOrQuery: boolean
   siemTokenSet: boolean
   siemCaCertPem: string | null
   siemClientCert: string | null
@@ -49,16 +56,41 @@ export interface AuditPolicyView {
 
 export const DEFAULT_VIEW: AuditPolicyView = {
   retentionMonths: MIN_RETENTION_MONTHS, hotMonths: MIN_HOT_MONTHS, siemEnabled: false, siemTransport: "HTTPS_JSON",
-  siemHost: null, siemPort: null, siemUrl: null, siemTokenSet: false, siemCaCertPem: null, siemClientCert: null, siemClientKeySet: false,
+  siemHost: null, siemPort: null, siemOrigin: null, siemUrlHasPathOrQuery: false, siemTokenSet: false, siemCaCertPem: null, siemClientCert: null, siemClientKeySet: false,
+}
+
+function urlView(url: string | null): { siemOrigin: string | null; siemUrlHasPathOrQuery: boolean } {
+  if (!url) return { siemOrigin: null, siemUrlHasPathOrQuery: false }
+  try {
+    const u = new URL(url)
+    return { siemOrigin: u.origin, siemUrlHasPathOrQuery: (u.pathname !== "/" && u.pathname !== "") || u.search !== "" || u.hash !== "" }
+  } catch {
+    return { siemOrigin: null, siemUrlHasPathOrQuery: false }
+  }
 }
 
 export function policyView(row: AuditPolicy | null): AuditPolicyView {
   if (!row) return DEFAULT_VIEW
   return {
     retentionMonths: row.retentionMonths, hotMonths: row.hotMonths, siemEnabled: row.siemEnabled, siemTransport: row.siemTransport,
-    siemHost: row.siemHost, siemPort: row.siemPort, siemUrl: row.siemUrl, siemTokenSet: row.siemSealedToken !== null,
+    siemHost: row.siemHost, siemPort: row.siemPort, ...urlView(row.siemUrl), siemTokenSet: row.siemSealedToken !== null,
     siemCaCertPem: row.siemCaCertPem, siemClientCert: row.siemClientCert, siemClientKeySet: row.siemSealedKey !== null,
   }
+}
+
+/** The whole policy as audit_policy_save takes it (secrets sealed; null clears a column). */
+export interface PolicyWrite {
+  retentionMonths: number
+  hotMonths: number
+  siemEnabled: boolean
+  siemTransport: "SYSLOG_TLS" | "HTTPS_JSON"
+  siemHost: string | null
+  siemPort: number | null
+  siemUrl: string | null
+  siemSealedToken: string | null
+  siemCaCertPem: string | null
+  siemClientCert: string | null
+  siemSealedKey: string | null
 }
 
 export class AuditPolicyError extends Error {
@@ -96,8 +128,8 @@ export async function buildPolicyWrite(
   input: AuditPolicyInput,
   current: AuditPolicy | null,
   resolve?: Resolver,
-): Promise<Prisma.AuditPolicyUncheckedUpdateInput> {
-  const cur = policyView(current)
+): Promise<PolicyWrite> {
+  const cur = { ...policyView(current), siemUrl: current?.siemUrl ?? null }
   const retentionMonths = input.retentionMonths === undefined ? cur.retentionMonths : int(input.retentionMonths, "retentionMonths", MIN_RETENTION_MONTHS, 600)
   const hotMonths = input.hotMonths === undefined ? cur.hotMonths : int(input.hotMonths, "hotMonths", MIN_HOT_MONTHS, 600)
   if (hotMonths > retentionMonths) throw new AuditPolicyError("hotMonths cannot exceed retentionMonths.")
@@ -125,7 +157,7 @@ export async function buildPolicyWrite(
     const dialled = transport === "SYSLOG_TLS" ? host! : new URL(url!).hostname
     await resolveSiemHost(dialled, resolve).catch((error: unknown) => {
       // The detail names an address; the admin gets the reason class only.
-      console.warn("[audit-policy] SIEM destination refused", { host: dialled, reason: error instanceof Error ? error.message : String(error) })
+      logger.warn("[audit-policy] SIEM destination refused", { host: dialled, reason: error instanceof Error ? error.message : String(error) })
       throw new AuditPolicyError("The SIEM host does not resolve to an address this deployment may dial.")
     })
   }
@@ -142,30 +174,22 @@ export async function buildPolicyWrite(
 
   return {
     retentionMonths, hotMonths, siemEnabled, siemTransport: transport, siemHost: host, siemPort: port, siemUrl: url,
-    siemSealedToken: sealedToken, siemCaCertPem: ca, siemClientCert: clientCert, siemSealedKey: sealedKey, updatedAt: new Date(),
+    siemSealedToken: sealedToken, siemCaCertPem: ca, siemClientCert: clientCert, siemSealedKey: sealedKey,
   }
 }
 
 /** The destination fields of a policy, secrets still sealed: what a stamped outbox entry (and the AuditPolicyRevision trigger) carries. */
 export type TargetSnapshot = Pick<AuditPolicy, "siemTransport" | "siemHost" | "siemPort" | "siemUrl" | "siemSealedToken" | "siemCaCertPem" | "siemClientCert" | "siemSealedKey">
 
-/** What the audit row of a policy change records: no secrets, no certificates, and a URL as origin only (its path or query may carry a key). */
-function auditView(row: AuditPolicy | null) {
-  const v = policyView(row)
-  return {
-    retentionMonths: v.retentionMonths, hotMonths: v.hotMonths, siemEnabled: v.siemEnabled, siemTransport: v.siemTransport,
-    siemHost: v.siemHost, siemPort: v.siemPort, siemOrigin: v.siemUrl ? new URL(v.siemUrl).origin : null,
-    siemTokenSet: v.siemTokenSet, siemClientKeySet: v.siemClientKeySet,
-  }
-}
-
 /**
- * Writes the policy and its audit row in one transaction. Changing or switching off
- * forwarding is itself an event: the database (trigger audit_policy_revision) stamps
- * everything still queued with the OLD destination, and the audit row recording the
- * change is queued for it too (so whoever redirects or disables the feed leaves a trace
- * where the bank's SOC looks, and the backlog is never lost). A lender that starts
- * forwarding, or moves it, first sends an anchor event (the chain position at that moment).
+ * Saves the policy through audit_policy_save, the only way it changes. In one transaction the
+ * database writes the policy, records the revision (trigger audit_policy_revision), stamps
+ * everything still queued with the OLD destination, writes the AUDIT_POLICY_UPDATED audit row
+ * itself and queues that row for the old destination (so whoever redirects or disables the feed
+ * leaves a trace where the bank's SOC looks, and the backlog is never lost); a lender that starts
+ * forwarding, or moves it, first sends an anchor event (the chain position at that moment). The
+ * current policy is read inside the transaction, under a per-lender lock, so two saves do not
+ * merge on a stale read.
  */
 export async function saveAuditPolicy(
   tenantId: string,
@@ -173,24 +197,13 @@ export async function saveAuditPolicy(
   input: AuditPolicyInput,
   opts: { ipAddress?: string; resolve?: Resolver } = {},
 ): Promise<AuditPolicyView> {
-  const current = await prisma.auditPolicy.findUnique({ where: { tenantId } })
-  const data = await buildPolicyWrite(input, current, opts.resolve)
   return prisma.$transaction(async (tx) => {
-    const row = await tx.auditPolicy.upsert({
-      where: { tenantId },
-      create: { ...(data as Prisma.AuditPolicyUncheckedCreateInput), tenantId },
-      update: data,
-    })
-    const auditId = `aud_${randomUUID().replaceAll("-", "")}`
-    await logAuditStrict({
-      id: auditId, tenantId, userId: actor.id, userEmail: actor.email ?? undefined, action: AuditAction.AUDIT_POLICY_UPDATED, entity: "AuditPolicy",
-      entityId: row.id, oldValue: auditView(current), newValue: auditView(row), ipAddress: opts.ipAddress,
-    }, tx)
-
-    // The AuditPolicy trigger recorded what the change left behind; this routes the row that records it.
-    await queuePolicyChange(tx, tenantId, auditId)
-    return policyView(row)
-  })
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`audit-policy:${tenantId}`}, 0))`
+    const current = await tx.auditPolicy.findUnique({ where: { tenantId } })
+    const data = await buildPolicyWrite(input, current, opts.resolve)
+    await savePolicy(tx, tenantId, { ...data }, actor, opts.ipAddress)
+    return policyView(await tx.auditPolicy.findUniqueOrThrow({ where: { tenantId } }))
+  }, { timeout: 20_000 })
 }
 
 /** The delivery target for a policy or a snapshot of one, secrets opened. Throws if a sealed value cannot be opened. */

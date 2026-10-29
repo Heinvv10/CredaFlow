@@ -7,8 +7,9 @@
 --    chainer (lib/audit/chainer.ts) appends one AuditChainLink per COMMITTED row,
 --    so a rolled-back transaction, an ON CONFLICT skip or a Serializable
 --    transaction never leaves or waits on a link. rowHash is an HMAC under a key
---    held outside the database (AUDIT_CHAIN_KEY), over content digests, so a
---    documented redaction (audit_log_redact) keeps the chain verifiable.
+--    held outside the database (AUDIT_CHAIN_KEY), over keyed content digests the
+--    worker computes, so a documented redaction (audit_log_redact) keeps the
+--    chain verifiable and the database never holds an unkeyed digest of personal data.
 -- 3. Links, checkpoints and redactions are insert-only. The outbox is the
 --    lender's SIEM queue, filled by the chainer.
 --
@@ -110,6 +111,21 @@ CREATE TABLE "AuditSiemOutbox" (
 );
 
 -- CreateTable
+CREATE TABLE "AuditChainRepair" (
+    "id" TEXT NOT NULL,
+    "chainKey" TEXT NOT NULL,
+    "tenantId" TEXT,
+    "seq" INTEGER NOT NULL,
+    "kind" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "operator" TEXT NOT NULL,
+    "hmac" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AuditChainRepair_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "AuditPolicyRevision" (
     "id" SERIAL NOT NULL,
     "tenantId" TEXT NOT NULL,
@@ -131,10 +147,14 @@ CREATE TABLE "AuditSiemDelivery" (
     "kind" TEXT NOT NULL,
     "seq" INTEGER,
     "destination" TEXT NOT NULL,
+    "ackId" TEXT,
     "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AuditSiemDelivery_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE INDEX "AuditChainRepair_chainKey_seq_idx" ON "AuditChainRepair"("chainKey", "seq");
 
 -- CreateIndex
 CREATE INDEX "AuditPolicyRevision_tenantId_changedAt_idx" ON "AuditPolicyRevision"("tenantId", "changedAt");
@@ -160,8 +180,8 @@ CREATE UNIQUE INDEX "AuditSiemOutbox_auditLogId_key" ON "AuditSiemOutbox"("audit
 -- CreateIndex
 CREATE INDEX "AuditSiemOutbox_sentAt_idx" ON "AuditSiemOutbox"("sentAt");
 
--- CreateIndex
-CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
+-- (The AuditLog ("tenantId", "createdAt") index is created CONCURRENTLY by the next-but-one
+-- migration, 20261029100050_audit_log_tenant_created_index, so a real book is not locked.)
 
 -- AddForeignKey
 ALTER TABLE "AuditPolicy" ADD CONSTRAINT "AuditPolicy_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -195,23 +215,6 @@ ALTER TABLE "AuditSiemOutbox" ADD CONSTRAINT "AuditSiemOutbox_kind" CHECK (
 CREATE INDEX "AuditSiemOutbox_pending_idx" ON "AuditSiemOutbox" ("tenantId", "id") WHERE "sentAt" IS NULL AND "deadAt" IS NULL;
 
 -- ── Hand-written: append-only ───────────────────────────────────────────────
-
--- The role that owns audit_log_redact(). A redaction is the only UPDATE AuditLog ever
--- sees, and the trigger below lets it through only when it runs AS this role (the
--- function is SECURITY DEFINER and owned by it): a session setting is not an
--- authority, a role is. The role cannot log in and the application's role must not
--- be a member of it (audit_grant_runtime refuses that).
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'audit_redactor') THEN
-    CREATE ROLE audit_redactor NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-  END IF;
-  -- ALTER FUNCTION ... OWNER TO needs the migrating role to be a member of the new owner.
-  IF NOT pg_has_role(current_user, 'audit_redactor', 'MEMBER') THEN
-    EXECUTE format('GRANT audit_redactor TO %I', current_user);
-  END IF;
-END;
-$$;
 
 -- AuditLog: no UPDATE, DELETE or TRUNCATE. The only change a row may ever see is
 -- audit_log_redact() (running as audit_redactor) setting userEmail, ipAddress,
@@ -249,6 +252,31 @@ FOR EACH ROW EXECUTE FUNCTION public.audit_log_append_only();
 CREATE TRIGGER "AuditLog_a_append_only_truncate" BEFORE TRUNCATE ON "AuditLog"
 FOR EACH STATEMENT EXECUTE FUNCTION public.audit_log_append_only();
 
+-- An audit row's time is the database's clock at the moment of insertion, whatever the caller
+-- sent: the chainer's high-water mark and the policy-change routing both rest on it, and a
+-- caller-chosen createdAt could hide a row behind the mark. (Historic rows are only ever
+-- imported behind the triggers, session_replication_role = replica, by an owner.)
+CREATE FUNCTION public.audit_log_created_at() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  NEW."createdAt" := clock_timestamp();
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER "AuditLog_created_at" BEFORE INSERT ON "AuditLog"
+FOR EACH ROW EXECUTE FUNCTION public.audit_log_created_at();
+
+-- A lender's AuditPolicy row is never deleted: stopping forwarding is an UPDATE (siemEnabled =
+-- false), which leaves a revision and routes the queued backlog. Deleting the row would hide both.
+CREATE FUNCTION public.audit_policy_no_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'AuditPolicy is never deleted: switch forwarding off instead';
+END;
+$$;
+CREATE TRIGGER "AuditPolicy_no_delete" BEFORE DELETE ON "AuditPolicy"
+FOR EACH ROW EXECUTE FUNCTION public.audit_policy_no_delete();
+CREATE TRIGGER "AuditPolicy_no_truncate" BEFORE TRUNCATE ON "AuditPolicy"
+FOR EACH STATEMENT EXECUTE FUNCTION public.audit_policy_no_delete();
+
 -- The evidence tables: no exception.
 CREATE FUNCTION public.audit_evidence_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -268,6 +296,10 @@ CREATE TRIGGER "AuditRedaction_append_only" BEFORE UPDATE OR DELETE ON "AuditRed
 FOR EACH ROW EXECUTE FUNCTION public.audit_evidence_append_only();
 CREATE TRIGGER "AuditRedaction_append_only_truncate" BEFORE TRUNCATE ON "AuditRedaction"
 FOR EACH STATEMENT EXECUTE FUNCTION public.audit_evidence_append_only();
+CREATE TRIGGER "AuditChainRepair_append_only" BEFORE UPDATE OR DELETE ON "AuditChainRepair"
+FOR EACH ROW EXECUTE FUNCTION public.audit_evidence_append_only();
+CREATE TRIGGER "AuditChainRepair_append_only_truncate" BEFORE TRUNCATE ON "AuditChainRepair"
+FOR EACH STATEMENT EXECUTE FUNCTION public.audit_evidence_append_only();
 CREATE TRIGGER "AuditPolicyRevision_append_only" BEFORE UPDATE OR DELETE ON "AuditPolicyRevision"
 FOR EACH ROW EXECUTE FUNCTION public.audit_evidence_append_only();
 CREATE TRIGGER "AuditPolicyRevision_append_only_truncate" BEFORE TRUNCATE ON "AuditPolicyRevision"
@@ -286,11 +318,16 @@ FOR EACH STATEMENT EXECUTE FUNCTION public.audit_evidence_append_only();
 -- callable by PUBLIC: grant EXECUTE only to the operator role that runs
 -- scripts/audit-redact.ts. The application's role never gets it.
 
-CREATE FUNCTION public.audit_log_redact(p_audit_log_id text, p_columns text[], p_reason text, p_operator text)
+-- p_digests: {"<column>": "<64 hex>"} for each redacted column, the keyed digest (HMAC under
+-- AUDIT_CHAIN_KEY) of the value being removed, computed by the operator tool
+-- (scripts/audit-redact.ts) which holds the key. The database never computes or returns an
+-- unkeyed digest of personal data; a wrong digest makes the row's link fail verification.
+CREATE FUNCTION public.audit_log_redact(p_audit_log_id text, p_columns text[], p_reason text, p_operator text, p_digests jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
   a "AuditLog";
   taken text[];
+  c text;
 BEGIN
   IF p_columns IS NULL OR cardinality(p_columns) = 0
      OR NOT (p_columns <@ ARRAY['userEmail', 'ipAddress', 'oldValue', 'newValue']) THEN
@@ -306,19 +343,22 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = '02000', MESSAGE = 'audit_log_redact: no such audit row';
   END IF;
-  SELECT COALESCE(array_agg(c), ARRAY[]::text[]) INTO taken
-  FROM "AuditRedaction" r, unnest(r."columns") AS c WHERE r."auditLogId" = p_audit_log_id;
+  SELECT COALESCE(array_agg(c2), ARRAY[]::text[]) INTO taken
+  FROM "AuditRedaction" r, unnest(r."columns") AS c2 WHERE r."auditLogId" = p_audit_log_id;
   IF taken && p_columns THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_log_redact: a requested column is already redacted';
   END IF;
+  FOREACH c IN ARRAY p_columns LOOP
+    IF p_digests IS NULL OR COALESCE(p_digests->>c, '') !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = format('audit_log_redact: a keyed digest (64 hex) is required for %s', c);
+    END IF;
+  END LOOP;
 
   INSERT INTO "AuditRedaction" ("id", "auditLogId", "tenantId", "columns", "userEmailDigest", "ipAddressDigest", "oldValueDigest", "newValueDigest", "reason", "operator")
   VALUES (
     'red_' || replace(gen_random_uuid()::text, '-', ''), a."id", a."tenantId", p_columns,
-    COALESCE(encode(sha256(convert_to(a."userEmail", 'UTF8')), 'hex'), '-'),
-    COALESCE(encode(sha256(convert_to(a."ipAddress", 'UTF8')), 'hex'), '-'),
-    COALESCE(encode(sha256(convert_to(a."oldValue"::text, 'UTF8')), 'hex'), '-'),
-    COALESCE(encode(sha256(convert_to(a."newValue"::text, 'UTF8')), 'hex'), '-'),
+    COALESCE(p_digests->>'userEmail', '-'), COALESCE(p_digests->>'ipAddress', '-'),
+    COALESCE(p_digests->>'oldValue', '-'), COALESCE(p_digests->>'newValue', '-'),
     btrim(p_reason), btrim(p_operator));
 
   UPDATE "AuditLog" SET
@@ -335,16 +375,7 @@ BEGIN
                        'databaseRole', session_user::text, 'rowAction', a."action"));
 END;
 $$;
-REVOKE ALL ON FUNCTION public.audit_log_redact(text, text[], text, text) FROM PUBLIC;
-
--- The function runs as audit_redactor, with exactly the privileges it needs and no more.
-GRANT CREATE ON SCHEMA public TO audit_redactor;
-ALTER FUNCTION public.audit_log_redact(text, text[], text, text) OWNER TO audit_redactor;
-REVOKE CREATE ON SCHEMA public FROM audit_redactor;
-GRANT USAGE ON SCHEMA public TO audit_redactor;
-GRANT SELECT, INSERT ON TABLE "AuditLog" TO audit_redactor;
-GRANT UPDATE ("userEmail", "ipAddress", "oldValue", "newValue") ON TABLE "AuditLog" TO audit_redactor;
-GRANT SELECT, INSERT ON TABLE "AuditRedaction" TO audit_redactor;
+REVOKE ALL ON FUNCTION public.audit_log_redact(text, text[], text, text, jsonb) FROM PUBLIC;
 
 -- ── Hand-written: row-level security ────────────────────────────────────────
 -- Same policy as the tenant-scoped models (20261014130000_tenant_rls). The
@@ -372,6 +403,10 @@ ALTER TABLE "AuditRedaction" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AuditRedaction" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "AuditRedaction" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
 
+ALTER TABLE "AuditChainRepair" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditChainRepair" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AuditChainRepair" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
 ALTER TABLE "AuditPolicyRevision" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AuditPolicyRevision" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "AuditPolicyRevision" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
@@ -394,22 +429,22 @@ CREATE POLICY "tenant_isolation" ON "AuditSiemDelivery" USING (public.cf_rls_unr
 -- evidence tables, FORCEd on the owner, do not hide rows from these functions.
 -- Not callable by PUBLIC: audit_grant_runtime() grants EXECUTE to the app role.
 
--- What a link hashes of an AuditLog row. A personal-data column a documented
--- redaction nulled hashes as the digest the redaction kept.
-CREATE FUNCTION public.audit_hashed_fields(a "AuditLog")
+-- What the worker hashes of an AuditLog row: the ids and time, and the raw personal-data
+-- columns (jsonb as canonical text), plus, per column, the keyed digest a documented
+-- redaction kept (non-NULL only where the column was redacted). The worker (the only holder
+-- of AUDIT_CHAIN_KEY) turns each column into a keyed digest; the database never hashes them.
+CREATE FUNCTION public.audit_hash_inputs(a "AuditLog")
 RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
-               "userEmailDigest" text, "ipAddressDigest" text, "oldValueDigest" text, "newValueDigest" text)
+               "userEmail" text, "ipAddress" text, "oldValueText" text, "newValueText" text,
+               "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
   SELECT a."id", a."tenantId", a."userId", a."action", a."entity", a."entityId",
     to_char(a."createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS'),
-    COALESCE((SELECT r."userEmailDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'userEmail' = ANY(r."columns") LIMIT 1),
-             encode(sha256(convert_to(a."userEmail", 'UTF8')), 'hex'), '-'),
-    COALESCE((SELECT r."ipAddressDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'ipAddress' = ANY(r."columns") LIMIT 1),
-             encode(sha256(convert_to(a."ipAddress", 'UTF8')), 'hex'), '-'),
-    COALESCE((SELECT r."oldValueDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'oldValue' = ANY(r."columns") LIMIT 1),
-             encode(sha256(convert_to(a."oldValue"::text, 'UTF8')), 'hex'), '-'),
-    COALESCE((SELECT r."newValueDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'newValue' = ANY(r."columns") LIMIT 1),
-             encode(sha256(convert_to(a."newValue"::text, 'UTF8')), 'hex'), '-')
+    a."userEmail", a."ipAddress", a."oldValue"::text, a."newValue"::text,
+    (SELECT r."userEmailDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'userEmail' = ANY(r."columns") LIMIT 1),
+    (SELECT r."ipAddressDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'ipAddress' = ANY(r."columns") LIMIT 1),
+    (SELECT r."oldValueDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'oldValue' = ANY(r."columns") LIMIT 1),
+    (SELECT r."newValueDigest" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND 'newValue' = ANY(r."columns") LIMIT 1)
 $$;
 
 -- The rows of one chain: p_key is a tenant id, '' the rows with no tenant.
@@ -423,33 +458,63 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   SELECT l."seq", l."rowHash" FROM "AuditChainLink" l WHERE l."chainKey" = p_key ORDER BY l."seq" DESC LIMIT 1
 $$;
 
--- Chains that have committed rows with no link: any created since p_since, and
--- every chain that has no link at all yet (it is chained from its first row).
-CREATE FUNCTION public.audit_chain_candidates(p_since timestamp) RETURNS SETOF text
+-- The newest createdAt among a chain's last 1000 linked rows: its high-water mark. Rows made
+-- after the mark are scanned for cheaply; a row that committed long after it was made (a long
+-- transaction) can sit behind it, which the periodic deep sweep (no floor) finds.
+CREATE FUNCTION public.audit_chain_floor(p_key text) RETURNS timestamp
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
-  SELECT DISTINCT COALESCE(a."tenantId", '') FROM "AuditLog" a
-  WHERE a."createdAt" >= p_since AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id")
-  UNION
-  SELECT t."id" FROM "Tenant" t
-  WHERE NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."chainKey" = t."id")
-    AND EXISTS (SELECT 1 FROM "AuditLog" a WHERE a."tenantId" = t."id")
-  UNION
-  SELECT '' WHERE NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."chainKey" = '')
-    AND EXISTS (SELECT 1 FROM "AuditLog" a WHERE a."tenantId" IS NULL)
+  SELECT max(a."createdAt") FROM (
+    SELECT l."auditLogId" FROM "AuditChainLink" l WHERE l."chainKey" = p_key ORDER BY l."seq" DESC LIMIT 1000
+  ) x JOIN "AuditLog" a ON a."id" = x."auditLogId"
 $$;
 
--- The oldest committed rows of a chain that have no link (p_since NULL: however old).
-CREATE FUNCTION public.audit_chain_unlinked(p_key text, p_since timestamp, p_limit int)
+-- Chains with committed rows that have no link. A chain with no link yet is chained from its
+-- first row (the backfill). Otherwise only rows after the chain's high-water mark minus a
+-- margin are looked for, unless p_deep, which looks at every row (the sweep for late commits).
+CREATE FUNCTION public.audit_chain_candidates(p_deep boolean, p_margin_seconds int) RETURNS SETOF text
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+DECLARE
+  k text;
+  hw timestamp;
+BEGIN
+  FOR k IN SELECT t."id" FROM "Tenant" t UNION SELECT '' LOOP
+    hw := public.audit_chain_floor(k);
+    IF EXISTS (
+      SELECT 1 FROM "AuditLog" a
+      WHERE public.audit_in_chain(k, a."tenantId")
+        AND (p_deep OR hw IS NULL OR a."createdAt" >= hw - make_interval(secs => p_margin_seconds))
+        AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id")
+    ) THEN
+      RETURN NEXT k;
+    END IF;
+  END LOOP;
+END;
+$$;
+
+-- The oldest committed rows of a chain that have no link, with what the worker hashes of each.
+-- Not deep: only rows after the chain's high-water mark minus the margin (all rows while the
+-- chain has no link yet, which is the backfill; it then continues from the mark, not from the
+-- start, so a long backfill is not quadratic).
+CREATE FUNCTION public.audit_chain_unlinked(p_key text, p_deep boolean, p_margin_seconds int, p_limit int)
 RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
-               "userEmailDigest" text, "ipAddressDigest" text, "oldValueDigest" text, "newValueDigest" text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+               "userEmail" text, "ipAddress" text, "oldValueText" text, "newValueText" text,
+               "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+DECLARE
+  floor_at timestamp;
+BEGIN
+  IF NOT p_deep THEN
+    floor_at := public.audit_chain_floor(p_key) - make_interval(secs => p_margin_seconds);
+  END IF;
+  RETURN QUERY
   SELECT h.* FROM (
     SELECT a FROM "AuditLog" a
-    WHERE public.audit_in_chain(p_key, a."tenantId") AND (p_since IS NULL OR a."createdAt" >= p_since)
+    WHERE public.audit_in_chain(p_key, a."tenantId") AND (floor_at IS NULL OR a."createdAt" >= floor_at)
       AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id")
     ORDER BY a."createdAt", a."id" LIMIT p_limit
-  ) x, LATERAL public.audit_hashed_fields(x.a) h
-  ORDER BY h."createdAt", h."auditLogId"
+  ) x, LATERAL public.audit_hash_inputs(x.a) h
+  ORDER BY h."createdAt", h."auditLogId";
+END;
 $$;
 
 -- Appends links to a chain. p_links: [{"seq", "auditLogId", "prevHash", "rowHash"}...] in
@@ -548,31 +613,73 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   SELECT l."rowHash" FROM "AuditChainLink" l WHERE l."chainKey" = p_key AND l."seq" = p_seq
 $$;
 
--- A page of a chain's links after p_after, each with the content hashes of the
--- AuditLog row it names (present = false when that row is gone).
+-- A page of a chain's links after p_after, each with what the worker hashes of the AuditLog
+-- row it names (present = false when that row is gone).
 CREATE FUNCTION public.audit_verify_links(p_key text, p_after int, p_limit int)
 RETURNS TABLE ("seq" int, "linkAuditLogId" text, "prevHash" text, "rowHash" text, "present" boolean,
                "auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
-               "userEmailDigest" text, "ipAddressDigest" text, "oldValueDigest" text, "newValueDigest" text)
+               "userEmail" text, "ipAddress" text, "oldValueText" text, "newValueText" text,
+               "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
   SELECT p."seq", p."auditLogId", p."prevHash", p."rowHash", (p."row")."id" IS NOT NULL,
          h."auditLogId", h."tenantId", h."userId", h."action", h."entity", h."entityId", h."createdAt",
-         h."userEmailDigest", h."ipAddressDigest", h."oldValueDigest", h."newValueDigest"
+         h."userEmail", h."ipAddress", h."oldValueText", h."newValueText",
+         h."userEmailRed", h."ipAddressRed", h."oldValueRed", h."newValueRed"
   FROM (
     SELECT l."seq", l."auditLogId", l."prevHash", l."rowHash", a AS "row"
     FROM "AuditChainLink" l LEFT JOIN "AuditLog" a ON a."id" = l."auditLogId"
     WHERE l."chainKey" = p_key AND l."seq" > p_after ORDER BY l."seq" LIMIT p_limit
-  ) p LEFT JOIN LATERAL public.audit_hashed_fields(p."row") h ON (p."row")."id" IS NOT NULL
+  ) p LEFT JOIN LATERAL public.audit_hash_inputs(p."row") h ON (p."row")."id" IS NOT NULL
   ORDER BY p."seq"
 $$;
 
--- The id of one row of the chain older than p_cutoff (and not older than p_floor,
--- when given) that has no link, or NULL.
-CREATE FUNCTION public.audit_unchained_old(p_key text, p_cutoff timestamp, p_floor timestamp) RETURNS text
+-- The id of one row of the chain older than p_cutoff that has no link, or NULL. No lower bound:
+-- a break in the evidence must be found wherever it is.
+CREATE FUNCTION public.audit_unchained_old(p_key text, p_cutoff timestamp) RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
   SELECT a."id" FROM "AuditLog" a
-  WHERE public.audit_in_chain(p_key, a."tenantId") AND a."createdAt" < p_cutoff AND (p_floor IS NULL OR a."createdAt" >= p_floor)
+  WHERE public.audit_in_chain(p_key, a."tenantId") AND a."createdAt" < p_cutoff
     AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id") LIMIT 1
+$$;
+
+-- What the web login may see of a chain: how far it is chained and the latest checkpoint
+-- (no hashes).
+CREATE FUNCTION public.audit_chain_status(p_key text) RETURNS TABLE ("headSeq" int, "checkpointSeq" int, "checkpointAt" timestamp)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+  SELECT COALESCE((SELECT max(l."seq") FROM "AuditChainLink" l WHERE l."chainKey" = p_key), 0),
+         (SELECT c."seq" FROM "AuditChainCheckpoint" c WHERE c."chainKey" = p_key ORDER BY c."seq" DESC LIMIT 1),
+         (SELECT c."createdAt" FROM "AuditChainCheckpoint" c WHERE c."chainKey" = p_key ORDER BY c."seq" DESC LIMIT 1)
+$$;
+
+-- The operator-accepted breaks of a chain (see audit_chain_accept_break).
+CREATE FUNCTION public.audit_chain_repairs(p_key text) RETURNS TABLE ("id" text, "seq" int, "kind" text, "reason" text, "operator" text, "hmac" text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+  SELECT r."id", r."seq", r."kind", r."reason", r."operator", r."hmac" FROM "AuditChainRepair" r WHERE r."chainKey" = p_key ORDER BY r."seq", r."createdAt"
+$$;
+
+-- An operator accepts a break the verifier reported at link p_seq (a link lost to a restore, a
+-- documented redaction made wrongly...) so verification continues past it. The accepting is signed
+-- by the caller (HMAC under AUDIT_CHAIN_KEY over chain, seq, kind, reason and operator), which the
+-- verifier checks: a repair without the key is ignored. It writes its own audit row. Operator
+-- role only: granted to nobody by default.
+CREATE FUNCTION public.audit_chain_accept_break(p_key text, p_seq int, p_kind text, p_reason text, p_operator text, p_hmac text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+BEGIN
+  IF p_reason IS NULL OR length(btrim(p_reason)) < 10 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_chain_accept_break: a reason of at least 10 characters is required';
+  END IF;
+  IF p_operator IS NULL OR btrim(p_operator) = '' OR p_kind IS NULL OR btrim(p_kind) = '' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_chain_accept_break: the operator and the kind are required';
+  END IF;
+  IF p_hmac IS NULL OR p_hmac !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_chain_accept_break: the signature is missing';
+  END IF;
+  INSERT INTO "AuditChainRepair" ("id", "chainKey", "tenantId", "seq", "kind", "reason", "operator", "hmac")
+  VALUES ('rp_' || replace(gen_random_uuid()::text, '-', ''), p_key, NULLIF(p_key, ''), p_seq, btrim(p_kind), btrim(p_reason), btrim(p_operator), p_hmac);
+  INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "newValue")
+  VALUES ('aud_' || replace(gen_random_uuid()::text, '-', ''), NULLIF(p_key, ''), 'AUDIT_CHAIN_BREAK_ACCEPTED', 'AuditLog',
+          jsonb_build_object('seq', p_seq, 'kind', btrim(p_kind), 'operator', btrim(p_operator), 'databaseRole', session_user::text));
+END;
 $$;
 
 -- How many rows newer than p_cutoff the chainer has not linked yet (counted up to p_cap).
@@ -626,16 +733,16 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   FROM "AuditLog" a JOIN "AuditChainLink" l ON l."auditLogId" = a."id" WHERE a."id" = ANY(p_ids)
 $$;
 
--- p_state: 'sent' | 'retry' (attempts + 1, next try at p_at) | 'dead' (attempts + 1, given up).
--- Marks rows of ONE lender after a delivery attempt. Only that lender's still-pending
--- rows can be marked (anything else raises), and only in a way a delivery attempt can end:
---   'sent'  : the SIEM acknowledged the batch. Stamped with the database clock, and a
---             receipt per row goes to AuditSiemDelivery (append-only) naming the
---             destination, so a forged 'sent' leaves no matching receipt at the SIEM.
---   'retry' : attempts + 1, next try at p_at (not more than two hours ahead).
---   'dead'  : attempts + 1 and given up: only after three attempts, or when the audit
---             row / checkpoint the entry names is really gone (p_error 'row_missing').
-CREATE FUNCTION public.audit_outbox_mark(p_tenant text, p_ids int[], p_state text, p_error text, p_at timestamp, p_destination text) RETURNS int
+-- Marks entries of ONE lender after a delivery attempt. Only that lender's still-pending entries
+-- whose backoff has elapsed can be marked (anything else raises), and only in a way a delivery
+-- attempt can end:
+--   'sent'  : the SIEM acknowledged the batch. Stamped with the database clock; a receipt per
+--             entry goes to AuditSiemDelivery (append-only) naming the destination and the
+--             SIEM's own acknowledgement id when its answer carried one.
+--   'retry' : attempts + 1, next try at p_at, which must be in the future (and within two hours).
+--   'dead'  : attempts + 1 and given up: only after three attempts, or when the AuditLog row
+--             (or checkpoint) the entry names is really gone (p_error 'row_missing').
+CREATE FUNCTION public.audit_outbox_mark(p_tenant text, p_ids int[], p_state text, p_error text, p_at timestamp, p_destination text, p_ack text DEFAULT NULL) RETURNS int
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
   n int;
@@ -649,25 +756,31 @@ BEGIN
   IF matched <> cardinality(p_ids) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_mark: not all rows are this lender''s pending rows';
   END IF;
+  IF EXISTS (SELECT 1 FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids) AND o."nextAttemptAt" > now()) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_mark: a row is still backing off';
+  END IF;
 
   IF p_state = 'sent' THEN
     IF p_destination IS NULL OR btrim(p_destination) = '' THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: a delivery names its destination';
     END IF;
-    INSERT INTO "AuditSiemDelivery" ("outboxId", "tenantId", "kind", "seq", "destination")
-    SELECT o."id", o."tenantId", o."kind", o."seq", left(p_destination, 300) FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids);
+    INSERT INTO "AuditSiemDelivery" ("outboxId", "tenantId", "kind", "seq", "destination", "ackId")
+    SELECT o."id", o."tenantId", o."kind", o."seq", left(p_destination, 300), left(p_ack, 200) FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids);
     UPDATE "AuditSiemOutbox" SET "sentAt" = now(), "lastError" = NULL WHERE "id" = ANY(p_ids);
   ELSIF p_state = 'retry' THEN
-    IF p_at > now() + interval '2 hours' THEN
-      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: the retry is too far ahead';
+    IF p_at IS NULL OR p_at <= now() OR p_at > now() + interval '2 hours' THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: a retry is scheduled in the future, within two hours';
     END IF;
     UPDATE "AuditSiemOutbox" SET "attempts" = "attempts" + 1, "nextAttemptAt" = p_at, "lastError" = left(p_error, 200) WHERE "id" = ANY(p_ids);
   ELSE
+    IF p_error IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: giving a row up needs a reason';
+    END IF;
     IF EXISTS (
       SELECT 1 FROM "AuditSiemOutbox" o
       WHERE o."id" = ANY(p_ids) AND o."attempts" + 1 < 3
         AND NOT (p_error = 'row_missing' AND (
-          (o."kind" = 'EVENT' AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = o."auditLogId"))
+          (o."kind" = 'EVENT' AND NOT EXISTS (SELECT 1 FROM "AuditLog" a WHERE a."id" = o."auditLogId"))
           OR (o."kind" = 'CHECKPOINT' AND NOT EXISTS (SELECT 1 FROM "AuditChainCheckpoint" c WHERE c."id" = o."checkpointId"))))
     ) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_mark: a row is not given up before three attempts';
@@ -679,38 +792,72 @@ BEGIN
 END;
 $$;
 
--- When a lender changes where its audit trail goes, the destination it leaves is read from
--- the COMMITTED AuditPolicy change (audit_policy_revision, below), never from the caller:
--- the call names only the audit row recording the change. It queues that row for the old
--- destination and, if forwarding starts at a new one, an anchor (the chain position at the
--- change). With no policy change in this transaction it does nothing.
-CREATE FUNCTION public.audit_outbox_policy_change(p_tenant text, p_audit_log_id text) RETURNS int
+-- The only way a lender's AuditPolicy changes: the web login has no DML on the table and calls
+-- this. In one transaction it writes the policy, lets the AuditPolicy trigger record the
+-- revision and stamp the queued backlog with the destination being left, inserts the
+-- AUDIT_POLICY_UPDATED audit row ITSELF (so no caller can change a policy without that row, or
+-- file one without the change), queues that row for the OLD destination and, if forwarding
+-- starts at a new one, an anchor (the chain position at the change). The audit row records the
+-- policy as an origin only, never a path or query (it may carry a key) or a secret.
+-- p_data keys: retentionMonths, hotMonths, siemEnabled, siemTransport, siemHost, siemPort, siemUrl,
+-- siemSealedToken, siemCaCertPem, siemClientCert, siemSealedKey (a JSON null clears one).
+-- Returns the policy id.
+CREATE FUNCTION public.audit_policy_save(p_tenant text, p_data jsonb, p_actor_id text, p_actor_email text, p_ip text) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
+  old "AuditPolicy";
+  cur "AuditPolicy";
+  had boolean;
+  audit_id text := 'aud_' || replace(gen_random_uuid()::text, '-', '');
   rev "AuditPolicyRevision";
-  n int := 0;
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "Tenant" t WHERE t."id" = p_tenant) THEN
+    RAISE EXCEPTION USING ERRCODE = '23503', MESSAGE = 'audit_policy_save: no such lender';
+  END IF;
+  SELECT * INTO old FROM "AuditPolicy" p WHERE p."tenantId" = p_tenant FOR UPDATE;
+  had := FOUND;
+
+  INSERT INTO "AuditPolicy" ("id", "tenantId", "retentionMonths", "hotMonths", "siemEnabled", "siemTransport", "siemHost", "siemPort", "siemUrl",
+                             "siemSealedToken", "siemCaCertPem", "siemClientCert", "siemSealedKey", "updatedAt")
+  VALUES ('cap_' || replace(gen_random_uuid()::text, '-', ''), p_tenant,
+          (p_data->>'retentionMonths')::int, (p_data->>'hotMonths')::int, (p_data->>'siemEnabled')::boolean,
+          (p_data->>'siemTransport')::"AuditSiemTransport", p_data->>'siemHost', (p_data->>'siemPort')::int, p_data->>'siemUrl',
+          p_data->>'siemSealedToken', p_data->>'siemCaCertPem', p_data->>'siemClientCert', p_data->>'siemSealedKey', now())
+  ON CONFLICT ("tenantId") DO UPDATE SET
+    "retentionMonths" = EXCLUDED."retentionMonths", "hotMonths" = EXCLUDED."hotMonths", "siemEnabled" = EXCLUDED."siemEnabled",
+    "siemTransport" = EXCLUDED."siemTransport", "siemHost" = EXCLUDED."siemHost", "siemPort" = EXCLUDED."siemPort", "siemUrl" = EXCLUDED."siemUrl",
+    "siemSealedToken" = EXCLUDED."siemSealedToken", "siemCaCertPem" = EXCLUDED."siemCaCertPem", "siemClientCert" = EXCLUDED."siemClientCert",
+    "siemSealedKey" = EXCLUDED."siemSealedKey", "updatedAt" = now()
+  RETURNING * INTO cur;
+
+  INSERT INTO "AuditLog" ("id", "tenantId", "userId", "userEmail", "action", "entity", "entityId", "oldValue", "newValue", "ipAddress")
+  VALUES (audit_id, p_tenant, p_actor_id, p_actor_email, 'AUDIT_POLICY_UPDATED', 'AuditPolicy', cur."id",
+          CASE WHEN had THEN public.audit_policy_view(old) ELSE NULL END, public.audit_policy_view(cur), p_ip);
+
   SELECT * INTO rev FROM "AuditPolicyRevision" r WHERE r."tenantId" = p_tenant AND r."txid" = txid_current() ORDER BY r."id" DESC LIMIT 1;
-  IF NOT FOUND THEN
-    RETURN 0;
+  IF FOUND THEN
+    IF rev."oldEnabled" THEN
+      INSERT INTO "AuditSiemOutbox" ("tenantId", "kind", "auditLogId", "targetSnapshot") VALUES (p_tenant, 'EVENT', audit_id, rev."oldSnapshot")
+      ON CONFLICT ("auditLogId") DO NOTHING;
+    END IF;
+    IF rev."newEnabled" AND rev."rerouted" THEN
+      INSERT INTO "AuditSiemOutbox" ("tenantId", "kind", "seq")
+      VALUES (p_tenant, 'ANCHOR', COALESCE((SELECT h."seq" FROM public.audit_chain_head(p_tenant) h), 0));
+    END IF;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM "AuditLog" a WHERE a."id" = p_audit_log_id AND a."tenantId" = p_tenant AND a."action" = 'AUDIT_POLICY_UPDATED') THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_policy_change: not this lender''s policy-change audit row';
-  END IF;
-  IF rev."oldEnabled" THEN
-    INSERT INTO "AuditSiemOutbox" ("tenantId", "kind", "auditLogId", "targetSnapshot") VALUES (p_tenant, 'EVENT', p_audit_log_id, rev."oldSnapshot")
-    ON CONFLICT ("auditLogId") DO NOTHING;
-    n := n + 1;
-  END IF;
-  IF rev."newEnabled" AND rev."rerouted" AND NOT EXISTS (
-    SELECT 1 FROM "AuditSiemOutbox" o WHERE o."tenantId" = p_tenant AND o."kind" = 'ANCHOR' AND o."createdAt" >= rev."changedAt" AND o."sentAt" IS NULL
-  ) THEN
-    INSERT INTO "AuditSiemOutbox" ("tenantId", "kind", "seq")
-    VALUES (p_tenant, 'ANCHOR', COALESCE((SELECT h."seq" FROM public.audit_chain_head(p_tenant) h), 0));
-    n := n + 1;
-  END IF;
-  RETURN n;
+  RETURN cur."id";
 END;
+$$;
+
+-- What the audit row of a policy change records: no secret, no certificate, and a URL as its
+-- origin only.
+CREATE FUNCTION public.audit_policy_view(p "AuditPolicy") RETURNS jsonb
+LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$
+  SELECT jsonb_build_object(
+    'retentionMonths', p."retentionMonths", 'hotMonths', p."hotMonths", 'siemEnabled', p."siemEnabled", 'siemTransport', p."siemTransport"::text,
+    'siemHost', p."siemHost", 'siemPort', p."siemPort", 'siemOrigin', substring(p."siemUrl" from '^(https://[^/?#]+)'),
+    'siemUrlHasPathOrQuery', COALESCE(p."siemUrl" ~ '^https://[^/?#]+[/?#]', false),
+    'siemTokenSet', p."siemSealedToken" IS NOT NULL, 'siemClientKeySet', p."siemSealedKey" IS NOT NULL)
 $$;
 
 -- AuditPolicy trigger: records what a change to the delivery settings left behind and, when
@@ -740,8 +887,8 @@ BEGIN
       'siemTransport', OLD."siemTransport"::text, 'siemHost', OLD."siemHost", 'siemPort', OLD."siemPort", 'siemUrl', OLD."siemUrl",
       'siemSealedToken', OLD."siemSealedToken", 'siemCaCertPem', OLD."siemCaCertPem", 'siemClientCert', OLD."siemClientCert", 'siemSealedKey', OLD."siemSealedKey")
     ELSE '{}'::jsonb END;
-  INSERT INTO "AuditPolicyRevision" ("tenantId", "txid", "oldEnabled", "newEnabled", "rerouted", "oldSnapshot")
-  VALUES (NEW."tenantId", txid_current(), old_enabled, NEW."siemEnabled", moved, snap);
+  INSERT INTO "AuditPolicyRevision" ("tenantId", "txid", "oldEnabled", "newEnabled", "rerouted", "oldSnapshot", "changedAt")
+  VALUES (NEW."tenantId", txid_current(), old_enabled, NEW."siemEnabled", moved, snap, clock_timestamp());
   IF old_enabled AND moved THEN
     UPDATE "AuditSiemOutbox" SET "targetSnapshot" = snap
     WHERE "tenantId" = NEW."tenantId" AND "sentAt" IS NULL AND "deadAt" IS NULL AND "targetSnapshot" IS NULL;
@@ -753,9 +900,10 @@ CREATE TRIGGER "AuditPolicy_revision" AFTER INSERT OR UPDATE ON "AuditPolicy"
 FOR EACH ROW EXECUTE FUNCTION public.audit_policy_revision();
 
 -- Forwarding is off for the lender: what is still queued for the current destination is
--- dropped, and the pruning is itself an audit row (with the count). Refuses while the
--- lender forwards. (A backlog from before a switch-off was stamped by the policy trigger
--- and is not touched here.)
+-- dropped, and the pruning is itself an audit row (with the count). Refuses while the lender
+-- forwards, and when the policy row is gone while its history says forwarding was on (the row is
+-- never deleted; if it is, that is not a switch-off). (A backlog from before a switch-off was
+-- stamped by the policy trigger and is not touched here.)
 CREATE FUNCTION public.audit_outbox_prune_unsent(p_tenant text) RETURNS int
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
@@ -763,6 +911,10 @@ DECLARE
 BEGIN
   IF EXISTS (SELECT 1 FROM "AuditPolicy" p WHERE p."tenantId" = p_tenant AND p."siemEnabled") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_prune_unsent: the lender is forwarding';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM "AuditPolicy" p WHERE p."tenantId" = p_tenant)
+     AND (SELECT r."newEnabled" FROM "AuditPolicyRevision" r WHERE r."tenantId" = p_tenant ORDER BY r."id" DESC LIMIT 1) IS TRUE THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_prune_unsent: the policy row is gone while its history says forwarding was on';
   END IF;
   DELETE FROM "AuditSiemOutbox" WHERE "tenantId" = p_tenant AND "sentAt" IS NULL AND "deadAt" IS NULL AND "targetSnapshot" IS NULL;
   GET DIAGNOSTICS n = ROW_COUNT;
@@ -791,29 +943,61 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   SELECT o."createdAt" FROM "AuditSiemOutbox" o WHERE o."sentAt" IS NULL AND o."deadAt" IS NULL ORDER BY o."id" LIMIT 1
 $$;
 
--- ── Hand-written: privileges ────────────────────────────────────────────────
--- Run by the owner role once the application's login exists (after migrate
--- deploy, and again after any GRANT ... ON ALL TABLES that role is given):
---   SELECT audit_grant_runtime('credaflow_app');                -- one login for everything
---   SELECT audit_grant_runtime('credaflow_web', false);         -- web pods: no outbox
---   SELECT audit_grant_delivery('credaflow_worker');            -- the SIEM delivery worker
--- A role ends with INSERT and SELECT on "AuditLog" and EXECUTE on the functions of its
--- kind, and nothing on the evidence tables, the outbox or audit_log_redact(). Neither
--- may be a superuser, BYPASSRLS, an owner of a table, or a MEMBER of a role that owns
--- an audit table or audit_log_redact().
+-- ── SIEM delivery lease ──
+-- One deliverer per lender at a time, across processes, with no connection or transaction held
+-- while it talks to the SIEM (a pooled client cannot keep a session lock): a lease row that
+-- expires by itself, so a crashed deliverer does not block a lender for long.
+CREATE TABLE "AuditSiemLease" (
+    "tenantId" TEXT NOT NULL,
+    "holder" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
 
-DO $$
+    CONSTRAINT "AuditSiemLease_pkey" PRIMARY KEY ("tenantId")
+);
+ALTER TABLE "AuditSiemLease" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditSiemLease" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AuditSiemLease" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+CREATE FUNCTION public.audit_outbox_lease(p_tenant text, p_holder text, p_seconds int) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
-  fn text;
+  got text;
 BEGIN
-  FOR fn IN
-    SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname LIKE 'audit\_%' AND p.proname NOT IN ('audit_log_append_only', 'audit_evidence_append_only')
-  LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', fn);
-  END LOOP;
+  IF p_seconds < 1 OR p_seconds > 3600 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_lease: a lease is 1 to 3600 seconds';
+  END IF;
+  INSERT INTO "AuditSiemLease" ("tenantId", "holder", "expiresAt") VALUES (p_tenant, p_holder, now() + make_interval(secs => p_seconds))
+  ON CONFLICT ("tenantId") DO UPDATE SET "holder" = EXCLUDED."holder", "expiresAt" = EXCLUDED."expiresAt"
+  WHERE "AuditSiemLease"."holder" = p_holder OR "AuditSiemLease"."expiresAt" <= now()
+  RETURNING "holder" INTO got;
+  RETURN got IS NOT NULL;
 END;
 $$;
+
+CREATE FUNCTION public.audit_outbox_release(p_tenant text, p_holder text) RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+  DELETE FROM "AuditSiemLease" WHERE "tenantId" = p_tenant AND "holder" = p_holder
+$$;
+
+-- The lender's AuditPolicy, read past row-level security.
+CREATE FUNCTION public.audit_delivery_policy(p_tenant text) RETURNS SETOF "AuditPolicy"
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+  SELECT * FROM "AuditPolicy" p WHERE p."tenantId" = p_tenant
+$$;
+
+-- ── Hand-written: privileges ────────────────────────────────────────────────
+-- Three logins (docs/ARCHITECTURE.md): the OWNER migrates; the WEB login serves requests; the
+-- WORKER login runs the chainer, the verifier and the SIEM delivery. Run by the owner once a
+-- login exists (after migrate deploy, and again after any GRANT ... ON ALL TABLES it is given):
+--   SELECT audit_grant_web('credaflow_web');
+--   SELECT audit_grant_worker('credaflow_worker');
+--   SELECT audit_grant_runtime('credaflow_app');   -- ONE login for both: single-process stacks
+-- Each ends with INSERT and SELECT on "AuditLog", SELECT on "AuditPolicy" and EXECUTE on the
+-- functions of its kind, and nothing on the evidence tables, the outbox, the sequences behind
+-- them, or audit_log_redact() / audit_chain_accept_break(). The WEB login can neither chain, nor
+-- sign a checkpoint, nor touch the outbox: it can call audit_policy_save and read a chain's status.
+-- A login may not be a superuser, BYPASSRLS, CREATEROLE, CREATEDB, hold CREATE on the schema, own
+-- a table, or be a MEMBER of a role that owns an audit table or audit_log_redact().
 
 -- Refuses a role that could undo the audit protections.
 CREATE FUNCTION public.audit_check_login_role(p_role text) RETURNS void
@@ -824,8 +1008,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_role) THEN
     RAISE EXCEPTION USING ERRCODE = '42704', MESSAGE = format('audit: no role %s', p_role);
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_role AND (rolsuper OR rolbypassrls)) THEN
-    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: the role must not be a superuser or BYPASSRLS';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_role AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb)) THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: the role must not be a superuser, BYPASSRLS, CREATEROLE or CREATEDB';
   END IF;
   FOR owner_role IN
     SELECT DISTINCT t.tableowner FROM pg_tables t WHERE t.schemaname = 'public' AND t.tablename LIKE 'Audit%'
@@ -837,6 +1021,9 @@ BEGIN
   END LOOP;
   IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tableowner = p_role) THEN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: the role owns tables; an owner can disable their triggers';
+  END IF;
+  IF has_schema_privilege(p_role, 'public', 'CREATE') THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: the role must not hold CREATE on schema public (REVOKE CREATE ON SCHEMA public FROM PUBLIC)';
   END IF;
 END;
 $$;
@@ -852,36 +1039,87 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.audit_grant_runtime(p_role text, p_with_delivery boolean DEFAULT true) RETURNS void
+-- The common part: check the role, take back everything on the audit tables and the sequences
+-- behind them, give the schema, INSERT/SELECT on the log and SELECT on the policy.
+CREATE FUNCTION public.audit_grant_base(p_role text) RETURNS void
 LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   PERFORM public.audit_check_login_role(p_role);
-  EXECUTE format('REVOKE ALL ON TABLE "AuditLog", "AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox", "AuditPolicyRevision", "AuditSiemDelivery" FROM %I', p_role);
-  IF p_with_delivery THEN
-    PERFORM public.audit_grant_delivery(p_role);
-  END IF;
+  EXECUTE format('REVOKE ALL ON TABLE "AuditLog", "AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox", "AuditPolicy", "AuditPolicyRevision", "AuditSiemDelivery", "AuditChainRepair", "AuditSiemLease" FROM %I', p_role);
+  EXECUTE format('REVOKE ALL ON SEQUENCE "AuditSiemOutbox_id_seq", "AuditPolicyRevision_id_seq", "AuditSiemDelivery_id_seq" FROM %I', p_role);
+  EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', p_role);
   EXECUTE format('GRANT INSERT, SELECT ON TABLE "AuditLog" TO %I', p_role);
-  PERFORM public.audit_grant_functions(p_role, ARRAY[
-    'audit_chain_head', 'audit_chain_candidates', 'audit_chain_unlinked', 'audit_chain_append', 'audit_checkpoint_write',
-    'audit_checkpoints', 'audit_checkpoint_get', 'audit_link_hash_at', 'audit_verify_links', 'audit_unchained_old',
-    'audit_unchained_pending', 'audit_outbox_policy_change', 'audit_hashed_fields', 'audit_in_chain']);
+  EXECUTE format('GRANT SELECT ON TABLE "AuditPolicy" TO %I', p_role);
 END;
 $$;
 
--- The SIEM delivery worker: the outbox functions, and nothing a web process needs. The queue
--- holds sealed destination credentials, so web pods do not get it.
-CREATE FUNCTION public.audit_grant_delivery(p_role text) RETURNS void
+CREATE FUNCTION public.audit_grant_web(p_role text) RETURNS void
 LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
-  PERFORM public.audit_check_login_role(p_role);
-  EXECUTE format('REVOKE ALL ON TABLE "AuditLog", "AuditChainLink", "AuditChainCheckpoint", "AuditRedaction", "AuditSiemOutbox", "AuditPolicyRevision", "AuditSiemDelivery" FROM %I', p_role);
-  EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', p_role);
-  EXECUTE format('GRANT SELECT ON TABLE "AuditPolicy" TO %I', p_role);
-  PERFORM public.audit_grant_functions(p_role, ARRAY[
-    'audit_outbox_due_tenants', 'audit_outbox_snapshot_rows', 'audit_outbox_stream_rows', 'audit_outbox_sources',
-    'audit_outbox_mark', 'audit_outbox_prune_unsent', 'audit_outbox_purge_sent', 'audit_outbox_oldest_pending',
-    'audit_checkpoint_get', 'audit_link_hash_at']);
+  PERFORM public.audit_grant_base(p_role);
+  PERFORM public.audit_grant_functions(p_role, ARRAY['audit_policy_save', 'audit_chain_status']);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.audit_check_login_role(text), public.audit_grant_functions(text, text[]),
-  public.audit_grant_runtime(text, boolean), public.audit_grant_delivery(text) FROM PUBLIC;
+
+CREATE FUNCTION public.audit_grant_worker(p_role text) RETURNS void
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  PERFORM public.audit_grant_base(p_role);
+  PERFORM public.audit_grant_functions(p_role, ARRAY[
+    'audit_chain_head', 'audit_chain_candidates', 'audit_chain_unlinked', 'audit_chain_append', 'audit_checkpoint_write',
+    'audit_checkpoints', 'audit_checkpoint_get', 'audit_link_hash_at', 'audit_verify_links', 'audit_unchained_old',
+    'audit_unchained_pending', 'audit_chain_repairs',
+    'audit_outbox_due_tenants', 'audit_outbox_snapshot_rows', 'audit_outbox_stream_rows', 'audit_outbox_sources',
+    'audit_outbox_mark', 'audit_outbox_prune_unsent', 'audit_outbox_purge_sent', 'audit_outbox_oldest_pending',
+    'audit_outbox_lease', 'audit_outbox_release', 'audit_delivery_policy']);
+END;
+$$;
+
+-- One login for both (a single-process stack: the app also runs the crons). Weaker: the web
+-- process then holds the worker's functions. Separate logins are the supported production shape.
+CREATE FUNCTION public.audit_grant_runtime(p_role text) RETURNS void
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  PERFORM public.audit_grant_worker(p_role);
+  PERFORM public.audit_grant_functions(p_role, ARRAY['audit_policy_save', 'audit_chain_status']);
+END;
+$$;
+
+-- ── Hand-written: re-asserting the protections an ownership/ACL-free restore loses ──
+-- The role that owns audit_log_redact(). A redaction is the only UPDATE AuditLog ever sees, and
+-- the trigger lets it through only when it runs AS this role (the function is SECURITY DEFINER and
+-- owned by it): a session setting is not an authority, a role is. It cannot log in and a login
+-- must not be a member of it (the grants refuse that).
+--
+-- pg_restore --no-owner --no-acl (the backup, drill and demo restore paths) and a restore into a
+-- NEW cluster (no such role yet) lose the function's owner, its privileges, and the REVOKE FROM
+-- PUBLIC on every audit function. Run by the owner after any restore (the restore scripts do), and
+-- here at the end of this migration: idempotent.
+CREATE FUNCTION public.audit_reassert_protections() RETURNS void
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+DECLARE
+  fn text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'audit_redactor') THEN
+    CREATE ROLE audit_redactor NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  END IF;
+  -- ALTER FUNCTION ... OWNER TO needs the acting role to be a member of the new owner.
+  IF NOT pg_has_role(current_user, 'audit_redactor', 'MEMBER') THEN
+    EXECUTE format('GRANT audit_redactor TO %I', current_user);
+  END IF;
+  GRANT CREATE ON SCHEMA public TO audit_redactor;
+  ALTER FUNCTION public.audit_log_redact(text, text[], text, text, jsonb) OWNER TO audit_redactor;
+  REVOKE CREATE ON SCHEMA public FROM audit_redactor;
+  GRANT USAGE ON SCHEMA public TO audit_redactor;
+  GRANT SELECT, INSERT ON TABLE "AuditLog" TO audit_redactor;
+  GRANT UPDATE ("userEmail", "ipAddress", "oldValue", "newValue") ON TABLE "AuditLog" TO audit_redactor;
+  GRANT SELECT, INSERT ON TABLE "AuditRedaction" TO audit_redactor;
+  FOR fn IN
+    SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname LIKE 'audit\_%' AND p.proname NOT IN ('audit_log_append_only', 'audit_evidence_append_only')
+  LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', fn);
+  END LOOP;
+END;
+$$;
+SELECT public.audit_reassert_protections();

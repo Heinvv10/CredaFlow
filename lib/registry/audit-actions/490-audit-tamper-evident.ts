@@ -9,6 +9,8 @@ export default defineAuditActions({
   AUDIT_CHAIN_BROKEN: "AUDIT_CHAIN_BROKEN",
   // A documented removal of personal data from an audit row (audit_log_redact, written by the function itself).
   AUDIT_ROW_REDACTED: "AUDIT_ROW_REDACTED",
+  // An operator accepted a break the verifier reported (audit_chain_accept_break, written by the function with the operator and kind).
+  AUDIT_CHAIN_BREAK_ACCEPTED: "AUDIT_CHAIN_BREAK_ACCEPTED",
   // The unsent SIEM queue of a lender that stopped forwarding was dropped (written by audit_outbox_prune_unsent, with the count).
   AUDIT_SIEM_QUEUE_PRUNED: "AUDIT_SIEM_QUEUE_PRUNED",
   // A lender's test event to its SIEM (the result class only), by whom and whether it got through.

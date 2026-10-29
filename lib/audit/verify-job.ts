@@ -11,6 +11,7 @@ import type { PrismaClient } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { AuditAction, logAudit } from "@/lib/audit"
+import { logger } from "@/lib/observability/logger"
 import { PLATFORM_CHAIN } from "./chain-hash"
 import { verifyAuditChains, type ChainVerification, type VerifyMode } from "./chain-verify"
 import { runChainer } from "./chainer"
@@ -29,11 +30,11 @@ export async function runAuditChainVerification(opts: { db?: PrismaClient; now?:
   const db = (opts.db ?? prisma) as unknown as PrismaClient
   const now = opts.now ?? new Date()
   return withoutTenantScope(async () => {
-    await runChainer({ db, now, deep: true, budgetMs: 10 * 60_000, only: opts.only })
+    await runChainer({ db, deep: true, budgetMs: 10 * 60_000, only: opts.only })
     const result = await verifyAuditChains(db, { mode: opts.mode ?? modeFor(now), now, chainKeys: opts.only })
 
     for (const b of result.breaks) {
-      console.error("[audit-chain] BROKEN", b)
+      logger.error("[audit-chain] BROKEN", { ...b })
       await logAudit({
         tenantId: b.chainKey || undefined,
         action: AuditAction.AUDIT_CHAIN_BROKEN,

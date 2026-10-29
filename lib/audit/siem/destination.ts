@@ -14,10 +14,17 @@ import type { LookupAddress } from "node:dns"
 import { embeddedIpv4, isBlockedAddress, SsrfError, systemResolver, type Resolver } from "@/lib/lender-api/webhooks/ssrf"
 
 const never = new BlockList()
-for (const [net, prefix] of [["0.0.0.0", 8], ["127.0.0.0", 8], ["169.254.0.0", 16], ["224.0.0.0", 4], ["240.0.0.0", 4]] as const) {
+for (const [net, prefix] of [
+  ["0.0.0.0", 8], ["127.0.0.0", 8], ["169.254.0.0", 16], ["224.0.0.0", 4], ["240.0.0.0", 4],
+  // Other clouds' metadata services, which sit inside ranges the private opt-in admits (CGNAT, IETF protocol assignments).
+  ["100.100.100.200", 32], ["192.0.0.192", 32],
+] as const) {
   never.addSubnet(net, prefix, "ipv4")
 }
-for (const [net, prefix] of [["::", 128], ["::1", 128], ["fe80::", 10], ["ff00::", 8]] as const) never.addSubnet(net, prefix, "ipv6")
+for (const [net, prefix] of [
+  ["::", 128], ["::1", 128], ["fe80::", 10], ["ff00::", 8],
+  ["fd00:ec2::254", 128], // the AWS instance metadata service over IPv6, inside the ULA range the opt-in admits
+] as const) never.addSubnet(net, prefix, "ipv6")
 
 export function allowPrivateSiem(): boolean {
   return process.env.AUDIT_SIEM_ALLOW_PRIVATE === "1"

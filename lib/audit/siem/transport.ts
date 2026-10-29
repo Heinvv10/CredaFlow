@@ -14,6 +14,7 @@
  * the text names the addresses the host resolved to, and it is shown to a lender's
  * admin and stored in the outbox. The detail goes to the server log.
  */
+import { logger } from "@/lib/observability/logger"
 import https from "node:https"
 import tls from "node:tls"
 import type { Resolver } from "@/lib/lender-api/webhooks/ssrf"
@@ -37,6 +38,8 @@ export type ErrorClass =
   | "rejected_by_siem" | "unauthorised" | "siem_unavailable" | "send_failed"
 
 export interface SendResult {
+  /** The SIEM's own acknowledgement id (a request id header), when its answer carried one. */
+  ackId?: string
   ok: boolean
   error: ErrorClass | null
   /** The SIEM rejected this content for good (a 4xx that retrying will not fix): split the batch, then give up on the row. */
@@ -58,7 +61,7 @@ export function classify(error: unknown): ErrorClass {
   const code = (error as NodeJS.ErrnoException | undefined)?.code ?? ""
   const name = error instanceof Error ? error.name : ""
   const text = error instanceof Error ? error.message : String(error)
-  console.error("[audit-siem] transport error", { name, code, text })
+  logger.error("[audit-siem] transport error", { name, code, text })
   if (name === "SsrfError") return "destination_refused"
   if (/^(ENOTFOUND|EAI_AGAIN|EAI_FAIL)$/.test(code) || /does not resolve/.test(text)) return "dns_failed"
   if (/timed out/.test(text) || code === "ETIMEDOUT") return "timeout"
@@ -104,19 +107,26 @@ export async function sendSyslogTls(t: SiemTarget, events: SiemEvent[], deps: Tr
   const payload = Buffer.concat(events.map((e) => frameOctetCounted(toSyslog5424(e, hostname))))
   return new Promise<SendResult>((resolve) => {
     let settled = false
+    let socket: tls.TLSSocket | undefined
     const done = (r: SendResult) => {
       if (settled) return
       settled = true
       clearTimeout(deadline)
-      socket.destroy()
+      socket?.destroy()
       resolve(r)
     }
-    const socket = tls.connect({
-      host: t.host!, port: t.port!, ...(isIP(t.host!) ? {} : { servername: t.host! }),
-      lookup: siemLookup(deps.resolve, deps.allowPrivate) as unknown as typeof import("node:dns").lookup,
-      ...tlsMaterial(t),
-    })
     const deadline = setTimeout(() => done(fail(`timed out after ${timeoutMs} ms`)), timeoutMs)
+    try {
+      socket = tls.connect({
+        host: t.host!, port: t.port!, ...(isIP(t.host!) ? {} : { servername: t.host! }),
+        lookup: siemLookup(deps.resolve, deps.allowPrivate) as unknown as typeof import("node:dns").lookup,
+        ...tlsMaterial(t),
+      })
+    } catch (error) {
+      // A malformed certificate or key throws here, before any socket exists: classify it like any other TLS fault.
+      done(fail(error))
+      return
+    }
     let secured = false
     socket.once("secureConnect", () => { secured = true; socket.end(payload) })
     // Delivered only when the connection closes cleanly after our data: an error or reset before that is a failure.
@@ -145,7 +155,10 @@ export async function sendHttpsJson(t: SiemTarget, events: SiemEvent[], deps: Tr
       clearTimeout(deadline)
       resolve(r)
     }
-    const req = https.request(target, {
+    let req: ReturnType<typeof https.request> | undefined
+    const deadline = setTimeout(() => { req?.destroy(); done(fail(`timed out after ${timeoutMs} ms`)) }, timeoutMs)
+    try {
+      req = https.request(target, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -160,11 +173,17 @@ export async function sendHttpsJson(t: SiemTarget, events: SiemEvent[], deps: Tr
       let kept = 0
       res.on("data", (chunk: Buffer) => { kept += chunk.length; if (kept > RESPONSE_BYTES_KEPT) res.destroy() })
       res.on("close", () => {
-        done(classifyStatus(res.statusCode ?? 0))
+        const result = classifyStatus(res.statusCode ?? 0)
+        const ack = res.headers["x-request-id"] ?? res.headers["x-amzn-requestid"]
+        done(result.ok && typeof ack === "string" && ack.length > 0 ? { ...result, ackId: ack.slice(0, 200) } : result)
       })
       res.on("error", (error) => done(fail(error)))
     })
-    const deadline = setTimeout(() => { req.destroy(); done(fail(`timed out after ${timeoutMs} ms`)) }, timeoutMs)
+    } catch (error) {
+      // A malformed certificate or key throws here: classify it like any other TLS fault.
+      done(fail(error))
+      return
+    }
     req.on("error", (error) => done(fail(error)))
     req.end(body)
   })
