@@ -84,7 +84,7 @@ suite("PO funding (real database)", () => {
   it("lender API: refuses a PO-funding draft without the purchase order", async () => {
     await freshClient()
     const outcome = await createDraftApplication(
-      { keyId: "k", tenantId, scopes: ["applications:write"], createdById: officer },
+      { kind: "api_key", keyId: "k", tenantId, scopes: ["applications:write"], createdById: officer },
       { clientId, productId, appliedAmountCents: 1_000_000, appliedTermDays: 30, purpose: "Supply school uniforms", loanPurposeCategory: "BUSINESS" },
     )
     expect(outcome.status).toBe(422)

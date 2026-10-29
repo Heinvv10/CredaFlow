@@ -1,5 +1,5 @@
 import { listOf, schemas } from "@/lib/lender-api/openapi-schemas"
-import { API_SCOPE_LABELS, type ApiScope } from "@/lib/lender-api/scopes"
+import { API_SCOPE_LABELS, API_SCOPES, type ApiScope } from "@/lib/lender-api/scopes"
 import { WEBHOOK_EVENTS } from "@/lib/lender-api/webhooks/events"
 import { MAX_PAGE_SIZE } from "@/lib/lender-api/pagination"
 
@@ -19,15 +19,15 @@ const pageParams = [
   query("cursor", "The nextCursor of the previous page."),
 ]
 const common = {
-  "401": error("No API key, or the key is invalid, revoked or expired."),
-  "403": error("The key lacks the scope, or the lender is not active."),
-  "429": error("Rate limited (per key and per caller address). See Retry-After."),
+  "401": error("No credential, or the API key or access token is invalid, revoked or expired."),
+  "403": error("The key or token lacks the scope, or the lender is not active."),
+  "429": error("Rate limited (per key or OAuth client, and per caller address). See Retry-After."),
 }
 
 function op(scope: ApiScope, summary: string, ok: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return {
     summary,
-    security: [{ apiKey: [scope] }],
+    security: [{ apiKey: [scope] }, { oauth2: [scope] }],
     "x-required-scope": scope,
     ...extra,
     responses: { ...ok, ...common },
@@ -42,7 +42,8 @@ export function buildOpenApiDocument(serverUrl?: string) {
       version: "1.0.0",
       description: [
         "Read access to a lender's clients, applications, loans, schedules and payments, and creation of draft applications.",
-        "Authenticate with `Authorization: Bearer <API key>`. A key belongs to one lender: it only ever sees that lender's records, whatever host or header is sent.",
+        "Authenticate with `Authorization: Bearer <credential>`, where the credential is either an API key or an OAuth 2.0 access token. A key or client belongs to one lender: it only ever sees that lender's records, whatever host or header is sent.",
+        "OAuth 2.0: register a client under Settings (client id and secret, scopes as for API keys), then `POST /api/auth/oauth/token` with `grant_type=client_credentials` and the client credentials (HTTP Basic, or `client_id` and `client_secret` form fields). The reply is a bearer access token valid for 15 minutes; ask for a subset of the client's scopes with `scope`. A client can be pinned to a TLS client certificate (mutual TLS): the lender's ingress verifies it and the token is refused without it.",
         "Money is integer cents (ZAR); times are ISO 8601 UTC. Lists are newest first with cursor pagination.",
         "Recording payments is not offered: money writes are a separate design.",
         "Webhooks are signed: `CredaFlow-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of \"<t>.<raw body>\" keyed by the endpoint secret>`. Reject a timestamp more than 5 minutes off, compare in constant time, and dedupe on the event id.",
@@ -55,6 +56,20 @@ export function buildOpenApiDocument(serverUrl?: string) {
           type: "http",
           scheme: "bearer",
           description: `Scopes: ${Object.entries(API_SCOPE_LABELS).map(([s, l]) => `\`${s}\` ${l}`).join("; ")}.`,
+        },
+        oauth2: {
+          type: "oauth2",
+          description: "OAuth 2.0 client credentials (RFC 6749 section 4.4). Access tokens last 15 minutes. The token endpoint is on the same host as this API.",
+          flows: {
+            clientCredentials: {
+              tokenUrl: "/api/auth/oauth/token",
+              scopes: Object.fromEntries(API_SCOPES.map((scope) => [scope, API_SCOPE_LABELS[scope]])),
+            },
+          },
+        },
+        mutualTLS: {
+          type: "mutualTLS",
+          description: "Optional per OAuth client: the client is pinned to a TLS client certificate (subject DN and/or SHA-256 fingerprint) that the lender's ingress verifies. Required on the token request and on every API call made with that client's tokens.",
         },
       },
       schemas,

@@ -1,0 +1,57 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# lib/sso — staff single sign-on (OIDC and SAML 2.0)
+<!-- summary: staff SSO; the provider adds to the TOTP rules, never skips them -->
+
+Runbook and setup: `docs/SSO-AND-OAUTH.md`. Tests need no network: the OIDC
+suites run a provider on loopback (`test-support/mock-oidc-idp.ts`), the SAML
+suites sign real XML with a throwaway key made by the `openssl` CLI.
+
+- **Flow.** `flow.ts` (start, OIDC callback, SAML ACS) verifies the provider's
+  answer, maps it to a staff user (`identity.ts`) and leaves the browser with a
+  single-use ticket in an HttpOnly cookie. NextAuth's `sso` credentials provider
+  (`provider.ts`, registered in `lib/auth.ts`) trades it in `authorize.ts`. The
+  ticket is spent only after every check passed; a code prompt does not spend it.
+- **The provider can only add.** `authorize.ts` re-applies `principalRefusal`,
+  the working-hours / IP rules and TOTP exactly as a password sign-in. There is
+  NO provider-MFA exception (CLAUDE.md, "Staff TOTP 2FA"): an enrolled user always
+  gives a code, an unenrolled one is held at enrolment when the lender requires
+  2FA. `mfa.ts` only records what the provider reported, in the audit row. Do not
+  add a path that skips this.
+- **Order in `authorizeSso`:** every refusal first, then spend the ticket, then
+  apply the mapped role (`ticket.role`, audited) and audit the sign-in. A refused
+  or retried sign-in never changes a role. The session carries `ssoExp` (the
+  lender's `sessionHours`); the jwt callback ends it after that.
+- **Never SUPER_ADMIN.** The provider cannot create, map or change a SUPER_ADMIN
+  or operator user (`groups.ts`, `identity.ts`, CHECKs on `SsoConnection`), and a
+  SUPER_ADMIN cannot sign in through it at all (`identity.ts`, again in
+  `authorize.ts`): password plus CredaFlow TOTP only. Just-in-time creation is off by default.
+- **Email is not identity.** `identity.ts` needs `email_verified === true` (a
+  missing claim is a no, unless `allowUnverifiedEmail`), links the email to a
+  staff user only at the first sign-in and binds the provider subject
+  (`SsoIdentity`: iss+sub / IdP entity id+NameID). After that the subject decides;
+  another subject with that email is refused. Changing issuer, entity id or
+  protocol clears the links (`connection.ts`). SSO cannot be enabled without
+  `allowedEmailDomains` (CHECK + form).
+- **Password sign-in off** (`password-policy.ts`, used in `lib/auth.ts`): only a
+  SUPER_ADMIN with a valid TOTP code still gets in (break-glass), audited.
+- **SAML binding.** `beginSaml` chooses the AuthnRequest id and puts it in the
+  signed flow state; `completeSaml` requires the assertion's `InResponseTo` to be
+  exactly it (node-saml only checks it is some request we issued). The subject is
+  a persistent NameID or the lender's immutable attribute, never an email-format,
+  transient or empty NameID.
+- **Replay.** SAML request and assertion ids and tickets live in `SsoCacheEntry`
+  (`cache.ts`), shared by replicas; node-saml runs `validateInResponseTo: always`
+  and `rejectReplayedAssertions`. The flow cookie ties the answer to the
+  browser; it is `SameSite=None` on https because the SAML POST is cross-site
+  (and `/api/auth/sso/saml/acs` is exempt from the same-origin write gate).
+- **OIDC.** openid-client does not verify the ID-token signature when it comes
+  from the token endpoint; `oidc.ts` does, against the provider's JWKS. Issuer
+  requests are https and public-address only (`SSO_ALLOW_PRIVATE_IDP`).
+- Secrets: the OIDC client secret is sealed with `SSO_SECRET_KEY`; never put it,
+  a ticket, an assertion or a certificate body in an audit row or a log.
+- Admin: `app/api/settings/sso` (SUPER_ADMIN, TOTP-verified: `admin-guard.ts`),
+  one audited write path (`connection.ts`).

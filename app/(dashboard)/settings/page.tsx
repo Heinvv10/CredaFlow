@@ -190,6 +190,14 @@ export default async function SettingsPage() {
             </div>
             <span className="text-[var(--cf-brand)] text-xl">→</span>
           </Link>
+          <Link href="/settings/sso"
+            className="flex items-center justify-between p-5 rounded-xl shadow-sm border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] hover:border-[var(--cf-brand)] hover:bg-[var(--cf-surface-hover)] transition-colors group col-span-1">
+            <div>
+              <p className="font-semibold text-[var(--cf-text)] group-hover:text-[var(--cf-brand)]">🪪 Single sign-on</p>
+              <p className="text-xs text-[var(--cf-text-muted)] mt-0.5">Sign staff in with the lender&apos;s identity provider, OIDC or SAML (SUPER_ADMIN, 2FA)</p>
+            </div>
+            <span className="text-[var(--cf-brand)] text-xl">→</span>
+          </Link>
           <Link href="/settings/insurers"
             className="flex items-center justify-between p-5 bg-white rounded-xl shadow-sm border border-[#4F46E5]/20 hover:border-[#4F46E5] hover:bg-amber-50 transition-colors group col-span-1">
             <div>
