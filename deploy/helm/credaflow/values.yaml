@@ -127,10 +127,13 @@ worker:
 # and migrations".
 migrate:
   enabled: true
-  # Only this key of an existing Secret reaches the Job (not the whole of existingSecrets).
+  # The OWNER login: it owns the schema and the audit functions. The pods do NOT use it
+  # (their DATABASE_URL is appRole.name's), so a compromised pod cannot switch an audit
+  # trigger off. Only this key of an existing Secret reaches the Job (not the whole of
+  # existingSecrets).
   databaseUrlSecret:
     name: credaflow-app
-    key: DATABASE_URL
+    key: MIGRATE_DATABASE_URL
   image:
     repository: credaflow-migrate
     tag: ""
@@ -139,6 +142,27 @@ migrate:
     limits: { cpu: "1", memory: 512Mi }
   backoffLimit: 1
   activeDeadlineSeconds: 900
+
+# The application's database login (docs/ARCHITECTURE.md, "Tamper-evident audit"). A
+# Job after the migration Job, before any pod changes, runs files/app-role.sql as the owner login above:
+# the role gets the table privileges and loses the audit evidence tables (INSERT and
+# SELECT on "AuditLog" only; the links, checkpoints and SIEM outbox are reachable only
+# through the audit functions). The pods' DATABASE_URL (existingSecrets) is this role's.
+appRole:
+  enabled: true
+  name: credaflow_app
+  # Set to have the Job create the role (or reset its password); unset, the role must exist.
+  passwordSecret:
+    name: ""
+    key: APP_DB_PASSWORD
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
 
 service:
   type: ClusterIP

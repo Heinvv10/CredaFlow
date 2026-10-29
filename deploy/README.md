@@ -103,7 +103,14 @@ helm upgrade --install credaflow deploy/helm/credaflow -n credaflow \
 
 The chart never creates Secrets: name existing ones in `existingSecrets` (External Secrets, Sealed
 Secrets, Vault agent...). The Secret must exist before the migration hook runs; the hook receives only
-`DATABASE_URL` (`migrate.databaseUrlSecret`), the cron Jobs only `CRON_SECRET` (`externalCrons.secret`).
+`MIGRATE_DATABASE_URL` (`migrate.databaseUrlSecret`), the cron Jobs only `CRON_SECRET` (`externalCrons.secret`).
+
+**Two database logins.** `MIGRATE_DATABASE_URL` is the owner login (it owns the schema and runs migrations and
+the role Job); the pods' `DATABASE_URL` is a different login, `appRole.name`, that owns nothing. The
+`app-role` Job runs `files/app-role.sql` right after the migration Job, before any pod changes: the role gets the table privileges
+and loses the audit evidence tables, so a compromised pod can insert and read `AuditLog` but cannot rewrite
+it, switch a trigger off or touch the hash chain, checkpoints or SIEM queue. Also set `AUDIT_CHAIN_KEY`
+(32+ characters, not in the database). `/api/health` warns while the pods' role owns or can write those tables.
 
 A separate client-portal host is a second release of the same chart, in the same namespace:
 

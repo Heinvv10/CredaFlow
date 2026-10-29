@@ -6,6 +6,11 @@
 # The explicit project name keeps Docker from merging this stack with the
 # main one (which defaults to the working-directory name) — without it,
 # `docker compose down` against either stack would tear down a shared network.
+#
+# DATABASE_URL (in .env.staging) is the APPLICATION's login: a role that owns no table
+# and holds INSERT/SELECT on "AuditLog" only, set up by deploy/helm/credaflow/files/app-role.sql
+# after `prisma migrate deploy` run as the owner login (docs/ARCHITECTURE.md, "Tamper-evident
+# audit"). AUDIT_CHAIN_KEY (32+ characters, never in the database) is set there too.
 name: credaflow-staging
 
 services:

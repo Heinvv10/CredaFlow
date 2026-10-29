@@ -212,6 +212,21 @@ tools_run() {
     docker run --rm -e DATABASE_URL -e "LENDER_OPERATOR=$(id -un)@$(hostname)" --network "${PROJECT}_default" "${opts[@]}" "$image" "$@"
 }
 
+# ensure_app_role — the application's database login: created or refreshed and given its
+# privileges by deploy/helm/credaflow/files/app-role.sql, run as the owner (POSTGRES_USER)
+# through the db container, with the password on stdin rather than argv. Run after every
+# `prisma migrate deploy`: the role ends with INSERT/SELECT on "AuditLog" and nothing on the
+# audit evidence tables (docs/ARCHITECTURE.md, "Tamper-evident audit").
+ensure_app_role() {
+  local user pass sql="$LENDER_SCRIPTS/../../deploy/helm/credaflow/files/app-role.sql"
+  user="$(env_get "$ENV_FILE" APP_DB_USER)"; pass="$(env_get "$ENV_FILE" APP_DB_PASSWORD)"
+  [ -n "$user" ] && [ -n "$pass" ] || die "APP_DB_USER and APP_DB_PASSWORD must be set in $ENV_FILE (provision-lender.sh adds them)"
+  [[ "$user" =~ ^[a-z_][a-z0-9_]*$ && "$pass" =~ ^[A-Za-z0-9]+$ ]] || die "APP_DB_USER must be a lowercase identifier and APP_DB_PASSWORD alphanumeric in $ENV_FILE"
+  [ -f "$sql" ] || die "missing $sql"
+  { printf '\\set app_role %s\n\\set app_password %s\n' "'$user'" "'$pass'"; cat "$sql"; } \
+    | lcompose exec -T db psql -v ON_ERROR_STOP=1 -q -U "$PGUSER" -d "$PGDB" -f - >/dev/null
+}
+
 # The rest, split out to keep each file small: images and builds, then health and
 # the rendered-config gate. Sourced here, so every script that sources lib.sh has them.
 # shellcheck source=scripts/lender/lib-images.sh

@@ -253,12 +253,25 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
 - **Verification.** `npm run audit:verify`, `/api/admin/audit/verify` and the
   daily `audit-chain-verify` cron walk it and name the first broken link. A daily
   signed checkpoint per chain bounds the walk and is sent to the lender's SIEM.
-- **Deploy requirement.** The migration role owns the tables; the application
-  connects as a different, non-superuser role with INSERT and SELECT on
-  `AuditLog` and the chain tables (and UPDATE only on `AuditSiemOutbox`). A role
-  that owns a table can switch its triggers off. `/api/health` and the boot log
-  warn when the runtime role owns them, and when `AUDIT_CHAIN_KEY` is unset.
-  The redaction function is granted only to an operator role.
+- **Two database logins (deploy requirement).** The owner login (`POSTGRES_USER`,
+  Helm `migrate.databaseUrlSecret`) owns the schema, runs migrations and owns the
+  SECURITY DEFINER audit functions. The application connects as another login that
+  owns nothing, is neither superuser nor `BYPASSRLS`, and after
+  `SELECT audit_grant_runtime('<role>')` holds INSERT and SELECT on `AuditLog` and
+  EXECUTE on the audit functions, and **no privilege** on `AuditChainLink`,
+  `AuditChainCheckpoint`, `AuditRedaction` or `AuditSiemOutbox`. The chainer, the
+  verifier, checkpoints and SIEM delivery reach those tables only through
+  `audit_chain_append`, `audit_checkpoint_write`, `audit_verify_links`,
+  `audit_outbox_*` (`lib/audit/store.ts`), each of which checks what it is given
+  (a link must continue its chain, a checkpoint must name a real link). The role
+  cannot `DISABLE TRIGGER`, set `session_replication_role`, drop or replace a
+  function, or call `audit_log_redact`; `lib/audit/runtime-role.integration.test.ts`
+  proves each. `deploy/helm/credaflow/files/app-role.sql` creates the login and
+  grants it (re-run after every migration: compose `db-roles`, `scripts/lender`
+  `ensure_app_role`, the chart's `app-role` Job). `/api/health` and the boot log
+  warn when the runtime role owns an audit table, is a superuser, can write the
+  evidence tables, or `AUDIT_CHAIN_KEY` is unset. The demo-sim stacks run as a
+  superuser on purpose and show that warning.
 - **SIEM.** A lender's `AuditPolicy` turns forwarding on; the chainer queues each
   chained row in `AuditSiemOutbox` and the `audit-siem-deliver` cron ships it as
   RFC 5424 syslog over TLS (CEF body) or an HTTPS JSON batch, in order, at least

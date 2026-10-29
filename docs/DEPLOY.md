@@ -126,6 +126,20 @@ Provisioning validates everything it writes into `.env`: the two URLs must be
 `--admin-email` and `--image` plain. A rerun reports a changed value as `kept existing …` and
 applies it only with `--update-settings`.
 
+## Two database logins and the audit chain key
+
+`POSTGRES_USER` is the owner: it owns the schema, runs `prisma migrate deploy` (and every tools-image
+command) and owns the SECURITY DEFINER audit functions. The two apps connect as `APP_DB_USER`
+(`credaflow_app`), a login that owns nothing and, after `ensure_app_role`, holds INSERT and SELECT on
+`AuditLog` and nothing on the hash-chain, checkpoint, redaction or SIEM-queue tables, so a compromised
+app cannot rewrite the audit trail or switch its triggers off (docs/ARCHITECTURE.md, "Tamper-evident
+audit"). `provision-lender.sh` generates `APP_DB_PASSWORD` (alphanumeric) and `AUDIT_CHAIN_KEY` into the
+lender's `.env` and runs `ensure_app_role`; `deploy.sh` re-runs it after every migration (a new table has
+no privileges for the login until then) and before switching the app. A lender provisioned earlier gets
+both keys by re-running `provision-lender.sh` (it only adds what is missing). `deploy.sh` refuses an
+`AUDIT_CHAIN_KEY` shorter than 32 characters. Back the key up with the other secrets: without it the
+earlier part of the chain can no longer be verified.
+
 ## Deploy
 
 ```bash

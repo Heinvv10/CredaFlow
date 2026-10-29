@@ -119,6 +119,13 @@ fi
 add POSTGRES_USER credaflow
 add POSTGRES_DB credaflow
 add POSTGRES_PASSWORD "$(openssl rand -hex 24)"
+# The application connects as this login, not as POSTGRES_USER (the owner, which migrates):
+# it owns nothing and cannot touch the audit evidence tables (ensure_app_role in lib.sh).
+add APP_DB_USER credaflow_app
+add APP_DB_PASSWORD "$(openssl rand -hex 24)"
+# Keys the audit hash chain (lib/audit/chain-hash.ts). Never stored in the database; losing it
+# makes earlier links unverifiable, so it is backed up with the other secrets.
+add AUDIT_CHAIN_KEY "$(openssl rand -hex 32)"
 for key in NEXTAUTH_SECRET CRON_SECRET INTERNAL_API_SECRET ADMIN_SECRET UNSUB_TOKEN_SECRET WEBSITE_CHAT_SECRET WHATSAPP_CLOUD_VERIFY_TOKEN; do
   add "$key" "$(openssl rand -hex 32)"
 done
@@ -169,6 +176,7 @@ lcompose up -d db >/dev/null
 wait_db
 note "migrate deploy"
 tools_run "$tools" -e NODE_ENV=production -- npx prisma migrate deploy
+ensure_app_role
 
 # 4. Tenant: validated and dry-run first, then created (a rerun reports "unchanged").
 tenant_cli=(npx tsx scripts/lender/bootstrap-tenant-cli.ts --config /config/lender.json)

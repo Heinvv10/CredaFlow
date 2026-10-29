@@ -15,6 +15,11 @@
 #
 # Env: .env.demo-sim + $DEMO_DATA_DIR/secrets.env (untracked; see
 # scripts/demo/sim/README.md).
+#
+# This synthetic stack runs the app as the database superuser, because the snapshot and
+# restore tooling needs it; /api/health therefore warns audit_runtime_role_owns_tables.
+# Real lenders use the two-login setup of docker-compose.yml (docs/ARCHITECTURE.md,
+# "Tamper-evident audit").
 name: credaflow-demo-sim
 
 x-faketime: &faketime
