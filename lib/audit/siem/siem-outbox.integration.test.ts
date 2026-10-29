@@ -231,6 +231,29 @@ suite("SIEM forwarding", () => {
     expect(off.calls[0].url).toBe("https://new.example.invalid/ingest")
   })
 
+  it("drains what was queued for the old destination to it, in order, before the change event; the new one gets only its anchor", async () => {
+    const t = await tenant("backlog")
+    const actor = await db.user.create({ data: { id: `siem-b-${token}`, email: `siem-b-${token}@it.invalid`, password: "x", tenantId: t, role: "ADMIN" } })
+    const resolve = async () => [{ address: "8.8.8.8", family: 4 }]
+    const save = (input: Record<string, unknown>) =>
+      runWithTenant(t, () => saveAuditPolicy(t, { id: actor.id, email: actor.email }, input, { resolve }))
+    await save({ siemEnabled: true, siemTransport: "HTTPS_JSON", siemUrl: "https://old.example.invalid/ingest" })
+    for (let i = 1; i <= 3; i++) await write(t, i)
+    await chain(t) // three events and the first policy row are queued for the old destination, not yet sent
+
+    await save({ siemUrl: "https://new.example.invalid/ingest" })
+    await chain(t)
+    const rec = recorder()
+    await deliver(rec.send, T0)
+    const toOld = rec.calls.filter((c) => c.url === "https://old.example.invalid/ingest").flatMap((c) => c.events)
+    const seqs = toOld.flatMap((e) => (e.chain.seq === null ? [] : [e.chain.seq]))
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b))
+    expect(toOld.filter((e) => e.action === "LOAN_NOTE_ADDED")).toHaveLength(3)
+    expect(toOld.at(-1)?.action).toBe("AUDIT_POLICY_UPDATED")
+    const toNew = rec.calls.filter((c) => c.url === "https://new.example.invalid/ingest").flatMap((c) => c.events)
+    expect(toNew.map((e) => e.action)).toEqual(["AUDIT_FORWARDING_STARTED"])
+  })
+
   it("queues a daily checkpoint for forwarding lenders and ships it with its HMAC", async () => {
     const t = await tenant("cp")
     await enable(t)

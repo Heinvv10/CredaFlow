@@ -15,6 +15,7 @@ import { PLATFORM_CHAIN } from "./chain-hash"
 import { verifyAuditChains, type ChainVerification, type VerifyMode } from "./chain-verify"
 import { runChainer } from "./chainer"
 import { writeCheckpoints } from "./checkpoint"
+import { chainHead } from "./store"
 
 export interface VerifyJobResult extends ChainVerification {
   checkpointsWritten: number
@@ -45,7 +46,7 @@ export async function runAuditChainVerification(opts: { db?: PrismaClient; now?:
     const checkpointsWritten = await writeCheckpoints(db, result.verifiedKeys)
     for (const key of result.verifiedKeys) {
       if (key === PLATFORM_CHAIN) continue
-      const [head] = await db.$queryRaw<Array<{ seq: number }>>`SELECT "seq" FROM "AuditChainLink" WHERE "chainKey" = ${key} ORDER BY "seq" DESC LIMIT 1`
+      const head = await chainHead(db, key)
       if (!head) continue
       await logAudit({ tenantId: key, action: AuditAction.AUDIT_CHAIN_VERIFIED, entity: "AuditLog", newValue: { lastSeq: head.seq, mode: result.mode } })
     }

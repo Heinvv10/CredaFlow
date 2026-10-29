@@ -10,13 +10,13 @@ afterEach(() => { delete process.env.AUDIT_CHAIN_KEY })
 
 describe("auditSetupWarnings", () => {
   it("is quiet for a non-owner, non-superuser role with a key", async () => {
-    query.mockResolvedValue([{ owns: 0, su: false }])
+    query.mockResolvedValue([{ owns: 0, su: false, writes: false }])
     expect(await auditSetupWarnings()).toEqual([])
   })
 
   it("warns when the runtime role owns the audit tables, is a superuser, or the key is missing", async () => {
-    query.mockResolvedValue([{ owns: 2, su: true }])
+    query.mockResolvedValue([{ owns: 2, su: true, writes: true }])
     delete process.env.AUDIT_CHAIN_KEY
-    expect(await auditSetupWarnings()).toEqual(["audit_chain_key_missing", "audit_runtime_role_owns_tables", "audit_runtime_role_superuser"])
+    expect(await auditSetupWarnings()).toEqual(["audit_chain_key_missing", "audit_runtime_role_owns_tables", "audit_runtime_role_superuser", "audit_runtime_role_can_write_evidence"])
   })
 })

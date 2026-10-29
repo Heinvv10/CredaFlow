@@ -4,11 +4,13 @@
  * `full` walks every link from the genesis; `incremental` starts at the chain's
  * latest checkpoint (after proving the checkpoint's HMAC and that the link it
  * names still has that hash), which is what the daily job and the admin endpoint
- * run. Reads only. A chain is the rows of one tenant, or (key "") the rows with none.
+ * run. Reads only, through the database's verification functions (lib/audit/store.ts).
+ * A chain is the rows of one tenant, or (key "") the rows with none.
  */
-import { Prisma, type PrismaClient } from "@prisma/client"
-import { checkpointHmac, chainRows, GENESIS_HASH, linkHash, PLATFORM_CHAIN, ROW_FIELDS_SQL, type HashedRow } from "./chain-hash"
+import type { PrismaClient } from "@prisma/client"
+import { checkpointHmac, GENESIS_HASH, linkHash, PLATFORM_CHAIN, type HashedRow } from "./chain-hash"
 import { LOOKBACK_MS } from "./chainer"
+import { checkpoints as loadCheckpoints, linkHashAt, unchainedOld, unchainedPending, verifyLinks } from "./store"
 
 const PAGE = 5000
 const PENDING_CAP = 1000
@@ -49,21 +51,10 @@ export interface ChainVerification {
 
 type Db = Pick<PrismaClient, "$queryRaw">
 
-interface CheckpointRow { id: string; seq: number; rowHash: string; hmac: string; createdAt: Date }
-type LinkRow = Partial<HashedRow> & { seq: number; linkAuditLogId: string; prevHash: string; rowHash: string; present: boolean }
-
 async function chainKeys(db: Db, only?: string): Promise<string[]> {
   if (only !== undefined) return [only]
   const rows = await db.$queryRaw<Array<{ k: string }>>`SELECT "id" AS k FROM "Tenant" UNION SELECT '' ORDER BY k`
   return rows.map((r) => r.k)
-}
-
-async function linkPage(db: Db, key: string, after: number): Promise<LinkRow[]> {
-  return db.$queryRaw<LinkRow[]>(Prisma.sql`
-    SELECT l."seq", l."auditLogId" AS "linkAuditLogId", l."prevHash", l."rowHash", (a."id" IS NOT NULL) AS present, ${ROW_FIELDS_SQL}
-    FROM "AuditChainLink" l LEFT JOIN "AuditLog" a ON a."id" = l."auditLogId"
-    WHERE l."chainKey" = ${key} AND l."seq" > ${after}
-    ORDER BY l."seq" LIMIT ${PAGE}`)
 }
 
 function brk(key: string, kind: ChainBreakKind, detail: string, auditLogId: string | null = null, chainSeq: number | null = null): ChainBreak {
@@ -72,22 +63,11 @@ function brk(key: string, kind: ChainBreakKind, detail: string, auditLogId: stri
 
 async function unchained(db: Db, key: string, now: Date, floor: Date | null): Promise<{ old: string | null; pending: number }> {
   const cutoff = new Date(now.getTime() - LOOKBACK_MS)
-  const from = floor ? Prisma.sql`AND a."createdAt" >= ${floor}` : Prisma.empty
-  const [old] = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT a."id" FROM "AuditLog" a
-    WHERE ${chainRows(key)} AND a."createdAt" < ${cutoff} ${from}
-      AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id") LIMIT 1`)
-  const [pending] = await db.$queryRaw<Array<{ n: number }>>(Prisma.sql`
-    SELECT count(*)::int AS n FROM (
-      SELECT 1 FROM "AuditLog" a
-      WHERE ${chainRows(key)} AND a."createdAt" >= ${cutoff}
-        AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id") LIMIT ${PENDING_CAP}) p`)
-  return { old: old?.id ?? null, pending: pending?.n ?? 0 }
+  return { old: await unchainedOld(db, key, cutoff, floor), pending: await unchainedPending(db, key, cutoff, PENDING_CAP) }
 }
 
 async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Promise<{ broken: ChainBreak | null; rows: number; pending: number }> {
-  const checkpoints = await db.$queryRaw<CheckpointRow[]>`
-    SELECT "id", "seq", "rowHash", "hmac", "createdAt" FROM "AuditChainCheckpoint" WHERE "chainKey" = ${key} ORDER BY "seq"`
+  const checkpoints = await loadCheckpoints(db, key)
   for (const cp of checkpoints) {
     if (cp.hmac !== checkpointHmac(key, cp.seq, cp.rowHash)) {
       return { broken: brk(key, "checkpoint_invalid", `checkpoint ${cp.id} (seq ${cp.seq}) does not verify`, null, cp.seq), rows: 0, pending: 0 }
@@ -100,15 +80,13 @@ async function verifyChain(db: Db, key: string, mode: VerifyMode, now: Date): Pr
   let hash = start?.rowHash ?? GENESIS_HASH
   let rows = 0
   if (start) {
-    const [atStart] = await db.$queryRaw<Array<{ rowHash: string }>>`
-      SELECT "rowHash" FROM "AuditChainLink" WHERE "chainKey" = ${key} AND "seq" = ${start.seq}`
-    if (atStart?.rowHash !== start.rowHash) {
+    if ((await linkHashAt(db, key, start.seq)) !== start.rowHash) {
       return { broken: brk(key, "checkpoint_mismatch", `the link at seq ${start.seq} is gone or changed since its checkpoint`, null, start.seq), rows, pending: 0 }
     }
   }
 
   for (;;) {
-    const page = await linkPage(db, key, seq)
+    const page = await verifyLinks(db, key, seq, PAGE)
     if (page.length === 0) break
     for (const r of page) {
       rows++

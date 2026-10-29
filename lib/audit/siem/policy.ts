@@ -10,6 +10,7 @@ import type { AuditPolicy, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { logAuditStrict, AuditAction } from "@/lib/audit"
 import { openCredential, sealCredential } from "@/lib/integrations/tenant-credentials"
+import { queuePolicyChange } from "@/lib/audit/store"
 import { resolveSiemHost } from "./destination"
 import type { SiemTarget } from "./transport"
 import type { Resolver } from "@/lib/lender-api/webhooks/ssrf"
@@ -196,12 +197,10 @@ export async function saveAuditPolicy(
     }, tx)
 
     const moved = destination(current && current.siemEnabled ? snapshotOf(current) : null) !== destination(row.siemEnabled ? snapshotOf(row) : null)
-    if (current?.siemEnabled && moved) {
-      await tx.auditSiemOutbox.create({
-        data: { tenantId, kind: "EVENT", auditLogId: auditId, targetSnapshot: snapshotOf(current) as unknown as Prisma.InputJsonValue },
-      })
+    if (moved) {
+      // The change event, and whatever is still queued, go to the destination being left; a new one starts with an anchor.
+      await queuePolicyChange(tx, tenantId, auditId, current?.siemEnabled ? snapshotOf(current) : null, row.siemEnabled)
     }
-    if (row.siemEnabled && moved) await tx.auditSiemOutbox.create({ data: { tenantId, kind: "ANCHOR" } })
     return policyView(row)
   })
 }

@@ -4,6 +4,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { verifyAuditChains } from "@/lib/audit/chain-verify"
+import { chainHead, checkpoints } from "@/lib/audit/store"
 
 /**
  * The signed-in lender's audit chain. ADMIN and above; the lender's own chain only.
@@ -21,15 +22,13 @@ export async function GET(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     if (guard.user.tenantId !== tenant.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    const [checkpoint] = await prisma.$queryRaw<Array<{ seq: number; createdAt: Date }>>`
-      SELECT "seq", "createdAt" FROM "AuditChainCheckpoint" WHERE "chainKey" = ${tenant.id} ORDER BY "seq" DESC LIMIT 1`
-    const [head] = await prisma.$queryRaw<Array<{ seq: number }>>`
-      SELECT "seq" FROM "AuditChainLink" WHERE "chainKey" = ${tenant.id} ORDER BY "seq" DESC LIMIT 1`
+    const checkpoint = (await checkpoints(prisma, tenant.id)).at(-1)
+    const head = await chainHead(prisma, tenant.id)
     const results = await prisma.auditLog.findMany({
       where: { tenantId: tenant.id, action: { in: ["AUDIT_CHAIN_VERIFIED", "AUDIT_CHAIN_BROKEN"] } },
       orderBy: { createdAt: "desc" }, take: 10, select: { action: true, createdAt: true, newValue: true },
     })
-    return NextResponse.json({ chainedThroughSeq: head?.seq ?? 0, latestCheckpoint: checkpoint ?? null, recentResults: results })
+    return NextResponse.json({ chainedThroughSeq: head?.seq ?? 0, latestCheckpoint: checkpoint ? { seq: checkpoint.seq, createdAt: checkpoint.createdAt } : null, recentResults: results })
   })
 }
 

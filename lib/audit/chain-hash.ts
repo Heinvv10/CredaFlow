@@ -10,7 +10,6 @@
  * AuditRedaction, and the link still verifies.
  */
 import { createHmac } from "node:crypto"
-import { Prisma } from "@prisma/client"
 
 export const GENESIS_HASH = "0".repeat(64)
 /** The chain key of AuditLog rows that have no tenant. */
@@ -34,7 +33,11 @@ export function auditChainKeyConfigured(): boolean {
   return (process.env.AUDIT_CHAIN_KEY ?? "").length >= MIN_KEY_LENGTH
 }
 
-/** What a link hashes of its AuditLog row: ids, timestamp and digests ("-" for a NULL column). */
+/**
+ * What a link hashes of its AuditLog row: ids, timestamp and digests ("-" for a NULL
+ * column). The database yields it (audit_hashed_fields, migration 20261029100000): a
+ * column a documented redaction nulled hashes as the digest the redaction kept.
+ */
 export interface HashedRow {
   auditLogId: string
   tenantId: string | null
@@ -42,7 +45,7 @@ export interface HashedRow {
   action: string
   entity: string
   entityId: string | null
-  /** "YYYY-MM-DDTHH:MI:SS.MS", as ROW_FIELDS_SQL prints it. */
+  /** "YYYY-MM-DDTHH:MI:SS.MS" (UTC), as audit_hashed_fields prints it. */
   createdAt: string
   userEmailDigest: string
   ipAddressDigest: string
@@ -60,26 +63,4 @@ export function linkHash(chainKey: string, seq: number, prevHash: string, r: Has
 
 export function checkpointHmac(chainKey: string, seq: number, rowHash: string): string {
   return createHmac("sha256", key()).update(JSON.stringify(["cp1", chainKey, seq, rowHash])).digest("hex")
-}
-
-const digest = (column: string, redacted: string) => `COALESCE(
-    (SELECT r."${redacted}" FROM "AuditRedaction" r WHERE r."auditLogId" = a."id" AND '${column}' = ANY(r."columns") LIMIT 1),
-    encode(sha256(convert_to(a."${column}"${column.endsWith("Value") ? "::text" : ""}, 'UTF8')), 'hex'),
-    '-')`
-
-/**
- * The SELECT list that yields a HashedRow from "AuditLog" aliased `a`. A column a
- * redaction removed hashes as the digest the redaction kept.
- */
-export const ROW_FIELDS_SQL = Prisma.raw(`
-    a."id" AS "auditLogId", a."tenantId", a."userId", a."action", a."entity", a."entityId",
-    to_char(a."createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS') AS "createdAt",
-    ${digest("userEmail", "userEmailDigest")} AS "userEmailDigest",
-    ${digest("ipAddress", "ipAddressDigest")} AS "ipAddressDigest",
-    ${digest("oldValue", "oldValueDigest")} AS "oldValueDigest",
-    ${digest("newValue", "newValueDigest")} AS "newValueDigest"`)
-
-/** The WHERE fragment selecting one chain's AuditLog rows (alias `a`). */
-export function chainRows(chainKey: string): Prisma.Sql {
-  return chainKey === PLATFORM_CHAIN ? Prisma.sql`a."tenantId" IS NULL` : Prisma.sql`a."tenantId" = ${chainKey}`
 }

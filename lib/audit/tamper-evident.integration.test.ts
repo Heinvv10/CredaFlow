@@ -49,6 +49,7 @@ suite("tamper-evident audit", () => {
   afterAll(async () => {
     await purgeAuditRowsForTest(db, { tenantId: { in: tenantIds } })
     await db.branch.deleteMany({ where: { tenantId: C } })
+    await db.user.deleteMany({ where: { tenantId: { in: tenantIds } } })
     await tamper(`DELETE FROM "AuditChainLink" WHERE "chainKey" = ANY('{${tenantIds.join(",")}}')`)
     await db.auditPolicy.deleteMany({ where: { tenantId: { in: tenantIds } } })
     await db.tenant.deleteMany({ where: { id: { in: tenantIds } } })
@@ -169,6 +170,32 @@ suite("tamper-evident audit", () => {
       expect(l.map((x) => x.seq)).toEqual([1, 2])
       expect((await verify(F)).ok).toBe(true)
     })
+
+    it("never deadlocks audited writes that take their other locks in opposite order", async () => {
+      const [one, two] = [new PrismaClient(), new PrismaClient()]
+      const branch = await db.branch.create({ data: { tenantId: C, name: "contended", code: `lock-${token}` } })
+      try {
+        let audited!: () => void
+        const firstAudited = new Promise<void>((r) => { audited = r })
+        // T2 locks the branch row, waits for T1 to have audited, then audits. T1 audits, then wants the branch row.
+        // With a lock held from the audit insert to commit, T1 and T2 would wait on each other.
+        const t2 = two.$transaction(async (tx) => {
+          await tx.branch.update({ where: { id: branch.id }, data: { name: "two" } })
+          await firstAudited
+          await write(C, 201, tx)
+        })
+        await new Promise((r) => setTimeout(r, 50))
+        const t1 = one.$transaction(async (tx) => {
+          await write(C, 200, tx)
+          audited()
+          await tx.branch.update({ where: { id: branch.id }, data: { name: "one" } })
+        })
+        const outcomes = await Promise.allSettled([t1, t2])
+        expect(outcomes.filter((o) => o.status === "rejected")).toEqual([])
+      } finally {
+        await Promise.all([one.$disconnect(), two.$disconnect()])
+      }
+    })
   })
 
   describe("the chainer", () => {
@@ -223,6 +250,32 @@ suite("tamper-evident audit", () => {
       expect((await verify(I)).ok).toBe(true)
       await tamper(`UPDATE "AuditLog" SET "userEmail" = NULL WHERE id = '${r[4].id}'`)
       expect((await verify(I)).breaks).toEqual([expect.objectContaining({ kind: "row_hash_mismatch", chainSeq: 5 })])
+    })
+
+    // Every column the link hashes: editing any one of them, behind the triggers, breaks the link.
+    const COLUMNS: Array<[string, string]> = [
+      ["tenantId", `"tenantId" = '__OTHER__'`],
+      ["userId", `"userId" = NULL`],
+      ["action", `"action" = 'EDITED'`],
+      ["entity", `"entity" = 'EDITED'`],
+      ["entityId", `"entityId" = 'edited'`],
+      ["createdAt", `"createdAt" = "createdAt" + interval '1 second'`],
+      ["userEmail", `"userEmail" = 'edited@it.invalid'`],
+      ["ipAddress", `"ipAddress" = '10.9.9.9'`],
+      ["oldValue", `"oldValue" = '{"n": -1}'`],
+      ["newValue", `"newValue" = '{"n": -1}'`],
+    ]
+    it.each(COLUMNS)("finds an edit of %s", async (column, assignment) => {
+      const t = await tenant(`col-${column.toLowerCase()}`)
+      const userId = `aud-u-${column}-${token}`
+      await db.user.create({ data: { id: userId, email: `${userId}@test.invalid`, password: "x", tenantId: t, role: "READONLY" } })
+      for (let i = 1; i <= 3; i++) await logAuditStrict({ tenantId: t, userId, action: "AUDIT_IT", entity: "Thing", entityId: `e${i}`, oldValue: { n: i }, newValue: { n: i + 1 }, userEmail: `p${i}@it.invalid`, ipAddress: "10.0.0.1" }, db as unknown as Writer)
+      await chain(t)
+      expect((await verify(t)).ok).toBe(true)
+      const [target] = await rows(t)
+      await tamper(`UPDATE "AuditLog" SET ${assignment.replace("__OTHER__", A)} WHERE id = '${target.id}'`)
+      const { breaks } = await verify(t)
+      expect(breaks, column).toEqual([expect.objectContaining({ kind: "row_hash_mismatch", chainSeq: 1, auditLogId: target.id })])
     })
 
     it("finds an edited link hash, a deleted link (gap) and a forged replacement link", async () => {
