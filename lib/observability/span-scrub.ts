@@ -1,9 +1,8 @@
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-node"
 
 const ROUTE_KEY = "next.route"
-// Attributes that hold the request path: replaced by the route template when Next recorded one.
-const PATH_KEYS = new Set(["http.target", "url.path"])
-const FULL_URL_KEYS = new Set(["http.url", "url.full"])
+const PATH_KEYS = ["http.target", "url.path"]
+const FULL_URL_KEYS = ["http.url", "url.full"]
 const DROPPED_KEYS = new Set(["url.query"])
 const HEADER_KEY = /^http\.(request|response)\.header\./
 
@@ -11,58 +10,77 @@ function stripQuery(value: string): string {
   return value.split(/[?#]/)[0] ?? value
 }
 
+/**
+ * Everything from `://` up to the LAST `@` before the first `/` is the authority's
+ * userinfo (or something that passed for it): removed whole, and before any query
+ * handling, because a `?`, `#` or `@` inside the password must not end the match early.
+ */
 function stripUserinfo(value: string): string {
-  return value.replace(/(:\/\/)[^/?#@\s]*@/g, "$1")
+  return value.replace(/(:\/\/)[^/\s]*@/g, "$1")
 }
 
 /** Deny by default: any string that can carry a query, fragment or credentials loses them. */
 function scrubValue(value: string): string {
   if (!/[?#]|:\/\//.test(value)) return value
-  return stripUserinfo(stripQuery(value))
+  return stripQuery(stripUserinfo(value))
 }
 
-function withPath(url: string, path: string): string {
-  const match = /^([a-z][a-z0-9+.-]*:\/\/[^/?#]*)/i.exec(stripUserinfo(url))
-  return match ? `${match[1]}${path}` : path
+/** The request path the span was made for, from whichever attribute holds it. */
+function concretePath(attributes: Record<string, unknown>): string | null {
+  for (const key of PATH_KEYS) {
+    const value = attributes[key]
+    if (typeof value === "string" && value.startsWith("/")) return stripQuery(value)
+  }
+  for (const key of FULL_URL_KEYS) {
+    const value = attributes[key]
+    if (typeof value !== "string") continue
+    const path = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/i.exec(stripUserinfo(value))?.[1]
+    if (path) return path
+  }
+  return null
 }
 
 /**
- * A copy of the span that is safe to leave the process. Every string attribute and
- * the span name pass through a scrubber, not a list of known keys, because
- * attributes differ by Next and OpenTelemetry version: a value holding a `?`, `#`
- * or `://` loses its query, fragment and userinfo. Request and response header
- * attributes (cookies, authorization) are dropped. When Next recorded the matched
- * route template, it replaces the concrete path in the path and URL attributes
- * (one-time link tokens travel in path segments). The original span is untouched.
+ * Builds the string scrubber of one span. When Next recorded the matched route
+ * template and the concrete path differs from it, every occurrence of the path in any
+ * value (one-time link tokens travel in path segments) becomes the template, then
+ * the generic scrub runs.
  */
-export function scrubSpan(span: ReadableSpan): ReadableSpan {
+function scrubber(span: ReadableSpan): (value: string) => string {
   const template = span.attributes[ROUTE_KEY]
   const route = typeof template === "string" && template.startsWith("/") ? template : null
-  return Object.create(span, {
-    name: { value: scrubValue(span.name), enumerable: true },
-    attributes: { value: scrubAttributes(span.attributes, route), enumerable: true },
-    // Events carry exception messages, which quote URLs.
-    events: { value: (span.events ?? []).map((event) => ({ ...event, attributes: scrubAttributes(event.attributes ?? {}, null) })), enumerable: true },
-  }) as ReadableSpan
+  const path = route ? concretePath(span.attributes) : null
+  const replacePath = route && path && path.length > 1 && path !== route ? (value: string) => value.split(path).join(route) : (value: string) => value
+  return (value) => scrubValue(replacePath(value))
 }
 
-function scrubAttributes(source: Record<string, unknown>, route: string | null): Record<string, unknown> {
+function scrubAttributes(source: Record<string, unknown> | undefined, scrub: (value: string) => string): Record<string, unknown> {
   const attributes: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(source)) {
+  for (const [key, value] of Object.entries(source ?? {})) {
     if (DROPPED_KEYS.has(key) || HEADER_KEY.test(key)) continue
-    if (Array.isArray(value)) {
-      attributes[key] = value.map((item) => (typeof item === "string" ? scrubValue(item) : item))
-    } else if (typeof value !== "string") {
-      attributes[key] = value
-    } else if (route && FULL_URL_KEYS.has(key)) {
-      attributes[key] = withPath(value, route)
-    } else if (route && PATH_KEYS.has(key)) {
-      attributes[key] = route
-    } else {
-      attributes[key] = scrubValue(value)
-    }
+    if (Array.isArray(value)) attributes[key] = value.map((item) => (typeof item === "string" ? scrub(item) : item))
+    else attributes[key] = typeof value === "string" ? scrub(value) : value
   }
   return attributes
+}
+
+/**
+ * A copy of the span that is safe to leave the process. Deny by default: every string
+ * the span carries (name, attributes, event and link attributes, status message) passes
+ * through the scrubber, not a list of known keys, because attribute names differ by Next
+ * and OpenTelemetry version. Request and response header attributes (cookies,
+ * authorization) are dropped. The original span is untouched.
+ */
+export function scrubSpan(span: ReadableSpan): ReadableSpan {
+  const scrub = scrubber(span)
+  return Object.create(span, {
+    name: { value: scrub(span.name), enumerable: true },
+    attributes: { value: scrubAttributes(span.attributes, scrub), enumerable: true },
+    // Events carry exception messages, which quote URLs; a failed span's status message does too.
+    events: { value: (span.events ?? []).map((event) => ({ ...event, attributes: scrubAttributes(event.attributes, scrub) })), enumerable: true },
+    links: { value: (span.links ?? []).map((link) => ({ ...link, attributes: scrubAttributes(link.attributes, scrub) })), enumerable: true },
+    status: { value: span.status?.message === undefined ? span.status : { ...span.status, message: scrub(span.status.message) }, enumerable: true },
+  }) as ReadableSpan
 }
 
 /** Wraps an exporter so every span passes through scrubSpan on its way out. */

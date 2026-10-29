@@ -88,6 +88,56 @@ describe("scrubSpan", () => {
     expect(event!.attributes).toEqual({ "exception.message": "fetch https://h/x" })
   })
 
+  it("replaces the concrete path with the route template in every string value and the span name", () => {
+    const path = "/api/pasq-link/4f3a9c1d5e7b2a60/acknowledge"
+    const scrubbed = scrubSpan(
+      span(`POST ${path}`, {
+        "next.route": "/api/pasq-link/[token]/acknowledge",
+        "http.target": `${path}?x=1`,
+        "next.span_name": `POST ${path}`,
+        "some.future.attribute": `handler for ${path} failed`,
+        "http.url": `https://h.example${path}`,
+      }),
+    )
+    expect(scrubbed.name).toBe("POST /api/pasq-link/[token]/acknowledge")
+    expect(scrubbed.attributes["next.span_name"]).toBe("POST /api/pasq-link/[token]/acknowledge")
+    expect(scrubbed.attributes["some.future.attribute"]).toBe("handler for /api/pasq-link/[token]/acknowledge failed")
+    expect(JSON.stringify(scrubbed)).not.toContain("4f3a9c1d5e7b2a60")
+  })
+
+  it.each([
+    ["https://u:p@ss?x@host/path", "https://host/path"],
+    ["https://user:pa?ss@host/path?q=1", "https://host/path"],
+    ["https://u:p@host?email=a@b.example", "https://b.example"],
+    ["https://u:p@host#frag@x", "https://x"],
+    ["postgres://app:s3cret@db.internal:5432/credaflow?sslmode=require", "postgres://db.internal:5432/credaflow"],
+    ["see https://u:p@host/p for details", "see https://host/p for details"],
+  ])("removes userinfo before the query, whatever it contains: %s", (input, expected) => {
+    const scrubbed = scrubSpan(span("x", { a: input }))
+    expect(scrubbed.attributes.a).toBe(expected)
+    expect(JSON.stringify(scrubbed.attributes)).not.toMatch(/s3cret|u:p@|user:pa/)
+  })
+
+  it("serialised whole, an exported span holds no secret anywhere", () => {
+    const full = {
+      ...span("GET /r?token=SECRET", {
+        "next.route": "/r",
+        "http.target": "/r?token=SECRET",
+        "http.request.header.cookie": "SECRET",
+        "x.y": "https://u:SECRET@h/p?q=SECRET",
+      }),
+      status: { code: 2, message: "failed calling https://u:SECRET@h/p?q=SECRET" },
+      events: [{ name: "exception", time: [0, 0], attributes: { "exception.message": "boom ?token=SECRET" } }],
+      links: [{ context: { traceId: "t", spanId: "s", traceFlags: 1 }, attributes: { "link.url": "/r?token=SECRET", "http.request.header.cookie": "SECRET" } }],
+    } as unknown as ReadableSpan
+    const out = JSON.stringify(scrubSpan(full), (_key, value) => value)
+    const flat = JSON.stringify({ name: scrubSpan(full).name, attributes: scrubSpan(full).attributes, status: scrubSpan(full).status, events: scrubSpan(full).events, links: scrubSpan(full).links })
+    expect(flat).not.toContain("SECRET")
+    expect(out).not.toContain("SECRET")
+    expect(scrubSpan(full).status.code).toBe(2)
+    expect(scrubSpan(full).status.message).toBe("failed calling https://h/p")
+  })
+
   it("leaves the span's other behaviour (methods) intact", () => {
     expect(scrubSpan(span("x", {})).spanContext().traceId).toBe("t")
   })
