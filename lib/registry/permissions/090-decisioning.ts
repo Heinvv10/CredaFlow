@@ -15,4 +15,6 @@ export default definePermissions({
   // declines: a SUPER_ADMIN, with the session's second factor where the lender requires one
   // (lib/maker-checker/service.ts). A drafting ADMIN's colleague ADMIN cannot wave it through.
   approve_decision_engine_live: "SUPER_ADMIN",
+  // Draft, edit or submit those same settings (LIVE, or with the s71 sign-off): an ADMIN or above.
+  manage_decision_engine_live: "ADMIN",
 } as const)

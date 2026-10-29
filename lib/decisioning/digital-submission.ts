@@ -14,6 +14,9 @@ export type DigitalSubmissionResult =
   | { status: "REHEARSED" }
 
 /**
+ * `admit` is required: a LIVE review spends the lender's money on a bureau pull, so it never runs without the daily limits
+ * (lib/decisioning/digital-due.ts admitDigitalReview).
+ *
  * A client submitted an application on a digital channel (the portal or the
  * website): when the lender's engine is LIVE and covers the PORTAL channel for the product,
  * start the review as the lender's system user (the same KYC, mismatch and bureau
@@ -21,7 +24,7 @@ export type DigitalSubmissionResult =
  * refuses what staff review would refuse (unverified KYC, say); the application then
  * simply stays SUBMITTED for staff. Never throws into a caller: see runDigitalDecision.
  */
-export async function reviewDigitalSubmission(input: { tenantId: string; applicationId: string; admit?: ReviewArgs["admit"] }): Promise<DigitalSubmissionResult> {
+export async function reviewDigitalSubmission(input: { tenantId: string; applicationId: string; admit: NonNullable<ReviewArgs["admit"]> }): Promise<DigitalSubmissionResult> {
   const { tenantId, applicationId, admit } = input
   return runWithTenant(tenantId, async () => {
     const config = await prisma.decisionEngineConfig.findUnique({ where: { tenantId } })
@@ -39,7 +42,7 @@ export async function reviewDigitalSubmission(input: { tenantId: string; applica
     const system = await findSystemUser(prisma, tenantId)
     if (!system) return { status: "SKIPPED", reason: "no_system_user" }
     const started = await startApplicationReview({ tenant: { id: tenantId }, user: system, id: applicationId, autoDecisionTrigger: "DIGITAL_SUBMISSION", assignToUser: false, admit })
-    if (started instanceof Response) return admit && started.status === REVIEW_NOT_ADMITTED_STATUS ? { status: "RATE_LIMITED" } : { status: "REVIEW_REFUSED", httpStatus: started.status }
+    if (started instanceof Response) return started.status === REVIEW_NOT_ADMITTED_STATUS ? { status: "RATE_LIMITED" } : { status: "REVIEW_REFUSED", httpStatus: started.status }
     return { status: "REVIEWED" }
   })
 }

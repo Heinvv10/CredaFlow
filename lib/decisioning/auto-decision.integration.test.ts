@@ -200,7 +200,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     await db.tenant.create({ data: { id: ids.tenant, slug: ids.tenant, name: "Decisioning IT" } })
     await db.tenantConfig.create({ data: { tenantId: ids.tenant, bureauMinScore: 580 } })
     for (const [id, role] of [[ids.officer, "LOAN_ADMIN"], [ids.maker, "ADMIN"], [ids.checker, "ADMIN"]] as const) {
-      await db.user.create({ data: { id, tenantId: ids.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name: id, role } })
+      await db.user.create({ data: { id, tenantId: ids.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name: id, role, createdAt: new Date(Date.now() - 90 * 86_400_000) } })
     }
     await db.loanProduct.create({
       data: { id: ids.product, tenantId: ids.tenant, code: `DC-${t}`, name: "Decisioning micro", minAmount: 100_000, maxAmount: 800_000, minTermDays: 1, maxTermDays: 180, ...product },
@@ -456,7 +456,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     // Back to SUBMITTED, as a client's application arrives, with the audit row the portal writes.
     await db.loanApplication.update({ where: { id: "dec-digital" }, data: { status: "SUBMITTED" } })
     await db.auditLog.create({ data: { tenantId: ids.tenant, action: "APPLICATION_SUBMITTED_BY_CLIENT", entity: "LoanApplication", entityId: "dec-digital", newValue: {} } })
-    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital" })).toEqual({ status: "SKIPPED", reason: "channel_not_enabled" })
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital", admit: async () => true })).toEqual({ status: "SKIPPED", reason: "channel_not_enabled" })
     expect(await statusOf("dec-digital")).toBe("SUBMITTED")
 
     await approveChange(ENGINE_CONFIG_KIND, "Digital channel on", engine({ channels: ["PORTAL", "STAFF"] }))
@@ -465,7 +465,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
       await db.creditBureauCheck.create({ data: { tenantId: ids.tenant, clientId, applicationId, reviewGeneration, subjectFingerprint: bureauSubjectFingerprint(client), provider: "experian", score: 640, riskGrade: "LOW", adverseInfo: [], declineReasons: [], obligations: { totalMonthly: 0 }, ok: true } })
       return "completed"
     }
-    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital" })).toEqual({ status: "REVIEWED" })
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital", admit: async () => true })).toEqual({ status: "REVIEWED" })
     const application = await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-digital" } })
     const runRow = await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-digital" } })
     expect(application, JSON.stringify([runRow.execution, runRow.executionNote, runRow.reasonCodes])).toMatchObject({ status: "APPROVED", approvedById: (await systemUser()).id, riskGrade: "A" })
@@ -474,7 +474,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(runRow.submissionLatencyMs).toBeLessThan(60_000)
     latencies.push(runRow.submissionLatencyMs ?? 0)
     // Not submitted any more: nothing to review.
-    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital" })).toEqual({ status: "SKIPPED", reason: "application_not_submitted" })
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital", admit: async () => true })).toEqual({ status: "SKIPPED", reason: "application_not_submitted" })
   })
 
   it("SHADOW on a digital submission rehearses only: status, assignment and bureau data are untouched, and no review is started", async () => {
@@ -484,7 +484,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     await db.auditLog.create({ data: { tenantId: ids.tenant, action: "APPLICATION_SUBMITTED_BY_CLIENT", entity: "LoanApplication", entityId: "dec-shadow-digital", newValue: {} } })
     const checksBefore = await db.creditBureauCheck.count({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-digital" } })
     bureauStub.run = async () => { throw new Error("a shadow rehearsal must never start a bureau review") }
-    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-shadow-digital" })).toEqual({ status: "REHEARSED" })
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-shadow-digital", admit: async () => true })).toEqual({ status: "REHEARSED" })
     expect(await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-shadow-digital" } })).toMatchObject({ status: "SUBMITTED", assignedToId: null, riskGrade: null })
     expect(await db.creditBureauCheck.count({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-digital" } })).toBe(checksBefore)
     expect(await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-digital" } })).toMatchObject({ mode: "SHADOW", trigger: "DIGITAL_SUBMISSION", execution: "NOT_ACTED", verdict: "APPROVE" })
@@ -492,7 +492,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     await underReview("dec-shadow-nobureau", { bureauScore: 640 })
     await db.creditBureauCheck.deleteMany({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-nobureau" } })
     await db.loanApplication.update({ where: { id: "dec-shadow-nobureau" }, data: { status: "SUBMITTED" } })
-    await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-shadow-nobureau" })
+    await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-shadow-nobureau", admit: async () => true })
     expect(await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-nobureau" } })).toMatchObject({ verdict: "REFER", reasonCodes: ["NO_BUREAU"], riskGrade: null })
   })
 

@@ -52,7 +52,7 @@ applications only for the same `riskGradeVersionId`. `getRiskGrade` reads it.
   per address bucket (10: IPv6 by /64, zone ids stripped; unknown addresses share one bucket of
   10, and need `TRUSTED_PROXY` to be seen at all) and per lender (200 a day, env
   `DIGITAL_AUTO_PULLS_PER_LENDER_PER_DAY`): past it the application stays with staff
-  (`RATE_LIMITED`). The review calls `admit` after its KYC and mismatch gates and before the
+  (`RATE_LIMITED`). `reviewDigitalSubmission` requires `admit`. The review calls it after its KYC and mismatch gates and before the
   pull; count and charge (`chargedAt`) are one step under advisory locks, so a burst cannot all pass.
 - **A person's look-again is final**: `humanReviewRequestedAt` (set by the reopen,
   which also starts a fresh bureau generation and clears the reckless-lending
@@ -61,9 +61,11 @@ applications only for the same `riskGradeVersionId`. `getRiskGrade` reads it.
   notice is the wording stored on that run, not a later edit.
 - **SoD for an engine approval**: the people whose attestations it rested on
   (reckless-lending, income, bureau override) and every staff member in
-  `LoanApplication.inputStaffIds` (who captured it, submitted it, edited its debts, or edited
-  the client's income/expenses while it was open: `lib/applications/input-staff.ts`; the API
-  key's creator for an API one; it only grows) cannot disburse it
+  `LoanApplication.inputStaffIds` (who captured it, submitted it, edited its debts, or changed
+  any client field a fact reads, `FACT_CLIENT_SOURCES` in `facts.ts`, while it was not yet
+  approved: `lib/applications/input-staff.ts`; the API key's creator for an API one; it only
+  grows) cannot disburse it. A client edit by value also lands on `Client.inputStaffIds`, which an
+  application inherits when created and when its review starts (triggers)
   (`segregationOfDutiesConflict`, trigger `guardLoanApplicationSegregationOfDuties`).
 - The system user is hidden from user lists, refused by every user-write route, never bound to
   an SSO identity, and `User.isSystem` cannot change (trigger). Going LIVE or signing off s71

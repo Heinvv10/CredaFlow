@@ -17,6 +17,16 @@ describe("who may approve engine settings", () => {
     expect(canDo("SUPER_ADMIN", permissionFor(over))).toBe(true)
   })
 
+  it.each([
+    ["going LIVE", { mode: "LIVE" as const }],
+    ["recording the s71 sign-off", { s71SignOff: true }],
+  ])("%s may only be drafted by an ADMIN or above; a LOAN_ADMIN may draft the rest", (_label, over) => {
+    const permission = (p: Partial<EngineConfigPayload>) => decisionEngineConfigHandler.makePermissionFor!(payload(p))
+    expect(canDo("LOAN_ADMIN", permission(over))).toBe(false)
+    expect(canDo("ADMIN", permission(over))).toBe(true)
+    expect(canDo("LOAN_ADMIN", permission({ mode: "SHADOW" }))).toBe(true)
+  })
+
   it("a change that leaves the engine OFF or SHADOW and unsigned stays with an ADMIN", () => {
     for (const mode of ["OFF", "SHADOW"] as const) {
       expect(permissionFor({ mode })).toBe("approve_decision_rules")

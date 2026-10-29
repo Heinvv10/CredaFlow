@@ -95,3 +95,32 @@ export const FACT_DEFINITIONS = {
 } as const satisfies Record<FactName, FactDefinition>
 
 export const FACT_NAMES = Object.keys(FACT_DEFINITIONS) as FactName[]
+
+/**
+ * The Client columns the facts are computed from, per fact (what ./load-facts.ts and ./affordability-facts.ts read:
+ * the figures the approval affordability gate and the Regulation 23A check use are included). Every fact must be listed, so a new
+ * fact cannot be added without saying where it comes from. A change of any of these on a client is a change of the inputs of that
+ * client's open applications (lib/applications/input-staff.ts).
+ */
+const NDI_INPUTS = ["monthlyIncome", "monthlyExpenses", "expenseBreakdown", "debtObligations"] as const
+export const FACT_CLIENT_SOURCES = {
+  productId: [], productCode: [], productType: [], channel: [], requestedAmountCents: [], termDays: [],
+  ageYears: ["dateOfBirth"],
+  employmentStatus: ["employmentStatus"],
+  incomeSourceType: ["incomeSourceType"],
+  employmentMonths: ["employmentStartDate"],
+  monthlyIncomeCents: ["monthlyIncome"],
+  monthlyExpensesCents: ["monthlyExpenses", "expenseBreakdown"],
+  monthlyDebtCents: ["debtObligations"],
+  instalmentCents: [],
+  ndiCents: NDI_INPUTS,
+  affordabilityGatePasses: [...NDI_INPUTS, "grossMonthlyIncome"],
+  expensesBelowMinimum: [...NDI_INPUTS, "grossMonthlyIncome"],
+  ndiCoverPct: NDI_INPUTS,
+  dtiPct: ["monthlyIncome", "debtObligations"],
+  bureauAvailable: [], bureauScore: [], bureauUnscoreable: [], bureauAdverse: [], bureauJudgement: [], bureauNotice: [], bureauUnderDebtReview: [], bureauDeceased: [],
+  isRepeatClient: [], openLoansCount: [],
+} as const satisfies Record<FactName, readonly string[]>
+
+/** Every Client column some fact reads, sorted. */
+export const DECISION_INPUT_CLIENT_FIELDS: readonly string[] = [...new Set(Object.values(FACT_CLIENT_SOURCES).flat())].sort()

@@ -49,6 +49,8 @@ const KEPT: Record<string, string[]> = {
     "kycManualRejectionResolvedById", "kycManualRejectionResolutionReason", "amlScreeningStatus", "amlScreeningAt", "kycStatus", "blacklisted",
     "blacklistReason", "deceasedAt", "deceasedReason", "riskLevel", "riskFlagNote", "riskFlaggedAt", "riskFlaggedById", "createdAt", "updatedAt",
     "referralCount", "referredFromId", "referralCodeId", "createdByDealerId", "dealerContactVerifiedAt", "dealerContactVerifiedById", "dealerPurgedAt",
+    // Staff user ids (our own people, not the client): the SoD record of who changed decision inputs, grow-only.
+    "inputStaffIds",
   ],
   BusinessEntity: ["id", "tenantId", "type", "createdById", "createdByDealerId", "dealerPurgedAt", "createdAt", "updatedAt"],
 }

@@ -36,6 +36,11 @@ export interface ChangeHandler<P = unknown> {
   payloadVersion: number
   /** Permission key (lib/registry/permissions/) for drafting, editing, submitting and withdrawing. */
   makePermission: string
+  /**
+   * A stronger permission for drafting, editing and submitting a high-risk payload (e.g. engine settings that go LIVE), on top of
+   * `makePermission`. Optional; checked wherever the payload is known.
+   */
+  makePermissionFor?(payload: P): string
   /** Permission key for approving or rejecting; a function picks it from the payload (e.g. by amount). */
   approvePermission: string | ((payload: P) => string)
   /**

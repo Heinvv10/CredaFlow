@@ -12,7 +12,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { decisionRuleSetHandler } from "@/lib/decisioning/change-handlers"
 import { RULE_SET_KIND } from "@/lib/decisioning/change-payloads"
-import { asAdminChecker, asChecker, asChecker2, asMaker, asOfficer, createLender, type Lender } from "@/lib/decisioning/decisioning.integration-fixture"
+import { asAdminChecker, asChecker, asChecker2, asMaker, asOfficer, createApplication, createLender, type Lender } from "@/lib/decisioning/decisioning.integration-fixture"
 import { ChangeRequestError } from "./errors"
 import { approve, createDraft, reject, submit, updateDraft, withdraw } from "./service"
 
@@ -312,7 +312,7 @@ suite("maker-checker (real Postgres)", () => {
 
   it("a checker who created or changed the maker's account in the last 30 days cannot approve what that account drafted (sock puppet)", async () => {
     const person = async (label: string) => {
-      const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN" } })
+      const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 90 * 86_400_000) } })
       return { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
     }
     const trail = (action: string, userId: string, entityId: string, ageDays: number) =>
@@ -336,6 +336,58 @@ suite("maker-checker (real Postgres)", () => {
     expect((await approve({ tenantId: lender.tenantId, actor: asChecker2(lender), id: await submitted(old, "Old account rules") })).status).toBe("APPROVED")
     const untouched = await person("untouched")
     expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: await submitted(untouched, "Untouched rules") })).status).toBe("APPROVED")
+  })
+
+  describe("input staff (LoanApplication.inputStaffIds, Client.inputStaffIds)", () => {
+    const staffOf = async (applicationId: string) => (await db.loanApplication.findUniqueOrThrow({ where: { id: applicationId } })).inputStaffIds
+    const editClient = (clientId: string, staff: string[]) => db.client.update({ where: { id: clientId }, data: { inputStaffIds: staff } })
+
+    it("an application made after a staff edit of its client starts with that editor", async () => {
+      const first = await createApplication(db, lender, { status: "SUBMITTED" })
+      await editClient(first.clientId, ["editor-before"])
+      await db.loanApplication.update({ where: { id: first.applicationId }, data: { status: "CANCELLED" } })
+      // A second application for the same client (a repeat loan) is created after the edit.
+      const second = await db.loanApplication.create({ data: { tenantId: lender.tenantId, reference: `APP-INH-${Date.now()}`, clientId: first.clientId, productId: lender.productId, appliedAmount: 100_000, appliedTermDays: 30, status: "DRAFT", inputStaffIds: ["captured-by"] } })
+      expect((await staffOf(second.id)).sort()).toEqual(["captured-by", "editor-before"])
+    })
+
+    it("an edit made after the application was created is taken up when its review starts, and not before", async () => {
+      const { applicationId, clientId } = await createApplication(db, lender, { status: "SUBMITTED" })
+      await editClient(clientId, ["editor-late"])
+      expect(await staffOf(applicationId)).toEqual([])
+      await db.loanApplication.update({ where: { id: applicationId }, data: { status: "UNDER_REVIEW" } })
+      expect(await staffOf(applicationId)).toEqual(["editor-late"])
+      // A later status move does not copy later edits: only an application's review start does.
+      await editClient(clientId, ["editor-late", "editor-after-review"])
+      await db.loanApplication.update({ where: { id: applicationId }, data: { status: "CANCELLED" } })
+      expect(await staffOf(applicationId)).toEqual(["editor-late"])
+    })
+
+    it("the lists are never null, and the client's only grows", async () => {
+      const { clientId, applicationId } = await createApplication(db, lender, { status: "SUBMITTED" })
+      await editClient(clientId, ["a", "b"])
+      expect(await refusal(sql(`UPDATE "Client" SET "inputStaffIds" = ARRAY['a'] WHERE "id" = '${clientId}'`))).toContain("cannot be removed from it")
+      expect(await refusal(sql(`UPDATE "Client" SET "inputStaffIds" = NULL WHERE "id" = '${clientId}'`))).toMatch(/cannot be removed|null value|23502/i)
+      expect(await refusal(sql(`UPDATE "LoanApplication" SET "inputStaffIds" = NULL WHERE "id" = '${applicationId}'`))).toMatch(/null value|not-null|NOT NULL|23502/i)
+    })
+  })
+
+  it("an account younger than 30 days cannot have its changes approved, whoever created it", async () => {
+    const young = await db.user.create({ data: { id: `u_young_${lender.tenantId}`, tenantId: lender.tenantId, email: `young_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 5 * 86_400_000) } })
+    const asYoung = { id: young.id, email: young.email, role: "ADMIN", totpVerified: true }
+    const d = await createDraft({ tenantId: lender.tenantId, actor: asYoung, kind: RULE_SET_KIND, title: "From a new account", payload: payload({ name: "New account rules" }) })
+    await submit({ tenantId: lender.tenantId, actor: asYoung, id: d.id })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    await db.$executeRawUnsafe(`UPDATE "User" SET "createdAt" = now() - interval '31 days' WHERE "id" = '${young.id}'`)
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: d.id })).status).toBe("APPROVED")
+  })
+
+  it("settings that go LIVE or record the s71 sign-off can only be drafted by an ADMIN or above", async () => {
+    const loanAdmin = { id: lender.makerId, email: `${lender.makerId}@test.invalid`, role: "LOAN_ADMIN", totpVerified: true }
+    for (const over of [{ mode: "LIVE" }, { mode: "SHADOW", s71SignOff: true, automatedDeclineNotice: NOTICE }]) {
+      await expect(createDraft({ tenantId: lender.tenantId, actor: loanAdmin, kind: "DECISION_ENGINE_CONFIG", title: "x", payload: engineConfig(over) })).rejects.toMatchObject({ code: "FORBIDDEN" })
+    }
+    expect((await createDraft({ tenantId: lender.tenantId, actor: loanAdmin, kind: "DECISION_ENGINE_CONFIG", title: "Shadow", payload: engineConfig({ mode: "SHADOW" }) })).status).toBe("DRAFT")
   })
 
   it("a sign-off is recorded against the checker who approved it; anyone else's name is refused", async () => {

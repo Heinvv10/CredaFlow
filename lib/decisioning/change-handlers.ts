@@ -63,6 +63,7 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
   label: "Decision engine settings",
   payloadVersion: 1,
   makePermission: "manage_decision_rules",
+  makePermissionFor: (payload) => (payload.mode === "LIVE" || payload.s71SignOff ? "manage_decision_engine_live" : "manage_decision_rules"),
   // Going LIVE, or recording the s71 sign-off, is the change that lets the engine decide and decline on its own.
   approvePermission: (payload) => (payload.mode === "LIVE" || payload.s71SignOff ? "approve_decision_engine_live" : "approve_decision_rules"),
   parse: parseEngineConfigPayload,

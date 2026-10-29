@@ -509,6 +509,7 @@ export async function POST(
             data: {
               tenantId: tenant.id,
               reference: generateReference("CLT"),
+              inputStaffIds: guard.user.id ? [guard.user.id] : [],
               idNumber: data.idNumber,
               firstName: data.firstName,
               lastName: data.lastName,

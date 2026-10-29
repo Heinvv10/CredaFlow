@@ -8,13 +8,14 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: (_t: string, fn: () => unknown) => fn() }))
-vi.mock("@/app/api/applications/[id]/review/review-application", () => ({ startApplicationReview: h.startReview }))
+vi.mock("@/app/api/applications/[id]/review/review-application", () => ({ startApplicationReview: h.startReview, REVIEW_NOT_ADMITTED_STATUS: 429 }))
 vi.mock("./auto-decision", () => ({ runAutoDecision: h.runEngine }))
 vi.mock("./system-user", () => ({ findSystemUser: vi.fn(async () => h.system) }))
 
 import { reviewDigitalSubmission } from "./digital-submission"
 
-const input = { tenantId: "t", applicationId: "a" }
+const admit = vi.fn(async () => true)
+const input = { tenantId: "t", applicationId: "a", admit }
 const live = { mode: "LIVE", channels: ["PORTAL"], productIds: ["p1"] }
 beforeEach(() => {
   h.config = live
@@ -28,6 +29,16 @@ describe("reviewDigitalSubmission", () => {
   it("LIVE: starts the review as the system user, unassigned, and lets the engine decide inside it", async () => {
     expect(await reviewDigitalSubmission(input)).toEqual({ status: "REVIEWED" })
     expect(h.startReview).toHaveBeenCalledWith(expect.objectContaining({ user: h.system, autoDecisionTrigger: "DIGITAL_SUBMISSION", assignToUser: false }))
+  })
+
+  it("hands the admit step to the review, which calls it after its gates and before the pull", async () => {
+    await reviewDigitalSubmission(input)
+    expect(h.startReview).toHaveBeenCalledWith(expect.objectContaining({ admit }))
+  })
+
+  it("a review the daily limit stopped (429 from the admit step) is RATE_LIMITED, not a refusal", async () => {
+    h.startReview.mockResolvedValueOnce(new Response("{}", { status: 429 }))
+    expect(await reviewDigitalSubmission(input)).toEqual({ status: "RATE_LIMITED" })
   })
 
   it("SHADOW: records a rehearsal only. No review (so no status change, no assignment, no paid bureau pull)", async () => {

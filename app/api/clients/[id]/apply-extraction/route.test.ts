@@ -1203,6 +1203,22 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
     }))
   })
 
+  it("records nobody when the extracted income equals what is already on file (nothing a fact reads changed)", async () => {
+    clientFindUniqueMock.mockResolvedValue({ ...previousClient, monthlyIncome: 2_700_000, grossMonthlyIncome: 16_000_000 })
+    const response = await applyFlaggedPayslip(true)
+
+    expect(response.status).toBe(200)
+    expect(applicationUpdateManyMock).not.toHaveBeenCalled()
+    expect(clientUpdateMock.mock.calls[0]?.[0]?.data ?? {}).not.toHaveProperty("inputStaffIds")
+  })
+
+  it("adds the editor to the client's input staff in the same write that applies the income", async () => {
+    const response = await applyFlaggedPayslip(true)
+
+    expect(response.status).toBe(200)
+    expect(clientUpdateMock.mock.calls[0]?.[0]?.data).toMatchObject({ inputStaffIds: expect.arrayContaining([expect.any(String)]) })
+  })
+
   it("records nobody when the flagged payslip's income is not written", async () => {
     const response = await applyFlaggedPayslip(false)
 

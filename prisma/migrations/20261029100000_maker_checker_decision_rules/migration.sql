@@ -18,8 +18,11 @@ CREATE TYPE "AutoDecisionExecution" AS ENUM ('APPROVED', 'DECLINED', 'REFERRED',
 CREATE TYPE "ChangeRequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'WITHDRAWN');
 
 -- AlterTable
+ALTER TABLE "Client" ADD COLUMN     "inputStaffIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+
+-- AlterTable
 ALTER TABLE "LoanApplication" ADD COLUMN     "humanReviewRequestedAt" TIMESTAMP(3),
-ADD COLUMN     "inputStaffIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN     "inputStaffIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
 ADD COLUMN     "riskGrade" TEXT,
 ADD COLUMN     "riskGradeRank" INTEGER,
 ADD COLUMN     "riskGradeVersionId" TEXT,
@@ -485,7 +488,7 @@ BEGIN
       MESSAGE = 'A disbursement is recorded against an active staff member of the application tenant who may disburse';
   END IF;
 
-  IF TG_OP = 'UPDATE' AND NOT (OLD."inputStaffIds" <@ NEW."inputStaffIds") THEN
+  IF TG_OP = 'UPDATE' AND NOT (COALESCE(OLD."inputStaffIds", '{}') <@ COALESCE(NEW."inputStaffIds", '{}')) THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
       MESSAGE = 'The staff who captured or changed the inputs of an application cannot be removed from it';
@@ -509,7 +512,7 @@ BEGIN
         MESSAGE = 'Segregation of duties: the staff member who approved an application cannot disburse it';
     END IF;
     IF (NEW."disbursedById" IN (NEW."recklessLendingAssessedById", NEW."incomeVerifiedById", NEW."bureauOverrideById")
-      OR NEW."disbursedById" = ANY (NEW."inputStaffIds"))
+      OR NEW."disbursedById" = ANY (COALESCE(NEW."inputStaffIds", '{}')))
       AND EXISTS (SELECT 1 FROM "User" a WHERE a."id" = NEW."approvedById" AND a."tenantId" = NEW."tenantId" AND a."isSystem")
     THEN
       RAISE EXCEPTION USING
@@ -545,3 +548,36 @@ BEGIN
 END;
 $function$;
 CREATE TRIGGER "User_guard_is_system" BEFORE UPDATE OF "isSystem" ON "User" FOR EACH ROW WHEN (old."isSystem" IS DISTINCT FROM new."isSystem") EXECUTE FUNCTION "guardUserIsSystem"();
+
+-- The staff who captured an application or changed its inputs only grow, on the client as on the application.
+CREATE OR REPLACE FUNCTION public."guardInputStaffIds"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NOT (COALESCE(OLD."inputStaffIds", '{}') <@ COALESCE(NEW."inputStaffIds", '{}')) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The staff who captured or changed the inputs of a record cannot be removed from it';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "Client_guard_input_staff" BEFORE UPDATE OF "inputStaffIds" ON "Client" FOR EACH ROW WHEN (old."inputStaffIds" IS DISTINCT FROM new."inputStaffIds") EXECUTE FUNCTION "guardInputStaffIds"();
+
+-- An application starts with the staff recorded on its client (an edit made before it existed), and takes up any
+-- recorded since when its review starts (status becomes UNDER_REVIEW). Named to run before
+-- LoanApplication_z_guard_segregation_of_duties, which reads the result.
+CREATE OR REPLACE FUNCTION public."inheritApplicationInputStaff"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+DECLARE
+  inherited TEXT[];
+BEGIN
+  IF NEW."clientId" IS NULL THEN
+    RETURN NEW;
+  END IF;
+  SELECT c."inputStaffIds" INTO inherited FROM "Client" c WHERE c."id" = NEW."clientId" AND c."tenantId" = NEW."tenantId";
+  IF inherited IS NOT NULL AND cardinality(inherited) > 0 THEN
+    NEW."inputStaffIds" := ARRAY(SELECT DISTINCT s FROM unnest(COALESCE(NEW."inputStaffIds", '{}') || inherited) AS s);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "LoanApplication_a_inherit_input_staff" BEFORE INSERT ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION "inheritApplicationInputStaff"();
+CREATE TRIGGER "LoanApplication_a_inherit_input_staff_on_status" BEFORE UPDATE ON "LoanApplication" FOR EACH ROW WHEN (new.status IS DISTINCT FROM old.status AND new.status = 'UNDER_REVIEW'::"AppStatus") EXECUTE FUNCTION "inheritApplicationInputStaff"();

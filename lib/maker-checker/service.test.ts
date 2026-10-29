@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ChangeRequestError } from "./errors"
 import type { ChangeHandler } from "./types"
 
-const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown }))
+const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown, makerCreatedAt: new Date("2026-01-01T00:00:00Z") as Date | null }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: async () => h.totpRequired }))
 vi.mock("./handlers", () => ({ handlerFor: (kind: string) => (kind === "TEST_KIND" ? h.handler : null) }))
@@ -27,6 +27,7 @@ function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
     auditLog: { create: vi.fn(), findFirst: vi.fn(async () => h.control) },
+    user: { findFirst: vi.fn(async () => (h.makerCreatedAt ? { createdAt: h.makerCreatedAt } : null)) },
     $executeRaw: vi.fn(async () => 0),
   }
   const db = { $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)), changeRequest: tx.changeRequest }
@@ -34,7 +35,7 @@ function fakeDb(found: unknown, count = 1) {
 }
 const scope = { tenantId: "t", id: "cr1" }
 
-beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null })
+beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null; h.makerCreatedAt = new Date("2026-01-01T00:00:00Z") })
 
 describe("maker-checker service (state, permission, staleness; the database rules are in the integration suite)", () => {
   it("refuses an unknown kind before touching the database", async () => {
@@ -72,8 +73,32 @@ describe("maker-checker service (state, permission, staleness; the database rule
       expect(Date.now() - since).toBeLessThan(30.1 * 86_400_000)
     })
 
+    it("refuses any maker account younger than 30 days whoever created it, and one that no longer exists", async () => {
+      h.makerCreatedAt = new Date(Date.now() - 29 * 86_400_000)
+      const { db, tx } = fakeDb(row())
+      await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
+      expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
+      h.makerCreatedAt = new Date(Date.now() - 31 * 86_400_000)
+      expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
+      h.makerCreatedAt = null
+      await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    })
+
     it("lets a checker with no such history approve", async () => {
       expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
+    })
+  })
+
+  describe("a handler may need a stronger maker for a high-risk payload", () => {
+    const risky = () => handler({ makePermissionFor: (p) => (p.amount > 10 ? "delete_client" : "manage_decision_rules") })
+    const loanAdmin = { ...maker, role: "LOAN_ADMIN" }
+    it("refuses drafting, editing and submitting the risky payload to a role below it, and lets the ordinary one through", async () => {
+      h.handler = risky()
+      await expect(createDraft({ tenantId: "t", actor: loanAdmin, kind: "TEST_KIND", title: "t", payload: { amount: 50 } }, fakeDb(null).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+      expect((await createDraft({ tenantId: "t", actor: loanAdmin, kind: "TEST_KIND", title: "t", payload: { amount: 5 } }, fakeDb(null).db)).id).toBe("new")
+      await expect(updateDraft({ ...scope, actor: loanAdmin, payload: { amount: 50 } }, fakeDb(row({ status: "DRAFT" })).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+      await expect(submit({ ...scope, actor: loanAdmin }, fakeDb(row({ status: "DRAFT", payload: { amount: 50 } })).db)).rejects.toMatchObject({ code: "FORBIDDEN" })
+      expect((await createDraft({ tenantId: "t", actor: maker, kind: "TEST_KIND", title: "t", payload: { amount: 50 } }, fakeDb(null).db)).id).toBe("new")
     })
   })
 

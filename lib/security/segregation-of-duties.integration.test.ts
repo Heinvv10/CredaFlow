@@ -13,7 +13,9 @@
  */
 import { describe, expect, it } from "vitest"
 import { Prisma } from "@prisma/client"
+import { recordInputStaffForClient } from "@/lib/applications/input-staff"
 import { prisma } from "@/lib/prisma"
+import { runWithTenant } from "@/lib/tenant-scope"
 import {
   createApprovedApplication,
   disburse,
@@ -128,6 +130,23 @@ suite("segregation of duties in the database", () => {
       await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY['a', 'b'] WHERE "id" = '${scenario.applicationId}'`)
       await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY['b'] WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/cannot be removed from it/)
       await expect(prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "inputStaffIds" = ARRAY[]::TEXT[] WHERE "id" = '${scenario.applicationId}'`)).rejects.toThrow(/cannot be removed from it/)
+    })
+
+    it("a staff edit of the client does not touch an approved application (its inputs are decided), and the edit itself still succeeds", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      // Awaited inside the frame: a Prisma query is lazy and would otherwise run after it has closed.
+      const inTenant = <T,>(fn: () => Promise<T>) => runWithTenant(scenario.tenantId, async () => await fn())
+      const approved = await inTenant(() => prisma.loanApplication.findUniqueOrThrow({ where: { id: scenario.applicationId } }))
+      await prisma.$executeRawUnsafe(`UPDATE "Client" SET "monthlyIncome" = "monthlyIncome" + 1 WHERE "id" = '${approved.clientId}'`)
+      // (A second product: one open application per client and product.)
+      const { id: _id, ...productFields } = await inTenant(() => prisma.loanProduct.findUniqueOrThrow({ where: { id: approved.productId } }))
+      const other = await inTenant(() => prisma.loanProduct.create({ data: { ...productFields, code: `OPEN-${Date.now()}` } }))
+      const open = await inTenant(() => prisma.loanApplication.create({ data: { tenantId: scenario.tenantId, reference: `APP-OPEN-${Date.now()}`, clientId: approved.clientId, productId: other.id, appliedAmount: 100_000, appliedTermDays: 30, status: "DRAFT" } }))
+      await inTenant(() => prisma.$transaction((tx) => recordInputStaffForClient(tx, { tenantId: scenario.tenantId, clientId: approved.clientId!, userId: scenario.colleagueId })))
+      expect((await inTenant(() => prisma.loanApplication.findUniqueOrThrow({ where: { id: scenario.applicationId } }))).inputStaffIds).toEqual([])
+      expect((await inTenant(() => prisma.loanApplication.findUniqueOrThrow({ where: { id: open.id } }))).inputStaffIds).toEqual([scenario.colleagueId])
+      // The approved, countersigned application can still be disbursed by that colleague.
+      await expect(disburse(scenario, scenario.colleagueId)).rejects.toBe(rollback)
     })
 
     it("a user cannot be turned into (or out of) the system account", async () => {

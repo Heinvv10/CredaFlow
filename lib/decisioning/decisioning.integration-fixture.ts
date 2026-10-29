@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
 import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 
+// (Its staff accounts are 90 days old: a maker account younger than 30 days cannot have its changes approved.)
 // Shared real-Postgres fixture for the maker-checker and decisioning
 // integration suites: one synthetic lender with the staff a four-eyes flow
 // needs, a product, and applications under review.
@@ -35,7 +36,7 @@ export async function createLender(db: PrismaClient): Promise<Lender> {
   }
   const roles = { makerId: "ADMIN", checkerId: "ADMIN", checker2Id: "ADMIN", officerId: "CREDIT_OFFICER" } as const
   for (const key of Object.keys(users) as (keyof typeof users)[]) {
-    await db.user.create({ data: { id: users[key], tenantId, email: `${users[key]}@test.invalid`, password: "x", role: roles[key] } })
+    await db.user.create({ data: { id: users[key], tenantId, email: `${users[key]}@test.invalid`, password: "x", role: roles[key], createdAt: new Date(Date.now() - 90 * 86_400_000) } })
   }
   const product = await db.loanProduct.create({
     data: {

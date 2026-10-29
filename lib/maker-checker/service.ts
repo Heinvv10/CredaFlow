@@ -28,6 +28,13 @@ function mayMake(handler: ChangeHandler<unknown>, actor: Actor): void {
   }
 }
 
+function mayMakePayload(handler: ChangeHandler<unknown>, actor: Actor, payload: unknown): void {
+  const permission = handler.makePermissionFor?.(payload)
+  if (permission && !canDo(actor.role, permission)) {
+    throw new ChangeRequestError("FORBIDDEN", `This kind of change to ${handler.label.toLowerCase()} needs the ${permission} permission`)
+  }
+}
+
 function mayApprove(handler: ChangeHandler<unknown>, actor: Actor, payload: unknown): void {
   const permission = approvePermissionFor(handler, payload)
   if (!canDo(actor.role, permission)) {
@@ -42,16 +49,21 @@ async function requireStepUp(tenantId: string, actor: Actor): Promise<void> {
   }
 }
 
-/** How long a checker who set up or changed the maker's account stays barred from approving what that account drafts. */
+/** How long a checker who set up or changed the maker's account stays barred, and how old a maker account must be. */
 export const MAKER_ACCOUNT_CONTROL_DAYS = 30
 
 /**
- * Four eyes is two different PEOPLE. A checker who created the maker's account, or reset its password,
- * role or second factor, within the last 30 days could be drafting through a puppet: refused. The trail
- * is the audit log the user routes already write (USER_CREATED, USER_UPDATED, TOTP_RESET_BY_ADMIN).
+ * Four eyes is two different PEOPLE. A maker account younger than 30 days (whoever created it) cannot have its changes approved,
+ * and a checker who created the maker's account, or reset its password, role or second factor, within the last 30 days could be
+ * drafting through a puppet: both refused. The trail is the audit log the user routes already write (USER_CREATED, USER_UPDATED,
+ * TOTP_RESET_BY_ADMIN).
  */
-async function refuseControlledMaker(tx: Pick<Tx, "auditLog">, tenantId: string, makerId: string, checkerId: string, now: Date): Promise<void> {
+async function refuseControlledMaker(tx: Pick<Tx, "auditLog" | "user">, tenantId: string, makerId: string, checkerId: string, now: Date): Promise<void> {
   const since = new Date(now.getTime() - MAKER_ACCOUNT_CONTROL_DAYS * 24 * 60 * 60 * 1000)
+  const maker = await tx.user.findFirst({ where: { id: makerId, tenantId }, select: { createdAt: true } })
+  if (!maker || maker.createdAt > since) {
+    throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", `The account that drafted this is less than ${MAKER_ACCOUNT_CONTROL_DAYS} days old (or gone): its changes cannot be approved yet`)
+  }
   const control = await tx.auditLog.findFirst({
     where: {
       tenantId, entity: "User", entityId: makerId, userId: checkerId, createdAt: { gte: since },
@@ -99,6 +111,7 @@ export async function createDraft(
   mayMake(handler, scope.actor)
   const title = cleanTitle(scope.title)
   const payload = handler.parse(scope.payload)
+  mayMakePayload(handler, scope.actor, payload)
   return db.$transaction(async (tx) => {
     const row = await tx.changeRequest.create({
       data: {
@@ -129,7 +142,9 @@ export async function updateDraft(
     const data: Prisma.ChangeRequestUpdateManyMutationInput = {}
     if (scope.title !== undefined) data.title = cleanTitle(scope.title)
     if (scope.payload !== undefined) {
-      data.payload = handler.parse(scope.payload) as Prisma.InputJsonValue
+      const parsed = handler.parse(scope.payload)
+      mayMakePayload(handler, scope.actor, parsed)
+      data.payload = parsed as Prisma.InputJsonValue
       data.payloadVersion = handler.payloadVersion
     }
     const changed = await tx.changeRequest.updateMany({ where: { id: row.id, tenantId: scope.tenantId, status: "DRAFT" }, data })
@@ -150,6 +165,7 @@ export async function submit(scope: Scope & { id: string }, db: Db = prisma): Pr
     // A draft's format is whatever it was drafted under: it is never re-stamped by submitting. Editing it re-parses and re-stamps.
     if (row.payloadVersion !== handler.payloadVersion) throw stale("This change was drafted under an older format. Edit it again to bring it up to date, or draft it afresh.")
     const payload = handler.parse(row.payload)
+    mayMakePayload(handler, scope.actor, payload)
     await handler.verify?.(tx, scope.tenantId, payload)
     const baseRef = (await handler.baseRef?.(tx, scope.tenantId, payload)) ?? null
     const changed = await tx.changeRequest.updateMany({
