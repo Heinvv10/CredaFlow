@@ -122,6 +122,23 @@ describe("PATCH /api/settings/users/[id] — password policy", () => {
   })
 })
 
+describe("PATCH /api/settings/users/[id] — the audit row says a password was set (never the password)", () => {
+  it("records passwordChanged: true on a password change, and not on a rename", async () => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER")
+    const res = await patch({ password: "a-long-synthetic-password-1" })
+    expect(res.status).toBe(200)
+    const logged = h.logAuditStrict.mock.calls.at(-1)![0] as { action: string; newValue: Record<string, unknown> }
+    expect(logged).toMatchObject({ action: "USER_UPDATED", newValue: { passwordChanged: true } })
+    expect(JSON.stringify(logged)).not.toContain("a-long-synthetic-password-1")
+    expect(JSON.stringify(logged)).not.toContain("hashed:")
+
+    h.logAuditStrict.mockClear()
+    await patch({ name: "Renamed" })
+    expect((h.logAuditStrict.mock.calls.at(-1)![0] as { newValue: Record<string, unknown> }).newValue).not.toHaveProperty("passwordChanged")
+  })
+})
+
 describe("PATCH /api/settings/users/[id] — role ceiling", () => {
   // Equal rank is as out of reach as higher rank: a password, email or demotion
   // on a peer's account takes it over.

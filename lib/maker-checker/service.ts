@@ -49,27 +49,59 @@ async function requireStepUp(tenantId: string, actor: Actor): Promise<void> {
   }
 }
 
-/** How long a checker who set up or changed the maker's account stays barred, and how old a maker account must be. */
+/** How long a checker who set up or changed the maker's account stays barred, how old a minted maker account must be, and the takeover window. */
 export const MAKER_ACCOUNT_CONTROL_DAYS = 30
 
+/** What on a USER_UPDATED row is a change of how someone signs in or what they may do: role, email, password. */
+function changesAccessOnUpdate(row: { oldValue: unknown; newValue: unknown }): boolean {
+  const asObject = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {})
+  const before = asObject(row.oldValue)
+  const after = asObject(row.newValue)
+  return "role" in before || "role" in after || "email" in before || "email" in after || after.passwordChanged === true
+}
+
 /**
- * Four eyes is two different PEOPLE. A maker account younger than 30 days that a tenant user created (USER_CREATED, written only by
- * the staff-management route) or that SSO provisioned on first sign-in (SSO_USER_PROVISIONED) cannot have its changes approved: the risk
- * is a tenant admin minting accounts. An account the operator provisioned, the bootstrap or the seed made has neither row and is exempt.
- * And a checker who created the maker's account, or reset its password, role or second factor, within the last 30 days could be
- * drafting through a puppet: refused. The trail is the audit log the user routes already write (USER_CREATED, USER_UPDATED,
- * TOTP_RESET_BY_ADMIN).
+ * Four eyes is two different PEOPLE. A maker account is refused as a source of approvable changes when
+ *  - it is younger than 30 days and a tenant user created it (USER_CREATED, written only by the staff-management route) or SSO
+ *    provisioned it on first sign-in (SSO_USER_PROVISIONED): the risk is a tenant admin minting accounts. An account the operator
+ *    provisioned, the bootstrap or the seed made has neither row and is exempt. For a HIGH-RISK payload (LIVE, s71 sign-off) the
+ *    account must be 30 days old whatever its origin;
+ *  - in the last 30 days, and whoever wrote the row, its SSO identity was linked or its role synced, its second factor was enrolled,
+ *    replaced, disabled or reset, or its role, email or password was changed (an account taken over);
+ *  - the CHECKER created or changed it (USER_CREATED, USER_UPDATED, TOTP_RESET_BY_ADMIN) in the last 30 days.
+ * The trail is the audit log the user, SSO and TOTP routes already write.
  */
-async function refuseControlledMaker(tx: Pick<Tx, "auditLog" | "user">, tenantId: string, makerId: string, checkerId: string, now: Date): Promise<void> {
+async function refuseControlledMaker(
+  tx: Pick<Tx, "auditLog" | "user">, tenantId: string, makerId: string, checkerId: string, now: Date, highRisk: boolean,
+): Promise<void> {
   const since = new Date(now.getTime() - MAKER_ACCOUNT_CONTROL_DAYS * 24 * 60 * 60 * 1000)
+  const refuse = (why: string) => new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", why)
   const maker = await tx.user.findFirst({ where: { id: makerId, tenantId }, select: { createdAt: true } })
-  if (!maker) throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", "The account that drafted this no longer exists: its changes cannot be approved")
+  if (!maker) throw refuse("The account that drafted this no longer exists: its changes cannot be approved")
   if (maker.createdAt > since) {
+    if (highRisk) throw refuse(`This change needs an account that is at least ${MAKER_ACCOUNT_CONTROL_DAYS} days old; the account that drafted it is newer`)
     const minted = await tx.auditLog.findFirst({
       where: { tenantId, entity: "User", entityId: makerId, action: { in: [AuditAction.USER_CREATED, AuditAction.SSO_USER_PROVISIONED] } },
       select: { id: true },
     })
-    if (minted) throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", `The account that drafted this was created less than ${MAKER_ACCOUNT_CONTROL_DAYS} days ago by a user or by SSO: its changes cannot be approved yet`)
+    if (minted) throw refuse(`The account that drafted this was created less than ${MAKER_ACCOUNT_CONTROL_DAYS} days ago by a user or by SSO: its changes cannot be approved yet`)
+  }
+  const recent = await tx.auditLog.findMany({
+    where: {
+      tenantId, entity: "User", entityId: makerId, createdAt: { gte: since },
+      action: {
+        in: [
+          AuditAction.SSO_IDENTITY_LINKED, AuditAction.SSO_ROLE_SYNCED, AuditAction.SSO_PASSWORD_BREAK_GLASS,
+          AuditAction.TOTP_ENROLLED, AuditAction.TOTP_REPLACED, AuditAction.TOTP_DISABLED, AuditAction.TOTP_RESET_BY_ADMIN,
+          AuditAction.USER_UPDATED,
+        ],
+      },
+    },
+    select: { action: true, oldValue: true, newValue: true },
+    take: 200,
+  })
+  if (recent.some((row) => row.action !== AuditAction.USER_UPDATED || changesAccessOnUpdate(row))) {
+    throw refuse(`The sign-in, second factor, role, email or password of the account that drafted this changed in the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: its changes cannot be approved yet`)
   }
   const control = await tx.auditLog.findFirst({
     where: {
@@ -78,7 +110,7 @@ async function refuseControlledMaker(tx: Pick<Tx, "auditLog" | "user">, tenantId
     },
     select: { id: true },
   })
-  if (control) throw new ChangeRequestError("MAKER_ACCOUNT_CONTROLLED", `You created or changed the account of the person who drafted this within the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: another approver must decide it`)
+  if (control) throw refuse(`You created or changed the account of the person who drafted this within the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: another approver must decide it`)
 }
 
 async function load(tx: Pick<Tx, "changeRequest">, tenantId: string, id: string): Promise<ChangeRequest> {
@@ -216,7 +248,8 @@ export async function approve(scope: Scope & { id: string; note?: string }, db: 
       mayApprove(handler, scope.actor, row.payload)
       if (row.makerId === scope.actor.id) throw selfApproval()
       const now = new Date()
-      await refuseControlledMaker(tx, scope.tenantId, row.makerId, scope.actor.id, now)
+      const risky = handler.makePermissionFor?.(row.payload)
+      await refuseControlledMaker(tx, scope.tenantId, row.makerId, scope.actor.id, now, risky !== undefined && risky !== handler.makePermission)
       const changed = await tx.changeRequest.updateMany({
         where: { id: row.id, tenantId: scope.tenantId, status: "SUBMITTED" },
         data: { status: "APPROVED", checkerId: scope.actor.id, decidedAt: now, appliedAt: now, decisionNote: scope.note?.trim() || null },

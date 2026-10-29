@@ -18,6 +18,9 @@ CREATE TYPE "AutoDecisionExecution" AS ENUM ('APPROVED', 'DECLINED', 'REFERRED',
 CREATE TYPE "ChangeRequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'WITHDRAWN');
 
 -- AlterTable
+ALTER TABLE "Lead" ADD COLUMN     "inputStaffIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+
+-- AlterTable
 ALTER TABLE "Client" ADD COLUMN     "inputStaffIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
 -- AlterTable
@@ -581,3 +584,4 @@ END;
 $function$;
 CREATE TRIGGER "LoanApplication_a_inherit_input_staff" BEFORE INSERT ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION "inheritApplicationInputStaff"();
 CREATE TRIGGER "LoanApplication_a_inherit_input_staff_on_status" BEFORE UPDATE ON "LoanApplication" FOR EACH ROW WHEN (new.status IS DISTINCT FROM old.status AND new.status = 'UNDER_REVIEW'::"AppStatus") EXECUTE FUNCTION "inheritApplicationInputStaff"();
+CREATE TRIGGER "Lead_guard_input_staff" BEFORE UPDATE OF "inputStaffIds" ON "Lead" FOR EACH ROW WHEN (old."inputStaffIds" IS DISTINCT FROM new."inputStaffIds") EXECUTE FUNCTION "guardInputStaffIds"();

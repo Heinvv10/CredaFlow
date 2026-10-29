@@ -162,6 +162,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
             : undefined,
           newValue: {
             changed: Object.keys(data).filter(k => k !== "password" && k !== "tokenVersion"),
+            // The hash is never logged, but that a password was set is: the maker-checker rule reads it (lib/maker-checker/service.ts).
+            ...("password" in data ? { passwordChanged: true } : {}),
             ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
             ...(roleChanged ? { role: user.role } : {}),
           },

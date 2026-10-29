@@ -363,6 +363,13 @@ suite("maker-checker (real Postgres)", () => {
       expect(await staffOf(applicationId)).toEqual(["editor-late"])
     })
 
+    it("a lead's list only grows and is never null", async () => {
+      const lead = await db.lead.create({ data: { tenantId: lender.tenantId, firstName: "Lead", lastName: "Staff", phone: "0820000099", source: "MANUAL", status: "NEW", inputStaffIds: ["l1", "l2"] } })
+      expect(await refusal(sql(`UPDATE "Lead" SET "inputStaffIds" = ARRAY['l1'] WHERE "id" = '${lead.id}'`))).toContain("cannot be removed from it")
+      expect(await refusal(sql(`UPDATE "Lead" SET "inputStaffIds" = NULL WHERE "id" = '${lead.id}'`))).toMatch(/cannot be removed|null value|23502/i)
+      await sql(`UPDATE "Lead" SET "inputStaffIds" = ARRAY['l1','l2','l3'] WHERE "id" = '${lead.id}'`)
+    })
+
     it("the lists are never null, and the client's only grows", async () => {
       const { clientId, applicationId } = await createApplication(db, lender, { status: "SUBMITTED" })
       await editClient(clientId, ["a", "b"])
@@ -395,6 +402,41 @@ suite("maker-checker (real Postgres)", () => {
     const fresh = await createDraft({ tenantId: lender.tenantId, actor: byAdmin.actor, kind: RULE_SET_KIND, title: "later", payload: payload({ name: "Later rules" }) })
     await submit({ tenantId: lender.tenantId, actor: byAdmin.actor, id: fresh.id })
     expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: fresh.id })).status).toBe("APPROVED")
+  })
+
+  it("an account whose sign-in, second factor, role, email or password changed in the last 30 days cannot have its changes approved, whoever wrote the row", async () => {
+    const taken = async (label: string, trail: { action: string; oldValue?: object; newValue?: object; ageDays: number } | null) => {
+      const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 90 * 86_400_000) } })
+      if (trail) await db.auditLog.create({ data: { tenantId: lender.tenantId, action: trail.action, entity: "User", entityId: u.id, userId: u.id, oldValue: trail.oldValue ?? {}, newValue: trail.newValue ?? {}, createdAt: new Date(Date.now() - trail.ageDays * 86_400_000) } })
+      const actor = { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
+      const d = await createDraft({ tenantId: lender.tenantId, actor, kind: RULE_SET_KIND, title: label, payload: payload({ name: `${label} rules` }) })
+      await submit({ tenantId: lender.tenantId, actor, id: d.id })
+      return d.id
+    }
+    const refused = async (label: string, trail: Parameters<typeof taken>[1]) =>
+      expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: await taken(label, trail) })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    await refused("sso", { action: "SSO_IDENTITY_LINKED", ageDays: 3 })
+    await refused("synced", { action: "SSO_ROLE_SYNCED", oldValue: { role: "READONLY" }, newValue: { role: "ADMIN" }, ageDays: 3 })
+    await refused("totp", { action: "TOTP_ENROLLED", ageDays: 10 })
+    await refused("role", { action: "USER_UPDATED", oldValue: { role: "LOAN_ADMIN" }, newValue: { role: "ADMIN" }, ageDays: 5 })
+    await refused("email", { action: "USER_UPDATED", oldValue: { email: "old@x.invalid" }, newValue: { email: "new@x.invalid" }, ageDays: 5 })
+    await refused("pw", { action: "USER_UPDATED", newValue: { passwordChanged: true }, ageDays: 5 })
+    // A rename, or any of it more than 30 days ago, does not count.
+    const renamed = await taken("renamed", { action: "USER_UPDATED", newValue: { changed: ["name"] }, ageDays: 2 })
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: renamed })).status).toBe("APPROVED")
+    const old = await taken("oldtotp", { action: "TOTP_ENROLLED", ageDays: 45 })
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: old })).status).toBe("APPROVED")
+  })
+
+  it("a LIVE or s71 settings change needs a maker account 30 days old even where nobody on record created it (operator, seed)", async () => {
+    const young = await db.user.create({ data: { id: `u_youngop_${lender.tenantId}`, tenantId: lender.tenantId, email: `youngop_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 4 * 86_400_000) } })
+    const asYoung = { id: young.id, email: young.email, role: "ADMIN", totpVerified: true }
+    const live = await createDraft({ tenantId: lender.tenantId, actor: asYoung, kind: "DECISION_ENGINE_CONFIG", title: "Live", payload: engineConfig({ mode: "LIVE" }) })
+    await submit({ tenantId: lender.tenantId, actor: asYoung, id: live.id })
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: live.id })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    const shadow = await createDraft({ tenantId: lender.tenantId, actor: asYoung, kind: "DECISION_ENGINE_CONFIG", title: "Shadow", payload: engineConfig({ mode: "SHADOW" }) })
+    await submit({ tenantId: lender.tenantId, actor: asYoung, id: shadow.id })
+    expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: shadow.id })).status).toBe("APPROVED")
   })
 
   it("settings that go LIVE or record the s71 sign-off can only be drafted by an ADMIN or above", async () => {

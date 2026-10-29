@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ChangeRequestError } from "./errors"
 import type { ChangeHandler } from "./types"
 
-const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown, minted: null as unknown, makerCreatedAt: new Date("2026-01-01T00:00:00Z") as Date | null }))
+const h = vi.hoisted(() => ({ totpRequired: true, handler: null as unknown, control: null as unknown, minted: null as unknown, recent: [] as unknown[], makerCreatedAt: new Date("2026-01-01T00:00:00Z") as Date | null }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: async () => h.totpRequired }))
 vi.mock("./handlers", () => ({ handlerFor: (kind: string) => (kind === "TEST_KIND" ? h.handler : null) }))
@@ -26,7 +26,7 @@ function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeH
 function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
-    auditLog: { create: vi.fn(), findFirst: vi.fn(async (a: { where: { action: { in: string[] } } }) => (a.where.action.in.includes("SSO_USER_PROVISIONED") ? h.minted : h.control)) },
+    auditLog: { create: vi.fn(), findMany: vi.fn(async () => h.recent), findFirst: vi.fn(async (a: { where: { action: { in: string[] } } }) => (a.where.action.in.includes("SSO_USER_PROVISIONED") ? h.minted : h.control)) },
     user: { findFirst: vi.fn(async () => (h.makerCreatedAt ? { createdAt: h.makerCreatedAt } : null)) },
     $executeRaw: vi.fn(async () => 0),
   }
@@ -35,7 +35,7 @@ function fakeDb(found: unknown, count = 1) {
 }
 const scope = { tenantId: "t", id: "cr1" }
 
-beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null; h.minted = null; h.makerCreatedAt = new Date("2026-01-01T00:00:00Z") })
+beforeEach(() => { h.totpRequired = true; h.handler = handler(); h.control = null; h.minted = null; h.recent = []; h.makerCreatedAt = new Date("2026-01-01T00:00:00Z") })
 
 describe("maker-checker service (state, permission, staleness; the database rules are in the integration suite)", () => {
   it("refuses an unknown kind before touching the database", async () => {
@@ -98,6 +98,57 @@ describe("maker-checker service (state, permission, staleness; the database rule
       expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
       h.makerCreatedAt = null
       await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    })
+
+    describe("an account taken over in the last 30 days, whoever wrote the row", () => {
+      it.each(["SSO_IDENTITY_LINKED", "SSO_ROLE_SYNCED", "TOTP_ENROLLED", "TOTP_REPLACED", "TOTP_DISABLED", "TOTP_RESET_BY_ADMIN", "SSO_PASSWORD_BREAK_GLASS"])("%s refuses the maker", async (action) => {
+        h.recent = [{ action, oldValue: null, newValue: null }]
+        const { db, tx } = fakeDb(row())
+        await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
+        expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
+      })
+
+      it.each([
+        ["a role change", { oldValue: { role: "READONLY" }, newValue: { role: "ADMIN", changed: ["role"] } }],
+        ["an email change", { oldValue: { email: "a@x.invalid" }, newValue: { email: "b@x.invalid", changed: ["email"] } }],
+        ["a password change by an administrator", { oldValue: null, newValue: { changed: [], passwordChanged: true } }],
+        ["a password reset by the person (recovery link)", { oldValue: null, newValue: { passwordChanged: true, resetTokenConsumed: true } }],
+      ])("a USER_UPDATED row recording %s refuses the maker", async (_label, trail) => {
+        h.recent = [{ action: "USER_UPDATED", ...trail }]
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+      })
+
+      it("a USER_UPDATED row that changed only a name, phone or branch does not", async () => {
+        h.recent = [{ action: "USER_UPDATED", oldValue: null, newValue: { changed: ["name", "phone", "branchId"] } }]
+        expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
+      })
+
+      it("looks at the maker's own rows from the last 30 days, written by anyone", async () => {
+        const { db, tx } = fakeDb(row())
+        await approve({ ...scope, actor: checker }, db)
+        const where = (tx.auditLog.findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where
+        expect(where).toMatchObject({ tenantId: "t", entity: "User", entityId: "u-maker" })
+        expect(where).not.toHaveProperty("userId")
+        expect((where.action as { in: string[] }).in.sort()).toEqual(["SSO_IDENTITY_LINKED", "SSO_PASSWORD_BREAK_GLASS", "SSO_ROLE_SYNCED", "TOTP_DISABLED", "TOTP_ENROLLED", "TOTP_REPLACED", "TOTP_RESET_BY_ADMIN", "USER_UPDATED"])
+        const age = Date.now() - (where.createdAt as { gte: Date }).gte.getTime()
+        expect(age).toBeGreaterThan(29.9 * 86_400_000)
+        expect(age).toBeLessThan(30.1 * 86_400_000)
+      })
+    })
+
+    describe("a high-risk payload also needs a maker account that is itself 30 days old, wherever it came from", () => {
+      const risky = () => handler({ makePermissionFor: (p) => (p.amount > 10 ? "delete_client" : "manage_decision_rules") })
+      it("refuses a young, unminted (operator or seed) account for the risky payload, and allows it for an ordinary one", async () => {
+        h.makerCreatedAt = new Date(Date.now() - 2 * 86_400_000)
+        h.minted = null
+        h.handler = risky()
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row({ payload: { amount: 50 } })).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+        expect((await approve({ ...scope, actor: checker }, fakeDb(row({ payload: { amount: 5 } })).db)).id).toBe("cr1")
+      })
+      it("allows the risky payload from an account 30 days old or more", async () => {
+        h.handler = risky()
+        expect((await approve({ ...scope, actor: checker }, fakeDb(row({ payload: { amount: 50 } })).db)).id).toBe("cr1")
+      })
     })
 
     it("lets a checker with no such history approve", async () => {
