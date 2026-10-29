@@ -102,7 +102,8 @@ export function classifyStage(input: StagingInput, settings: Ifrs9Settings, prio
     stageSince = runDate
     cureStartedOn = runDate
   }
-  if (stage === triggerStage) return { stage, triggerStage, reasons, stageSince, cureStartedOn: null, inProbation: false, restructured: restructuredNow }
+  // Landing on a trigger stage that is still firing leaves a Stage 2 or 3 loan with its cure ahead of it: the marker stays.
+  if (stage === triggerStage) return { stage, triggerStage, reasons, stageSince, cureStartedOn: null, inProbation: false, restructured: restructuredNow || (restructured && stage >= 2) }
   const reasonsInProbation = [`PROBATION_FROM_STAGE_${stage}`, ...(restructured ? [RESTRUCTURE_PROBATION] : [])]
   return { stage, triggerStage, reasons: reasonsInProbation, stageSince, cureStartedOn, inProbation: true, restructured }
 }

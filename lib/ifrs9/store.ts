@@ -65,9 +65,10 @@ const rand = (cents: number) => `R${(Math.abs(cents) / 100).toFixed(2)}`
  * posts only the movement from what was posted, so a change that would strand or double a posted position is refused:
  * switching off while an allowance or interest in suspense is held (it would never be released), moving the first month
  * forward over a held position (the close would carry a frozen one), and changing the Stage 3 interest basis once anything
- * has been posted (the old basis's postings would sit beside the new basis's).
+ * has been posted (the old basis's postings would sit beside the new basis's), or while an unclosed month's current run
+ * was made on the old basis (`openRunsOnOldBasis`, month keys: that month would close on the old basis's figures).
  */
-export function policyChangeRefusal(before: Ifrs9Settings, next: Ifrs9Settings, position: LedgerPosition): string | null {
+export function policyChangeRefusal(before: Ifrs9Settings, next: Ifrs9Settings, position: LedgerPosition, openRunsOnOldBasis: readonly string[] = []): string | null {
   const held = position.allowanceCents !== 0 || position.suspenseCents !== 0
   if (before.enabled && !next.enabled && held) {
     return `IFRS 9 cannot be switched off while the ledger holds an allowance of ${rand(position.allowanceCents)} and interest in suspense of ${rand(position.suspenseCents)}: they would never be released`
@@ -79,7 +80,22 @@ export function policyChangeRefusal(before: Ifrs9Settings, next: Ifrs9Settings, 
   if (position.posted && before.stage3InterestBasis !== next.stage3InterestBasis) {
     return "stage3InterestBasis cannot change once IFRS 9 has posted to the ledger: the old basis's entries would sit beside the new one's"
   }
+  if (before.stage3InterestBasis !== next.stage3InterestBasis && openRunsOnOldBasis.length > 0) {
+    return `stage3InterestBasis cannot change while the run of an open month was made on the old basis (${openRunsOnOldBasis.join(", ")}): replace ${openRunsOnOldBasis.length === 1 ? "it" : "them"} first, or change the basis before the month-end run`
+  }
   return null
+}
+
+/** Month keys whose current MONTHLY run is not yet closed into the ledger and was made on a Stage 3 basis other than `basis`. */
+async function openRunsNotOn(tx: Tx, tenantId: string, basis: Ifrs9Settings["stage3InterestBasis"]): Promise<string[]> {
+  const [runs, closed] = await Promise.all([
+    tx.ifrs9Run.findMany({ where: { tenantId, kind: "MONTHLY", supersededBy: null }, select: { periodKey: true, settings: true }, orderBy: { periodKey: "asc" } }),
+    tx.accountingExportBatch.findMany({ where: { tenantId }, select: { periodKey: true } }),
+  ])
+  const closedKeys = new Set(closed.map((b) => b.periodKey))
+  return runs
+    .filter((r) => r.periodKey !== null && !closedKeys.has(r.periodKey) && (r.settings as { stage3InterestBasis?: string } | null)?.stage3InterestBasis !== basis)
+    .map((r) => r.periodKey!)
 }
 
 /**
@@ -90,7 +106,8 @@ export async function saveSettings(db: Db2, tenantId: string, next: Ifrs9Setting
   return db.$transaction(async (tx) => {
     await lockAccounting(tx, tenantId)
     const before = await loadSettings(tx, tenantId)
-    const refusal = policyChangeRefusal(before, next, await ledgerPosition(tx, tenantId))
+    const openOnOld = before.stage3InterestBasis !== next.stage3InterestBasis ? await openRunsNotOn(tx, tenantId, next.stage3InterestBasis) : []
+    const refusal = policyChangeRefusal(before, next, await ledgerPosition(tx, tenantId), openOnOld)
     if (refusal) return { ok: false, error: refusal }
     if (next.enabled && next.effectiveFromMonth !== null && next.effectiveFromMonth !== before.effectiveFromMonth) {
       const first = await firstUnclosedMonth(tx, tenantId)

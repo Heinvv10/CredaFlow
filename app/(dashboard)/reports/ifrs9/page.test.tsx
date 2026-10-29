@@ -6,7 +6,10 @@ vi.mock("@/lib/auth-guards", () => ({ requireMinRole: vi.fn(async () => ({ id: "
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t-1") }))
 vi.mock("@/lib/prisma", () => ({ prisma: { accountingExportBatch: { findMany: vi.fn(async () => state.batches) } } }))
 vi.mock("@/lib/ifrs9/store", () => ({ loadSettings: vi.fn(async () => state.settings) }))
-vi.mock("@/lib/ifrs9/run-report", () => ({ listRuns: vi.fn(async () => state.runs), loadRunReport: vi.fn(async () => state.report) }))
+vi.mock("@/lib/ifrs9/run-report", () => ({
+  listRuns: vi.fn(async () => state.runs), loadRunReport: vi.fn(async () => state.report),
+  loadOfficialMonthly: vi.fn(async () => (state.runs as Array<{ kind: string; superseded: boolean }>).filter((r) => r.kind === "MONTHLY" && !r.superseded)),
+}))
 vi.mock("@/components/nav/Breadcrumbs", () => ({ Breadcrumbs: () => null }))
 vi.mock("@/components/ifrs9/Ifrs9RunActions", () => ({ Ifrs9RunActions: ({ months }: { months: unknown[] }) => `[actions:${JSON.stringify(months)}]` }))
 
@@ -14,9 +17,9 @@ import Ifrs9ReportPage from "./page"
 
 const head = (over: Record<string, unknown>) => ({
   id: "r1", kind: "MONTHLY", runDate: "2026-10-31", periodKey: "2026-10", loanCount: 2, totalEadCents: 1_000_000, totalEclCents: 150_000, createdAt: "2026-10-31T21:50:00.000Z",
-  late: false, superseded: false, stale: false, supersedesRunId: null, reason: null, ...over,
+  late: false, superseded: false, stale: false, basis: "FULL_SUSPENSION", supersedesRunId: null, reason: null, ...over,
 })
-const stage = (n: number, loans: number, ead: number, ecl: number, suspendedCents = 0) => ({ stage: n, loans, eadCents: ead, eclCents: ecl, coverageBps: ead ? Math.round((ecl * 10_000) / ead) : 0, suspendedCents })
+const stage = (n: number, loans: number, ead: number, ecl: number, suspendedCents = 0, netAdjustmentCents = 0) => ({ stage: n, loans, eadCents: ead, eclCents: ecl, coverageBps: ead ? Math.round((ecl * 10_000) / ead) : 0, suspendedCents, netAdjustmentCents })
 const render = async () => renderToStaticMarkup(await Ifrs9ReportPage({ searchParams: Promise.resolve({}) }))
 
 describe("IFRS 9 report page", () => {
@@ -64,5 +67,17 @@ describe("IFRS 9 report page", () => {
     expect(html).toContain("2026-10")
     expect(html).toContain("&quot;currentRunId&quot;:&quot;rA&quot;")
     expect(html).not.toContain("&quot;periodKey&quot;:&quot;2026-09&quot;")
+  })
+
+  it("shows the net-basis interest adjustment only for a run made on that basis", async () => {
+    const mk = (basis: string) => {
+      const run = head({ basis })
+      state.runs = [run]
+      state.report = { run, previousRun: null, summary: { byStage: [stage(1, 0, 0, 0), stage(2, 0, 0, 0), stage(3, 1, 200_000, 120_000, 0, 6_000)], total: stage(0, 1, 200_000, 120_000, 0, 6_000) }, transitions: null }
+    }
+    mk("NET_BASIS")
+    expect(await render()).toContain("interest taken off against the ECL expense")
+    mk("FULL_SUSPENSION")
+    expect(await render()).not.toContain("interest taken off against the ECL expense")
   })
 })

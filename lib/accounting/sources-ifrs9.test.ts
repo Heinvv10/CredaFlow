@@ -8,7 +8,7 @@ const oct = parsePeriodKey("2026-10")!
 const nov = parsePeriodKey("2026-11")!
 const position = (over: Partial<Ifrs9Position> = {}): Ifrs9Position => ({
   loanId: "l1", reference: "L-1", periodKey: "2026-10", eclCents: 316_800, suspendedInterestCents: 40_000,
-  suspendedDefaultInterestCents: 4_000, netInterestAdjustmentCents: 0, netDefaultInterestAdjustmentCents: 0, journalsSuspense: true, writtenOff: false, closed: false, ...over,
+  suspendedDefaultInterestCents: 4_000, netInterestAdjustmentCents: 0, netDefaultInterestAdjustmentCents: 0, journalsSuspense: true, exitUndated: false, writtenOff: false, closed: false, ...over,
 })
 const byKey = (positions: Ifrs9Position[], period = oct) => Object.fromEntries(ifrs9Sources(positions, period).map((s) => [s.baseKey, s.vector]))
 

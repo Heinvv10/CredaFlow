@@ -8,7 +8,7 @@ import type { RunLoan } from "./snapshot"
 import type { PriorStaging } from "./staging"
 import type { SicrFlagKind, Stage } from "./types"
 
-type Db = Pick<typeof prisma, "loan" | "payment" | "auditLog" | "repaymentSchedule" | "bankTransaction" | "loanCharge" | "$queryRaw">
+type Db = Pick<typeof prisma, "loan" | "payment" | "auditLog" | "repaymentSchedule" | "bankTransaction" | "loanCharge" | "ifrs9Run" | "$queryRaw">
 
 const BASE_SELECT = {
   id: true, reference: true, productId: true, contractType: true, status: true, collectionsStage: true, debtReviewNoticeAt: true,
@@ -90,4 +90,17 @@ export async function loadPriorStaging(db: Pick<Db, "$queryRaw">, tenantId: stri
   return new Map(rows.map((r) => [r.loanId, {
     stage: r.stage as Stage, stageSince: r.stageSince, cureStartedOn: r.cureStartedOn, restructured: r.restructured,
   }]))
+}
+
+/**
+ * The MONTHLY runs `loadPriorStaging` reads from for a run dated `before` (the ones no run supersedes), as one comparable
+ * string. A run takes it before it reads its prior stages and again under the accounting lock: if it changed, the stages
+ * were read from a run that has since been replaced and the run is refused.
+ */
+export async function priorRunFingerprint(db: Pick<Db, "ifrs9Run">, tenantId: string, before: string): Promise<string> {
+  const runs = await db.ifrs9Run.findMany({
+    where: { tenantId, kind: "MONTHLY", runDate: { lt: new Date(`${before}T00:00:00.000Z`) }, supersededBy: null },
+    select: { id: true }, orderBy: { id: "asc" },
+  })
+  return runs.map((r) => r.id).join(",")
 }

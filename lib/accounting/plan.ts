@@ -31,6 +31,7 @@ export type CloseRefusal =
   | "AF_SOURCE_UNSUPPORTED"
   | "IFRS9_RUN_MISSING"
   | "IFRS9_RUN_STALE"
+  | "IFRS9_EXIT_UNDATED"
   | "CONCURRENT_CHANGE"
 
 export class AccountingPeriodError extends Error {
@@ -90,7 +91,8 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   const positions = isGoLive ? openingPositions(loans, period) : []
   const base = isGoLive ? positionsAsLedger(positions) : ledger
   const vat = { registered: settings.vatRegistered, rateBps: settings.vatRateBps }
-  const extraSources = ifrs9Sources(await loadIfrs9Positions(db, tenantId, period, base.postedKeys), period)
+  const ifrs9Positions = await loadIfrs9Positions(db, tenantId, period, base.postedKeys)
+  const extraSources = ifrs9Sources(ifrs9Positions, period)
   const own = deriveEntries({ loans, period, accounts, vat, heldBack: unsupportedIds, extraSources, ...base })
   const opening = isGoLive ? openingEntry(positions, period, accounts) : null
   const entries = opening ? [opening, ...own] : own
@@ -107,6 +109,11 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   else refusal = await orderRefusal(db, tenantId, period, settings.goLiveMonth)
   if (!refusal) {
     refusal = await ifrs9RunRefusal(db, tenantId, period)
+  }
+  // A loan whose status says it left the book without a date for it would silently keep its allowance (or lose it in the wrong month).
+  const undated = ifrs9Positions.filter((p) => p.exitUndated)
+  if (!refusal && undated.length > 0) {
+    refusal = { code: "IFRS9_EXIT_UNDATED", message: `IFRS 9 cannot place when these loans left the book, because their closed or written-off date is not recorded: ${undated.slice(0, 5).map((p) => p.reference).join(", ")}${undated.length > 5 ? ` and ${undated.length - 5} more` : ""}. Record the date on each loan, then close again` }
   }
   if (!refusal && unsupported.length > 0) {
     refusal = { code: "AF_SOURCE_UNSUPPORTED", message: `Asset-finance contracts the export cannot post yet: ${unsupported.slice(0, 3).map((u) => u.message).join("; ")}` }

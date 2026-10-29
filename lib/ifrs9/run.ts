@@ -20,14 +20,14 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { loadLoanCharges } from "@/lib/loan/charges-summary"
-import { loadDefaultInterestRaised, loadPriorStaging, loadRunLoans } from "./loan-input"
+import { loadDefaultInterestRaised, loadPriorStaging, loadRunLoans, priorRunFingerprint } from "./loan-input"
 import { missingDefaults } from "./parameters"
 import { monthlyInstants, periodEndDate, previousMonthKey } from "./period"
 import { assessLoan, buildSnapshot, type RunContext, type SnapshotData } from "./snapshot"
 import { loadParameters, loadSettings } from "./store"
 import type { Stage } from "./types"
 
-export type RunRefusal = "PARAMETERS_MISSING" | "NOT_ENABLED" | "INVALID_PERIOD" | "PERIOD_NOT_ENDED" | "PERIOD_CLOSED" | "SUPERSEDE_STALE" | "PREVIOUS_MONTH_MISSING"
+export type RunRefusal = "PARAMETERS_MISSING" | "NOT_ENABLED" | "INVALID_PERIOD" | "PERIOD_NOT_ENDED" | "PERIOD_CLOSED" | "SUPERSEDE_STALE" | "PREVIOUS_MONTH_MISSING" | "NOT_EFFECTIVE" | "CHAIN_CHANGED"
 
 export class Ifrs9RunError extends Error {
   constructor(readonly code: RunRefusal, message: string) {
@@ -111,6 +111,9 @@ export async function executeRun(tenantId: string, options: RunOptions): Promise
   if (monthly) {
     if (!settings.enabled) throw new Ifrs9RunError("NOT_ENABLED", "IFRS 9 is not enabled for this lender")
     if (!parsePeriodKey(monthly.periodKey)) throw new Ifrs9RunError("INVALID_PERIOD", "periodKey must be a month, yyyy-mm")
+    if (settings.effectiveFromMonth !== null && monthly.periodKey < settings.effectiveFromMonth) {
+      throw new Ifrs9RunError("NOT_EFFECTIVE", `IFRS 9 takes effect from ${settings.effectiveFromMonth}: ${monthly.periodKey} is not a month it governs`)
+    }
     if (periodEndDate(monthly.periodKey) > today) throw new Ifrs9RunError("PERIOD_NOT_ENDED", `${monthly.periodKey} has not reached its last day`)
     if (await periodClosed(tenantId, monthly.periodKey)) throw new Ifrs9RunError("PERIOD_CLOSED", `${monthly.periodKey} is closed: its run can no longer change`)
     const current = await currentMonthlyRun(prisma, tenantId, monthly.periodKey)
@@ -133,6 +136,8 @@ export async function executeRun(tenantId: string, options: RunOptions): Promise
     settings, parameters, runAt: instants?.runAt ?? now, chargesLive: await chargesLiveForTenant(prisma, tenantId),
     periodStart: periodKey ? `${periodKey}-01` : null,
   }
+  // The runs the prior stages come from, taken before they are read and checked again under the accounting lock.
+  const priorRuns = monthly ? await priorRunFingerprint(prisma, tenantId, runDate) : null
   const rows = await snapshotRows(tenantId, ctx, instants?.receiptsBefore ?? null, runDate)
   const totalEad = rows.reduce((sum, r) => sum + r.eadCents, 0)
   const totalEcl = rows.reduce((sum, r) => sum + r.eclCents, 0)
@@ -142,7 +147,12 @@ export async function executeRun(tenantId: string, options: RunOptions): Promise
   try {
     const run = await prisma.$transaction(async (tx) => {
       // The close holds this lock for its whole transaction: a run is added before it reads, or the month is closed.
-      if (monthly) await lockAccounting(tx, tenantId)
+      if (monthly) {
+        await lockAccounting(tx, tenantId)
+        if (priorRuns !== await priorRunFingerprint(tx, tenantId, runDate)) {
+          throw new Ifrs9RunError("CHAIN_CHANGED", "An earlier month's run was made or replaced while this one was being worked out: reload and try again")
+        }
+      }
       const created = await tx.ifrs9Run.create({
         data: {
           tenantId, kind: options.kind, runDate: day(runDate), periodKey, loanCount: rows.length, late,

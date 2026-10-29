@@ -4,13 +4,15 @@
  *
  *   RUN_IFRS9_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/ifrs9/ifrs9-runs.integration.test.ts
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import * as loanInput from "./loan-input"
 import { prisma } from "@/lib/prisma"
 import { currentMonthlyRun, executeRun } from "./run"
-import { loadRunReport } from "./run-report"
-import { replaceParameters, setSicrFlag } from "./store"
+import { listRuns, loadOfficialMonthly, loadRunReport } from "./run-report"
+import { replaceParameters, saveSettings, setSicrFlag } from "./store"
 import { createChargesLoan } from "@/lib/loan/charges.integration-fixture"
-import { PARAMETERS, RUN, actorOf, asTenant, at, configure, db, lender, monthEnd, monthly, snapshotOf, ymd, type Lender } from "./ifrs9.integration-fixture"
+import { DEFAULT_SETTINGS } from "./types"
+import { PARAMETERS, RUN, actorOf, asTenant, at, configure, db, lender, monthEnd, monthly, onDemand, snapshotOf, ymd, type Lender } from "./ifrs9.integration-fixture"
 
 const suite = RUN ? describe : describe.skip
 
@@ -172,6 +174,69 @@ suite.sequential("IFRS 9 monthly runs (real Postgres)", () => {
     const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult
     expect(failed.reason).toMatchObject({ code: "SUPERSEDE_STALE" })
     expect(await db.ifrs9Run.count({ where: { tenantId: j.tenantId, supersedesRunId: original.runId } })).toBe(1)
+  })
+
+  it("refuses a run whose prior month's run was replaced while it was being worked out, and makes it on the new one when retried", async () => {
+    const r = await lender()
+    await configure(r)
+    const sep = await monthly(r, "2026-09", monthEnd("2026-09-30"))
+    const oct = await monthly(r, "2026-10", monthEnd("2026-10-31"))
+    const real = loanInput.loadPriorStaging
+    let interleaved = false
+    const spy = vi.spyOn(loanInput, "loadPriorStaging").mockImplementation(async (...args) => {
+      const priors = await real(...args)
+      if (!interleaved) {
+        interleaved = true
+        // September is replaced after October's run read its stages from the old September run
+        await monthly(r, "2026-09", at("2026-11-04"), { supersede: { runId: sep.runId, reason: "corrected flags" } })
+      }
+      return priors
+    })
+    try {
+      await expect(monthly(r, "2026-10", at("2026-11-04"), { supersede: { runId: oct.runId, reason: "fix" } })).rejects.toMatchObject({ code: "CHAIN_CHANGED" })
+    } finally {
+      spy.mockRestore()
+    }
+    expect(await db.ifrs9Run.count({ where: { tenantId: r.tenantId, supersedesRunId: oct.runId } })).toBe(0)
+    const retried = await monthly(r, "2026-10", at("2026-11-04"), { supersede: { runId: oct.runId, reason: "fix" } })
+    expect(retried.created).toBe(true)
+  })
+
+  it("refuses a monthly run for a month before the one IFRS 9 takes effect", async () => {
+    const e = await lender()
+    await configure(e, { effectiveFromMonth: "2026-10" })
+    await expect(monthly(e, "2026-09", monthEnd("2026-09-30"))).rejects.toMatchObject({ code: "NOT_EFFECTIVE" })
+    expect(await db.ifrs9Run.count({ where: { tenantId: e.tenantId } })).toBe(0)
+  })
+
+  it("refuses a Stage 3 basis change while an open month's run was made on the old basis, and allows it once that run is replaced under it", async () => {
+    const q = await lender()
+    await configure(q)
+    await monthly(q, "2026-10", monthEnd("2026-10-31"))
+    const switched = await asTenant(q, () => saveSettings(prisma, q.tenantId, { ...DEFAULT_SETTINGS, enabled: true, stage3InterestBasis: "NET_BASIS" }, actorOf(q)))
+    expect(switched).toMatchObject({ ok: false, error: expect.stringContaining("2026-10") })
+    expect((await db.ifrs9Config.findUniqueOrThrow({ where: { tenantId: q.tenantId } })).stage3InterestBasis).toBe("FULL_SUSPENSION")
+    const none = await lender()
+    await configure(none)
+    expect(await asTenant(none, () => saveSettings(prisma, none.tenantId, { ...DEFAULT_SETTINGS, enabled: true, stage3InterestBasis: "NET_BASIS" }, actorOf(none)))).toMatchObject({ ok: true })
+  })
+
+  it("defaults the report to the latest month-end run and its previous month, however many analysis runs follow; an analysis run compares with the latest month-end", async () => {
+    const d2 = await lender()
+    await configure(d2)
+    const sep = await monthly(d2, "2026-09", monthEnd("2026-09-30"))
+    const oct = await monthly(d2, "2026-10", monthEnd("2026-10-31"))
+    const analysis: string[] = []
+    for (let i = 0; i < 30; i++) analysis.push((await onDemand(d2, at("2026-11-05"))).runId)
+    const report = await asTenant(d2, () => loadRunReport(prisma, d2.tenantId))
+    expect(report?.run.id).toBe(oct.runId)
+    expect(report?.previousRun?.id).toBe(sep.runId)
+    // an old analysis run is still found by id, far outside the display window
+    const old = await asTenant(d2, () => loadRunReport(prisma, d2.tenantId, analysis[0]))
+    expect(old?.run).toMatchObject({ id: analysis[0], kind: "ON_DEMAND" })
+    expect(old?.previousRun?.id).toBe(oct.runId)
+    expect((await asTenant(d2, () => loadOfficialMonthly(prisma, d2.tenantId))).map((r) => r.id)).toEqual([oct.runId, sep.runId])
+    expect((await asTenant(d2, () => listRuns(prisma, d2.tenantId, 5))).find((r) => r.id === oct.runId)).toBeUndefined()
   })
 
   it("carries the restructured marker from one month's run to the next through the database", async () => {

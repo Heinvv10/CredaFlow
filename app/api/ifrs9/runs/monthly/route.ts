@@ -10,7 +10,7 @@ import { Ifrs9RunError, currentMonthlyRun, executeRun } from "@/lib/ifrs9/run"
 // POST { periodKey, reason, supersedesRunId } replaces the month's current run with a new one. Both only while the
 // accounting month is open: the position is rebuilt as at the month's last day, and the replaced run stays on record.
 
-const CONFLICTS = new Set(["PARAMETERS_MISSING", "PERIOD_CLOSED", "SUPERSEDE_STALE", "PREVIOUS_MONTH_MISSING"])
+const CONFLICTS = new Set(["PARAMETERS_MISSING", "PERIOD_CLOSED", "SUPERSEDE_STALE", "PREVIOUS_MONTH_MISSING", "NOT_EFFECTIVE", "CHAIN_CHANGED"])
 
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("ADMIN")

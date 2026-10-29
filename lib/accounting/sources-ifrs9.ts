@@ -40,6 +40,8 @@ export interface Ifrs9Position {
   netDefaultInterestAdjustmentCents: number
   /** Whether interest suspension is journalled for this contract (consumer loans; asset finance is left in income). */
   journalsSuspense: boolean
+  /** Its status says it left the book (settled, cancelled or written off) but the date it did so is not recorded: the close cannot place the exit. */
+  exitUndated: boolean
   /** The loan was written off before the period ended. */
   writtenOff: boolean
   /** The loan left the book before the period ended without a write-off (settled, cancelled). */

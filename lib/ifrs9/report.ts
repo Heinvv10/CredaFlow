@@ -11,6 +11,8 @@ export interface ReportRow {
   eclCents: number
   /** Interest held in suspense: contractual plus default interest. */
   suspendedCents: number
+  /** Net basis: the month's interest taken off income against the ECL expense (contractual plus default interest). */
+  netAdjustmentCents: number
 }
 
 export interface StageTotals {
@@ -20,6 +22,7 @@ export interface StageTotals {
   /** ECL as a share of exposure, basis points, nearest. */
   coverageBps: number
   suspendedCents: number
+  netAdjustmentCents: number
 }
 
 export interface StageSummary {
@@ -32,7 +35,7 @@ const coverage = (ecl: number, ead: number) => (ead > 0 ? Math.round((ecl * 10_0
 function totals(rows: readonly ReportRow[]): StageTotals {
   const eadCents = rows.reduce((s, r) => s + r.eadCents, 0)
   const eclCents = rows.reduce((s, r) => s + r.eclCents, 0)
-  return { loans: rows.length, eadCents, eclCents, coverageBps: coverage(eclCents, eadCents), suspendedCents: rows.reduce((s, r) => s + r.suspendedCents, 0) }
+  return { loans: rows.length, eadCents, eclCents, coverageBps: coverage(eclCents, eadCents), suspendedCents: rows.reduce((s, r) => s + r.suspendedCents, 0), netAdjustmentCents: rows.reduce((s, r) => s + r.netAdjustmentCents, 0) }
 }
 
 export function summariseStages(rows: readonly ReportRow[]): StageSummary {

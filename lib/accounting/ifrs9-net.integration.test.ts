@@ -136,4 +136,45 @@ suite.sequential("IFRS 9 run chain at the close (real Postgres)", () => {
     expect(t.ECL_ALLOWANCE).toBe(-124_140)
     expect(t.INTEREST_SUSPENSE).toBe(-30_000)
   })
+
+  // Breaker 1 (PR #255 round 3): a run on record for a month IFRS 9 no longer governs must post nothing.
+  it("posts nothing for a month before the first month IFRS 9 governs, even when a run is on record for it", async () => {
+    const e = await netLender({ effectiveFromMonth: "2026-09" })
+    await close(e, "2026-08")
+    await monthly(e, "2026-09", monthEnd("2026-09-30"))
+    await configure(e, { effectiveFromMonth: "2026-10" })
+    await close(e, "2026-09")
+    const t = await totals(e.tenantId)
+    expect(t.ECL_ALLOWANCE ?? 0).toBe(0)
+    expect(t.ECL_EXPENSE ?? 0).toBe(0)
+  })
+
+  // Breaker H2: net adjustments from a month before the first governed one must not be summed in.
+  it("sums net-basis adjustments only from the first governed month", async () => {
+    const h = await netLender({ effectiveFromMonth: "2026-11", stage3InterestBasis: "NET_BASIS" })
+    for (const key of ["2026-08", "2026-09", "2026-10"]) await close(h, key)
+    const nov = await monthly(h, "2026-11", monthEnd("2026-11-30"))
+    // November's Stage 3 run adjusts R60 of interest; then go-live moves to December (nothing has posted, so it may)
+    expect((await db.ifrs9LoanSnapshot.findFirstOrThrow({ where: { runId: nov.runId } })).netInterestAdjustmentCents).toBe(6_000)
+    await configure(h, { effectiveFromMonth: "2026-12", stage3InterestBasis: "NET_BASIS" })
+    await close(h, "2026-11")
+    await monthly(h, "2026-12", monthEnd("2026-12-31"))
+    await close(h, "2026-12")
+    const t = await totals(h.tenantId)
+    expect(t.INTEREST_INCOME).toBe(-30_000)
+    expect(t.ECL_EXPENSE).toBe(-(t.ECL_ALLOWANCE))
+  })
+
+  // Low 7: the close refuses rather than silently keeping an allowance it cannot place.
+  it("refuses the close for a loan whose status says it left the book with no date", async () => {
+    const u = await netLender()
+    for (const key of ["2026-08", "2026-09"]) await close(u, key)
+    await monthly(u, "2026-10", monthEnd("2026-10-31"))
+    await close(u, "2026-10")
+    await db.loan.update({ where: { id: u.loanId }, data: { status: "COMPLETED", closedAt: null } })
+    await monthly(u, "2026-11", at("2026-12-02"), { lateReason: "job down" })
+    const refused = await plan(u, "2026-11")
+    expect(refused.refusal).toMatchObject({ code: "IFRS9_EXIT_UNDATED" })
+    expect(refused.refusal?.message).toContain("LN-")
+  })
 })

@@ -15,10 +15,12 @@ export function eclWorkbookSheets(report: RunReport, loans: readonly LoanEclRow[
     "Principal (R)": rand(l.outstandingPrincipalCents), "Unpaid interest (R)": rand(l.unpaidInterestCents), "Unpaid fees (R)": rand(l.unpaidFeesCents),
     "Default charges (R)": rand(l.chargesOutstandingCents), "Accrued interest (R)": rand(l.accruedInterestCents),
     "Interest in suspense (R)": rand(l.suspendedInterestCents), "Default interest in suspense (R)": rand(l.suspendedDefaultInterestCents),
+    "Net-basis interest adjustment (R)": rand(l.netInterestAdjustmentCents), "Net-basis default interest adjustment (R)": rand(l.netDefaultInterestAdjustmentCents),
     "EAD (R)": rand(l.eadCents), "Parameter scope": l.parameterScope, "PD (%)": pct(l.pdBps), "LGD (%)": pct(l.lgdBps), "ECL (R)": rand(l.eclCents),
   }))
-  const totals = (label: string, t: { loans: number; eadCents: number; eclCents: number; coverageBps: number; suspendedCents: number }): ExportRow => ({
+  const totals = (label: string, t: { loans: number; eadCents: number; eclCents: number; coverageBps: number; suspendedCents: number; netAdjustmentCents: number }): ExportRow => ({
     Stage: label, Loans: t.loans, "EAD (R)": rand(t.eadCents), "ECL (R)": rand(t.eclCents), "Coverage (%)": pct(t.coverageBps), "Interest in suspense (R)": rand(t.suspendedCents),
+    "Net-basis interest adjustment (R)": rand(t.netAdjustmentCents),
   })
   const summaryRows = [...report.summary.byStage.map((s) => totals(`Stage ${s.stage}`, s)), totals("Total", report.summary.total)]
   const earlier = report.previousRun?.runDate ?? ""

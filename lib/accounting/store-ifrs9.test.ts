@@ -11,6 +11,7 @@ const dbWith = (settings: Record<string, unknown> | null, run: { id: string; cre
 }) as never
 
 const config = (over: Record<string, unknown>) => ({ ...DEFAULT_SETTINGS, ...over })
+const cfg = { findUnique: vi.fn(async () => config({ enabled: true })) }
 
 describe("ifrs9RunRefusal", () => {
   it("asks for nothing while IFRS 9 is off", async () => {
@@ -68,7 +69,7 @@ describe("loadIfrs9Positions", () => {
   it("reads the current monthly run only: a run that something supersedes is never read", async () => {
     const findRun = vi.fn(async () => ({ id: "r2", periodKey: "2026-10" }))
     const db = {
-      ifrs9Run: { findFirst: findRun },
+      ifrs9Config: cfg, ifrs9Run: { findFirst: findRun },
       ifrs9LoanSnapshot: { findMany: vi.fn(async () => [snap("a", 500)]), groupBy: vi.fn(async () => []) },
       loan: { findMany: vi.fn(async () => [{ id: "a", reference: "L-A", contractType: "LOAN", status: "ACTIVE", writeOffAt: null, closedAt: null }]) },
     } as never
@@ -79,7 +80,7 @@ describe("loadIfrs9Positions", () => {
 
   it("marks a contract type whose suspense is not journalled, from the loan and not from a stored flag", async () => {
     const db = {
-      ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
+      ifrs9Config: cfg, ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
       ifrs9LoanSnapshot: { findMany: vi.fn(async () => [snap("af", 900)]), groupBy: vi.fn(async () => []) },
       loan: { findMany: vi.fn(async () => [{ id: "af", reference: "L-AF", contractType: "FINANCE_LEASE", status: "DEFAULTED", writeOffAt: null, closedAt: null }]) },
     } as never
@@ -88,7 +89,7 @@ describe("loadIfrs9Positions", () => {
 
   it("carries a loan the run no longer lists: written off keeps its last allowance, settled is released", async () => {
     const db = {
-      ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
+      ifrs9Config: cfg, ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
       ifrs9LoanSnapshot: {
         findMany: vi.fn()
           .mockResolvedValueOnce([snap("keep", 100)])
@@ -110,7 +111,7 @@ describe("loadIfrs9Positions", () => {
   })
 
   it("is empty when there is no run", async () => {
-    const db = { ifrs9Run: { findFirst: vi.fn(async () => null) }, ifrs9LoanSnapshot: { findMany: vi.fn(async () => []), groupBy: vi.fn(async () => []) }, loan: { findMany: vi.fn() } } as never
+    const db = { ifrs9Config: cfg, ifrs9Run: { findFirst: vi.fn(async () => null) }, ifrs9LoanSnapshot: { findMany: vi.fn(async () => []), groupBy: vi.fn(async () => []) }, loan: { findMany: vi.fn() } } as never
     expect(await loadIfrs9Positions(db, "t", oct, new Set())).toEqual([])
   })
 })
@@ -119,7 +120,7 @@ describe("loadIfrs9Positions: who has left the book", () => {
   const snap = (loanId: string, eclCents: number) => ({ loanId, eclCents, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0 })
   const loanRow = (over: Record<string, unknown>) => ({ id: "x", reference: "X", contractType: "LOAN", status: "ACTIVE", writeOffAt: null, closedAt: null, ...over })
   const dbFor = (listed: unknown[], carried: unknown[], loans: unknown[], net: unknown[] = []) => ({
-    ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
+    ifrs9Config: cfg, ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
     ifrs9LoanSnapshot: { findMany: vi.fn().mockResolvedValueOnce(listed).mockResolvedValueOnce(carried), groupBy: vi.fn(async () => net) },
     loan: { findMany: vi.fn(async () => loans) },
   }) as never
@@ -141,5 +142,50 @@ describe("loadIfrs9Positions: who has left the book", () => {
     const byId = Object.fromEntries((await loadIfrs9Positions(db, "t", oct, new Set())).map((p) => [p.loanId, p]))
     expect(byId.a).toMatchObject({ netInterestAdjustmentCents: 6_000, netDefaultInterestAdjustmentCents: 2_400 })
     expect(byId.gone).toMatchObject({ closed: true, netInterestAdjustmentCents: 1_500, netDefaultInterestAdjustmentCents: 0 })
+  })
+
+  it("posts nothing for a month IFRS 9 does not govern: off, or before its first month, whatever runs are on record", async () => {
+    for (const over of [{ enabled: false }, { enabled: true, effectiveFromMonth: "2026-11" }]) {
+      const findRun = vi.fn(async () => ({ id: "r2", periodKey: "2026-10" }))
+      const db = { ifrs9Config: { findUnique: vi.fn(async () => config(over)) }, ifrs9Run: { findFirst: findRun }, ifrs9LoanSnapshot: { findMany: vi.fn(), groupBy: vi.fn() }, loan: { findMany: vi.fn() } } as never
+      expect(await loadIfrs9Positions(db, "t", oct, new Set(["ifrs9:ecl:a"]))).toEqual([])
+      expect(findRun).not.toHaveBeenCalled()
+    }
+  })
+
+  it("sums net-basis adjustments only from the first governed month, and only rows that adjusted something", async () => {
+    const groupBy = vi.fn(async () => [])
+    const db = {
+      ifrs9Config: { findUnique: vi.fn(async () => config({ enabled: true, effectiveFromMonth: "2026-09" })) },
+      ifrs9Run: { findFirst: vi.fn(async () => ({ id: "r2", periodKey: "2026-10" })) },
+      ifrs9LoanSnapshot: { findMany: vi.fn(async () => []), groupBy }, loan: { findMany: vi.fn(async () => []) },
+    } as never
+    await loadIfrs9Positions(db, "t", oct, new Set())
+    expect(groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ run: expect.objectContaining({ periodKey: { gte: "2026-09", lte: "2026-10" }, supersededBy: null }), OR: [{ netInterestAdjustmentCents: { gt: 0 } }, { netDefaultInterestAdjustmentCents: { gt: 0 } }] }),
+    }))
+  })
+
+  it("flags a loan whose status says it left the book without the date it did so", async () => {
+    const db = dbFor([snap("a", 500)], [{ ...snap("w", 300), run: { periodKey: "2026-09" } }, { ...snap("c", 200), run: { periodKey: "2026-09" } }], [
+      loanRow({ id: "a" }), loanRow({ id: "w", status: "WRITTEN_OFF" }), loanRow({ id: "c", status: "COMPLETED" }),
+    ])
+    const byId = Object.fromEntries((await loadIfrs9Positions(db, "t", oct, new Set(["ifrs9:ecl:w", "ifrs9:ecl:c"]))).map((p) => [p.loanId, p]))
+    expect(byId.a.exitUndated).toBe(false)
+    expect(byId.w.exitUndated).toBe(true)
+    expect(byId.c.exitUndated).toBe(true)
+  })
+})
+
+describe("ifrs9RunRefusal: the Stage 3 interest basis", () => {
+  it("refuses a run made on the other basis than the lender's now, naming the run to replace", async () => {
+    const db = {
+      ifrs9Config: { findUnique: vi.fn(async () => config({ enabled: true, stage3InterestBasis: "NET_BASIS" })) },
+      ifrs9Run: { findFirst: vi.fn().mockResolvedValueOnce({ id: "r1", createdAt: new Date("2026-11-01T00:00:00Z"), settings: { stage3InterestBasis: "FULL_SUSPENSION" } }).mockResolvedValue(null) },
+    } as never
+    const refusal = await ifrs9RunRefusal(db, "t", oct)
+    expect(refusal?.code).toBe("IFRS9_RUN_STALE")
+    expect(refusal?.message).toContain("FULL_SUSPENSION")
+    expect(refusal?.message).toContain('supersedesRunId: "r1"')
   })
 })

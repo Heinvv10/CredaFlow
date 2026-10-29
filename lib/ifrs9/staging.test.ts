@@ -201,6 +201,16 @@ describe("the restructured marker", () => {
     expect(classifyStage(loan({ dpd: 120 }), p, { ...prior, restructured: false }, "2026-10-31")).toMatchObject({ stage: 3, restructured: false })
   })
 
+  it("is kept when a restructured Stage 3 loan steps down onto a Stage 2 trigger that is still firing", () => {
+    // prior Stage 3, restructured, probation served (12 months from 2025-09-30); a Stage 2 trigger (60 days past due) still fires
+    const prior = { stage: 3 as const, stageSince: "2025-01-31", cureStartedOn: "2025-09-30", restructured: true }
+    const r = classifyStage(loan({ dpd: 60 }), p, prior, "2026-09-30")
+    expect(r).toMatchObject({ stage: 2, triggerStage: 2, inProbation: false, restructured: true })
+    // and a Stage 2 loan that has no such trigger keeps serving the longer probation from there
+    const later = classifyStage(loan(), p, { stage: 2, stageSince: r.stageSince, cureStartedOn: null, restructured: r.restructured }, "2026-10-31")
+    expect(later).toMatchObject({ stage: 2, inProbation: true, restructured: true })
+  })
+
   it("is shed by a loan whose triggers have all cleared at Stage 1", () => {
     expect(classifyStage(loan(), p, { stage: 1, stageSince: "2026-01-31", cureStartedOn: null, restructured: true }, "2026-10-31")).toMatchObject({ stage: 1, restructured: false })
   })

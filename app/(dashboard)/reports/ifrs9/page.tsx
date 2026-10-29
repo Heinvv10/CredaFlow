@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { hasMinRole, requireMinRole } from "@/lib/auth-guards"
 import { previousMonthKey } from "@/lib/ifrs9/period"
-import { listRuns, loadRunReport, type RunHead } from "@/lib/ifrs9/run-report"
+import { listRuns, loadOfficialMonthly, loadRunReport, type RunHead } from "@/lib/ifrs9/run-report"
 import { loadSettings } from "@/lib/ifrs9/store"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
@@ -26,9 +26,9 @@ function runLabel(run: RunHead): string {
   return run.kind === "MONTHLY" ? `Month end ${run.periodKey}` : `Analysis ${run.runDate}`
 }
 
-/** The ended months an administrator can still act on: those with no run, and the open months' current runs. */
-function actionableMonths(runs: RunHead[], closed: Set<string>, today: string): MonthChoice[] {
-  const current = new Map(runs.filter((r) => r.kind === "MONTHLY" && !r.superseded).map((r) => [r.periodKey!, r.id]))
+/** The ended months an administrator can still act on: those not closed, with the month's current run where it has one. */
+function actionableMonths(official: RunHead[], closed: Set<string>, today: string): MonthChoice[] {
+  const current = new Map(official.map((r) => [r.periodKey!, r.id]))
   const months: string[] = []
   for (let key = previousMonthKey(today.slice(0, 7)), i = 0; i < 6; key = previousMonthKey(key), i++) months.push(key)
   return months.filter((m) => !closed.has(m)).map((periodKey) => ({ periodKey, currentRunId: current.get(periodKey) ?? null }))
@@ -38,15 +38,15 @@ export default async function Ifrs9ReportPage({ searchParams }: { searchParams: 
   const user = await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
   const { runId } = await searchParams
-  const [settings, runs, batches] = await Promise.all([
+  const [settings, runs, official, batches] = await Promise.all([
     loadSettings(prisma, tenantId),
     listRuns(prisma, tenantId),
+    loadOfficialMonthly(prisma, tenantId),
     prisma.accountingExportBatch.findMany({ where: { tenantId }, select: { periodKey: true } }),
   ])
-  // Opens on the latest official month-end run, not on an analysis run made since.
-  const official = runs.find((r) => r.kind === "MONTHLY" && !r.superseded)
-  const report = await loadRunReport(prisma, tenantId, runId ?? official?.id)
-  const months = actionableMonths(runs, new Set(batches.map((b) => b.periodKey)), sastCalendarDate(new Date()))
+  // Opens on the latest month-end run nothing supersedes, not on an analysis run made since.
+  const report = await loadRunReport(prisma, tenantId, runId)
+  const months = actionableMonths(official, new Set(batches.map((b) => b.periodKey)), sastCalendarDate(new Date()))
 
   return (
     <div className="space-y-6 px-4 py-5 lg:px-8 lg:py-7">
@@ -85,7 +85,7 @@ export default async function Ifrs9ReportPage({ searchParams }: { searchParams: 
                 label={`Stage ${s.stage}`}
                 value={`${s.loans} loan${s.loans === 1 ? "" : "s"}`}
                 tone={s.stage === 3 ? "danger" : s.stage === 2 ? "warning" : "neutral"}
-                detail={<>{formatZAR(s.eadCents)} exposure / {formatZAR(s.eclCents)} ECL ({pct(s.coverageBps)})<br />{formatZAR(s.suspendedCents)} interest in suspense</>}
+                detail={<>{formatZAR(s.eadCents)} exposure / {formatZAR(s.eclCents)} ECL ({pct(s.coverageBps)})<br />{formatZAR(s.suspendedCents)} interest in suspense{report.run.basis === "NET_BASIS" && <><br />{formatZAR(s.netAdjustmentCents)} interest taken off against the ECL expense</>}</>}
               />
             ))}
           </div>

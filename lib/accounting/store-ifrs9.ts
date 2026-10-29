@@ -31,6 +31,9 @@ export async function loadIfrs9Positions(
   period: AccountingPeriod,
   postedKeys: ReadonlySet<string>,
 ): Promise<Ifrs9Position[]> {
+  // A month IFRS 9 does not govern (off, or before its first month) posts nothing, whatever runs are on record.
+  const settings = await loadSettings(db, tenantId)
+  if (!settings.enabled || (settings.effectiveFromMonth !== null && period.key < settings.effectiveFromMonth)) return []
   const current = { tenantId, kind: "MONTHLY" as const, supersededBy: null, periodKey: { lte: period.key } }
   const run = await db.ifrs9Run.findFirst({ where: current, orderBy: { periodKey: "desc" }, select: { id: true, periodKey: true } })
   const inRun = run ? await db.ifrs9LoanSnapshot.findMany({ where: { tenantId, runId: run.id }, select: SNAPSHOT_SELECT }) : []
@@ -45,8 +48,10 @@ export async function loadIfrs9Positions(
   })
   const lastById = new Map(last.map((r) => [r.loanId, r]))
   // Net basis: each Stage 3 month's adjustment summed over the current runs up to the period (none is given back).
+  // Only months IFRS 9 governs count, and only rows that adjusted something.
+  const governed = { ...current, ...(settings.effectiveFromMonth !== null ? { periodKey: { gte: settings.effectiveFromMonth, lte: period.key } } : {}) }
   const netSums = await db.ifrs9LoanSnapshot.groupBy({
-    by: ["loanId"], where: { tenantId, run: current },
+    by: ["loanId"], where: { tenantId, run: governed, OR: [{ netInterestAdjustmentCents: { gt: 0 } }, { netDefaultInterestAdjustmentCents: { gt: 0 } }] },
     _sum: { netInterestAdjustmentCents: true, netDefaultInterestAdjustmentCents: true },
   })
   const netById = new Map(netSums.map((r) => [r.loanId, r._sum]))
@@ -69,6 +74,7 @@ export async function loadIfrs9Positions(
       netInterestAdjustmentCents: netById.get(loan.id)?.netInterestAdjustmentCents ?? 0,
       netDefaultInterestAdjustmentCents: netById.get(loan.id)?.netDefaultInterestAdjustmentCents ?? 0,
       journalsSuspense: journalsSuspense(loan.contractType),
+      exitUndated: (loan.status === "WRITTEN_OFF" && loan.writeOffAt === null) || ((loan.status === "COMPLETED" || loan.status === "CANCELLED") && loan.closedAt === null),
       writtenOff,
       // Left the book only by an exit dated before the period ended; one the run does not list for any other reason keeps its last position.
       closed: !writtenOff && settled,
@@ -90,11 +96,19 @@ export async function ifrs9RunRefusal(db: Ifrs9AccountingDb, tenantId: string, p
   const settings = await loadSettings(db, tenantId)
   if (!settings.enabled) return null
   if (settings.effectiveFromMonth && period.key < settings.effectiveFromMonth) return null
-  const run = await db.ifrs9Run.findFirst({ where: { tenantId, kind: "MONTHLY", periodKey: period.key, supersededBy: null }, select: { id: true, createdAt: true } })
+  const run = await db.ifrs9Run.findFirst({ where: { tenantId, kind: "MONTHLY", periodKey: period.key, supersededBy: null }, select: { id: true, createdAt: true, settings: true } })
   if (!run) {
     return {
       code: "IFRS9_RUN_MISSING",
       message: `IFRS 9 is on and ${period.label} has no monthly staging run. It is made on the last day of the month; an administrator can add it for the ended month with POST /api/ifrs9/runs/monthly { periodKey: "${period.key}", reason }`,
+    }
+  }
+  // A run is made under the Stage 3 interest basis in force then; one made under the other basis is not what the lender now reports.
+  const madeUnder = (run.settings as { stage3InterestBasis?: string } | null)?.stage3InterestBasis
+  if (madeUnder !== undefined && madeUnder !== settings.stage3InterestBasis) {
+    return {
+      code: "IFRS9_RUN_STALE",
+      message: `The ${period.label} IFRS 9 run was made on the ${madeUnder} basis and the lender's Stage 3 interest basis is now ${settings.stage3InterestBasis}: replace it with POST /api/ifrs9/runs/monthly { periodKey: "${period.key}", supersedesRunId: "${run.id}", reason }`,
     }
   }
   const newer = await db.ifrs9Run.findFirst({

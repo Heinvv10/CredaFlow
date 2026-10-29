@@ -35,4 +35,11 @@ describe("policyChangeRefusal", () => {
     expect(policyChangeRefusal(on(), on({ stage3InterestBasis: "NET_BASIS" }), position({ posted: true }))).toContain("stage3InterestBasis")
     expect(policyChangeRefusal(on(), on({ stage3InterestBasis: "FULL_SUSPENSION" }), position({ posted: true }))).toBeNull()
   })
+
+  it("refuses changing the basis while an open month's run was made on the old one, and names the months", () => {
+    const msg = policyChangeRefusal(on(), on({ stage3InterestBasis: "NET_BASIS" }), position(), ["2026-10", "2026-11"])
+    expect(msg).toContain("2026-10, 2026-11")
+    expect(policyChangeRefusal(on(), on({ stage3InterestBasis: "NET_BASIS" }), position(), [])).toBeNull()
+    expect(policyChangeRefusal(on(), on(), position(), ["2026-10"])).toBeNull()
+  })
 })

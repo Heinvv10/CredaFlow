@@ -6,18 +6,18 @@ const loan: LoanEclRow = {
   reference: "L-1", product: "Personal loan", contractType: "LOAN", loanStatus: "DEFAULTED", daysPastDue: 92, stage: 3, previousStage: 2,
   reasons: ["DPD_AT_DEFAULT_THRESHOLD", "STATUS_DEFAULTED"], stageSince: "2026-10-31", outstandingPrincipalCents: 500_000,
   unpaidInterestCents: 40_000, unpaidFeesCents: 20_000, chargesOutstandingCents: 12_000, accruedInterestCents: 0,
-  suspendedInterestCents: 40_000, suspendedDefaultInterestCents: 4_000, eadCents: 528_000, parameterScope: "DEFAULT", pdBps: 10_000, lgdBps: 6000, eclCents: 316_800,
+  suspendedInterestCents: 40_000, suspendedDefaultInterestCents: 4_000, netInterestAdjustmentCents: 0, netDefaultInterestAdjustmentCents: 0, eadCents: 528_000, parameterScope: "DEFAULT", pdBps: 10_000, lgdBps: 6000, eclCents: 316_800,
 }
-const run = { id: "r2", kind: "MONTHLY" as const, runDate: "2026-10-31", periodKey: "2026-10", loanCount: 1, totalEadCents: 528_000, totalEclCents: 316_800, createdAt: "2026-10-31T21:50:00.000Z", late: false, superseded: false, stale: false, supersedesRunId: null, reason: null }
+const run = { id: "r2", kind: "MONTHLY" as const, runDate: "2026-10-31", periodKey: "2026-10", loanCount: 1, totalEadCents: 528_000, totalEclCents: 316_800, createdAt: "2026-10-31T21:50:00.000Z", late: false, superseded: false, stale: false, basis: "FULL_SUSPENSION" as const, supersedesRunId: null, reason: null }
 const report: RunReport = {
   run, previousRun: { ...run, id: "r1", runDate: "2026-09-30", periodKey: "2026-09" },
   summary: {
     byStage: [
-      { stage: 1, loans: 0, eadCents: 0, eclCents: 0, coverageBps: 0, suspendedCents: 0 },
-      { stage: 2, loans: 0, eadCents: 0, eclCents: 0, coverageBps: 0, suspendedCents: 0 },
-      { stage: 3, loans: 1, eadCents: 528_000, eclCents: 316_800, coverageBps: 6000, suspendedCents: 44_000 },
+      { stage: 1, loans: 0, eadCents: 0, eclCents: 0, coverageBps: 0, suspendedCents: 0, netAdjustmentCents: 0 },
+      { stage: 2, loans: 0, eadCents: 0, eclCents: 0, coverageBps: 0, suspendedCents: 0, netAdjustmentCents: 0 },
+      { stage: 3, loans: 1, eadCents: 528_000, eclCents: 316_800, coverageBps: 6000, suspendedCents: 44_000, netAdjustmentCents: 0 },
     ],
-    total: { loans: 1, eadCents: 528_000, eclCents: 316_800, coverageBps: 6000, suspendedCents: 44_000 },
+    total: { loans: 1, eadCents: 528_000, eclCents: 316_800, coverageBps: 6000, suspendedCents: 44_000, netAdjustmentCents: 0 },
   },
   transitions: { cells: [{ from: "2", to: "3", loans: 1, fromEadCents: 500_000, toEadCents: 528_000 }], deteriorated: 1, improved: 0, unchanged: 0 },
 }
