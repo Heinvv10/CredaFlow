@@ -10,6 +10,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 import { claimOnce, DbSamlCache } from "./cache"
 import { resolveStaffUser } from "./identity"
 import { prisma } from "@/lib/prisma"
@@ -53,7 +54,7 @@ suite("SSO and OAuth (real database)", () => {
     await db.oauthClient.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
     await db.ssoIdentity.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
     await db.ssoConnection.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
-    await db.auditLog.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
+    await purgeAuditRowsForTest(db, { tenantId: { in: [tenantA, tenantB] } }) // AuditLog is append-only
     await db.ssoCacheEntry.deleteMany({ where: { key: { contains: t } } })
     await db.user.deleteMany({ where: { id: { in: [adminA, rootA, adminB] } } })
     await db.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } })
@@ -190,7 +191,7 @@ suite("SSO and OAuth (real database)", () => {
       const actions = (await db.auditLog.findMany({ where: { tenantId: tenantA, entityId: out.userId } })).map((a) => a.action).sort()
       expect(actions).toEqual(["SSO_IDENTITY_LINKED", "SSO_USER_PROVISIONED"])
       await db.ssoIdentity.deleteMany({ where: { userId: out.userId } })
-      await db.auditLog.deleteMany({ where: { entityId: out.userId } })
+      await purgeAuditRowsForTest(db, { entityId: out.userId })
       await db.user.delete({ where: { id: out.userId } })
     })
   })
