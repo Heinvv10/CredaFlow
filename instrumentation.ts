@@ -1,6 +1,22 @@
 export async function register() {
   // Only run scheduler in Node.js runtime (not edge), and only in a server context
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Observability first, so the boot lines below are already structured and
+    // traced. Each is off unless its env is set (lib/observability/).
+    const { installJsonConsole } = await import("@/lib/observability/json-console")
+    installJsonConsole(process.env)
+    const { startTracing } = await import("@/lib/observability/tracing")
+    try {
+      await startTracing(process.env)
+    } catch (err) {
+      // A tracing misconfiguration must not stop the application booting.
+      console.error("[tracing] OpenTelemetry did not start; continuing without traces:", err)
+    }
+    if (process.env.METRICS_TOKEN?.trim()) {
+      const { instrumentHttpServer } = await import("@/lib/observability/http-metrics")
+      instrumentHttpServer()
+    }
+
     const { assertSmileIdentityRuntimeSafety } = await import("@/lib/integrations/smileidentity")
     assertSmileIdentityRuntimeSafety()
 
@@ -16,6 +32,15 @@ export async function register() {
     // free of misleading "cron failed" errors.
     if (APP_MODE === "client") {
       console.log("[cron] APP_MODE=client — scheduler skipped (staff container owns cron)")
+      return
+    }
+
+    // A web replica of the Helm chart's worker/web split runs no jobs: only
+    // singleRun jobs take a CronRunClaim, every other job fires on each
+    // replica that schedules it, so the one worker replica owns them all.
+    const { cronSchedulerEnabled } = await import("@/lib/ops/cron-scheduler-flag")
+    if (!cronSchedulerEnabled(process.env)) {
+      console.log("[cron] CRON_SCHEDULER=off — scheduler skipped (the worker owns cron)")
       return
     }
 
@@ -46,6 +71,7 @@ export async function register() {
     // otherwise both be the first to import them.
     const claims = await import("@/lib/ops/cron-run-claim")
     const { callCronRoute, cronCallTarget } = await import("@/lib/ops/cron-call")
+    const { recordCronOutcome } = await import("@/lib/observability/metrics")
     // Every in-process job, its schedule and its reason live in
     // lib/registry/cron-jobs/ (docs/ARCHITECTURE.md, "Registries"). Jobs the
     // deployment's external scheduler owns are declared there too and are
@@ -144,6 +170,11 @@ export async function register() {
         } catch (err) {
           console.error(`[cron] ${path} run claim not closed:`, err)
         }
+      }
+      try {
+        recordCronOutcome(path, error !== null ? "error" : status !== null && status >= 200 && status < 300 ? (tenantFailed ? "tenant_failed" : "ok") : "failed")
+      } catch (err) {
+        console.error(`[cron] ${path} outcome not counted:`, err)
       }
       // The run's outcome for /api/health (lib/ops/cron-heartbeat.ts).
       try {
