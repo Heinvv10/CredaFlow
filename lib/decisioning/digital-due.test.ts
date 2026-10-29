@@ -4,10 +4,12 @@ const h = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
   config: null as unknown,
   review: vi.fn(),
-  counts: { client: 0, ip: 0 },
+  lockOrder: [] as string[],
+  logError: vi.fn(),
 }))
 
 vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: (_t: string, fn: () => unknown) => fn(), withoutTenantScope: (fn: () => unknown) => fn() }))
+vi.mock("@/lib/observability/logger", () => ({ logger: { error: h.logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
 vi.mock("./digital-submission", () => ({ reviewDigitalSubmission: h.review }))
 vi.mock("@/lib/prisma", () => {
   const match = (row: Record<string, unknown>, where: Record<string, unknown>): boolean => {
@@ -23,8 +25,7 @@ vi.mock("@/lib/prisma", () => {
     }
     return true
   }
-  return {
-    prisma: {
+  const prisma: Record<string, unknown> = {
       decisionEngineConfig: { findUnique: vi.fn(async () => h.config) },
       loanApplication: { findFirst: vi.fn(async () => ({ clientId: "c-from-app" })) },
       autoDecisionDue: {
@@ -41,20 +42,26 @@ vi.mock("@/lib/prisma", () => {
           return { count: hit.length }
         }),
         deleteMany: vi.fn(async ({ where }: { where: { completedAt: { lt: Date } } }) => { const keep = h.rows.filter((r) => !(r.completedAt instanceof Date && r.completedAt < where.completedAt.lt)); const n = h.rows.length - keep.length; h.rows = keep; return { count: n } }),
-        count: vi.fn(async ({ where }: { where: Record<string, unknown> }) => ("clientId" in where ? h.counts.client : h.counts.ip)),
+        update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => { Object.assign(h.rows.find((r) => r.id === where.id) as object, data); return {} }),
+        count: vi.fn(async ({ where }: { where: Record<string, unknown> }) => h.rows.filter((r) => match(r, where)).length),
       },
-    },
+      $executeRaw: vi.fn(async (_strings: TemplateStringsArray, key: string) => { h.lockOrder.push(key); return 1 }),
+      $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   }
+  return { prisma }
 })
 
-import { markDigitalDecisionDue, runDigitalDue, sweepDigitalDecisions, DIGITAL_SWEEP_AFTER_MINUTES, DIGITAL_MAX_ATTEMPTS } from "./digital-due"
+import {
+  markDigitalDecisionDue, runDigitalDue, sweepDigitalDecisions, DIGITAL_SWEEP_AFTER_MINUTES, DIGITAL_MAX_ATTEMPTS,
+  DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, DIGITAL_REVIEWS_PER_IP_PER_DAY, DIGITAL_REVIEWS_UNKNOWN_IP_PER_DAY,
+} from "./digital-due"
 
 const NOW = new Date("2026-10-29T10:00:00Z")
 const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000)
 const live = { mode: "LIVE", channels: ["PORTAL"] }
 const due = (over: Record<string, unknown> = {}) => ({ id: `d${h.rows.length + 1}`, tenantId: "t", applicationId: "a1", clientId: "c1", ip: "1.2.3.4", createdAt: minutesAgo(10), claimedAt: null, completedAt: null, outcome: null, attempts: 0, ...over })
 
-beforeEach(() => { h.rows = []; h.config = live; h.review.mockReset().mockResolvedValue({ status: "REVIEWED" }); h.counts = { client: 0, ip: 0 } })
+beforeEach(() => { h.rows = []; h.config = live; h.review.mockReset().mockResolvedValue({ status: "REVIEWED" }); h.lockOrder = [] })
 
 describe("markDigitalDecisionDue", () => {
   it("writes the due row for a lender whose engine covers the portal", async () => {
@@ -99,9 +106,9 @@ describe("runDigitalDue", () => {
   it("a crash mid-review leaves the row open for the sweep, never marks it complete", async () => {
     h.review.mockRejectedValueOnce(new Error("db down"))
     h.rows.push(due())
-    vi.spyOn(console, "error").mockImplementation(() => undefined)
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
     expect(h.rows[0].completedAt).toBeNull()
+    expect(h.logError).toHaveBeenCalledWith(expect.stringContaining("sweep will retry"), expect.objectContaining({ applicationId: "a1" }))
   })
 
   it("records a skip reason or a refused review as the outcome", async () => {
@@ -116,25 +123,60 @@ describe("runDigitalDue", () => {
   })
 })
 
+const charged = (n: number, over: Record<string, unknown> = {}) =>
+  Array.from({ length: n }, (_, i) => due({ applicationId: `earlier-${over.clientId ?? "c"}-${over.ip ?? "n"}-${i}`, chargedAt: minutesAgo(60), claimedAt: minutesAgo(60), createdAt: minutesAgo(61), ...over }))
+const outcomeOf = (applicationId: string) => h.rows.find((r) => r.applicationId === applicationId)?.outcome
+
 describe("the daily limit on automatic bureau pulls from portal submissions (spam costs money)", () => {
   it("stops a client past the daily limit: no review, no pull, the application stays for staff", async () => {
-    h.counts.client = 99
-    h.rows.push(due())
+    h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }), due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
     expect(h.review).not.toHaveBeenCalled()
-    expect(h.rows[0].outcome).toBe("RATE_LIMITED")
+    expect(outcomeOf("a1")).toBe("RATE_LIMITED")
   })
-  it("and an address past its own", async () => {
-    h.counts.ip = 99
-    h.rows.push(due())
+  it("and an address past its own, whoever the clients are", async () => {
+    h.rows.push(...Array.from({ length: DIGITAL_REVIEWS_PER_IP_PER_DAY }, (_, i) => due({ applicationId: `x${i}`, clientId: `other-${i}`, chargedAt: minutesAgo(5) })), due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
     expect(h.review).not.toHaveBeenCalled()
-    expect(h.rows[0].outcome).toBe("RATE_LIMITED")
+    expect(outcomeOf("a1")).toBe("RATE_LIMITED")
   })
-  it("a row with no address is limited by client alone", async () => {
-    h.rows.push(due({ ip: null }))
+  it("counts a review that is admitted but not finished (the race a completed-only count leaves open)", async () => {
+    h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }).map((r) => ({ ...r, completedAt: null, outcome: null })), due())
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(outcomeOf("a1")).toBe("RATE_LIMITED")
+  })
+  it("a charge older than a day no longer counts", async () => {
+    h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }).map((r) => ({ ...r, chargedAt: minutesAgo(25 * 60) })), due())
     await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
     expect(h.review).toHaveBeenCalled()
+  })
+  it("charges the review it admits, so the next one sees it", async () => {
+    h.rows.push(due())
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(h.rows[0].chargedAt).toEqual(NOW)
+  })
+  it("a retry of a row that was already charged is not charged or limited again", async () => {
+    h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { ip: "9.9.9.9" }), due({ chargedAt: minutesAgo(15), claimedAt: minutesAgo(15), attempts: 1 }))
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(h.review).toHaveBeenCalled()
+    expect(h.rows.at(-1)?.chargedAt).toEqual(minutesAgo(15))
+  })
+  it("a row with no address shares one bucket per lender, it is not exempt", async () => {
+    h.rows.push(...Array.from({ length: DIGITAL_REVIEWS_UNKNOWN_IP_PER_DAY }, (_, i) => due({ applicationId: `u${i}`, clientId: `u-${i}`, ip: null, chargedAt: minutesAgo(5) })), due({ ip: null }))
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(h.review).not.toHaveBeenCalled()
+    expect(outcomeOf("a1")).toBe("RATE_LIMITED")
+  })
+  it("another lender's reviews never count against this one", async () => {
+    h.rows.push(...charged(DIGITAL_REVIEWS_PER_CLIENT_PER_DAY, { tenantId: "other", ip: "9.9.9.9" }), due())
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(h.review).toHaveBeenCalled()
+  })
+  it("takes the client and address locks before counting, in a fixed order", async () => {
+    h.rows.push(due())
+    await runDigitalDue({ tenantId: "t", applicationId: "a1", now: NOW })
+    expect(h.lockOrder).toEqual([...h.lockOrder].sort())
+    expect(h.lockOrder).toHaveLength(2)
   })
 })
 

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/observability/logger"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
 
@@ -11,10 +12,13 @@ export const DIGITAL_DUE_RETENTION_DAYS = 30
 /**
  * Automatic bureau pulls are paid for, and anyone can submit an application: past
  * these in 24 hours the application stays with staff, with no pull. Per client and per
- * submitting address (a client limit alone is walked around with new accounts).
+ * submitting address (a client limit alone is walked around with new accounts). A caller
+ * whose address is not known (no trusted proxy) shares ONE bucket per lender, so not
+ * knowing the address is never a way round the limit.
  */
 export const DIGITAL_REVIEWS_PER_CLIENT_PER_DAY = 3
 export const DIGITAL_REVIEWS_PER_IP_PER_DAY = 10
+export const DIGITAL_REVIEWS_UNKNOWN_IP_PER_DAY = 10
 const SWEEP_BATCH = 50
 
 const minutes = (n: number) => n * 60_000
@@ -43,11 +47,26 @@ async function complete(tenantId: string, applicationId: string, outcome: string
   await prisma.autoDecisionDue.updateMany({ where: { tenantId, applicationId, completedAt: null }, data: { completedAt: now, outcome } })
 }
 
-async function overDailyLimit(row: { tenantId: string; clientId: string; ip: string | null }, now: Date): Promise<boolean> {
+/**
+ * Admits one review against the daily limits, or refuses it. The count and the charge are one
+ * step under advisory locks (per client, per address bucket; always taken in the same order),
+ * so concurrent submissions cannot all read "below the limit" and all pass. A review is charged
+ * (`chargedAt`) the moment it is admitted, before its paid pull, so one still running counts.
+ * A row already charged (a retry after a crash) is admitted without a second charge.
+ */
+export async function admitDigitalReview(row: { id: string; tenantId: string; clientId: string; ip: string | null; chargedAt: Date | null }, now: Date): Promise<boolean> {
+  if (row.chargedAt) return true
   const since = new Date(now.getTime() - minutes(24 * 60))
-  const done = { tenantId: row.tenantId, outcome: "REVIEWED", completedAt: { gte: since } }
-  if ((await prisma.autoDecisionDue.count({ where: { ...done, clientId: row.clientId } })) >= DIGITAL_REVIEWS_PER_CLIENT_PER_DAY) return true
-  return row.ip !== null && (await prisma.autoDecisionDue.count({ where: { ...done, ip: row.ip } })) >= DIGITAL_REVIEWS_PER_IP_PER_DAY
+  const locks = [`digital-due:client:${row.tenantId}:${row.clientId}`, `digital-due:ip:${row.tenantId}:${row.ip ?? "unknown"}`].sort()
+  return prisma.$transaction(async (tx) => {
+    for (const key of locks) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`
+    const charged = { tenantId: row.tenantId, chargedAt: { gte: since } }
+    if ((await tx.autoDecisionDue.count({ where: { ...charged, clientId: row.clientId } })) >= DIGITAL_REVIEWS_PER_CLIENT_PER_DAY) return false
+    const addressLimit = row.ip === null ? DIGITAL_REVIEWS_UNKNOWN_IP_PER_DAY : DIGITAL_REVIEWS_PER_IP_PER_DAY
+    if ((await tx.autoDecisionDue.count({ where: { ...charged, ip: row.ip } })) >= addressLimit) return false
+    await tx.autoDecisionDue.update({ where: { id: row.id }, data: { chargedAt: now } })
+    return true
+  })
 }
 
 /**
@@ -56,6 +75,10 @@ async function overDailyLimit(row: { tenantId: string; clientId: string; ip: str
  * retakes it once the claim goes stale.
  */
 export async function runDigitalDue(input: { tenantId: string; applicationId: string; now?: Date }): Promise<void> {
+  return runWithTenant(input.tenantId, () => runClaimedDue(input))
+}
+
+async function runClaimedDue(input: { tenantId: string; applicationId: string; now?: Date }): Promise<void> {
   const now = input.now ?? new Date()
   const claimed = await prisma.autoDecisionDue.updateMany({
     where: {
@@ -65,16 +88,15 @@ export async function runDigitalDue(input: { tenantId: string; applicationId: st
     data: { claimedAt: now, attempts: { increment: 1 } },
   })
   if (claimed.count !== 1) return
-  const row = await prisma.autoDecisionDue.findFirst({ where: { tenantId: input.tenantId, applicationId: input.applicationId }, select: { tenantId: true, clientId: true, ip: true } })
+  const row = await prisma.autoDecisionDue.findFirst({ where: { tenantId: input.tenantId, applicationId: input.applicationId }, select: { id: true, tenantId: true, clientId: true, ip: true, chargedAt: true } })
   if (!row) return
   try {
-    if (await overDailyLimit(row, now)) return await complete(input.tenantId, input.applicationId, "RATE_LIMITED", now)
+    if (!(await admitDigitalReview(row, now))) return await complete(input.tenantId, input.applicationId, "RATE_LIMITED", now)
     const { reviewDigitalSubmission } = await import("./digital-submission")
     const result = await reviewDigitalSubmission({ tenantId: input.tenantId, applicationId: input.applicationId })
     await complete(input.tenantId, input.applicationId, result.status === "SKIPPED" ? result.reason : result.status === "REVIEW_REFUSED" ? `REVIEW_REFUSED_${result.httpStatus}` : result.status, now)
   } catch (error) {
-    // TODO: use the structured logger once lib/observability/logger.ts lands (PR #252).
-    console.error("[auto-decision] digital review failed; the sweep will retry:", input.applicationId, error)
+    logger.error("auto-decision: digital review failed; the sweep will retry", { applicationId: input.applicationId, error: error instanceof Error ? error.message : String(error) })
   }
 }
 

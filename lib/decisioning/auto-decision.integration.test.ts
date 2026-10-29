@@ -518,7 +518,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     await underReview("dec-spam", { bureauScore: 640, clearFlags: false })
     await db.loanApplication.update({ where: { id: "dec-spam" }, data: { status: "SUBMITTED" } })
     for (let i = 0; i < 3; i++) {
-      await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `dec-earlier-${i}`, clientId: clientOf("dec-spam"), ip: "198.51.100.7", completedAt: new Date(), outcome: "REVIEWED" } })
+      await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `dec-earlier-${i}`, clientId: clientOf("dec-spam"), ip: "198.51.100.7", chargedAt: new Date(), completedAt: new Date(), outcome: "REVIEWED" } })
     }
     const pulls = vi.fn(async () => "completed")
     bureauStub.run = pulls
@@ -529,7 +529,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(await statusOf("dec-spam")).toBe("SUBMITTED")
     // ...and ten for one address, whoever the client is.
     for (let i = 0; i < 10; i++) {
-      await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `dec-ip-${i}`, clientId: `other-client-${i}`, ip: "198.51.100.99", completedAt: new Date(), outcome: "REVIEWED" } })
+      await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `dec-ip-${i}`, clientId: `other-client-${i}`, ip: "198.51.100.99", chargedAt: new Date(), completedAt: new Date(), outcome: "REVIEWED" } })
     }
     await underReview("dec-ip", { bureauScore: 640, clearFlags: false })
     await db.loanApplication.update({ where: { id: "dec-ip" }, data: { status: "SUBMITTED" } })
@@ -537,6 +537,22 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     await runDigitalDue({ tenantId: ids.tenant, applicationId: "dec-ip" })
     expect(await db.autoDecisionDue.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-ip" } })).toMatchObject({ outcome: "RATE_LIMITED" })
     expect(pulls).not.toHaveBeenCalled()
+  })
+
+  it("the daily limit holds under concurrent submissions: only the limit's worth is admitted, per client, per address and for unknown addresses", async () => {
+    await approveChange(ENGINE_CONFIG_KIND, "Live, digital race", engine({ mode: "LIVE", channels: ["PORTAL", "STAFF"], ...signOff }))
+    const burst = async (label: string, rows: Array<{ clientId: string; ip: string | null }>) => {
+      for (const [i, r] of rows.entries()) await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `race-${label}-${i}`, clientId: r.clientId, ip: r.ip } })
+      await Promise.all(rows.map((_, i) => runDigitalDue({ tenantId: ids.tenant, applicationId: `race-${label}-${i}` })))
+      const done = await db.autoDecisionDue.findMany({ where: { tenantId: ids.tenant, applicationId: { startsWith: `race-${label}-` } } })
+      return { limited: done.filter((d) => d.outcome === "RATE_LIMITED").length, admitted: done.filter((d) => d.chargedAt !== null).length }
+    }
+    // One client, one address, eight at once: three get in.
+    expect(await burst("client", Array.from({ length: 8 }, () => ({ clientId: "race-client", ip: "192.0.2.1" })))).toEqual({ limited: 5, admitted: 3 })
+    // Fifteen clients behind one address: ten get in.
+    expect(await burst("ip", Array.from({ length: 15 }, (_, i) => ({ clientId: `race-ip-client-${i}`, ip: "192.0.2.2" })))).toEqual({ limited: 5, admitted: 10 })
+    // Fifteen clients whose address is unknown share one bucket: ten get in.
+    expect(await burst("unknown", Array.from({ length: 15 }, (_, i) => ({ clientId: `race-unknown-client-${i}`, ip: null })))).toEqual({ limited: 5, admitted: 10 })
   })
 
   it("decides well inside the 60 second target", () => {

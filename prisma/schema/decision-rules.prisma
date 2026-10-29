@@ -148,6 +148,8 @@ model AutoDecisionDue {
   /// Taken by a sweep (or the task itself); a claim older than the stale window is retaken.
   claimedAt     DateTime?
   completedAt   DateTime?
+  /// Set when the review was admitted against the daily limits (before its paid pull); the limits count these.
+  chargedAt     DateTime?
   /// How it ended: REVIEWED, a skip reason, RATE_LIMITED or GAVE_UP.
   outcome       String?
   attempts      Int       @default(0)
@@ -155,5 +157,6 @@ model AutoDecisionDue {
   @@unique([tenantId, applicationId])
   @@unique([tenantId, id])
   @@index([tenantId, completedAt, createdAt])
-  @@index([tenantId, clientId, createdAt])
+  @@index([tenantId, clientId, chargedAt])
+  @@index([tenantId, ip, chargedAt])
 }

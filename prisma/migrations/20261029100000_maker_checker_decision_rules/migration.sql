@@ -100,6 +100,7 @@ CREATE TABLE "AutoDecisionDue" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "claimedAt" TIMESTAMP(3),
     "completedAt" TIMESTAMP(3),
+    "chargedAt" TIMESTAMP(3),
     "outcome" TEXT,
     "attempts" INTEGER NOT NULL DEFAULT 0,
 
@@ -159,7 +160,10 @@ CREATE UNIQUE INDEX "AutoDecisionRun_tenantId_id_key" ON "AutoDecisionRun"("tena
 CREATE INDEX "AutoDecisionDue_tenantId_completedAt_createdAt_idx" ON "AutoDecisionDue"("tenantId", "completedAt", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "AutoDecisionDue_tenantId_clientId_createdAt_idx" ON "AutoDecisionDue"("tenantId", "clientId", "createdAt");
+CREATE INDEX "AutoDecisionDue_tenantId_clientId_chargedAt_idx" ON "AutoDecisionDue"("tenantId", "clientId", "chargedAt");
+
+-- CreateIndex
+CREATE INDEX "AutoDecisionDue_tenantId_ip_chargedAt_idx" ON "AutoDecisionDue"("tenantId", "ip", "chargedAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "AutoDecisionDue_tenantId_applicationId_key" ON "AutoDecisionDue"("tenantId", "applicationId");
