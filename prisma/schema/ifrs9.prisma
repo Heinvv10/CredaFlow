@@ -5,6 +5,16 @@
 // parameter bounds, runs and their loan snapshots append-only).
 // ════════════════════════════════════════════════════════════════════════════
 
+// How a Stage 3 loan's interest is treated (docs/ifrs9/DESIGN.md, "Interest in Stage 3").
+//   FULL_SUSPENSION: the regulatory / prudential basis (tender 2.8.3): raised, unpaid interest is held in
+//     suspense and left out of exposure, and none further accrues into it.
+//   NET_BASIS: IFRS 9 5.4.1(b): interest on the amortised cost net of the allowance; the share of the raised,
+//     unpaid interest that the allowance covers is suspended, exposure stays gross.
+enum Ifrs9InterestBasis {
+  FULL_SUSPENSION
+  NET_BASIS
+}
+
 // A lender's staging and suspension policy, one row each. No row = IFRS 9 off
 // with the defaults of lib/ifrs9/types.ts DEFAULT_SETTINGS.
 model Ifrs9Config {
@@ -17,13 +27,19 @@ model Ifrs9Config {
   sicrDpdOver           Int      @default(30)
   // Stage 3 (default) when days past due is at or above this.
   defaultDpd            Int      @default(90)
-  restructuredIsSicr    Boolean  @default(true)
-  debtReviewIsSicr      Boolean  @default(true)
+  // The stage a RESTRUCTURED loan and a loan under NCA s86 debt review are at least in (1 = no effect).
+  restructuredStage     Int      @default(2)
+  debtReviewStage       Int      @default(2)
   stage2ProbationMonths Int      @default(3)
   stage3ProbationMonths Int      @default(6)
+  // Months a loan stays in its stage after it stops being RESTRUCTURED (longer of this and the stage's own probation).
+  restructuredProbationMonths Int @default(12)
   suspensionEnabled     Boolean  @default(true)
+  // Interest is suspended for a Stage 3 loan at or above this many days past due (never below defaultDpd) ...
   suspensionDpd         Int      @default(90)
+  // ... and for every Stage 3 loan, including its probation, when this is set.
   suspendOnStage3       Boolean  @default(true)
+  stage3InterestBasis   Ifrs9InterestBasis @default(FULL_SUSPENSION)
   updatedById           String?
   updatedAt             DateTime @updatedAt
 }
@@ -90,14 +106,25 @@ model Ifrs9Run {
   totalEclCents BigInt
   // Null for the cron.
   startedById   String?
+  // A MONTHLY run made after its month ended (the cron's make-up days, or an administrator's late run).
+  late          Boolean      @default(false)
+  // The run this one replaces for the same month, while the month is unclosed; the accounting close reads the
+  // latest run no other run supersedes. A superseding or late run carries a reason.
+  supersedesRunId String?
+  supersedes    Ifrs9Run?    @relation("Supersession", fields: [tenantId, supersedesRunId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reason        String?
   createdAt     DateTime     @default(now())
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
-  snapshots Ifrs9LoanSnapshot[]
+  snapshots    Ifrs9LoanSnapshot[]
+  supersededBy Ifrs9Run?            @relation("Supersession")
 
-  @@unique([tenantId, periodKey])
+  // One original MONTHLY run per tenant per month is a partial unique index (hand-written in the migration).
   @@unique([tenantId, id])
+  // A run is superseded at most once.
+  @@unique([tenantId, supersedesRunId])
   @@index([tenantId, runDate])
+  @@index([tenantId, periodKey])
 }
 
 // One loan's stage, ECL inputs and ECL on one run date. Cents and basis points.
@@ -127,6 +154,8 @@ model Ifrs9LoanSnapshot {
   chargesOutstandingCents       Int
   accruedInterestCents          Int
   interestSuspended             Boolean
+  // The lender's Stage 3 basis when the run was made; meaningful when interestSuspended.
+  suspensionBasis               Ifrs9InterestBasis
   // Raised, unpaid contractual interest held in suspense (a part of unpaidInterestCents).
   suspendedInterestCents        Int
   // Default interest owed and held in suspense (a part of chargesOutstandingCents).

@@ -89,7 +89,7 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   const positions = isGoLive ? openingPositions(loans, period) : []
   const base = isGoLive ? positionsAsLedger(positions) : ledger
   const vat = { registered: settings.vatRegistered, rateBps: settings.vatRateBps }
-  const extraSources = ifrs9Sources(await loadIfrs9Positions(db, tenantId, period, base.postedKeys), period.end)
+  const extraSources = ifrs9Sources(await loadIfrs9Positions(db, tenantId, period, base.postedKeys), period)
   const own = deriveEntries({ loans, period, accounts, vat, heldBack: unsupportedIds, extraSources, ...base })
   const opening = isGoLive ? openingEntry(positions, period, accounts) : null
   const entries = opening ? [opening, ...own] : own

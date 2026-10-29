@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { executeRun } from "@/lib/ifrs9/run"
+import { Ifrs9RunError, executeRun } from "@/lib/ifrs9/run"
 import { monthlyRunTarget } from "@/lib/ifrs9/period"
 import { loadSettings } from "@/lib/ifrs9/store"
 import { prisma } from "@/lib/prisma"
@@ -26,7 +26,13 @@ export async function GET(req: NextRequest) {
   const outcomes = await sweepActiveTenants("ifrs9-run", async (tenant) => {
     const settings = await loadSettings(prisma, tenant.id)
     if (!settings.enabled || (settings.effectiveFromMonth && periodKey < settings.effectiveFromMonth)) return null
-    return executeRun(tenant.id, { kind: "MONTHLY", periodKey, now })
+    try {
+      return await executeRun(tenant.id, { kind: "MONTHLY", periodKey, now })
+    } catch (error) {
+      // A month that closed before IFRS 9 governed it needs no run.
+      if (error instanceof Ifrs9RunError && error.code === "PERIOD_CLOSED") return null
+      throw error
+    }
   })
   const perTenant = outcomes.map((o) => (o.ok
     ? { tenantId: o.tenant.id, run: o.value }

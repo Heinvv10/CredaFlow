@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   totpRequired: false,
   totpVerified: true,
   saved: [] as unknown[],
+  saveResult: { ok: true } as { ok: boolean; error?: string },
   replaced: [] as unknown[],
   runResult: null as unknown,
   runError: null as Error | null,
@@ -21,7 +22,7 @@ vi.mock("@/lib/security/staff-totp-policy", () => ({ isStaffTotpRequired: vi.fn(
 vi.mock("@/lib/prisma", () => ({ prisma: { ifrs9SicrFlag: { findMany: vi.fn(async () => []) } } }))
 vi.mock("@/lib/ifrs9/store", () => ({
   loadSettings: vi.fn(async () => ({ ...DEFAULT_SETTINGS })),
-  saveSettings: vi.fn(async (_db: unknown, _t: string, next: unknown) => { state.saved.push(next) }),
+  saveSettings: vi.fn(async (_db: unknown, _t: string, next: unknown) => { state.saved.push(next); return state.saveResult }),
   loadParameters: vi.fn(async () => []),
   replaceParameters: vi.fn(async (_db: unknown, _t: string, rows: unknown) => { state.replaced.push(rows) }),
   setSicrFlag: vi.fn(async () => state.flagSet),
@@ -42,10 +43,10 @@ import * as settings from "./settings/route"
 const request = (method: string, body?: unknown, query = "") =>
   new NextRequest(`http://x.invalid/api/ifrs9/x${query}`, { method, body: body === undefined ? undefined : JSON.stringify(body), headers: { "content-type": "application/json" } })
 
-const FULL_TABLE = [1, 2, 3].map((stage) => ({ scopeKey: "DEFAULT", stage, pdBps: 100 * stage, lgdBps: 4500 }))
+const FULL_TABLE = [1, 2, 3].map((stage) => ({ scopeKey: "DEFAULT", stage, pdBps: stage === 3 ? 10_000 : 100 * stage, lgdBps: 4500 }))
 
 beforeEach(() => {
-  Object.assign(state, { totpRequired: false, totpVerified: true, saved: [], replaced: [], runResult: null, runError: null, flagSet: true, flagCleared: true })
+  Object.assign(state, { totpRequired: false, totpVerified: true, saveResult: { ok: true }, saved: [], replaced: [], runResult: null, runError: null, flagSet: true, flagCleared: true })
 })
 
 describe("settings", () => {
@@ -61,6 +62,13 @@ describe("settings", () => {
     const saved = state.saved[0] as { enabled: boolean; effectiveFromMonth: string }
     expect(saved.enabled).toBe(true)
     expect(saved.effectiveFromMonth).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/)
+  })
+
+  it("answers 409 with the reason when the store refuses the change (allowance held, month closed)", async () => {
+    state.saveResult = { ok: false, error: "IFRS 9 cannot be switched off while the ledger holds an allowance" }
+    const res = await settings.PUT(request("PUT", { enabled: false }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toContain("allowance")
   })
 
   it("refuses an invalid body and writes nothing", async () => {
@@ -89,6 +97,12 @@ describe("parameters", () => {
     expect(state.replaced).toEqual([])
   })
 
+  it("refuses a Stage 3 PD below 100%: a Stage 3 loan has defaulted", async () => {
+    const res = await parameters.PUT(request("PUT", { parameters: [...FULL_TABLE.slice(0, 2), { ...FULL_TABLE[2], pdBps: 9_000 }] }))
+    expect(res.status).toBe(400)
+    expect(state.replaced).toEqual([])
+  })
+
   it("refuses a PD above 100%", async () => {
     const res = await parameters.PUT(request("PUT", { parameters: [{ ...FULL_TABLE[0], pdBps: 10_001 }, ...FULL_TABLE.slice(1)] }))
     expect(res.status).toBe(400)
@@ -97,22 +111,24 @@ describe("parameters", () => {
 })
 
 describe("runs", () => {
-  it("answers 201 for a new run and 200 for the month's existing one", async () => {
+  it("makes an on-demand run", async () => {
     state.runResult = { runId: "r1", created: true }
-    expect((await runs.POST(request("POST", { kind: "MONTHLY" }))).status).toBe(201)
-    state.runResult = { runId: "r1", created: false }
-    expect((await runs.POST(request("POST", { kind: "MONTHLY" }))).status).toBe(200)
+    expect((await runs.POST(request("POST", { kind: "ON_DEMAND" }))).status).toBe(201)
+  })
+
+  it("never makes a monthly run from this route: the official run is the month-end job's, a late one or a supersede", async () => {
+    const res = await runs.POST(request("POST", { kind: "MONTHLY", periodKey: "2026-10" }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain("/api/ifrs9/runs/monthly")
   })
 
   it("refuses an unknown kind", async () => {
     expect((await runs.POST(request("POST", { kind: "WEEKLY" }))).status).toBe(400)
   })
 
-  it("maps the run's refusals: missing parameters is a conflict, a bad period a bad request", async () => {
+  it("maps the run's refusals: missing parameters is a conflict", async () => {
     state.runError = new Ifrs9RunError("PARAMETERS_MISSING", "Set the PD")
     expect((await runs.POST(request("POST", { kind: "ON_DEMAND" }))).status).toBe(409)
-    state.runError = new Ifrs9RunError("INVALID_PERIOD", "no")
-    expect((await runs.POST(request("POST", { kind: "MONTHLY", periodKey: "2020-01" }))).status).toBe(400)
   })
 
   it("lets an unexpected failure surface rather than answering 4xx", async () => {

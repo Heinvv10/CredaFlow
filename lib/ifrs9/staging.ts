@@ -23,6 +23,8 @@ export interface PriorStaging {
   stage: Stage
   stageSince: string
   cureStartedOn: string | null
+  /** The loan was RESTRUCTURED (or still in the probation that follows) at the prior run: see restructuredProbationMonths. */
+  restructured: boolean
 }
 
 export interface StagingResult {
@@ -34,6 +36,12 @@ export interface StagingResult {
   cureStartedOn: string | null
   inProbation: boolean
 }
+
+/** Carried in a snapshot's reasons while a formerly restructured loan serves its longer probation. */
+export const RESTRUCTURE_PROBATION = "RESTRUCTURE_PROBATION"
+
+/** Whether a snapshot's reasons say the loan was restructured (or is still serving the probation after it). */
+export const wasRestructured = (reasons: readonly string[]): boolean => reasons.includes("RESTRUCTURED") || reasons.includes(RESTRUCTURE_PROBATION)
 
 export function addMonthsIso(iso: string, months: number): string {
   const [y, m, d] = iso.split("-").map(Number)
@@ -47,20 +55,25 @@ export function addMonthsIso(iso: string, months: number): string {
 /** The stage the triggers give on their own, with a reason code for each that fired. */
 export function stageTriggers(input: StagingInput, settings: Ifrs9Settings): { stage: Stage; reasons: string[] } {
   const stage3: string[] = []
+  const stage2: string[] = []
+  const place = (stage: Stage, reason: string) => { if (stage === 3) stage3.push(reason); else if (stage === 2) stage2.push(reason) }
   if (input.dpd >= settings.defaultDpd) stage3.push("DPD_AT_DEFAULT_THRESHOLD")
   if (input.status === "DEFAULTED") stage3.push("STATUS_DEFAULTED")
-  if (input.status === "PENDING_WRITE_OFF" || input.status === "WRITTEN_OFF") stage3.push("PENDING_WRITE_OFF")
+  if (input.status === "PENDING_WRITE_OFF") stage3.push("PENDING_WRITE_OFF")
   if (input.collectionsStage === "ATTORNEY_REFERRED") stage3.push("LEGAL_ACTION")
+  if (input.status === "RESTRUCTURED") place(settings.restructuredStage, "RESTRUCTURED")
+  if (input.debtReview) place(settings.debtReviewStage, "DEBT_REVIEW")
   if (stage3.length > 0) return { stage: 3, reasons: stage3 }
-
-  const stage2: string[] = []
-  if (input.dpd > settings.sicrDpdOver) stage2.push("DPD_OVER_SICR_THRESHOLD")
-  if (settings.restructuredIsSicr && input.status === "RESTRUCTURED") stage2.push("RESTRUCTURED")
-  if (settings.debtReviewIsSicr && input.debtReview) stage2.push("DEBT_REVIEW")
+  if (input.dpd > settings.sicrDpdOver) stage2.unshift("DPD_OVER_SICR_THRESHOLD")
   for (const kind of input.flags) stage2.push(`FLAG_${kind}`)
   return stage2.length > 0 ? { stage: 2, reasons: stage2 } : { stage: 1, reasons: [] }
 }
 
+/**
+ * The cure clock concerns the trigger stage being left: a Stage 3 loan whose default triggers have cleared steps
+ * down after stage3ProbationMonths even if a Stage 2 trigger (say 40 days past due again) is still firing, and lands
+ * in Stage 2. A trigger at or above the loan's own stage restarts the clock.
+ */
 export function classifyStage(input: StagingInput, settings: Ifrs9Settings, prior: PriorStaging | null, runDate: string): StagingResult {
   const { stage: triggerStage, reasons } = stageTriggers(input, settings)
   if (!prior) return { stage: triggerStage, triggerStage, reasons, stageSince: runDate, cureStartedOn: null, inProbation: false }
@@ -76,12 +89,14 @@ export function classifyStage(input: StagingInput, settings: Ifrs9Settings, prio
   let stageSince = prior.stageSince
   let cureStartedOn = prior.cureStartedOn ?? runDate
   while (stage > triggerStage) {
-    const months = stage === 3 ? settings.stage3ProbationMonths : settings.stage2ProbationMonths
+    const base = stage === 3 ? settings.stage3ProbationMonths : settings.stage2ProbationMonths
+    const months = prior.restructured ? Math.max(base, settings.restructuredProbationMonths) : base
     if (addMonthsIso(cureStartedOn, months) > runDate) break
     stage = (stage - 1) as Stage
     stageSince = runDate
     cureStartedOn = runDate
   }
   if (stage === triggerStage) return { stage, triggerStage, reasons, stageSince, cureStartedOn: null, inProbation: false }
-  return { stage, triggerStage, reasons: [`PROBATION_FROM_STAGE_${stage}`], stageSince, cureStartedOn, inProbation: true }
+  const reasonsInProbation = [`PROBATION_FROM_STAGE_${stage}`, ...(prior.restructured ? [RESTRUCTURE_PROBATION] : [])]
+  return { stage, triggerStage, reasons: reasonsInProbation, stageSince, cureStartedOn, inProbation: true }
 }

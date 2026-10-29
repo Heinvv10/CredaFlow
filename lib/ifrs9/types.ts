@@ -8,6 +8,8 @@ export type Stage = 1 | 2 | 3
 
 export const STAGES: readonly Stage[] = [1, 2, 3]
 
+export type InterestBasis = "FULL_SUSPENSION" | "NET_BASIS"
+
 /** The lender's staging and suspension policy (Ifrs9Config; defaults apply until it is saved). */
 export interface Ifrs9Settings {
   /** The monthly job runs and a month may not close without its run. */
@@ -18,17 +20,22 @@ export interface Ifrs9Settings {
   sicrDpdOver: number
   /** Stage 3 when days past due is at or above this (IFRS 9 B5.5.37: default no later than 90 days; the product's NPL is >= 90 everywhere). */
   defaultDpd: number
-  restructuredIsSicr: boolean
-  debtReviewIsSicr: boolean
+  /** The stage a RESTRUCTURED loan, and a loan under NCA s86 debt review, is at least in (1 = no effect). */
+  restructuredStage: Stage
+  debtReviewStage: Stage
   /** Months of cleared triggers before Stage 2 moves back to Stage 1. */
   stage2ProbationMonths: number
   /** Months of cleared triggers before Stage 3 moves back to Stage 2. */
   stage3ProbationMonths: number
+  /** Months a formerly RESTRUCTURED loan stays in its stage (the longer of this and the stage's own probation). */
+  restructuredProbationMonths: number
   suspensionEnabled: boolean
-  /** Interest is suspended when days past due is at or above this. */
+  /** A Stage 3 loan at or above this many days past due is suspended (never below defaultDpd, so only Stage 3 is). */
   suspensionDpd: number
-  /** ... or when the loan is in Stage 3 (including its probation). */
+  /** ... and so is every Stage 3 loan, including its probation, when set. */
   suspendOnStage3: boolean
+  /** FULL_SUSPENSION: prudential / regulatory (tender 2.8.3). NET_BASIS: IFRS 9 5.4.1(b). */
+  stage3InterestBasis: InterestBasis
 }
 
 export const DEFAULT_SETTINGS: Ifrs9Settings = {
@@ -36,14 +43,23 @@ export const DEFAULT_SETTINGS: Ifrs9Settings = {
   effectiveFromMonth: null,
   sicrDpdOver: 30,
   defaultDpd: 90,
-  restructuredIsSicr: true,
-  debtReviewIsSicr: true,
+  restructuredStage: 2,
+  debtReviewStage: 2,
   stage2ProbationMonths: 3,
   stage3ProbationMonths: 6,
+  restructuredProbationMonths: 12,
   suspensionEnabled: true,
   suspensionDpd: 90,
   suspendOnStage3: true,
+  stage3InterestBasis: "FULL_SUSPENSION",
 }
+
+/**
+ * The contract types whose interest suspension is journalled (accounting/sources-ifrs9.ts). Asset-finance
+ * interest stays in income, so for those the exposure keeps it and nothing is "suspended".
+ */
+export const JOURNALS_SUSPENSE: readonly string[] = ["LOAN"]
+export const journalsSuspense = (contractType: string): boolean => JOURNALS_SUSPENSE.includes(contractType)
 
 /** What a staff member or an integration flags on a loan as a significant increase in credit risk. */
 export const SICR_FLAG_KINDS = ["BUREAU_DOWNGRADE", "BEHAVIOUR_DOWNGRADE", "WATCHLIST", "OTHER"] as const

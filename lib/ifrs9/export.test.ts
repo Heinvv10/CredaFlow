@@ -8,7 +8,7 @@ const loan: LoanEclRow = {
   unpaidInterestCents: 40_000, unpaidFeesCents: 20_000, chargesOutstandingCents: 12_000, accruedInterestCents: 0,
   suspendedInterestCents: 40_000, suspendedDefaultInterestCents: 4_000, eadCents: 528_000, parameterScope: "DEFAULT", pdBps: 10_000, lgdBps: 6000, eclCents: 316_800,
 }
-const run = { id: "r2", kind: "MONTHLY" as const, runDate: "2026-10-31", periodKey: "2026-10", loanCount: 1, totalEadCents: 528_000, totalEclCents: 316_800, createdAt: "2026-10-31T21:50:00.000Z" }
+const run = { id: "r2", kind: "MONTHLY" as const, runDate: "2026-10-31", periodKey: "2026-10", loanCount: 1, totalEadCents: 528_000, totalEclCents: 316_800, createdAt: "2026-10-31T21:50:00.000Z", late: false, superseded: false, supersedesRunId: null, reason: null }
 const report: RunReport = {
   run, previousRun: { ...run, id: "r1", runDate: "2026-09-30", periodKey: "2026-09" },
   summary: {

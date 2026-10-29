@@ -1,13 +1,17 @@
 /** Validation of the lender's IFRS 9 policy (a PUT body, merged over what is stored). */
-import { DEFAULT_SETTINGS, type Ifrs9Settings } from "./types"
+import { DEFAULT_SETTINGS, type Ifrs9Settings, type InterestBasis, type Stage } from "./types"
 
-type NumberKey = "sicrDpdOver" | "defaultDpd" | "stage2ProbationMonths" | "stage3ProbationMonths" | "suspensionDpd"
-type BooleanKey = "enabled" | "restructuredIsSicr" | "debtReviewIsSicr" | "suspensionEnabled" | "suspendOnStage3"
+type NumberKey = "sicrDpdOver" | "defaultDpd" | "stage2ProbationMonths" | "stage3ProbationMonths" | "restructuredProbationMonths" | "suspensionDpd"
+type BooleanKey = "enabled" | "suspensionEnabled" | "suspendOnStage3"
+type StageKey = "restructuredStage" | "debtReviewStage"
 
 const NUMBER_RANGES: Record<NumberKey, [number, number]> = {
-  sicrDpdOver: [1, 3650], defaultDpd: [1, 3650], suspensionDpd: [1, 3650], stage2ProbationMonths: [0, 60], stage3ProbationMonths: [0, 60],
+  sicrDpdOver: [1, 3650], defaultDpd: [1, 3650], suspensionDpd: [1, 3650],
+  stage2ProbationMonths: [0, 60], stage3ProbationMonths: [0, 60], restructuredProbationMonths: [0, 60],
 }
-const BOOLEAN_KEYS: readonly BooleanKey[] = ["enabled", "restructuredIsSicr", "debtReviewIsSicr", "suspensionEnabled", "suspendOnStage3"]
+const BOOLEAN_KEYS: readonly BooleanKey[] = ["enabled", "suspensionEnabled", "suspendOnStage3"]
+const STAGE_KEYS: readonly StageKey[] = ["restructuredStage", "debtReviewStage"]
+const BASES: readonly InterestBasis[] = ["FULL_SUSPENSION", "NET_BASIS"]
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 
 export function parseSettingsInput(body: unknown, current: Ifrs9Settings): { ok: true; settings: Ifrs9Settings } | { ok: false; error: string } {
@@ -28,12 +32,23 @@ export function parseSettingsInput(body: unknown, current: Ifrs9Settings): { ok:
     if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) return { ok: false, error: `${key} must be a whole number from ${min} to ${max}` }
     next[key] = value
   }
+  for (const key of STAGE_KEYS) {
+    if (!(key in input)) continue
+    const value = input[key]
+    if (value !== 1 && value !== 2 && value !== 3) return { ok: false, error: `${key} must be 1, 2 or 3 (1 = no effect on the stage)` }
+    next[key] = value as Stage
+  }
+  if ("stage3InterestBasis" in input) {
+    if (!BASES.includes(input.stage3InterestBasis as InterestBasis)) return { ok: false, error: `stage3InterestBasis must be ${BASES.join(" or ")}` }
+    next.stage3InterestBasis = input.stage3InterestBasis as InterestBasis
+  }
   if ("effectiveFromMonth" in input) {
     const value = input.effectiveFromMonth
     if (value !== null && !(typeof value === "string" && MONTH.test(value))) return { ok: false, error: "effectiveFromMonth must be yyyy-mm or null" }
     next.effectiveFromMonth = value as string | null
   }
   if (next.sicrDpdOver >= next.defaultDpd) return { ok: false, error: "sicrDpdOver must be below defaultDpd: Stage 2 starts before Stage 3" }
+  if (next.suspensionDpd < next.defaultDpd) return { ok: false, error: "suspensionDpd must not be below defaultDpd: only a Stage 3 loan has its interest suspended" }
   return { ok: true, settings: next }
 }
 

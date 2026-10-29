@@ -1,52 +1,22 @@
 /**
  * Real-Postgres proof of IFRS 9 staging, ECL and the rules the database holds: a loan walks Stage 1 -> 2 -> 3 and back
- * through its probation with hand-calculated ECL at each run; runs and snapshots are append-only; a snapshot that
- * disagrees with PD x LGD x EAD cannot be stored; a MONTHLY run exists once a month; one lender never sees another's.
+ * through its probation on month-end runs with hand-calculated ECL; on-demand runs feed nothing; runs and snapshots are
+ * append-only; a snapshot that disagrees with PD x LGD x EAD cannot be stored.
  *
  *   RUN_IFRS9_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/ifrs9/ifrs9.integration.test.ts
  */
-import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { prisma } from "@/lib/prisma"
-import { runWithTenant } from "@/lib/tenant-scope"
-import { Ifrs9RunError, executeRun } from "./run"
+import { Ifrs9RunError } from "./run"
 import { loadRunReport } from "./run-report"
-import { clearSicrFlag, replaceParameters, saveSettings, setSicrFlag } from "./store"
-import { DEFAULT_SETTINGS, type EclParameter } from "./types"
+import { clearSicrFlag, saveSettings, setSicrFlag } from "./store"
+import { DEFAULT_SETTINGS } from "./types"
+import { RUN, actorOf, asTenant, at, configure, db, lender, monthEnd, monthly, onDemand, snapshotOf, ymd, type Lender } from "./ifrs9.integration-fixture"
 
-const suite = process.env.RUN_IFRS9_IT === "1" ? describe : describe.skip
-const db = new PrismaClient()
-const actorOf = (t: ChargesTenant) => ({ id: t.userId, email: "ifrs9-it@test.invalid" })
-const at = (iso: string) => new Date(`${iso}T12:00:00+02:00`)
+const suite = RUN ? describe : describe.skip
 
-const PARAMETERS: EclParameter[] = [
-  { scopeKey: "DEFAULT", stage: 1, pdBps: 200, lgdBps: 4500 },
-  { scopeKey: "DEFAULT", stage: 2, pdBps: 1500, lgdBps: 5000 },
-  { scopeKey: "DEFAULT", stage: 3, pdBps: 10_000, lgdBps: 6000 },
-]
-
-async function lender(): Promise<ChargesTenant & { loanId: string }> {
-  const tenant = await createChargesTenant(db, false)
-  const loan = await createChargesLoan(db, tenant)
-  // R2 000 over two instalments: R1 000 + R100 interest + R69 fees due 1 Sep 2026, R1 000 + R50 interest due 1 Dec 2027.
-  await db.repaymentSchedule.updateMany({ where: { loanId: loan.loanId }, data: { principalDue: 100_000, interestDue: 10_000, feesDue: 6_900, totalDue: 116_900 } })
-  await db.repaymentSchedule.create({
-    data: { tenantId: tenant.tenantId, loanId: loan.loanId, installmentNo: 2, dueDate: new Date("2027-12-01T10:00:00+02:00"), principalDue: 100_000, interestDue: 5_000, feesDue: 0, totalDue: 105_000 },
-  })
-  return { ...tenant, loanId: loan.loanId }
-}
-
-const asTenant = <T>(t: ChargesTenant, fn: () => Promise<T>) => runWithTenant(t.tenantId, fn)
-const configure = (t: ChargesTenant, over: Partial<typeof DEFAULT_SETTINGS> = {}) =>
-  asTenant(t, async () => {
-    await saveSettings(prisma, t.tenantId, { ...DEFAULT_SETTINGS, enabled: true, ...over }, actorOf(t))
-    await replaceParameters(prisma, t.tenantId, PARAMETERS, actorOf(t))
-  })
-const snapshotOf = (runId: string, loanId: string) => db.ifrs9LoanSnapshot.findUniqueOrThrow({ where: { runId_loanId: { runId, loanId } } })
-
-let a: Awaited<ReturnType<typeof lender>>
-let b: Awaited<ReturnType<typeof lender>>
+let a: Lender
+let b: Lender
 
 suite.sequential("IFRS 9 (real Postgres)", () => {
   beforeAll(async () => {
@@ -59,65 +29,80 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
     await prisma.$disconnect()
   })
 
-  it("walks a loan Stage 1 -> 2 -> 3 with the ECL worked out by hand, suspending interest in Stage 3", async () => {
-    // 20 Sep 2026: instalment 1 (due 1 Sep) is 19 days past due. Raised and unpaid: R100 interest + R69 fees.
-    // Accrued on instalment 2: R50 x 19/456 (1 Sep 2026 -> 1 Dec 2027 is 456 days) = 208.3 -> 208.
-    const r1 = await asTenant(a, () => executeRun(a.tenantId, { kind: "ON_DEMAND", now: at("2026-09-20"), actor: actorOf(a) }))
-    const s1 = await snapshotOf(r1.runId, a.loanId)
-    expect(s1).toMatchObject({ daysPastDue: 19, stage: 1, previousStage: null, unpaidInterestCents: 10_000, unpaidFeesCents: 6_900, accruedInterestCents: 208, interestSuspended: false })
-    // EAD = 200 000 + 10 000 + 6 900 + 208 = 217 108; ECL = 217 108 x 2% x 45% = 1 953.97
-    expect(s1.eadCents).toBe(217_108)
-    expect(s1.eclCents).toBe(1_954)
+  it("walks a loan Stage 1 -> 2 -> 3 on month-end runs with the ECL worked out by hand, and an on-demand run feeds nothing", async () => {
+    // 30 Sep 2026: instalment 1 (due 1 Sep) is 29 days past due. Raised and unpaid: R100 interest + R69 fees.
+    // Accrued on instalment 2: R50 x 29/456 (1 Sep 2026 -> 1 Dec 2027 is 456 days) = 318.0 -> 318.
+    const sep = await monthly(a, "2026-09", monthEnd("2026-09-30"))
+    const s1 = await snapshotOf(sep.runId, a.loanId)
+    expect(s1).toMatchObject({ daysPastDue: 29, stage: 1, previousStage: null, unpaidInterestCents: 10_000, unpaidFeesCents: 6_900, accruedInterestCents: 318, interestSuspended: false })
+    expect(ymd(s1.runDate)).toBe("2026-09-30")
+    // EAD = 200 000 + 10 000 + 6 900 + 318 = 217 218 ; ECL = 217 218 x 2% x 45% = 1 954.96
+    expect(s1.eadCents).toBe(217_218)
+    expect(s1.eclCents).toBe(1_955)
 
-    // 15 Oct: 44 days past due -> Stage 2 (more than 30). Accrued 5 000 x 44/456 = 482.46 -> 482.
-    const r2 = await asTenant(a, () => executeRun(a.tenantId, { kind: "ON_DEMAND", now: at("2026-10-15"), actor: actorOf(a) }))
-    const s2 = await snapshotOf(r2.runId, a.loanId)
-    expect(s2).toMatchObject({ daysPastDue: 44, stage: 2, previousStage: 1, reasons: ["DPD_OVER_SICR_THRESHOLD"], accruedInterestCents: 482 })
-    // EAD = 216 900 + 482 = 217 382; ECL = 217 382 x 15% x 50% = 16 303.65
-    expect(s2.eadCents).toBe(217_382)
-    expect(s2.eclCents).toBe(16_304)
+    // Someone presses "run" on 15 Oct (44 days past due -> Stage 2): analysis only.
+    const analysis = await onDemand(a, at("2026-10-15"))
+    expect(await snapshotOf(analysis.runId, a.loanId)).toMatchObject({ stage: 2, previousStage: 1 })
 
-    // 5 Dec: 95 days past due -> Stage 3, interest suspended, nothing further accrued.
-    const r3 = await asTenant(a, () => executeRun(a.tenantId, { kind: "ON_DEMAND", now: at("2026-12-05"), actor: actorOf(a) }))
-    const s3 = await snapshotOf(r3.runId, a.loanId)
+    // 31 Oct: 60 days past due -> Stage 2. It starts from September's official run, not from the analysis.
+    const oct = await monthly(a, "2026-10", monthEnd("2026-10-31"))
+    const s2 = await snapshotOf(oct.runId, a.loanId)
+    expect(s2).toMatchObject({ daysPastDue: 60, stage: 2, previousStage: 1, reasons: ["DPD_OVER_SICR_THRESHOLD"], accruedInterestCents: 658 })
+    expect(ymd(s2.stageSince)).toBe("2026-10-31")
+    // EAD = 216 900 + 5 000 x 60/456 (657.9 -> 658) = 217 558 ; ECL = 217 558 x 15% x 50% = 16 316.85
+    expect(s2.eadCents).toBe(217_558)
+    expect(s2.eclCents).toBe(16_317)
+
+    // 30 Nov: 90 days past due -> Stage 3, interest suspended, nothing further accrued.
+    const nov = await monthly(a, "2026-11", monthEnd("2026-11-30"))
+    const s3 = await snapshotOf(nov.runId, a.loanId)
     expect(s3).toMatchObject({
-      daysPastDue: 95, stage: 3, previousStage: 2, interestSuspended: true, suspendedInterestCents: 10_000, suspendedDefaultInterestCents: 0, accruedInterestCents: 0,
+      daysPastDue: 90, stage: 3, previousStage: 2, interestSuspended: true, suspensionBasis: "FULL_SUSPENSION",
+      suspendedInterestCents: 10_000, suspendedDefaultInterestCents: 0, accruedInterestCents: 0,
     })
-    // EAD = 200 000 + 10 000 + 6 900 - 10 000 = 206 900; ECL = 206 900 x 100% x 60% = 124 140
+    // EAD = 200 000 + 10 000 + 6 900 - 10 000 = 206 900 ; ECL = 206 900 x 100% x 60% = 124 140
     expect(s3.eadCents).toBe(206_900)
     expect(s3.eclCents).toBe(124_140)
-    expect(s3.stageSince.toISOString().slice(0, 10)).toBe("2026-12-05")
 
-    const report = await asTenant(a, () => loadRunReport(prisma, a.tenantId, r3.runId, r2.runId))
+    const report = await asTenant(a, () => loadRunReport(prisma, a.tenantId, nov.runId, oct.runId))
     expect(report?.transitions).toMatchObject({ deteriorated: 1, improved: 0, unchanged: 0 })
-    expect(report?.transitions?.cells).toEqual([{ from: "2", to: "3", loans: 1, fromEadCents: 217_382, toEadCents: 206_900 }])
+    expect(report?.transitions?.cells).toEqual([{ from: "2", to: "3", loans: 1, fromEadCents: 217_558, toEadCents: 206_900 }])
     expect(report?.summary.byStage[2]).toMatchObject({ loans: 1, eadCents: 206_900, eclCents: 124_140, coverageBps: 6000, suspendedCents: 10_000 })
   })
 
   it("holds Stage 3 through the six-month probation after the arrears are paid, then steps down to Stage 2 and on to Stage 1", async () => {
-    // 20 Dec: instalment 1 paid in full (R1 169), principal down to R1 000.
+    // Instalment 1 paid in full (R1 169) in December; principal down to R1 000.
     await db.repaymentSchedule.updateMany({ where: { loanId: a.loanId, installmentNo: 1 }, data: { totalPaid: 116_900, status: "PAID" } })
     await db.loan.update({ where: { id: a.loanId }, data: { outstandingPrincipal: 100_000 } })
-    const run = (iso: string) => asTenant(a, () => executeRun(a.tenantId, { kind: "ON_DEMAND", now: at(iso), actor: actorOf(a) }))
 
-    const cured = await snapshotOf((await run("2026-12-20")).runId, a.loanId)
-    expect(cured).toMatchObject({ daysPastDue: 0, stage: 3, triggerStage: 1, reasons: ["PROBATION_FROM_STAGE_3"], interestSuspended: true, suspendedInterestCents: 0 })
-    expect(cured.cureStartedOn?.toISOString().slice(0, 10)).toBe("2026-12-20")
+    const dec = await snapshotOf((await monthly(a, "2026-12", monthEnd("2026-12-31"))).runId, a.loanId)
+    expect(dec).toMatchObject({ daysPastDue: 0, stage: 3, triggerStage: 1, reasons: ["PROBATION_FROM_STAGE_3"], interestSuspended: true, suspendedInterestCents: 0 })
+    expect(ymd(dec.cureStartedOn!)).toBe("2026-12-31")
     // still Stage 3 on EAD 100 000 (no accrual while suspended): 100 000 x 100% x 60%
-    expect(cured.eclCents).toBe(60_000)
+    expect(dec.eclCents).toBe(60_000)
 
-    const held = await snapshotOf((await run("2027-06-19")).runId, a.loanId)
-    expect(held.stage).toBe(3)
+    expect((await snapshotOf((await monthly(a, "2027-05", monthEnd("2027-05-31"))).runId, a.loanId)).stage).toBe(3)
 
-    // 20 Jun 2027 is six months after 20 Dec: Stage 2, interest no longer suspended, and the Stage 2 probation (3 months) starts.
-    const stepped = await snapshotOf((await run("2027-06-20")).runId, a.loanId)
-    expect(stepped).toMatchObject({ stage: 2, previousStage: 3, interestSuspended: false })
-    expect(stepped.cureStartedOn?.toISOString().slice(0, 10)).toBe("2027-06-20")
-    // accrued on instalment 2: 5 000 x 292/456 = 3 201.75 -> 3 202; EAD 103 202; ECL = 103 202 x 15% x 50% = 7 740.15
-    expect(stepped).toMatchObject({ accruedInterestCents: 3_202, eadCents: 103_202, eclCents: 7_740 })
+    // 30 Jun 2027 is six months after 31 Dec: Stage 2, interest no longer suspended, and the Stage 2 probation (3 months) starts.
+    const jun = await snapshotOf((await monthly(a, "2027-06", monthEnd("2027-06-30"))).runId, a.loanId)
+    expect(jun).toMatchObject({ stage: 2, previousStage: 3, interestSuspended: false })
+    expect(ymd(jun.cureStartedOn!)).toBe("2027-06-30")
+    // accrued on instalment 2: 5 000 x 302/456 = 3 311.4 -> 3 311 ; EAD 103 311 ; ECL = 103 311 x 15% x 50% = 7 748.3
+    expect(jun).toMatchObject({ accruedInterestCents: 3_311, eadCents: 103_311, eclCents: 7_748 })
 
-    const back = await snapshotOf((await run("2027-09-20")).runId, a.loanId)
-    expect(back).toMatchObject({ stage: 1, previousStage: 2, cureStartedOn: null })
+    expect(await snapshotOf((await monthly(a, "2027-09", monthEnd("2027-09-30"))).runId, a.loanId)).toMatchObject({ stage: 1, previousStage: 2, cureStartedOn: null })
+  })
+
+  it("on the net basis (IFRS 9 5.4.1(b)) keeps exposure gross and suspends the share of the interest the allowance covers", async () => {
+    const n = await lender()
+    await configure(n, { stage3InterestBasis: "NET_BASIS" })
+    await monthly(n, "2026-09", monthEnd("2026-09-30"))
+    await monthly(n, "2026-10", monthEnd("2026-10-31"))
+    const s = await snapshotOf((await monthly(n, "2026-11", monthEnd("2026-11-30"))).runId, n.loanId)
+    // gross EAD = 200 000 + 10 000 + 6 900 + 5 000 x 90/456 (986.8 -> 987) = 217 887 ; ECL = 217 887 x 100% x 60% = 130 732.2
+    expect(s).toMatchObject({ stage: 3, interestSuspended: true, suspensionBasis: "NET_BASIS", accruedInterestCents: 987, eadCents: 217_887, eclCents: 130_732 })
+    // coverage 130 732 / 217 887 = 60.0%: R100.00 of raised interest x that = 6 000
+    expect(s.suspendedInterestCents).toBe(6_000)
   })
 
   it("is never edited: runs and snapshots refuse UPDATE, DELETE and TRUNCATE", async () => {
@@ -130,9 +115,9 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
     await expect(db.$executeRawUnsafe('TRUNCATE "Ifrs9LoanSnapshot"')).rejects.toThrow(/append-only/)
   })
 
-  it("refuses a snapshot whose ECL is not EAD x PD x LGD, whose EAD is not the sum of its parts, or whose stage is out of range", async () => {
-    const base = await db.ifrs9LoanSnapshot.findFirstOrThrow({ where: { tenantId: a.tenantId } })
-    const { id: _id, createdAt: _createdAt, ...row } = base
+  it("refuses a snapshot whose ECL is not EAD x PD x LGD, whose EAD is not the sum of its parts, or whose suspension does not follow its basis", async () => {
+    const full = await db.ifrs9LoanSnapshot.findFirstOrThrow({ where: { tenantId: a.tenantId, interestSuspended: true } })
+    const { id: _id, createdAt: _createdAt, ...row } = full
     const own = await db.ifrs9Run.create({ data: { tenantId: a.tenantId, kind: "ON_DEMAND", runDate: new Date("2026-01-01"), settings: {}, parameters: [], loanCount: 0, totalEadCents: 0, totalEclCents: 0 } })
     const mk = (over: Partial<typeof row>) => db.ifrs9LoanSnapshot.create({ data: { ...row, runId: own.id, ...over } })
     await expect(mk({ eclCents: row.eclCents + 1 })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
@@ -140,41 +125,33 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
     await expect(mk({ stage: 4 })).rejects.toThrow(/Ifrs9LoanSnapshot_stage_bounds/)
     await expect(mk({ triggerStage: 3, stage: 2 })).rejects.toThrow(/Ifrs9LoanSnapshot_stage_bounds/)
     await expect(mk({ interestSuspended: false, suspendedInterestCents: 1 })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
-    await expect(mk({ suspendedInterestCents: row.unpaidInterestCents + 1, interestSuspended: true })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
+    await expect(mk({ suspendedInterestCents: row.unpaidInterestCents + 1 })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
+    // a full-suspension snapshot suspends ALL the raised interest; a net-basis one only the share the allowance covers
+    await expect(mk({ suspendedInterestCents: row.unpaidInterestCents - 1, eadCents: row.eadCents + 1, eclCents: Math.round((row.eadCents + 1) * 0.6) })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
+    await expect(mk({ suspensionBasis: "NET_BASIS" })).rejects.toThrow(/Ifrs9LoanSnapshot_figures/)
+    // only a Stage 3 loan has its interest suspended
+    await expect(mk({ stage: 2, triggerStage: 2 })).rejects.toThrow(/Ifrs9LoanSnapshot_stage_bounds/)
   })
 
-  it("refuses a run whose kind and period disagree, an unbounded PD or policy, and a scope it does not know", async () => {
+  it("refuses a run whose shape is wrong, an unbounded PD or policy, and a Stage 3 PD below 100%", async () => {
     const run = (over: Record<string, unknown>) => db.ifrs9Run.create({ data: { tenantId: a.tenantId, kind: "ON_DEMAND", runDate: new Date("2026-01-01"), settings: {}, parameters: [], loanCount: 0, totalEadCents: 0, totalEclCents: 0, ...over } })
     await expect(run({ periodKey: "2026-01" })).rejects.toThrow(/Ifrs9Run_shape/)
     await expect(run({ kind: "MONTHLY" })).rejects.toThrow(/Ifrs9Run_shape/)
     await expect(run({ kind: "MONTHLY", periodKey: "2026-13" })).rejects.toThrow(/Ifrs9Run_shape/)
+    // a MONTHLY run is dated its month's last day
+    await expect(run({ kind: "MONTHLY", periodKey: "2026-01", runDate: new Date("2026-01-30") })).rejects.toThrow(/Ifrs9Run_shape/)
+    // only a MONTHLY run is late or supersedes
+    await expect(run({ late: true })).rejects.toThrow(/Ifrs9Run_shape/)
     await expect(db.ifrs9EclParameter.create({ data: { tenantId: a.tenantId, scopeKey: "DEFAULT", stage: 1, pdBps: 10_001, lgdBps: 1 } })).rejects.toThrow(/Ifrs9EclParameter_bounds/)
     await expect(db.ifrs9EclParameter.create({ data: { tenantId: a.tenantId, scopeKey: "WHATEVER", stage: 1, pdBps: 1, lgdBps: 1 } })).rejects.toThrow(/Ifrs9EclParameter_bounds/)
+    await expect(db.ifrs9EclParameter.create({ data: { tenantId: a.tenantId, scopeKey: "PRODUCT:p9", stage: 3, pdBps: 9_999, lgdBps: 1 } })).rejects.toThrow(/Ifrs9EclParameter_bounds/)
     await expect(db.ifrs9Config.update({ where: { tenantId: a.tenantId }, data: { sicrDpdOver: 90 } })).rejects.toThrow(/Ifrs9Config_policy_bounds/)
-  })
-
-  it("makes one MONTHLY run per month: a second call, even from another replica at the same moment, returns the first", async () => {
-    const now = new Date("2026-10-31T23:50:00+02:00")
-    const [x, y] = await asTenant(b, () => Promise.all([
-      executeRun(b.tenantId, { kind: "MONTHLY", now }),
-      executeRun(b.tenantId, { kind: "MONTHLY", now }),
-    ]))
-    expect(x.runId).toBe(y.runId)
-    expect([x.created, y.created].filter(Boolean)).toHaveLength(1)
-    expect(await db.ifrs9Run.count({ where: { tenantId: b.tenantId, kind: "MONTHLY" } })).toBe(1)
-    const run = await db.ifrs9Run.findUniqueOrThrow({ where: { id: x.runId } })
-    expect(run).toMatchObject({ periodKey: "2026-10", loanCount: 1 })
-    // 31 Oct: 60 days past due -> Stage 2. Accrued 5 000 x 60/456 = 657.9 -> 658, EAD 217 558; ECL = 217 558 x 15% x 50% = 16 316.85
-    expect((await snapshotOf(x.runId, b.loanId)).eclCents).toBe(16_317)
-  })
-
-  it("makes up a missed month-end run in the first five days of the next month, and not later", async () => {
-    const early = await asTenant(b, () => executeRun(b.tenantId, { kind: "MONTHLY", periodKey: "2026-10", now: at("2026-11-03") }))
-    expect(early.created).toBe(false)
-    await expect(asTenant(b, () => executeRun(b.tenantId, { kind: "MONTHLY", periodKey: "2026-10", now: at("2026-11-09") }))).rejects.toMatchObject({ code: "INVALID_PERIOD" })
+    // interest is suspended only in Stage 3: the DPD threshold is never below the default threshold
+    await expect(db.ifrs9Config.update({ where: { tenantId: a.tenantId }, data: { suspensionDpd: 60 } })).rejects.toThrow(/Ifrs9Config_policy_bounds/)
   })
 
   it("keeps lenders apart: a run lists only its own loans and a report never reads another's run", async () => {
+    await monthly(b, "2026-10", monthEnd("2026-10-31"))
     const runs = await db.ifrs9Run.findMany({ where: { tenantId: b.tenantId } })
     const snapshots = await db.ifrs9LoanSnapshot.findMany({ where: { runId: { in: runs.map((r) => r.id) } } })
     expect(new Set(snapshots.map((s) => s.loanId))).toEqual(new Set([b.loanId]))
@@ -182,11 +159,10 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
     expect(await asTenant(b, () => loadRunReport(prisma, b.tenantId, aRun.id))).toBeNull()
   })
 
-  it("refuses to run without a PD and LGD for every stage, or a monthly run for a lender that has not enabled IFRS 9", async () => {
+  it("refuses to run without a PD and LGD for every stage", async () => {
     const c = await lender()
-    await expect(asTenant(c, () => executeRun(c.tenantId, { kind: "MONTHLY", now: at("2026-10-31") }))).rejects.toMatchObject({ code: "NOT_ENABLED" })
     await asTenant(c, () => saveSettings(prisma, c.tenantId, { ...DEFAULT_SETTINGS, enabled: true }, actorOf(c)))
-    const error = await asTenant(c, () => executeRun(c.tenantId, { kind: "ON_DEMAND", now: at("2026-10-31") })).catch((e) => e)
+    const error = await onDemand(c, at("2026-10-31")).catch((e) => e)
     expect(error).toBeInstanceOf(Ifrs9RunError)
     expect(error.code).toBe("PARAMETERS_MISSING")
     expect(await db.ifrs9Run.count({ where: { tenantId: c.tenantId } })).toBe(0)
@@ -195,15 +171,14 @@ suite.sequential("IFRS 9 (real Postgres)", () => {
   it("puts a flagged loan in Stage 2 while the flag is active and into probation when it is cleared", async () => {
     const c = await lender()
     await configure(c, { stage2ProbationMonths: 3 })
-    const run = (iso: string) => asTenant(c, () => executeRun(c.tenantId, { kind: "ON_DEMAND", now: at(iso), actor: actorOf(c) }))
     expect(await asTenant(c, () => setSicrFlag(prisma, c.tenantId, c.loanId, "BUREAU_DOWNGRADE", "Score fell 80 points", actorOf(c)))).toBe(true)
-    // 1 Aug 2026: before the first instalment is due, so nothing is past due; the flag alone makes it Stage 2.
-    const flagged = await snapshotOf((await run("2026-08-15")).runId, c.loanId)
+    // 31 Jul 2026: before the first instalment is due, so nothing is past due; the flag alone makes it Stage 2.
+    const flagged = await snapshotOf((await monthly(c, "2026-07", monthEnd("2026-07-31"))).runId, c.loanId)
     expect(flagged).toMatchObject({ daysPastDue: 0, stage: 2, reasons: ["FLAG_BUREAU_DOWNGRADE"] })
     const flag = await db.ifrs9SicrFlag.findFirstOrThrow({ where: { loanId: c.loanId } })
     expect(await asTenant(c, () => clearSicrFlag(prisma, c.tenantId, flag.id, actorOf(c)))).toBe(true)
     expect(await asTenant(c, () => clearSicrFlag(prisma, c.tenantId, flag.id, actorOf(c))), "already cleared").toBe(false)
-    const probation = await snapshotOf((await run("2026-08-20")).runId, c.loanId)
+    const probation = await snapshotOf((await monthly(c, "2026-08", monthEnd("2026-08-31"))).runId, c.loanId)
     expect(probation).toMatchObject({ stage: 2, triggerStage: 1, reasons: ["PROBATION_FROM_STAGE_2"] })
     expect(await asTenant(c, () => setSicrFlag(prisma, c.tenantId, b.loanId, "WATCHLIST", "not this lender's loan", actorOf(c))), "another lender's loan").toBe(false)
     const audits = await db.auditLog.findMany({ where: { tenantId: c.tenantId, action: { in: ["IFRS9_SICR_FLAG_SET", "IFRS9_SICR_FLAG_CLEARED", "IFRS9_RUN_CREATED", "IFRS9_SETTINGS_UPDATED", "IFRS9_PARAMETERS_REPLACED"] } } })

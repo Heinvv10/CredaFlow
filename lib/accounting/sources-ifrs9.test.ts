@@ -4,12 +4,13 @@ import { resolveAccountMap } from "./accounts"
 import { parsePeriodKey } from "./period"
 import { ifrs9Sources, type Ifrs9Position } from "./sources-ifrs9"
 
+const oct = parsePeriodKey("2026-10")!
+const nov = parsePeriodKey("2026-11")!
 const position = (over: Partial<Ifrs9Position> = {}): Ifrs9Position => ({
-  loanId: "l1", reference: "L-1", runDate: new Date("2026-10-30T22:00:00.000Z"), eclCents: 316_800, suspendedInterestCents: 40_000,
+  loanId: "l1", reference: "L-1", periodKey: "2026-10", eclCents: 316_800, suspendedInterestCents: 40_000,
   suspendedDefaultInterestCents: 4_000, journalsSuspense: true, writtenOff: false, closed: false, ...over,
 })
-const asOf = new Date("2026-10-31T22:00:00.000Z")
-const byKey = (positions: Ifrs9Position[]) => Object.fromEntries(ifrs9Sources(positions, asOf).map((s) => [s.baseKey, s.vector]))
+const byKey = (positions: Ifrs9Position[], period = oct) => Object.fromEntries(ifrs9Sources(positions, period).map((s) => [s.baseKey, s.vector]))
 
 describe("ifrs9Sources", () => {
   it("provisions the run's ECL and holds its suspended interest out of income", () => {
@@ -23,9 +24,9 @@ describe("ifrs9Sources", () => {
     expect(byKey([position({ closed: true })])).toEqual({ "ifrs9:ecl:l1": {}, "ifrs9:suspense:l1": {} })
   })
 
-  it("on write-off drops the provision and sends the suspended interest to reduce the bad debt, not to income", () => {
+  it("on write-off uses the allowance against the bad debt: ECL_EXPENSE stays charged, nothing is credited to the expense", () => {
     const v = byKey([position({ writtenOff: true })])
-    expect(v["ifrs9:ecl:l1"]).toEqual({})
+    expect(v["ifrs9:ecl:l1"]).toEqual({ ECL_EXPENSE: 316_800, BAD_DEBT_EXPENSE: -316_800 })
     expect(v["ifrs9:suspense:l1"]).toEqual({ INTEREST_INCOME: 40_000, DEFAULT_INTEREST_INCOME: 4_000, BAD_DEBT_EXPENSE: -44_000 })
   })
 
@@ -35,26 +36,27 @@ describe("ifrs9Sources", () => {
     expect(v["ifrs9:ecl:l1"]).toEqual({ ECL_EXPENSE: 316_800, ECL_ALLOWANCE: -316_800 })
   })
 
-  it("posts nothing for a run dated after the period", () => {
-    expect(byKey([position({ runDate: new Date("2026-11-02T10:00:00.000Z") })])).toEqual({ "ifrs9:ecl:l1": {}, "ifrs9:suspense:l1": {} })
+  it("posts nothing for a run of a month after the period", () => {
+    expect(byKey([position({ periodKey: "2026-11" })])).toEqual({ "ifrs9:ecl:l1": {}, "ifrs9:suspense:l1": {} })
   })
 
   it("every vector sums to zero", () => {
     for (const p of [position(), position({ writtenOff: true }), position({ closed: true })]) {
-      for (const source of ifrs9Sources([p], asOf)) expect(Object.values(source.vector).reduce((a, b) => a + b, 0)).toBe(0)
+      for (const source of ifrs9Sources([p], oct)) expect(Object.values(source.vector).reduce((a, b) => a + b, 0)).toBe(0)
     }
   })
 })
 
 describe("through derive.ts month by month", () => {
   const accounts = resolveAccountMap([])
-  const oct = parsePeriodKey("2026-10")!
-  const nov = parsePeriodKey("2026-11")!
-  const derive = (period: typeof oct, positions: Ifrs9Position[], posted: PostedLedger, postedKeys: Set<string>) =>
-    deriveEntries({ loans: [], period, posted, postedKeys, postedLoans: new Map(), accounts, extraSources: ifrs9Sources(positions, period.end) })
+  const derive = (period: typeof oct, positions: Ifrs9Position[], posted: PostedLedger) =>
+    deriveEntries({ loans: [], period, posted, postedKeys: new Set(posted.keys()), postedLoans: new Map(), accounts, extraSources: ifrs9Sources(positions, period) })
+  const net = (entries: ReturnType<typeof derive>, role: string) =>
+    entries.flatMap((e) => e.lines).filter((l) => l.role === role).reduce((s, l) => s + l.debitCents - l.creditCents, 0)
+  const noSuspense = { suspendedInterestCents: 0, suspendedDefaultInterestCents: 0 }
 
-  it("posts the allowance in the first month and only the movement the next", () => {
-    const first = derive(oct, [position({ eclCents: 100_000, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0 })], new Map(), new Set())
+  it("posts the allowance on the month's last day in the first month and only the movement the next", () => {
+    const first = derive(oct, [position({ eclCents: 100_000, ...noSuspense })], new Map())
     expect(first).toHaveLength(1)
     expect(first[0]).toMatchObject({ eventKey: "ifrs9:ecl:l1", eventType: "ECL_PROVISION", loanId: "l1", postingDate: "2026-10-31" })
     expect(first[0].lines.map((l) => [l.role, l.debitCents, l.creditCents, l.accountCode])).toEqual([
@@ -62,7 +64,7 @@ describe("through derive.ts month by month", () => {
     ])
 
     const posted: PostedLedger = new Map([["ifrs9:ecl:l1", { ECL_EXPENSE: 100_000, ECL_ALLOWANCE: -100_000 }]])
-    const second = derive(nov, [position({ eclCents: 130_000, runDate: new Date("2026-11-29T22:00:00.000Z"), suspendedInterestCents: 0, suspendedDefaultInterestCents: 0 })], posted, new Set(["ifrs9:ecl:l1"]))
+    const second = derive(nov, [position({ periodKey: "2026-11", eclCents: 130_000, ...noSuspense })], posted)
     expect(second).toHaveLength(1)
     expect(second[0].eventKey).toBe("ifrs9:ecl:l1@2026-11")
     // movement of R300.00: 130 000 - 100 000
@@ -71,15 +73,44 @@ describe("through derive.ts month by month", () => {
 
   it("posts nothing when the position has not changed", () => {
     const posted: PostedLedger = new Map([["ifrs9:ecl:l1", { ECL_EXPENSE: 100_000, ECL_ALLOWANCE: -100_000 }]])
-    expect(derive(nov, [position({ eclCents: 100_000, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0 })], posted, new Set(["ifrs9:ecl:l1"]))).toEqual([])
+    expect(derive(nov, [position({ periodKey: "2026-11", eclCents: 100_000, ...noSuspense })], posted)).toEqual([])
   })
 
   it("reverses the suspense into income when the loan cures", () => {
     const posted: PostedLedger = new Map([["ifrs9:suspense:l1", { INTEREST_INCOME: 40_000, DEFAULT_INTEREST_INCOME: 4_000, INTEREST_SUSPENSE: -44_000 }]])
-    const cured = derive(nov, [position({ eclCents: 0, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0, runDate: new Date("2026-11-29T22:00:00.000Z") })], posted, new Set(["ifrs9:suspense:l1"]))
+    const cured = derive(nov, [position({ periodKey: "2026-11", eclCents: 0, ...noSuspense })], posted)
     expect(cured).toHaveLength(1)
     expect(cured[0].lines.map((l) => [l.role, l.debitCents, l.creditCents])).toEqual([
       ["INTEREST_SUSPENSE", 44_000, 0], ["INTEREST_INCOME", 0, 40_000], ["DEFAULT_INTEREST_INCOME", 0, 4_000],
     ])
+  })
+
+  // Review breaker 1a (PR #255): a month's run made late (days 1-5 of the next month, or by an administrator) used to be
+  // dated its make-up day, after the period, so it posted nothing and reversed the allowance already held.
+  it("a late or superseding run for October is October's position: it moves the allowance, it does not reverse it", () => {
+    const posted: PostedLedger = new Map([
+      ["ifrs9:ecl:l1", { ECL_EXPENSE: 100_000, ECL_ALLOWANCE: -100_000 }],
+      ["ifrs9:suspense:l1", { INTEREST_INCOME: 40_000, INTEREST_SUSPENSE: -40_000 }],
+    ])
+    const entries = derive(oct, [position({ periodKey: "2026-10", eclCents: 150_000, suspendedInterestCents: 40_000, suspendedDefaultInterestCents: 0 })], posted)
+    expect(net(entries, "ECL_ALLOWANCE")).toBe(-50_000)
+    expect(net(entries, "INTEREST_SUSPENSE")).toBe(0)
+  })
+
+  // Review breaker 2 (PR #255): the write-off used to release the allowance to P&L (Cr ECL_EXPENSE) instead of using it.
+  it("write-off debits the allowance and credits the bad debt, with no credit to ECL_EXPENSE", () => {
+    const posted: PostedLedger = new Map([["ifrs9:ecl:l1", { ECL_EXPENSE: 100_000, ECL_ALLOWANCE: -100_000 }]])
+    const entries = derive(oct, [position({ eclCents: 100_000, writtenOff: true, ...noSuspense })], posted)
+    expect(net(entries, "ECL_EXPENSE")).toBe(0)
+    expect(net(entries, "ECL_ALLOWANCE")).toBe(100_000)
+    expect(net(entries, "BAD_DEBT_EXPENSE")).toBe(-100_000)
+  })
+
+  // Review breaker 3 (PR #255): an asset-finance contract's interest stays in income and the receivable, so none of it may be
+  // taken out of exposure as "suspended" (lib/ifrs9/snapshot.test.ts holds the exposure side).
+  it("an asset-finance contract posts the provision and no suspense", () => {
+    const v = byKey([position({ loanId: "af", journalsSuspense: false, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0 })])
+    expect(v["ifrs9:suspense:af"]).toEqual({})
+    expect(v["ifrs9:ecl:af"]).toEqual({ ECL_EXPENSE: 316_800, ECL_ALLOWANCE: -316_800 })
   })
 })

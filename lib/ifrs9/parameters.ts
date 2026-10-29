@@ -42,6 +42,7 @@ export function parseParameterInput(body: unknown): { ok: true; rows: EclParamet
     if (stage !== 1 && stage !== 2 && stage !== 3) return { ok: false, error: `${scopeKey}: stage must be 1, 2 or 3` }
     if (!isBps(pdBps)) return { ok: false, error: `${scopeKey} stage ${stage}: pdBps must be a whole number of basis points, 0-10000` }
     if (!isBps(lgdBps)) return { ok: false, error: `${scopeKey} stage ${stage}: lgdBps must be a whole number of basis points, 0-10000` }
+    if (stage === 3 && pdBps !== 10_000) return { ok: false, error: `${scopeKey} stage 3: pdBps must be 10000, because a Stage 3 loan is credit-impaired (default has happened)` }
     const key = `${scopeKey}|${stage}`
     if (seen.has(key)) return { ok: false, error: `${scopeKey} stage ${stage} is listed twice` }
     seen.add(key)

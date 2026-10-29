@@ -26,15 +26,18 @@ export function monthlyRunTarget(today: string): string | null {
   return Number(today.slice(8, 10)) <= 5 ? previousMonthKey(today.slice(0, 7)) : null
 }
 
-/**
- * The month a MONTHLY run stands for: this month, or - when the month-end run was
- * missed - last month, for the first five days of this one. The position is
- * always as at the run date; the later the make-up, the less it is the month-end
- * position, and the run records its own date.
- */
-export function resolveMonthlyPeriod(today: string, requested?: string): { ok: true; periodKey: string } | { ok: false; error: string } {
-  const current = today.slice(0, 7)
-  if (requested === undefined || requested === current) return { ok: true, periodKey: current }
-  if (requested === previousMonthKey(current) && Number(today.slice(8, 10)) <= 5) return { ok: true, periodKey: requested }
-  return { ok: false, error: `A monthly run is for ${current}, or for ${previousMonthKey(current)} during the first five days of ${current}` }
+export interface MonthlyInstants {
+  /** The month's last day, yyyy-mm-dd: the day the run describes, whenever it is made. */
+  runDate: string
+  /** The instant the position is worked out as at: the end of that day (SAST). */
+  runAt: Date
+  /** After that day the paid amounts are rebuilt from receipts live before this instant; null on the day itself. */
+  receiptsBefore: Date | null
+}
+
+/** A MONTHLY run is the month-end position even when made later (a make-up, late or superseding run). */
+export function monthlyInstants(periodKey: string, today: string): MonthlyInstants {
+  const runDate = periodEndDate(periodKey)
+  const nextMidnight = new Date(new Date(`${runDate}T00:00:00+02:00`).getTime() + DAY_MS)
+  return { runDate, runAt: new Date(`${runDate}T23:59:00+02:00`), receiptsBefore: runDate < today ? nextMidnight : null }
 }

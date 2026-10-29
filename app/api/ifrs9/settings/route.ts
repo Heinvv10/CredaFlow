@@ -29,7 +29,8 @@ export async function PUT(req: NextRequest) {
     const parsed = parseSettingsInput(read.body, current)
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
     const settings = withEffectiveMonth(parsed.settings, current, sastCalendarDate(new Date()))
-    await saveSettings(prisma, tenant.id, settings, guard.user)
+    const saved = await saveSettings(prisma, tenant.id, settings, guard.user)
+    if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 409 })
     return NextResponse.json(settings)
   })
 }

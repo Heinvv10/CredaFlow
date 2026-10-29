@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { addMonthsIso, classifyStage, stageTriggers, type StagingInput } from "./staging"
+import { addMonthsIso, classifyStage, stageTriggers, wasRestructured, type StagingInput } from "./staging"
 import { DEFAULT_SETTINGS, type Ifrs9Settings } from "./types"
 
 const loan = (over: Partial<StagingInput> = {}): StagingInput => ({
@@ -41,9 +41,9 @@ describe("stageTriggers", () => {
 
   it("puts a restructured loan, a debt-review loan and a flagged loan in Stage 2, each switchable", () => {
     expect(stageTriggers(loan({ status: "RESTRUCTURED" }), policy())).toEqual({ stage: 2, reasons: ["RESTRUCTURED"] })
-    expect(stageTriggers(loan({ status: "RESTRUCTURED" }), policy({ restructuredIsSicr: false })).stage).toBe(1)
+    expect(stageTriggers(loan({ status: "RESTRUCTURED" }), policy({ restructuredStage: 1 })).stage).toBe(1)
     expect(stageTriggers(loan({ debtReview: true }), policy())).toEqual({ stage: 2, reasons: ["DEBT_REVIEW"] })
-    expect(stageTriggers(loan({ debtReview: true }), policy({ debtReviewIsSicr: false })).stage).toBe(1)
+    expect(stageTriggers(loan({ debtReview: true }), policy({ debtReviewStage: 1 })).stage).toBe(1)
     expect(stageTriggers(loan({ flags: ["BUREAU_DOWNGRADE", "WATCHLIST"] }), policy())).toEqual({
       stage: 2, reasons: ["FLAG_BUREAU_DOWNGRADE", "FLAG_WATCHLIST"],
     })
@@ -71,39 +71,90 @@ describe("classifyStage: cure and probation", () => {
   })
 
   it("moves up immediately and keeps stageSince while the stage is unchanged", () => {
-    const up = classifyStage(loan({ dpd: 95 }), p, { stage: 2, stageSince: "2026-09-30", cureStartedOn: null }, "2026-10-31")
+    const up = classifyStage(loan({ dpd: 95 }), p, { stage: 2, stageSince: "2026-09-30", cureStartedOn: null, restructured: false }, "2026-10-31")
     expect(up).toMatchObject({ stage: 3, stageSince: "2026-10-31" })
-    const same = classifyStage(loan({ dpd: 50 }), p, { stage: 2, stageSince: "2026-09-30", cureStartedOn: null }, "2026-10-31")
+    const same = classifyStage(loan({ dpd: 50 }), p, { stage: 2, stageSince: "2026-09-30", cureStartedOn: null, restructured: false }, "2026-10-31")
     expect(same).toMatchObject({ stage: 2, stageSince: "2026-09-30" })
   })
 
   it("holds Stage 2 through the probation after the triggers clear, then returns to Stage 1", () => {
-    const first = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: null }, "2026-07-31")
+    const first = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: null, restructured: false }, "2026-07-31")
     expect(first).toMatchObject({ stage: 2, inProbation: true, cureStartedOn: "2026-07-31", reasons: ["PROBATION_FROM_STAGE_2"] })
-    const before = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: "2026-07-31" }, "2026-10-30")
+    const before = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: "2026-07-31", restructured: false }, "2026-10-30")
     expect(before).toMatchObject({ stage: 2, inProbation: true })
-    const after = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: "2026-07-31" }, "2026-10-31")
+    const after = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: "2026-07-31", restructured: false }, "2026-10-31")
     expect(after).toMatchObject({ stage: 1, stageSince: "2026-10-31", cureStartedOn: null, inProbation: false })
   })
 
   it("steps Stage 3 down to Stage 2 after its probation, then runs the Stage 2 probation from that date", () => {
-    const down = classifyStage(loan({ dpd: 40 }), p, { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28" }, "2026-08-31")
+    const down = classifyStage(loan({ dpd: 40 }), p, { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }, "2026-08-31")
     expect(down).toMatchObject({ stage: 2, stageSince: "2026-08-31", cureStartedOn: null, inProbation: false })
-    const full = classifyStage(loan(), p, { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28" }, "2026-08-31")
+    const full = classifyStage(loan(), p, { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }, "2026-08-31")
     expect(full).toMatchObject({ stage: 2, stageSince: "2026-08-31", cureStartedOn: "2026-08-31", inProbation: true })
-    const still = classifyStage(loan(), p, { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28" }, "2026-08-27")
+    const still = classifyStage(loan(), p, { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }, "2026-08-27")
     expect(still).toMatchObject({ stage: 3, inProbation: true, reasons: ["PROBATION_FROM_STAGE_3"] })
   })
 
   it("restarts the probation when a trigger fires again before it ends", () => {
-    const relapse = classifyStage(loan({ dpd: 40 }), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: "2026-07-31" }, "2026-08-31")
+    const relapse = classifyStage(loan({ dpd: 40 }), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: "2026-07-31", restructured: false }, "2026-08-31")
     expect(relapse).toMatchObject({ stage: 2, cureStartedOn: null, inProbation: false, reasons: ["DPD_OVER_SICR_THRESHOLD"] })
-    const fresh = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: null }, "2026-09-30")
+    const fresh = classifyStage(loan(), p, { stage: 2, stageSince: "2026-06-30", cureStartedOn: null, restructured: false }, "2026-09-30")
     expect(fresh.cureStartedOn).toBe("2026-09-30")
   })
 
   it("with no probation configured, steps all the way down in one run", () => {
     const none = policy({ stage2ProbationMonths: 0, stage3ProbationMonths: 0 })
-    expect(classifyStage(loan(), none, { stage: 3, stageSince: "2026-01-31", cureStartedOn: null }, "2026-10-31")).toMatchObject({ stage: 1, cureStartedOn: null })
+    expect(classifyStage(loan(), none, { stage: 3, stageSince: "2026-01-31", cureStartedOn: null, restructured: false }, "2026-10-31")).toMatchObject({ stage: 1, cureStartedOn: null })
+  })
+})
+
+describe("restructured and debt-review mapping", () => {
+  it("maps each to the stage the lender chose, including Stage 3 and no effect", () => {
+    expect(stageTriggers(loan({ status: "RESTRUCTURED" }), policy({ restructuredStage: 3 }))).toEqual({ stage: 3, reasons: ["RESTRUCTURED"] })
+    expect(stageTriggers(loan({ debtReview: true }), policy({ debtReviewStage: 3 }))).toEqual({ stage: 3, reasons: ["DEBT_REVIEW"] })
+    expect(stageTriggers(loan({ status: "RESTRUCTURED", dpd: 45 }), policy({ restructuredStage: 1 }))).toEqual({ stage: 2, reasons: ["DPD_OVER_SICR_THRESHOLD"] })
+  })
+
+  it("does not treat a WRITTEN_OFF status as a trigger (a written-off loan is outside the book the run stages)", () => {
+    expect(stageTriggers(loan({ status: "WRITTEN_OFF" }), policy()).stage).toBe(1)
+  })
+})
+
+describe("restructure probation", () => {
+  const p = policy({ stage2ProbationMonths: 3, restructuredProbationMonths: 12 })
+  const prior = (restructured: boolean) => ({ stage: 2 as const, stageSince: "2026-01-31", cureStartedOn: null, restructured })
+
+  it("keeps a formerly restructured loan in Stage 2 for the longer restructure probation, and says why", () => {
+    const first = classifyStage(loan(), p, prior(true), "2026-06-30")
+    expect(first).toMatchObject({ stage: 2, inProbation: true, cureStartedOn: "2026-06-30", reasons: ["PROBATION_FROM_STAGE_2", "RESTRUCTURE_PROBATION"] })
+    const at11 = classifyStage(loan(), p, { stage: 2, stageSince: "2026-01-31", cureStartedOn: "2026-06-30", restructured: true }, "2027-05-31")
+    expect(at11.stage).toBe(2)
+    const at12 = classifyStage(loan(), p, { stage: 2, stageSince: "2026-01-31", cureStartedOn: "2026-06-30", restructured: true }, "2027-06-30")
+    expect(at12).toMatchObject({ stage: 1, inProbation: false })
+  })
+
+  it("uses only the ordinary probation for a loan that was never restructured", () => {
+    expect(classifyStage(loan(), p, { stage: 2, stageSince: "2026-01-31", cureStartedOn: "2026-06-30", restructured: false }, "2026-09-30").stage).toBe(1)
+  })
+
+  it("reads the restructured mark back from a snapshot's reasons, also while the probation is being served", () => {
+    expect(wasRestructured(["RESTRUCTURED"])).toBe(true)
+    expect(wasRestructured(["PROBATION_FROM_STAGE_2", "RESTRUCTURE_PROBATION"])).toBe(true)
+    expect(wasRestructured(["PROBATION_FROM_STAGE_2"])).toBe(false)
+  })
+})
+
+describe("partial relapse in Stage 3 probation", () => {
+  const p = policy({ stage3ProbationMonths: 6, stage2ProbationMonths: 3 })
+
+  it("does not restart the default-cure clock when only a Stage 2 trigger fires again: it steps down to Stage 2, not 1", () => {
+    const prior = { stage: 3 as const, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }
+    expect(classifyStage(loan({ dpd: 40 }), p, prior, "2026-08-27")).toMatchObject({ stage: 3, inProbation: true })
+    expect(classifyStage(loan({ dpd: 40 }), p, prior, "2026-08-28")).toMatchObject({ stage: 2, triggerStage: 2, inProbation: false, stageSince: "2026-08-28" })
+  })
+
+  it("restarts it when a Stage 3 trigger fires again", () => {
+    const prior = { stage: 3 as const, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }
+    expect(classifyStage(loan({ dpd: 95 }), p, prior, "2026-08-31")).toMatchObject({ stage: 3, cureStartedOn: null, inProbation: false })
   })
 })

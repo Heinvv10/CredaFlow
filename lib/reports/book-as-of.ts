@@ -42,7 +42,7 @@ export interface AsOfLoan extends SettlementLoanLike {
 }
 
 /** Receipts on the schedule at `asOf`: received before it, not yet reversed, less the default-charge splits. */
-function scheduleShareAsOf(receipts: AsOfReceipt[], asOf: Date): number {
+export function scheduleShareAsOf(receipts: AsOfReceipt[], asOf: Date): number {
   return receipts
     .filter((r) =>
       r.allocationStatus === "ALLOCATED"

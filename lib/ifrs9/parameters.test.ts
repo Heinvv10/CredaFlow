@@ -32,7 +32,7 @@ describe("missingDefaults", () => {
 })
 
 describe("parseParameterInput", () => {
-  const ok = { parameters: [{ scopeKey: "DEFAULT", stage: 1, pdBps: 200, lgdBps: 4500 }, { scopeKey: "PRODUCT:abc", stage: 2, pdBps: 1500, lgdBps: 5000 }] }
+  const ok = { parameters: [{ scopeKey: "DEFAULT", stage: 1, pdBps: 200, lgdBps: 4500 }, { scopeKey: "PRODUCT:abc", stage: 2, pdBps: 1500, lgdBps: 5000 }, { scopeKey: "DEFAULT", stage: 3, pdBps: 10_000, lgdBps: 6000 }] }
 
   it("accepts a valid table", () => {
     expect(parseParameterInput(ok)).toEqual({ ok: true, rows: ok.parameters })
@@ -47,6 +47,7 @@ describe("parseParameterInput", () => {
     [{ parameters: [{ scopeKey: "NOPE", stage: 1, pdBps: 1, lgdBps: 1 }] }, "scopeKey"],
     [{ parameters: [{ scopeKey: "CONTRACT:SPACESHIP", stage: 1, pdBps: 1, lgdBps: 1 }] }, "scopeKey"],
     [{ parameters: [{ scopeKey: "DEFAULT", stage: 1, pdBps: 1, lgdBps: 1 }, { scopeKey: "DEFAULT", stage: 1, pdBps: 2, lgdBps: 2 }] }, "twice"],
+    [{ parameters: [{ scopeKey: "DEFAULT", stage: 3, pdBps: 9_999, lgdBps: 6000 }] }, "pdBps must be 10000"],
     [null, "body"],
   ])("refuses %j", (body, fragment) => {
     const result = parseParameterInput(body)

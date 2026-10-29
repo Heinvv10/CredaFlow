@@ -8,6 +8,12 @@ describe("parseSettingsInput", () => {
     expect(result).toEqual({ ok: true, settings: { ...DEFAULT_SETTINGS, enabled: true, sicrDpdOver: 20 } })
   })
 
+  it("accepts the stage mapping, the restructure probation and either Stage 3 interest basis", () => {
+    expect(parseSettingsInput({ restructuredStage: 3, debtReviewStage: 1, restructuredProbationMonths: 6, stage3InterestBasis: "NET_BASIS" }, DEFAULT_SETTINGS))
+      .toMatchObject({ ok: true, settings: { restructuredStage: 3, debtReviewStage: 1, restructuredProbationMonths: 6, stage3InterestBasis: "NET_BASIS" } })
+    expect(parseSettingsInput({ defaultDpd: 120, suspensionDpd: 120 }, DEFAULT_SETTINGS).ok).toBe(true)
+  })
+
   it("accepts an effective month or null", () => {
     expect(parseSettingsInput({ effectiveFromMonth: "2026-11" }, DEFAULT_SETTINGS)).toMatchObject({ ok: true, settings: { effectiveFromMonth: "2026-11" } })
     expect(parseSettingsInput({ effectiveFromMonth: null }, { ...DEFAULT_SETTINGS, effectiveFromMonth: "2026-11" })).toMatchObject({ ok: true, settings: { effectiveFromMonth: null } })
@@ -23,7 +29,13 @@ describe("parseSettingsInput", () => {
     [{ stage3ProbationMonths: 61 }, "stage3ProbationMonths"],
     [{ suspensionDpd: 0 }, "suspensionDpd"],
     [{ effectiveFromMonth: "2026-13" }, "effectiveFromMonth"],
-    [{ restructuredIsSicr: 1 }, "restructuredIsSicr"],
+    [{ restructuredIsSicr: true }, "restructuredIsSicr"],
+    [{ restructuredStage: 4 }, "restructuredStage"],
+    [{ debtReviewStage: 0 }, "debtReviewStage"],
+    [{ restructuredProbationMonths: 61 }, "restructuredProbationMonths"],
+    [{ stage3InterestBasis: "WHATEVER" }, "stage3InterestBasis"],
+    [{ suspensionDpd: 60 }, "suspensionDpd must not be below defaultDpd"],
+    [{ defaultDpd: 120 }, "suspensionDpd must not be below defaultDpd"],
     [{ surprise: true }, "surprise"],
     [[], "object"],
   ])("refuses %j", (body, fragment) => {

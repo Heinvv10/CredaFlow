@@ -37,6 +37,16 @@ export function eclCents(eadCents: number, pdBps: number, lgdBps: number): numbe
   return Number((numerator * TWO + scale) / (scale * TWO))
 }
 
+/** `amount` x `numerator` / `denominator` to the nearest cent, half up (BigInt: the product can pass 2^53). Zero when the denominator is. */
+export function proportionCents(amount: number, numerator: number, denominator: number): number {
+  for (const [name, value] of [["amount", amount], ["numerator", numerator], ["denominator", denominator]] as const) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`${name} must be a non-negative whole number of cents`)
+  }
+  if (denominator === 0) return 0
+  const den = BigInt(denominator)
+  return Number((BigInt(amount) * BigInt(numerator) * TWO + den) / (den * TWO))
+}
+
 /** Interest and fees on instalments due on or before the run date and still unpaid; a receipt pays interest, then fees, then principal. */
 export function unpaidScheduleAmounts(rows: readonly ScheduleRow[], runDate: string): { interestCents: number; feesCents: number } {
   let interestCents = 0
@@ -81,7 +91,10 @@ export interface ExposureInputs {
   suspendedDefaultInterestCents: number
 }
 
-/** What the lender is exposed to and has recognised: interest in suspense is not an asset, so it is not provisioned. */
+/**
+ * What the lender is exposed to. `suspended*` is what is taken out of it: on the full-suspension basis interest in
+ * suspense is not a recognised asset, so it is not provisioned. (The net basis keeps exposure gross and passes 0.)
+ */
 export function exposureAtDefault(x: ExposureInputs): number {
   const gross = x.outstandingPrincipalCents + x.unpaidInterestCents + x.unpaidFeesCents + x.chargesOutstandingCents + x.accruedInterestCents
   return Math.max(gross - x.suspendedInterestCents - x.suspendedDefaultInterestCents, 0)

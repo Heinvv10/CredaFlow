@@ -83,7 +83,12 @@ export const RECEIVABLE_ROLES: readonly AccountRole[] = ["LOAN_BOOK", "AF_INSTAL
  * has not confirmed these (AccountingSettings.mappingConfirmedRoles), so a month
  * that posts one is refused until the mapping is confirmed again.
  */
-export const ASSET_FINANCE_ROLES: readonly AccountRole[] = ACCOUNT_ROLES.slice(ACCOUNT_ROLES.indexOf("AF_INSTALMENT_DEBTORS"), ACCOUNT_ROLES.indexOf("DEALER_COMMISSION_PAYABLE") + 1)
+export const ASSET_FINANCE_ROLES: readonly AccountRole[] = [
+  "AF_INSTALMENT_DEBTORS", "LEASE_DEBTORS", "INPUT_VAT", "LEASED_ASSETS", "ASSET_DISPOSAL_PROCEEDS", "RENTAL_INCOME",
+  "MAINTENANCE_INCOME", "MAINTENANCE_FUND_LIABILITY", "MAINTENANCE_EXPENSE", "RECOVERY_CLEARING", "RECOVERY_COSTS_PAYABLE",
+  "RECOVERY_COST_EXPENSE", "RECOVERY_COSTS_RECHARGED", "RECOVERY_REFUND_PAYABLE", "RECOVERY_RESULT", "AF_PRICE_CREDITS",
+  "DEALER_COMMISSION_EXPENSE", "DEALER_COMMISSION_PAYABLE",
+]
 
 /**
  * Asset-finance amounts are gross or net of VAT as the source posts them, with

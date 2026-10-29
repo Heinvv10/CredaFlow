@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { accruedInterestCents, eclCents, exposureAtDefault, unpaidScheduleAmounts, type ScheduleRow } from "./ecl"
+import { accruedInterestCents, eclCents, exposureAtDefault, proportionCents, unpaidScheduleAmounts, type ScheduleRow } from "./ecl"
 
 describe("eclCents", () => {
   it("is EAD x PD x LGD: R10 000 at 5% PD and 45% LGD is R225.00", () => {
@@ -95,5 +95,34 @@ describe("exposureAtDefault", () => {
     // suspended: all raised unpaid interest (30 000) and 4 000 of the 12 000 charges are default interest
     const e = exposureAtDefault({ ...base, suspendedInterestCents: 30_000, suspendedDefaultInterestCents: 4_000, accruedInterestCents: 0 })
     expect(e).toBe(800_000 + 5_000 + 8_000)
+  })
+})
+
+describe("proportionCents", () => {
+  it("is amount x numerator / denominator to the nearest cent, half up", () => {
+    // 40 000 x 316 800 / 528 000 = 24 000
+    expect(proportionCents(40_000, 316_800, 528_000)).toBe(24_000)
+    // 1 x 1 / 2 = 0.5 -> 1 ; 3 x 1 / 2 = 1.5 -> 2 ; 1 x 1 / 3 = 0.33 -> 0
+    expect(proportionCents(1, 1, 2)).toBe(1)
+    expect(proportionCents(3, 1, 2)).toBe(2)
+    expect(proportionCents(1, 1, 3)).toBe(0)
+  })
+
+  it("is zero over a zero denominator and exact beyond 2^53 in the product", () => {
+    expect(proportionCents(500, 0, 0)).toBe(0)
+    expect(proportionCents(9_007_199_254_740_991, 9_007_199_254_740_991, 9_007_199_254_740_991)).toBe(9_007_199_254_740_991)
+  })
+
+  it("refuses a negative", () => {
+    expect(() => proportionCents(-1, 1, 1)).toThrow()
+  })
+})
+
+describe("exposureAtDefault clamp", () => {
+  it("never goes below zero if more is suspended than was exposed", () => {
+    expect(exposureAtDefault({
+      outstandingPrincipalCents: 0, unpaidInterestCents: 1_000, unpaidFeesCents: 0, chargesOutstandingCents: 0, accruedInterestCents: 0,
+      suspendedInterestCents: 1_000, suspendedDefaultInterestCents: 500,
+    })).toBe(0)
   })
 })

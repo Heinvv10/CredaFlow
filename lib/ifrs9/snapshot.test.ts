@@ -49,7 +49,7 @@ describe("a loan 46 days past due (Stage 2)", () => {
 
   it("moves to Stage 2 and provisions lifetime ECL on principal, unpaid instalments and accrued interest", () => {
     const ctx = at("2026-09-15")
-    const a = assessLoan(loan, ctx, { stage: 1, stageSince: "2026-05-31", cureStartedOn: null })
+    const a = assessLoan(loan, ctx, { stage: 1, stageSince: "2026-05-31", cureStartedOn: null, restructured: false })
     expect(a).toMatchObject({ dpd: 46, suspended: false, staging: { stage: 2, reasons: ["DPD_OVER_SICR_THRESHOLD"], stageSince: "2026-09-15" } })
     const s = buildSnapshot(loan, ctx, a, 0)
     // unpaid raised: Jul+Aug interest 20 000, fees 10 000; accrued R100 x 15/30 = 5 000
@@ -65,13 +65,13 @@ describe("a loan 92 days past due (Stage 3, interest suspended)", () => {
 
   it("holds raised interest and default interest in suspense, leaves them out of EAD and provisions at 100% PD", () => {
     const ctx = at("2026-10-31")
-    const a = assessLoan(loan, ctx, { stage: 2, stageSince: "2026-09-15", cureStartedOn: null })
+    const a = assessLoan(loan, ctx, { stage: 2, stageSince: "2026-09-15", cureStartedOn: null, restructured: false })
     expect(a).toMatchObject({ dpd: 92, suspended: true, staging: { stage: 3, reasons: ["DPD_AT_DEFAULT_THRESHOLD"] } })
     const s = buildSnapshot(loan, ctx, a, 4_000)
     // unpaid raised Jul-Oct: interest 40 000, fees 20 000; no further accrual while suspended
     expect(s).toMatchObject({
       unpaidInterestCents: 40_000, unpaidFeesCents: 20_000, chargesOutstandingCents: 12_000, accruedInterestCents: 0,
-      interestSuspended: true, suspendedInterestCents: 40_000, suspendedDefaultInterestCents: 4_000,
+      interestSuspended: true, suspensionBasis: "FULL_SUSPENSION", suspendedInterestCents: 40_000, suspendedDefaultInterestCents: 4_000,
       // 500 000 + 40 000 + 20 000 + 12 000 - 40 000 - 4 000
       eadCents: 528_000, pdBps: 10_000, lgdBps: 6000,
     })
@@ -105,5 +105,64 @@ describe("parameters", () => {
     const ctx = { ...at("2026-10-10"), parameters: parameters.slice(1) }
     const loan = baseLoan({ outstandingPrincipal: 200_000, schedule: schedule([115_000, 115_000, 115_000, 115_000]) })
     expect(() => buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 0)).toThrow(/stage 1/)
+  })
+})
+
+describe("a Stage 3 loan with interest still to accrue", () => {
+  // 5 Nov 2026: Jul-Oct unpaid (97 days past due), Nov instalment (due 30 Nov) has accrued 5 of 30 days: R100 x 5/30 = 1 666.7 -> 1 667.
+  const loan = baseLoan({ outstandingPrincipal: 500_000, chargesOutstanding: 12_000, schedule: schedule([115_000]) })
+
+  it("full suspension: nothing further accrues into exposure, however much has accrued", () => {
+    const ctx = at("2026-11-05")
+    const s = buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 4_000)
+    expect(s).toMatchObject({ daysPastDue: 97, stage: 3, interestSuspended: true, accruedInterestCents: 0, eadCents: 528_000, eclCents: 316_800 })
+  })
+
+  it("net basis (IFRS 9 5.4.1(b)): exposure stays gross and the allowance's share of the raised interest is suspended", () => {
+    const ctx = { ...at("2026-11-05"), settings: { ...at("2026-11-05").settings, stage3InterestBasis: "NET_BASIS" as const } }
+    const s = buildSnapshot(loan, ctx, assessLoan(loan, ctx, null), 4_000)
+    // gross EAD = 500 000 + 40 000 + 20 000 + 12 000 + 1 667 = 573 667 ; ECL = 573 667 x 100% x 60% = 344 200.2 -> 344 200
+    expect(s).toMatchObject({ interestSuspended: true, suspensionBasis: "NET_BASIS", accruedInterestCents: 1_667, eadCents: 573_667, eclCents: 344_200 })
+    // coverage 344 200 / 573 667: interest 40 000 x that = 24 000.1 -> 24 000 ; default interest 4 000 x that = 2 400.0 -> 2 400
+    expect(s.suspendedInterestCents).toBe(24_000)
+    expect(s.suspendedDefaultInterestCents).toBe(2_400)
+  })
+
+  it("net basis never suspends a Stage 2 loan", () => {
+    const ctx = { ...at("2026-09-15"), settings: { ...at("2026-09-15").settings, stage3InterestBasis: "NET_BASIS" as const } }
+    const stage2 = baseLoan({ outstandingPrincipal: 500_000, schedule: schedule([115_000]) })
+    const s = buildSnapshot(stage2, ctx, assessLoan(stage2, ctx, null), 0)
+    expect(s).toMatchObject({ stage: 2, interestSuspended: false, suspendedInterestCents: 0, suspendedDefaultInterestCents: 0 })
+  })
+})
+
+describe("a cured Stage 3 loan still in probation (stage differs from the trigger stage)", () => {
+  // Everything due is paid by 20 Nov 2026; Stage 3 since 5 Nov, cure started 10 Nov: held in Stage 3 for six months.
+  const paid = baseLoan({ outstandingPrincipal: 100_000, schedule: schedule([115_000, 115_000, 115_000, 115_000, 115_000]) })
+
+  it("is provisioned and suspended as Stage 3 although its triggers say Stage 1", () => {
+    const ctx = at("2026-11-20")
+    const a = assessLoan(paid, ctx, { stage: 3, stageSince: "2026-11-05", cureStartedOn: "2026-11-10", restructured: false })
+    expect(a.staging).toMatchObject({ stage: 3, triggerStage: 1, inProbation: true })
+    const s = buildSnapshot(paid, ctx, a, 0)
+    expect(s).toMatchObject({ stage: 3, triggerStage: 1, previousStage: 3, interestSuspended: true, suspendedInterestCents: 0, pdBps: 10_000, lgdBps: 6000 })
+    // nothing raised and unpaid, none accruing while suspended: EAD = principal 100 000 ; ECL = 100 000 x 100% x 60%
+    expect(s).toMatchObject({ accruedInterestCents: 0, eadCents: 100_000, eclCents: 60_000 })
+  })
+})
+
+describe("an asset-finance contract (suspense not journalled)", () => {
+  const loan = baseLoan({
+    contractType: "INSTALMENT_SALE", status: "DEFAULTED", principal: 1_000_000, outstandingPrincipal: 1_000_000, startDate: new Date("2026-05-01T00:00:00Z"),
+    schedule: [{ dueDate: new Date("2026-06-01T00:00:00Z"), principalDue: 0, interestDue: 80_000, feesDue: 0, totalDue: 80_000, totalPaid: 0 }],
+  })
+
+  it("is Stage 3 but keeps its interest in the exposure, as the ledger keeps it in income", () => {
+    const ctx = at("2026-10-31")
+    const a = assessLoan(loan, ctx, null)
+    expect(a).toMatchObject({ suspended: false, staging: { stage: 3 } })
+    const s = buildSnapshot(loan, ctx, a, 0)
+    // 1 000 000 principal + 80 000 raised, unpaid interest ; ECL = 1 080 000 x 100% x 60%
+    expect(s).toMatchObject({ interestSuspended: false, suspendedInterestCents: 0, eadCents: 1_080_000, eclCents: 648_000 })
   })
 })

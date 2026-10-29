@@ -15,6 +15,12 @@ export interface RunHead {
   totalEadCents: number
   totalEclCents: number
   createdAt: string
+  /** Made after its month ended. */
+  late: boolean
+  /** A newer run replaces this one (it is kept on record, and no report defaults to it). */
+  superseded: boolean
+  supersedesRunId: string | null
+  reason: string | null
 }
 
 export interface RunReport {
@@ -25,13 +31,19 @@ export interface RunReport {
   transitions: TransitionMatrix | null
 }
 
-const head = (r: { id: string; kind: "MONTHLY" | "ON_DEMAND"; runDate: Date; periodKey: string | null; loanCount: number; totalEadCents: bigint; totalEclCents: bigint; createdAt: Date }): RunHead => ({
+const head = (r: {
+  id: string; kind: "MONTHLY" | "ON_DEMAND"; runDate: Date; periodKey: string | null; loanCount: number; totalEadCents: bigint; totalEclCents: bigint
+  createdAt: Date; late: boolean; supersedesRunId: string | null; reason: string | null; supersededBy: { id: string } | null
+}): RunHead => ({
   id: r.id, kind: r.kind, runDate: sastCalendarDate(r.runDate), periodKey: r.periodKey, loanCount: r.loanCount,
   totalEadCents: Number(r.totalEadCents), totalEclCents: Number(r.totalEclCents), createdAt: r.createdAt.toISOString(),
+  late: r.late, superseded: r.supersededBy !== null, supersedesRunId: r.supersedesRunId, reason: r.reason,
 })
 
 export async function listRuns(db: Pick<Db, "ifrs9Run">, tenantId: string, limit = 24): Promise<RunHead[]> {
-  const runs = await db.ifrs9Run.findMany({ where: { tenantId }, orderBy: [{ runDate: "desc" }, { createdAt: "desc" }], take: limit })
+  const runs = await db.ifrs9Run.findMany({
+    where: { tenantId }, orderBy: [{ runDate: "desc" }, { createdAt: "desc" }], take: limit, include: { supersededBy: { select: { id: true } } },
+  })
   return runs.map(head)
 }
 
@@ -46,14 +58,15 @@ async function rowsOf(db: Pick<Db, "ifrs9LoanSnapshot">, tenantId: string, runId
   }))
 }
 
-/** `runId` defaults to the latest run, `compareToRunId` to the run before it. Null when there is no such run. */
+/** `runId` defaults to the latest run nothing supersedes, `compareToRunId` to the one before it. Null when there is no such run. */
 export async function loadRunReport(db: Db, tenantId: string, runId?: string, compareToRunId?: string): Promise<RunReport | null> {
   const runs = await listRuns(db, tenantId, 200)
-  const current = runId ? runs.find((r) => r.id === runId) : runs[0]
+  const live = runs.filter((r) => !r.superseded)
+  const current = runId ? runs.find((r) => r.id === runId) : live[0]
   if (!current) return null
   const previous = compareToRunId
     ? runs.find((r) => r.id === compareToRunId) ?? null
-    : runs[runs.findIndex((r) => r.id === current.id) + 1] ?? null
+    : runs.slice(runs.findIndex((r) => r.id === current.id) + 1).find((r) => !r.superseded) ?? null
   const rows = await rowsOf(db, tenantId, current.id)
   return {
     run: current, previousRun: previous, summary: summariseStages(rows),
