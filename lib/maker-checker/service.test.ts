@@ -113,13 +113,29 @@ describe("maker-checker service (state, permission, staleness; the database rule
         expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
       })
 
-      it("a user's FIRST TOTP enrolment (none on record before it) is not a takeover: a new admin enrols at first login", async () => {
+      it("a user's FIRST TOTP enrolment (none on record before it), within 7 days of the account's creation, is not a takeover: a new admin enrols at first login", async () => {
+        h.makerCreatedAt = new Date(Date.now() - 6 * 86_400_000)
         h.recent = [{ action: "TOTP_ENROLLED", createdAt: new Date(Date.now() - 5 * 86_400_000), oldValue: null, newValue: null }]
         h.earlierTotp = null
         const { db, tx } = fakeDb(row())
         expect((await approve({ ...scope, actor: checker }, db)).id).toBe("cr1")
         const earlier = (tx.auditLog.findFirst.mock.calls.find((c) => (c[0] as { where: { action: { in: string[] } } }).where.action.in.includes("TOTP_ENROLLED")) as unknown as [{ where: Record<string, unknown> }])[0].where
         expect(earlier).toMatchObject({ tenantId: "t", entity: "User", entityId: "u-maker", createdAt: { lt: expect.any(Date) }, action: { in: expect.arrayContaining(["TOTP_ENROLLED", "TOTP_REPLACED", "TOTP_DISABLED", "TOTP_RESET_BY_ADMIN"]) } })
+      })
+
+      it("a first enrolment on an OLD account that never had a second factor is a takeover signal (400-day-old account, enrolled 5 days ago)", async () => {
+        h.makerCreatedAt = new Date(Date.now() - 400 * 86_400_000)
+        h.recent = [{ action: "TOTP_ENROLLED", createdAt: new Date(Date.now() - 5 * 86_400_000), oldValue: null, newValue: null }]
+        h.earlierTotp = null
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+      })
+
+      it("the setup window is 7 days: enrolling on day 7 is setup, on day 8 is not", async () => {
+        h.makerCreatedAt = new Date(Date.now() - 20 * 86_400_000)
+        h.recent = [{ action: "TOTP_ENROLLED", createdAt: new Date(h.makerCreatedAt.getTime() + 7 * 86_400_000), oldValue: null, newValue: null }]
+        expect((await approve({ ...scope, actor: checker }, fakeDb(row()).db)).id).toBe("cr1")
+        h.recent = [{ action: "TOTP_ENROLLED", createdAt: new Date(h.makerCreatedAt.getTime() + 8 * 86_400_000), oldValue: null, newValue: null }]
+        await expect(approve({ ...scope, actor: checker }, fakeDb(row()).db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
       })
 
       it("a TOTP enrolment after an earlier enrolment, replacement, disable or reset is a takeover (reset, then re-enrol)", async () => {

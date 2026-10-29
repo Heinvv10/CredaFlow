@@ -405,8 +405,8 @@ suite("maker-checker (real Postgres)", () => {
   })
 
   it("an account whose sign-in, second factor, role, email or password changed in the last 30 days cannot have its changes approved, whoever wrote the row", async () => {
-    const taken = async (label: string, trail: { action: string; oldValue?: object; newValue?: object; ageDays: number } | null) => {
-      const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 90 * 86_400_000) } })
+    const taken = async (label: string, trail: { action: string; oldValue?: object; newValue?: object; ageDays: number } | null, accountAgeDays = 90) => {
+      const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - accountAgeDays * 86_400_000) } })
       if (trail) await db.auditLog.create({ data: { tenantId: lender.tenantId, action: trail.action, entity: "User", entityId: u.id, userId: u.id, oldValue: trail.oldValue ?? {}, newValue: trail.newValue ?? {}, createdAt: new Date(Date.now() - trail.ageDays * 86_400_000) } })
       const actor = { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
       const d = await createDraft({ tenantId: lender.tenantId, actor, kind: RULE_SET_KIND, title: label, payload: payload({ name: `${label} rules` }) })
@@ -425,8 +425,13 @@ suite("maker-checker (real Postgres)", () => {
     await refused("pw", { action: "USER_UPDATED", newValue: { passwordChanged: true }, ageDays: 5 })
     // A new admin enrolling TOTP at first login is not a takeover (the age rule still applies to a young account); an enrolment after a
     // reset is, even when the reset itself is more than 30 days old.
-    const first = await taken("firstenrol", { action: "TOTP_ENROLLED", ageDays: 5 })
+    // New admin, enrolled on day 1 of an account made 6 days ago: setup, allowed. The same first enrolment on a 400-day-old account that never
+    // had a second factor: refused.
+    const first = await taken("firstenrol", { action: "TOTP_ENROLLED", ageDays: 5 }, 6)
     expect((await approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: first })).status).toBe("APPROVED")
+    await refused("oldfirst", { action: "TOTP_ENROLLED", ageDays: 5 })
+    const ancient = await taken("ancient", { action: "TOTP_ENROLLED", ageDays: 5 }, 400)
+    await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: ancient })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
     const reenrolled = await taken("reenrol", { action: "TOTP_ENROLLED", ageDays: 10 })
     await db.auditLog.create({ data: { tenantId: lender.tenantId, action: "TOTP_RESET_BY_ADMIN", entity: "User", entityId: `u_reenrol_${lender.tenantId}`, userId: lender.checker2Id, newValue: {}, createdAt: new Date(Date.now() - 40 * 86_400_000) } })
     await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: reenrolled })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })

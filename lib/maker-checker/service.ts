@@ -53,6 +53,8 @@ async function requireStepUp(tenantId: string, actor: Actor): Promise<void> {
 export const MAKER_ACCOUNT_CONTROL_DAYS = 30
 const TRAIL_PAGE_SIZE = 200
 const MAX_TRAIL_ROWS = 5000
+/** A first TOTP enrolment this soon after the account was created is its setup, not a takeover. */
+const FIRST_ENROLMENT_SETUP_DAYS = 7
 
 /** What on a USER_UPDATED row is a change of how someone signs in or what they may do: role, email, password. */
 function changesAccessOnUpdate(row: { oldValue: unknown; newValue: unknown }): boolean {
@@ -100,7 +102,10 @@ async function refuseControlledMaker(
       },
       select: { id: true },
     })
-    return earlier !== null
+    if (earlier !== null) return true
+    // ...and only when it happened while the account was being set up. A first enrolment on an old account that never had one (a
+    // lender with staff TOTP off) is how an attacker with the password adds a second factor of their own.
+    return row.createdAt.getTime() - maker.createdAt.getTime() > FIRST_ENROLMENT_SETUP_DAYS * 24 * 60 * 60 * 1000
   }
   // Every row of the window is read, newest first, a page at a time: a long run of harmless edits (names, phones) cannot hide a takeover
   // behind a cap. A trail longer than MAX_TRAIL_ROWS is not read to the end, so it is refused rather than approved unseen.
