@@ -24,6 +24,7 @@ interface AuditTx {
     findMany(args: { where?: Prisma.AuditLogWhereInput; select: { id: true; tenantId: true } }): Promise<Array<{ id: string; tenantId: string | null }>>
     deleteMany(args: { where?: Prisma.AuditLogWhereInput }): Promise<{ count: number }>
     updateMany(args: { where?: Prisma.AuditLogWhereInput; data: Prisma.AuditLogUncheckedUpdateManyInput }): Promise<{ count: number }>
+    createMany(args: { data: Prisma.AuditLogCreateManyInput[] }): Promise<{ count: number }>
   }
 }
 
@@ -87,5 +88,18 @@ export function purgeAuditPolicyForTest(db: AuditTestDb, tenantIds: readonly str
     if (list === "") return
     await tx.$executeRawUnsafe(`DELETE FROM "AuditSiemLease" WHERE "tenantId" IN (${list})`)
     await tx.$executeRawUnsafe(`DELETE FROM "AuditPolicy" WHERE "tenantId" IN (${list})`)
+  })
+}
+
+/**
+ * Inserts audit rows with the createdAt a test chooses. An insert normally stamps the database
+ * clock (trigger AuditLog_created_at), whatever the caller sent; a test that needs a row "from last
+ * year", or one in the same millisecond as another, plants it behind the triggers, as only a
+ * superuser can.
+ */
+export function plantAuditRowsForTest(db: AuditTestDb, data: Prisma.AuditLogCreateManyInput[]): Promise<{ count: number }> {
+  return db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(REPLICA)
+    return tx.auditLog.createMany({ data })
   })
 }

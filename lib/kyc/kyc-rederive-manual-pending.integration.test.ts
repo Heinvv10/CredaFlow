@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { PrismaClient } from "@prisma/client"
+import { plantAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const ctx = vi.hoisted(() => ({ userId: "", tenantId: "", session: null as null | { user: Record<string, unknown> } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ctx.session) }))
@@ -223,10 +224,10 @@ suite("KYC re-derive after a manual PENDING", () => {
       where: { tenantId, entity: "Client", entityId: clientId, action: "KYC_STATUS_CHANGED" }, orderBy: { createdAt: "desc" },
     })
     // Same millisecond, an id that sorts after the manual row's.
-    await db.auditLog.create({ data: {
+    await plantAuditRowsForTest(db, [{
       id: `zzzz_${token}`, tenantId, userId: officer, action: "KYC_APPROVED", entity: "Client", entityId: clientId,
       createdAt: manual.createdAt, newValue: { kycStatus: "VERIFIED", manualOverride: true },
-    } })
+    }])
     expect(await manualPendingStands(db, { tenantId, clientId })).toBe(true)
   })
 
@@ -237,15 +238,15 @@ suite("KYC re-derive after a manual PENDING", () => {
     const otherTenantId = `t_manualpend_other_${token}`
     await db.tenant.create({ data: { id: otherTenantId, slug: `manualpend-other-${token}`, name: "Other lender" } })
     const later = new Date(Date.now() + 60_000)
-    await db.auditLog.createMany({ data: [
+    await plantAuditRowsForTest(db, [
       { tenantId: otherTenantId, action: "KYC_APPROVED", entity: "Client", entityId: clientId, createdAt: later, newValue: { kycStatus: "VERIFIED" } },
       { tenantId: null, action: "KYC_APPROVED", entity: "Client", entityId: clientId, createdAt: later, newValue: { kycStatus: "VERIFIED" } },
       { tenantId, action: "DOCUMENT_VERIFIED", entity: "ClientDocument", entityId: `PAYSLIP_${otherClientId}`, createdAt: later, newValue: { clientKyc: { kycStatus: "VERIFIED" } } },
-    ] })
+    ])
     expect(await manualPendingStands(db, { tenantId, clientId })).toBe(true)
 
     // The same row in this tenant does end it.
-    await db.auditLog.create({ data: { tenantId, action: "KYC_APPROVED", entity: "Client", entityId: clientId, createdAt: later, newValue: { kycStatus: "VERIFIED" } } })
+    await plantAuditRowsForTest(db, [{ tenantId, action: "KYC_APPROVED", entity: "Client", entityId: clientId, createdAt: later, newValue: { kycStatus: "VERIFIED" } }])
     expect(await manualPendingStands(db, { tenantId, clientId })).toBe(false)
   })
 })
