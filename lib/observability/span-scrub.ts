@@ -3,6 +3,8 @@ import { createRouteLabeler, loadRoutesManifest } from "./route-label"
 
 type Labeler = (pathname: string) => string
 
+// SpanKind.CLIENT; the enum is not imported so the SDK stays unloaded while tracing is off.
+const CLIENT_KIND = 2
 const ROUTE_KEY = "next.route"
 const PATH_KEYS = ["http.target", "url.path"]
 const FULL_URL_KEYS = ["http.url", "url.full"]
@@ -89,6 +91,10 @@ let defaultLabeler: Labeler | undefined
  * any value then becomes the template, before the generic scrub.
  */
 function scrubberFor(span: ReadableSpan, labeler: Labeler): Scrubber {
+  // An outbound call (a fetch to a provider, SpanKind.CLIENT) names a path on someone
+  // else's host: the app's route table says nothing about it. Only the fail-closed
+  // rules apply, so its host and path stay readable and its token goes.
+  if (span.kind === CLIENT_KIND) return { value: scrubValue, route: null }
   const paths = concretePaths(span.attributes)
   const named = span.attributes[ROUTE_KEY]
   const route = typeof named === "string" && named.startsWith("/") ? named : paths[0] ? labeler(paths[0]) : null
@@ -110,7 +116,7 @@ function scrubAttributes(source: Record<string, unknown> | undefined, scrub: Scr
       attributes[key] = scrub.route
     } else if (scrub.route && FULL_URL_KEYS.includes(key)) {
       const origin = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*/i.exec(stripUserinfo(raw))?.[0]
-      attributes[key] = `${origin ?? ""}${scrub.route}`
+      attributes[key] = `${origin ?? ""}${scrub.route.startsWith("/") ? "" : "/"}${scrub.route}`
     } else {
       attributes[key] = scrub.value(raw)
     }

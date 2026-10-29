@@ -3,8 +3,11 @@ import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-node"
 import { createRouteLabeler } from "./route-label"
 import { scrubSpan, scrubbingExporter } from "./span-scrub"
 
-function span(name: string, attributes: Record<string, string | number>): ReadableSpan {
-  return { name, attributes, spanContext: () => ({ traceId: "t", spanId: "s", traceFlags: 1 }) } as unknown as ReadableSpan
+const SERVER = 1
+const CLIENT = 2
+
+function span(name: string, attributes: Record<string, string | number>, kind?: number): ReadableSpan {
+  return { name, attributes, kind, spanContext: () => ({ traceId: "t", spanId: "s", traceFlags: 1 }) } as unknown as ReadableSpan
 }
 
 describe("scrubSpan", () => {
@@ -236,6 +239,45 @@ describe("scrubSpan", () => {
     it("without a manifest falls back to the path-shape allowlist", () => {
       const scrubbed = scrubSpan(middleware("/pasq/4f3a9c1d5e7b2a60f8d4c3b2a1e0f9d8"), createRouteLabeler(null))
       expect(scrubbed.attributes["http.target"]).toBe("/pasq/:id")
+    })
+  })
+
+  describe("outbound client spans (fetch to a provider)", () => {
+    const manifest = {
+      staticRoutes: [{ page: "/api/health", regex: "^/api/health(?:/)?$" }],
+      dynamicRoutes: [{ page: "/api/loans/[id]", regex: "^/api/loans/([^/]+?)(?:/)?$" }],
+    }
+    const labeler = createRouteLabeler(manifest)
+    const fetchSpan = (url: string, extra: Record<string, string | number> = {}) =>
+      span("fetch GET " + url, { "http.url": url, "http.method": "GET", "next.span_type": "AppRender.fetch", ...extra }, CLIENT)
+
+    it("keeps the provider's host and path and drops only the token", () => {
+      const scrubbed = scrubSpan(fetchSpan("https://api.provider.example/v1/score/abc?access_token=SECRET#x"), labeler)
+      expect(scrubbed.attributes["http.url"]).toBe("https://api.provider.example/v1/score/abc")
+      expect(scrubbed.name).toBe("fetch GET https://api.provider.example/v1/score/abc")
+      expect(JSON.stringify(scrubbed)).not.toContain("SECRET")
+    })
+
+    it("does not give the provider's path an app route template, even when one would match", () => {
+      const scrubbed = scrubSpan(fetchSpan("https://api.provider.example/api/loans/42?k=SECRET", { "url.full": "https://api.provider.example/api/loans/42?k=SECRET" }), labeler)
+      expect(scrubbed.attributes["http.url"]).toBe("https://api.provider.example/api/loans/42")
+      expect(scrubbed.attributes["url.full"]).toBe("https://api.provider.example/api/loans/42")
+    })
+
+    it("still removes userinfo and a header attribute", () => {
+      const scrubbed = scrubSpan(fetchSpan("https://u:p@api.provider.example/v1?k=SECRET", { "http.request.header.authorization": "Bearer SECRET" }), labeler)
+      expect(scrubbed.attributes["http.url"]).toBe("https://api.provider.example/v1")
+      expect(JSON.stringify(scrubbed)).not.toMatch(/SECRET|u:p@/)
+    })
+  })
+
+  describe("the app's own request spans (SERVER)", () => {
+    const labeler = createRouteLabeler({ staticRoutes: [], dynamicRoutes: [] })
+
+    it("joins the origin and an unmatched label with a slash", () => {
+      const scrubbed = scrubSpan(span("GET /wp-admin/x", { "http.target": "/wp-admin/x", "http.url": "https://staff.lender.example/wp-admin/x?a=1" }, SERVER), labeler)
+      expect(scrubbed.attributes["http.url"]).toBe("https://staff.lender.example/unmatched")
+      expect(scrubbed.attributes["http.target"]).toBe("unmatched")
     })
   })
 
