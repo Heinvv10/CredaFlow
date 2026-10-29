@@ -27,6 +27,10 @@ restrictions — SAST working hours and a CIDR IP allowlist
   the policy rides on `revalidatePrincipal`'s query, so it costs no round trip.
 - **Fail closed** on a stored policy that does not parse (`policy_invalid`).
 
+## Single sign-on
+`lib/sso/` adds a sign-in path but no way around these rules: a provider session
+is subject to the same hours / IP checks and the TOTP rules (`lib/sso/AGENTS.md`).
+
 ## Key Files
 | File | Purpose |
 |------|---------|

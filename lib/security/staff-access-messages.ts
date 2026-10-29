@@ -13,6 +13,8 @@ const MESSAGES: Record<string, string> = {
   access_ip_not_allowed: "Sign-in is not allowed from this network.",
   access_policy_invalid:
     "Sign-in is blocked by your lender's access policy. Ask a Super Admin to check Settings → Security & KYC policy.",
+  password_login_disabled: "Password sign-in is turned off for your lender. Use single sign-on.",
+  sso_refused: "Single sign-on could not sign you in. Start again, or ask your lender's admin.",
   portal_disabled: "The client portal is not available. Please contact your lender.",
 }
 

@@ -4,6 +4,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 import bcrypt from "bcryptjs"
 import { passwordPolicyError } from "@/lib/security/password-policy"
+import { SSO_BOUND_SELECT, passwordBlockedBySso } from "@/lib/sso/password-policy"
 
 export async function POST(req: NextRequest) {
   const { token, password } = await req.json() as { token: string; password: string }
@@ -18,10 +19,11 @@ export async function POST(req: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { resetToken: token },
-    select: { id: true, tenantId: true, email: true, resetTokenExp: true, active: true },
+    select: { id: true, tenantId: true, email: true, resetTokenExp: true, active: true, ...SSO_BOUND_SELECT },
   })
 
-  if (!user || !user.active) {
+  // A link issued before the user was bound to the provider is dead once SSO is on.
+  if (!user || !user.active || passwordBlockedBySso(user)) {
     return NextResponse.json({ error: "Invalid or expired reset link" }, { status: 400 })
   }
   if (!user.resetTokenExp || user.resetTokenExp < new Date()) {
@@ -71,10 +73,10 @@ export async function GET(req: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { resetToken: token },
-    select: { id: true, name: true, resetTokenExp: true, active: true },
+    select: { id: true, name: true, resetTokenExp: true, active: true, ...SSO_BOUND_SELECT },
   })
 
-  if (!user || !user.active || !user.resetTokenExp || user.resetTokenExp < new Date()) {
+  if (!user || !user.active || passwordBlockedBySso(user) || !user.resetTokenExp || user.resetTokenExp < new Date()) {
     return NextResponse.json({ valid: false })
   }
 
