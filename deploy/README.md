@@ -86,7 +86,8 @@ so the image is per lender. Everything else is runtime configuration.
 ```bash
 kubectl create namespace credaflow
 # Variables are documented in docs/DEPLOY-ENV.md. Minimum: DATABASE_URL, AUTH_SECRET, NEXTAUTH_SECRET,
-# CRON_SECRET; add METRICS_TOKEN to enable /api/metrics, UPLOADS_ENC_KEY for encryption at rest, provider keys.
+# CRON_SECRET; add METRICS_TOKEN to enable /api/metrics, UPLOADS_ENC_KEY for encryption at rest, SSO_SECRET_KEY
+# (encrypts the SSO client secret; required before SSO is configured, docs/SSO-AND-OAUTH.md), provider keys.
 # Also set in values (not secrets): config.NEXTAUTH_URL / AUTH_URL and config.TRUSTED_PROXY, see "Client IP".
 kubectl -n credaflow create secret generic credaflow-app --from-env-file=lender.secrets.env
 

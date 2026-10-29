@@ -137,6 +137,7 @@ add UPLOADS_ENC_KEY "$(openssl rand -base64 32)"
 # existing one turns this on itself, after encrypt-uploads.sh (docs/DEPLOY.md).
 ! $new_env || add UPLOADS_ENC_REQUIRED true
 add WEBHOOK_SECRET_KEY "$(openssl rand -base64 32)"   # seals webhook signing secrets (lib/lender-api/webhooks)
+add SSO_SECRET_KEY "$(openssl rand -base64 32)"   # seals the OIDC client secret of staff single sign-on (lib/sso)
 add BACKUP_KEEP 14
 if ! grep -q '^# --- Provider credentials' "$env"; then
   cat >> "$env" <<'ENVTODO'

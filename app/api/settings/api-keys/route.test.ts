@@ -62,6 +62,22 @@ describe("POST /api/settings/api-keys", () => {
     expect(JSON.stringify(audit)).not.toContain(body.key)
   })
 
+  it("stores and audits an optional source-address allowlist, and refuses a malformed one", async () => {
+    expect((await post({ ...valid, ipAllowlist: ["198.51.100.0/24", "2001:db8::/32"] })).status).toBe(201)
+    expect(h.create.mock.calls[0][0].data.ipAllowlist).toEqual(["198.51.100.0/24", "2001:db8::/32"])
+    expect(h.audit.mock.calls[0][0].data.newValue.ipAllowlist).toEqual(["198.51.100.0/24", "2001:db8::/32"])
+    h.create.mockClear()
+    for (const bad of [["not an ip"], ["10.0.0.0/33"], "300.1.1.1"]) {
+      expect((await post({ ...valid, ipAllowlist: bad })).status).toBe(400)
+    }
+    expect(h.create).not.toHaveBeenCalled()
+  })
+
+  it("defaults to no restriction", async () => {
+    await post(valid)
+    expect(h.create.mock.calls[0][0].data.ipAllowlist).toEqual([])
+  })
+
   it("is for ADMIN and above only", async () => {
     for (const role of ["READONLY", "CREDIT_OFFICER", "LOAN_ADMIN", "BRANCH_MANAGER"]) {
       h.session = caller(role)
