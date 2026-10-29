@@ -89,22 +89,56 @@ function withTimeout<T>(work: Promise<T>): Promise<T> {
 
 const refusedWhileDown = (): RateLimitResult => ({ allowed: false, remaining: 0, retryAfterSeconds: FAIL_CLOSED_RETRY_SECONDS })
 
+/**
+ * Per key, per process: at most one store call in flight; the next caller for the same key runs when the one ahead
+ * has finished. A hot or stalled key can therefore hold one connection of the pool per pod, never the whole pool,
+ * so contention on one key cannot saturate the pool that authentication needs. Each caller still makes its own call
+ * (every hit is counted); a caller that gave up waiting (its own timeout) skips its turn instead of running late.
+ */
+const lanes = new Map<string, Promise<unknown>>()
+
+function inLane<T>(laneKey: string, run: () => Promise<T>): Promise<T> {
+  const ahead = lanes.get(laneKey) ?? Promise.resolve()
+  const mine = ahead.then(run, run)
+  const tail = mine.then(() => undefined, () => undefined)
+  lanes.set(laneKey, tail)
+  void tail.then(() => {
+    if (lanes.get(laneKey) === tail) lanes.delete(laneKey)
+  })
+  return mine
+}
+
+export interface CheckOptions {
+  /**
+   * For a key the caller chooses (an email typed into a form): the caller's address, as limiterAddress. When the key's
+   * authentication group is sealed (lib/rate-limit-cleanup.ts), a NEW key may still be created if this address has
+   * budget for it (lib/rate-limit-store.ts); without it a sealed group takes no new key.
+   */
+  newKeyAddress?: string
+}
+
 async function decide(
   namespace: string,
   key: string,
   opts: RateLimitOptions,
   memory: Map<string, Bucket>,
   maxKeys: number,
+  extra: CheckOptions = {},
 ): Promise<RateLimitResult> {
   const { group, failClosed, podLocal } = classify(namespace, key)
   if (podLocal || storeMode() === "memory") return checkIn(memory, maxKeys, key, opts)
   const state = health.get(group)
   if (state && Date.now() < state.openUntil) return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
+  let abandoned = false
   try {
-    const result = await withTimeout(checkSharedRateLimit(namespace, key, opts, group))
+    const result = await withTimeout(inLane(`${namespace}\0${key}`, async () => {
+      if (abandoned) throw new SharedStoreUnavailableError("gave up waiting for this key's turn", { kind: "timeout" })
+      return checkSharedRateLimit(namespace, key, opts, group, extra.newKeyAddress)
+    }))
     health.delete(group)
     return result
   } catch (error) {
+    abandoned = true
     // Only the store being unavailable degrades (to a refusal, or the in-memory limiter, by group). Anything else is
     // a bug (a TypeError, a bad argument) and is thrown to the caller: it must not be hidden as an outage.
     if (!(error instanceof SharedStoreUnavailableError)) throw error
@@ -151,8 +185,8 @@ export function createLocalRateLimiter(maxKeys: number): (key: string, opts: Rat
   return (key, opts) => checkIn(own, maxKeys, key, opts)
 }
 
-export function checkRateLimit(key: string, opts: RateLimitOptions): Promise<RateLimitResult> {
-  return decide("", key, opts, store, MAX_KEYS)
+export function checkRateLimit(key: string, opts: RateLimitOptions, extra?: CheckOptions): Promise<RateLimitResult> {
+  return decide("", key, opts, store, MAX_KEYS, extra)
 }
 
 function checkIn(store: Map<string, Bucket>, maxKeys: number, key: string, opts: RateLimitOptions): RateLimitResult {
@@ -196,6 +230,7 @@ function checkIn(store: Map<string, Bucket>, maxKeys: number, key: string, opts:
 export function _resetRateLimitStore(): void {
   for (const s of allStores) s.clear()
   health.clear()
+  lanes.clear()
 }
 
 /**

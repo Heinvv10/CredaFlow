@@ -102,8 +102,9 @@ export async function POST(req: NextRequest) {
   // is the invariant across a brute-force campaign, so it's the correct key. This
   // is the load-bearing bound on OTP-guessing (and OTP-email-spam) per account.
   const identityGate = await checkRateLimit(
-    `register:${normalisedEmail}`,
+    `register:identity:${normalisedEmail}`,
     REGISTER_RATE_LIMIT,
+    { newKeyAddress: limiterAddress(ip) },
   )
   if (!identityGate.allowed) {
     return NextResponse.json(

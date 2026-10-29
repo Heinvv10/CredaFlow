@@ -33,6 +33,13 @@ function failureKind(error: unknown): "timeout" | "saturated" | "error" {
 /** What a caller is told to wait when its key was refused because its group is sealed. */
 const SEALED_RETRY_SECONDS = 300
 
+/**
+ * New keys one address (a /64 or an IPv4 address) may create per window in a sealed group: 1/5 of the 30 sign-ins an
+ * address is allowed in the same window, so a flood of made-up emails from one address cannot grow the group, while a
+ * real user at that address can still start their own.
+ */
+export const NEW_KEYS_PER_ADDRESS = 6
+
 /** Server-side cap on one limiter statement; below the limiter's own SHARED_TIMEOUT_MS (lib/rate-limit.ts). */
 export const STATEMENT_TIMEOUT_MS = 1000
 /** Server-side cap on waiting for one row lock. */
@@ -58,17 +65,20 @@ async function queryStore<T>(run: () => Promise<T>): Promise<T> {
  * the database's own clock_timestamp(), so replicas with skewed clocks agree.
  */
 export function createPostgresStore(client: RawQueryClient) {
-  return async function check(namespace: string, key: string, opts: RateLimitOptions, group = namespace): Promise<RateLimitResult> {
-    if (opts.limit <= 0) return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(opts.windowMs / 1000)) }
-    const hash = keyHash(namespace, key)
+  type Attempt = { result: RateLimitResult; sealedNoRow: boolean }
+
+  /** One upsert. `sealedNoRow`: the key had no row and its group is sealed, so nothing was recorded. */
+  async function attempt(hash: string, group: string, opts: RateLimitOptions, bypassSeal: boolean): Promise<Attempt> {
     const windowSeconds = opts.windowMs / 1000
     const rows = await queryStore(() => client.$queryRaw<Row[]>`
       WITH c AS (SELECT clock_timestamp() AS t, make_interval(secs => ${windowSeconds}::double precision) AS w),
       up AS (
         INSERT INTO "RateLimitHit" ("keyHash", "ns", "maxHits", "hits", "expiresAt")
         SELECT ${hash}::text, ${group}::text, ${opts.limit}::int, ARRAY[c.t], c.t + c.w FROM c
-        -- A sealed group (past its hard row ceiling) takes no new key: an existing key still reaches the conflict below.
-        WHERE NOT EXISTS (SELECT 1 FROM "RateLimitSealedGroup" sealed WHERE sealed."ns" = ${group}::text)
+        -- A sealed group (past its hard row ceiling) takes no new key unless the caller has the budget to create one
+        -- (bypassSeal): an existing key still reaches the conflict below.
+        WHERE ${bypassSeal}::boolean
+           OR NOT EXISTS (SELECT 1 FROM "RateLimitSealedGroup" sealed WHERE sealed."ns" = ${group}::text)
            OR EXISTS (SELECT 1 FROM "RateLimitHit" present WHERE present."keyHash" = ${hash}::text)
         ON CONFLICT ("keyHash") DO UPDATE SET
           "hits" = ARRAY(SELECT x FROM unnest("RateLimitHit"."hits") x WHERE x > (SELECT t - w FROM c)) || (SELECT t FROM c),
@@ -83,10 +93,25 @@ export function createPostgresStore(client: RawQueryClient) {
            FROM "RateLimitHit" r, unnest(r."hits") x
           WHERE r."keyHash" = ${hash}::text AND x > (SELECT t - w FROM c))::float8 AS retry_ms`)
     const row = rows[0]
-    if (row?.n != null) return { allowed: true, remaining: Math.max(0, opts.limit - row.n), retryAfterSeconds: 0 }
-    // No count and no wait: the key had no row and its group is sealed, so nothing was recorded. Try again later.
-    if (row?.retry_ms == null) return { allowed: false, remaining: 0, retryAfterSeconds: SEALED_RETRY_SECONDS }
-    return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(row.retry_ms / 1000)) }
+    if (row?.n != null) return { result: { allowed: true, remaining: Math.max(0, opts.limit - row.n), retryAfterSeconds: 0 }, sealedNoRow: false }
+    // No count and no wait: the key had no row and its group is sealed.
+    if (row?.retry_ms == null) return { result: { allowed: false, remaining: 0, retryAfterSeconds: SEALED_RETRY_SECONDS }, sealedNoRow: true }
+    return { result: { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(row.retry_ms / 1000)) }, sealedNoRow: false }
+  }
+
+  /**
+   * `newKeyAddress`: for a key the caller chooses, the caller's address bucket. In a sealed group a key with no row is
+   * created only if that address still has budget for new keys (NEW_KEYS_PER_ADDRESS per window, spent on its own row
+   * in the "sealed-new:" group); otherwise it is refused. Keys that have a row are decided as ever.
+   */
+  return async function check(namespace: string, key: string, opts: RateLimitOptions, group = namespace, newKeyAddress?: string): Promise<RateLimitResult> {
+    if (opts.limit <= 0) return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(opts.windowMs / 1000)) }
+    const hash = keyHash(namespace, key)
+    const first = await attempt(hash, group, opts, false)
+    if (!first.sealedNoRow || !newKeyAddress) return first.result
+    const budget = await attempt(keyHash("", `sealed-new:${group}:${newKeyAddress}`), "sealed-new:", { limit: NEW_KEYS_PER_ADDRESS, windowMs: opts.windowMs }, false)
+    if (!budget.result.allowed) return first.result
+    return (await attempt(hash, group, opts, true)).result
   }
 }
 
@@ -95,8 +120,8 @@ export function createPostgresStore(client: RawQueryClient) {
  * connection (inside an interactive transaction, under load) would wait for one, time out and look like an outage.
  * Two of them, so that traffic on the ordinary limits (a flood of form posts) cannot take the connections the
  * authentication limits need: sign-in has its own. Each waits for a connection for 1 s (under the limiter's own
- * 1.5 s timeout); an authentication call that finds its pool full is decided in memory for that call (the congestion
- * is local, not an outage).
+ * 1.5 s timeout); a call that finds its pool full is refused (authentication) or decided in memory (any other) for that
+ * call alone: the congestion is local, not an outage.
  */
 const POOL_SIZE = { auth: 5, other: 3 } as const
 
@@ -122,7 +147,7 @@ export function limiterDatabaseUrl(url: string, connections: number = POOL_SIZE.
 const globalForLimiter = globalThis as unknown as { rateLimitStores?: Partial<Record<"auth" | "other", ReturnType<typeof createPostgresStore>>> }
 
 /** The store on the limiter's own Prisma client for `group`'s pool, made on first use (callerIp-only importers never load Prisma). */
-export async function checkSharedRateLimit(namespace: string, key: string, opts: RateLimitOptions, group = namespace): Promise<RateLimitResult> {
+export async function checkSharedRateLimit(namespace: string, key: string, opts: RateLimitOptions, group = namespace, newKeyAddress?: string): Promise<RateLimitResult> {
   const pool = isAuthGroup(group) ? "auth" : "other"
   const stores = (globalForLimiter.rateLimitStores ??= {})
   if (!stores[pool]) {
@@ -132,5 +157,5 @@ export async function checkSharedRateLimit(namespace: string, key: string, opts:
     // A plain client: the tenant-scope and RLS hooks of lib/prisma.ts have nothing to do with this table.
     stores[pool] = createPostgresStore(new PrismaClient({ datasourceUrl: limiterDatabaseUrl(url, POOL_SIZE[pool]) }) as unknown as RawQueryClient)
   }
-  return stores[pool]!(namespace, key, opts, group)
+  return stores[pool]!(namespace, key, opts, group, newKeyAddress)
 }

@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   // (~5.7 years to exhaust the 10^6 code space). Load-bearing: this route is
   // directly callable without a prior forgot-password request, so it cannot
   // rely on the Turnstile gate that fronts the forgot endpoint.
-  const acctGate = await checkRateLimit(`reset-otp:acct:${normalised}`, OTP_RATE_LIMIT)
+  const acctGate = await checkRateLimit(`reset-otp:acct:${normalised}`, OTP_RATE_LIMIT, { newKeyAddress: limiterAddress(ip) })
   if (!acctGate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

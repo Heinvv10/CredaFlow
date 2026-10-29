@@ -13,7 +13,7 @@ vi.mock("@prisma/client", () => ({
 }))
 
 import { SharedStoreUnavailableError } from "./rate-limit-errors"
-import { checkSharedRateLimit, createPostgresStore, keyHash, limiterDatabaseUrl, LOCK_TIMEOUT_MS, STATEMENT_TIMEOUT_MS } from "./rate-limit-store"
+import { checkSharedRateLimit, createPostgresStore, keyHash, limiterDatabaseUrl, LOCK_TIMEOUT_MS, NEW_KEYS_PER_ADDRESS, STATEMENT_TIMEOUT_MS } from "./rate-limit-store"
 
 const OPTS = { limit: 3, windowMs: 60_000 }
 
@@ -54,6 +54,44 @@ describe("createPostgresStore", () => {
     expect(await check("ns", "k", OPTS)).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 5 })
   })
 
+  describe("a sealed group", () => {
+    const sealed = { n: null, retry_ms: null }
+    const created = { n: 1, retry_ms: null }
+    const bypassOf = (call: unknown[]) => call.slice(1).includes(true)
+
+    it("refuses a key with no row, telling the caller to come back later, when no address is given", async () => {
+      const query = vi.fn().mockResolvedValue([sealed])
+      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:")
+      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 300 })
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it("creates the key when its address has budget for new keys: budget spent first, then the key made past the seal", async () => {
+      const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([created]).mockResolvedValueOnce([created])
+      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      expect(result).toEqual({ allowed: true, remaining: 2, retryAfterSeconds: 0 })
+      expect(query).toHaveBeenCalledTimes(3)
+      expect(query.mock.calls.map(bypassOf)).toEqual([false, false, true])
+      // the budget is its own key in its own group: 6 per window per address
+      expect(query.mock.calls[1]!.slice(1)).toContain("sealed-new:")
+      expect(query.mock.calls[1]!.slice(1)).toContain(NEW_KEYS_PER_ADDRESS)
+    })
+
+    it("refuses when the address has spent its budget, and makes no key", async () => {
+      const query = vi.fn().mockResolvedValueOnce([sealed]).mockResolvedValueOnce([{ n: null, retry_ms: 5000 }])
+      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 300 })
+      expect(query).toHaveBeenCalledTimes(2)
+    })
+
+    it("asks for no budget when the key has a row: a refusal on its own limit is just that", async () => {
+      const query = vi.fn().mockResolvedValue([{ n: null, retry_ms: 4200 }])
+      const result = await createPostgresStore({ $queryRaw: query })("", "login:email:x@y.example", OPTS, "login:email:", "203.0.113.9")
+      expect(result).toEqual({ allowed: false, remaining: 0, retryAfterSeconds: 5 })
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it("hashes namespace and key apart, so no pair collides with another by concatenation", () => {
     expect(keyHash("ab", "c")).not.toBe(keyHash("a", "bc"))
     expect(keyHash("ns", "k")).toMatch(/^[0-9a-f]{64}$/)
@@ -88,7 +126,7 @@ describe("checkSharedRateLimit: pools", () => {
 
   it("keeps authentication limits on a pool of their own, apart from the ordinary limits", async () => {
     const opts = { limit: 5, windowMs: 1000 }
-    await checkSharedRateLimit("", "login:ip:1.2.3.4", opts, "login:")
+    await checkSharedRateLimit("", "login:ip:1.2.3.4", opts, "login:ip:")
     await checkSharedRateLimit("oauth:client", "c1", opts, "oauth:client")
     await checkSharedRateLimit("", "website:contact:1.2.3.4", opts, "")
     await checkSharedRateLimit("lender-api:key", "k1", opts, "lender-api:key")
@@ -102,6 +140,6 @@ describe("checkSharedRateLimit: pools", () => {
 
   it("is unavailable, not a bug, when there is no database to ask", async () => {
     vi.stubEnv("DATABASE_URL", "")
-    await expect(checkSharedRateLimit("", "login:ip:1.2.3.4", { limit: 5, windowMs: 1000 }, "login:")).rejects.toBeInstanceOf(SharedStoreUnavailableError)
+    await expect(checkSharedRateLimit("", "login:ip:1.2.3.4", { limit: 5, windowMs: 1000 }, "login:ip:")).rejects.toBeInstanceOf(SharedStoreUnavailableError)
   })
 })

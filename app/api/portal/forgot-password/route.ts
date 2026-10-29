@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   // Per-email gate — same generic 429 for existing + unknown emails, so it
   // never becomes an account-existence oracle (preserves the enumeration
   // protection the 200-always responses below provide).
-  const acctGate = await checkRateLimit(`forgot:acct:${normalised}`, FORGOT_RATE_LIMIT)
+  const acctGate = await checkRateLimit(`forgot:acct:${normalised}`, FORGOT_RATE_LIMIT, { newKeyAddress: limiterAddress(ip) })
   if (!acctGate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

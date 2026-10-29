@@ -78,13 +78,13 @@ suite("the limiter when the shared store is slow or down", () => {
     const opts = { limit: 10, windowMs: WINDOW }
     const victim = `login:email:${randomUUID()}@x.test`
     for (let i = 0; i < 10; i++) await checkRateLimit(victim, opts)
-    // Every flood call waits on the same locked row of an ordinary limit, so the small pool for ordinary limits is full.
-    const slow = `website:contact:${randomUUID()}`
-    await checkRateLimit(slow, { limit: 1000, windowMs: 60_000 })
-    const held = await lockKey("", slow, 4_000)
-    const flood = Array.from({ length: 60 }, () => checkRateLimit(slow, { limit: 1000, windowMs: 60_000 }))
+    // Four ordinary keys have their rows locked, and each has a pile of callers (a key holds at most one connection at a
+    // time, so it takes several keys to fill the small pool for ordinary limits: its 3 connections all wait on row locks).
+    const slowKeys = Array.from({ length: 4 }, () => `website:contact:${randomUUID()}`)
+    for (const k of slowKeys) await checkRateLimit(k, { limit: 1000, windowMs: 60_000 })
+    const holds = await Promise.all(slowKeys.map((k) => lockKey("", k, 4_000)))
+    const flood = slowKeys.flatMap((k) => Array.from({ length: 15 }, () => checkRateLimit(k, { limit: 1000, windowMs: 60_000 })))
     await sleep(300)
-    // the flood fills the pool for ordinary limits (its 3 connections all wait on the row lock)
     const waiting = await side.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock'`
     expect(waiting[0]!.n).toBe(3)
     // while it is stuck: exhausted sign-in is still refused BY THE STORE (memory would hand out a fresh budget), fast
@@ -95,7 +95,7 @@ suite("the limiter when the shared store is slow or down", () => {
     expect((await checkRateLimit(fresh, opts)).allowed).toBe(false)
     expect(Date.now() - started).toBeLessThan(1500)
     await Promise.all(flood)
-    await held.released
+    await Promise.all(holds.map((h) => h.released))
   }, 40_000)
 
   it("keeps the rest of the limits on the store when one key stalls: an exhausted sign-in key stays refused", async () => {
@@ -116,10 +116,10 @@ suite("the limiter when the shared store is slow or down", () => {
   }, 40_000)
 
   it("does not let application transactions holding every connection switch the limits off", async () => {
-    vi.stubEnv("DATABASE_URL", `${process.env.DATABASE_URL}${process.env.DATABASE_URL?.includes("?") ? "&" : "?"}connection_limit=2`)
-    vi.resetModules()
     const { checkRateLimit } = await import("./rate-limit")
-    const { prisma } = await import("@/lib/prisma")
+    // The application's own client, with a pool of 2: the two transactions below take every connection it has.
+    const { createAppPrismaClient } = await import("@/lib/prisma")
+    const prisma = createAppPrismaClient(`${process.env.DATABASE_URL}${process.env.DATABASE_URL?.includes("?") ? "&" : "?"}connection_limit=2`)
     const victim = `login:email:${randomUUID()}@x.test`
     const opts = { limit: 10, windowMs: WINDOW }
     for (let i = 0; i < 10; i++) await checkRateLimit(victim, opts)
@@ -196,12 +196,12 @@ suite("the cleanup caps a flooded group", () => {
 
   it("never evicts from an authentication group, whatever the ceiling: only expired rows go", async () => {
     const { capRowsPerGroup } = await import("./rate-limit-cleanup")
-    await side.rateLimitHit.deleteMany({ where: { ns: "login:" } })
-    await side.rateLimitHit.createMany({ data: [...rows("login:", 3, { hits: 10 }), ...rows("login:", 9, { from: 3 }).map((r, i) => ({ ...r, keyHash: `login:-${i + 3}` }))] })
-    const result = await capRowsPerGroup(side, { cap: 2, hardCeiling: 4, onlyGroups: ["login:"] })
+    await side.rateLimitHit.deleteMany({ where: { ns: "login:email:" } })
+    await side.rateLimitHit.createMany({ data: [...rows("login:email:", 3, { hits: 10 }), ...rows("login:email:", 9, { from: 3 }).map((r, i) => ({ ...r, keyHash: `login:email:-${i + 3}` }))] })
+    const result = await capRowsPerGroup(side, { cap: 2, hardCeiling: 4, onlyGroups: ["login:email:"] })
     expect(result).toEqual({ evicted: 0, hardEvicted: [] })
-    expect(await side.rateLimitHit.count({ where: { ns: "login:" } })).toBe(12)
-    await side.rateLimitHit.deleteMany({ where: { ns: "login:" } })
+    expect(await side.rateLimitHit.count({ where: { ns: "login:email:" } })).toBe(12)
+    await side.rateLimitHit.deleteMany({ where: { ns: "login:email:" } })
   })
 
   it("beyond the hard ceiling evicts even lockouts, the ones expiring soonest, and reports the group", async () => {
@@ -252,20 +252,67 @@ suite("an authentication group past its hard ceiling stops taking new keys", () 
     const used = `login:email:${randomUUID()}@x.test`
     for (let i = 0; i < 3; i++) await checkRateLimit(locked, opts)
     await checkRateLimit(used, opts)
-    const before = await side.rateLimitHit.count({ where: { ns: "login:" } })
+    const before = await side.rateLimitHit.count({ where: { ns: "login:email:" } })
     // the ceiling is what the group holds now: it is sealed
-    expect(await sealOverfullAuthGroups(side, before)).toEqual([{ ns: "login:", rows: before }])
+    expect(await sealOverfullAuthGroups(side, before)).toContainEqual({ ns: "login:email:", rows: before })
     // a made-up key is refused and writes nothing
     const fresh = `login:email:${randomUUID()}@x.test`
     const refused = await checkRateLimit(fresh, opts)
     expect(refused.allowed).toBe(false)
     expect(refused.retryAfterSeconds).toBeGreaterThan(0)
-    expect(await side.rateLimitHit.count({ where: { ns: "login:" } })).toBe(before)
+    expect(await side.rateLimitHit.count({ where: { ns: "login:email:" } })).toBe(before)
     // the lockout is still locked out, and a key with a row still counts and is allowed up to its limit
     expect((await checkRateLimit(locked, opts)).allowed).toBe(false)
     expect(await checkRateLimit(used, opts)).toMatchObject({ allowed: true, remaining: 1 })
-    expect(await side.rateLimitHit.count({ where: { ns: "login:", keyHash: keyHash("", locked) } })).toBe(1)
+    expect(await side.rateLimitHit.count({ where: { ns: "login:email:", keyHash: keyHash("", locked) } })).toBe(1)
   })
+
+  it("lets an address create a few new keys in a sealed group, then refuses it; another address is unaffected, existing keys keep working", async () => {
+    const { checkRateLimit } = await import("./rate-limit")
+    const { sealOverfullAuthGroups } = await import("./rate-limit-cleanup")
+    const { NEW_KEYS_PER_ADDRESS } = await import("./rate-limit-store")
+    const opts = { limit: 3, windowMs: WINDOW }
+    const existing = `login:email:${randomUUID()}@x.test`
+    await checkRateLimit(existing, opts)
+    const rowsNow = await side.rateLimitHit.count({ where: { ns: "login:email:" } })
+    await sealOverfullAuthGroups(side, rowsNow)
+    // this tiny ceiling would seal the budget group too (other tests left rows in it); the real one is 1 000 000
+    await side.rateLimitSealedGroup.deleteMany({ where: { ns: "sealed-new:" } })
+    const flooder = `2001:db8:${randomUUID().slice(0, 4)}:1::/64`
+    const made: boolean[] = []
+    for (let i = 0; i < NEW_KEYS_PER_ADDRESS + 3; i++) made.push((await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts, { newKeyAddress: flooder })).allowed)
+    // 6 new keys per address per window: 1/5 of the 30 sign-ins an address is allowed
+    expect(NEW_KEYS_PER_ADDRESS).toBe(6)
+    expect(made).toEqual([true, true, true, true, true, true, false, false, false])
+    // the group grew by the budget and no more
+    expect(await side.rateLimitHit.count({ where: { ns: "login:email:" } })).toBe(rowsNow + NEW_KEYS_PER_ADDRESS)
+    // another address still has its own budget; a caller with no address gets none
+    expect((await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts, { newKeyAddress: `203.0.113.${Math.floor(Math.random() * 200) + 1}` })).allowed).toBe(true)
+    expect((await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)).allowed).toBe(false)
+    // an existing key is untouched by all of it
+    expect(await checkRateLimit(existing, opts, { newKeyAddress: flooder })).toMatchObject({ allowed: true, remaining: 1 })
+  })
+
+  it("holds at most one connection per key while the key's row is locked, however many callers pile on", async () => {
+    const { checkRateLimit } = await import("./rate-limit")
+    const key = `login:email:${randomUUID()}@x.test`
+    const opts = { limit: 10, windowMs: WINDOW }
+    await checkRateLimit(key, opts)
+    const held = await lockKey("", key, 3_000)
+    const pile = Array.from({ length: 25 }, () => checkRateLimit(key, opts))
+    await sleep(300)
+    const waiting = await side.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock'`
+    expect(waiting[0]!.n).toBeLessThanOrEqual(1)
+    // and a different login key is decided at once, from the store
+    const other = `login:email:${randomUUID()}@x.test`
+    const started = Date.now()
+    expect((await checkRateLimit(other, opts)).allowed).toBe(true)
+    expect(Date.now() - started).toBeLessThan(500)
+    const results = await Promise.all(pile)
+    // every caller on the stalled key was refused, none decided in memory
+    expect(results.every((r) => r.allowed === false)).toBe(true)
+    await held.released
+  }, 40_000)
 
   it("keeps ordinary limits taking new keys while an authentication group is sealed", async () => {
     const { checkRateLimit } = await import("./rate-limit")
@@ -281,7 +328,7 @@ suite("an authentication group past its hard ceiling stops taking new keys", () 
     const { sealOverfullAuthGroups } = await import("./rate-limit-cleanup")
     const opts = { limit: 3, windowMs: WINDOW }
     await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)
-    expect((await sealOverfullAuthGroups(side, 1)).map((g) => g.ns)).toContain("login:")
+    expect((await sealOverfullAuthGroups(side, 1)).map((g) => g.ns)).toContain("login:email:")
     expect((await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)).allowed).toBe(false)
     expect(await sealOverfullAuthGroups(side, 10_000_000)).toEqual([])
     expect((await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)).allowed).toBe(true)

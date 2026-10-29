@@ -185,6 +185,10 @@ both under the limiter's own 1.5 s timeout. A busy application, or a transaction
   group for 30 s. **Accepted trade-off: security over availability for authentication.** A sustained sign-in flood that
   fills the authentication pool, or a database outage, can make sign-ins refuse; ordinary traffic cannot, because it
   has its own pool.
+- **One store call in flight per key, per pod.** Callers for the same key run one after the other (each still makes its own
+  call, so every hit is counted); a caller that has waited out the 1.5 s limiter timeout is refused (authentication) or
+  decided in memory (other) and skips its turn instead of running late. A hot or stalled key therefore holds at most one
+  connection of the pool per pod, so contention on one key cannot saturate the pool that sign-in needs.
 - **Every other limit**, on any problem with the call (error, timeout, lock wait, full pool), is decided by the in-memory
   limiter (per pod, up to N times looser, never absent). The breaker for a group of these opens after the same 3 errors
   in a row and also falls back to memory. A timeout or a full pool never counts towards the breaker. One line is logged
@@ -203,9 +207,13 @@ The cleanup job treats two kinds of group differently. **Ordinary groups** are b
 least recently used rows that are not lockouts (a lockout is a key whose hits have reached its limit with its window
 open); above 5 times that it deletes the rows expiring soonest even if they are lockouts, with an `ALERT` log per group.
 **Authentication groups are never evicted**: every row in one with a hit inside its window is an active counter or a
-lockout, and deleting it would lift it. Instead, an authentication group that reaches 1 000 000 rows is **sealed**
-(`RateLimitSealedGroup`): the store takes no new key in it, so a call whose key has no row is refused (`Retry-After`
-300) while every key that has a row keeps counting and a lockout stays locked out. The job logs an `ALERT` line on every
+lockout, and deleting it would lift it. Keys the caller chooses (an email typed into a form: `login:email:`,
+`login:combined:`, `forgot:acct:`, `reset-otp:acct:`, `register:identity:`) are groups of their own, apart from the address
+keys (`login:ip:`, `forgot:ip:`, ...), so a flood of one kind cannot crowd or seal the other. An authentication group that
+reaches 1 000 000 rows is **sealed** (`RateLimitSealedGroup`): a call whose key has no row is refused (`Retry-After`
+300) unless its address has budget for creating a key: **6 new keys per address (IPv6 /64) per window**, 1/5 of the 30
+sign-ins an address may make in it, spent on a row in the `sealed-new:` group. Keys that have a row keep counting, and a
+lockout stays locked out. The job logs an `ALERT` line on every
 run a group is sealed, and unseals it when it is back under the ceiling (rows expire by themselves). The address-first
 gate order and the IPv6 /64 keys are what keep a flood from getting there in practice.
 

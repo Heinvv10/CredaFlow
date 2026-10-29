@@ -89,11 +89,13 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     shared.mockResolvedValue(ALLOWED)
     const limiter = createRateLimiter(100, "lender-api:key")
     expect(await limiter("abc", OPTS)).toEqual(ALLOWED)
-    expect(shared).toHaveBeenCalledWith("lender-api:key", "abc", OPTS, "lender-api:key")
+    expect(shared).toHaveBeenCalledWith("lender-api:key", "abc", OPTS, "lender-api:key", undefined)
     await checkRateLimit("login:ip:1.2.3.4", OPTS)
-    expect(shared).toHaveBeenLastCalledWith("", "login:ip:1.2.3.4", OPTS, "login:")
+    expect(shared).toHaveBeenLastCalledWith("", "login:ip:1.2.3.4", OPTS, "login:ip:", undefined)
+    await checkRateLimit("login:email:a@b.example", OPTS, { newKeyAddress: "1.2.3.4" })
+    expect(shared).toHaveBeenLastCalledWith("", "login:email:a@b.example", OPTS, "login:email:", "1.2.3.4")
     await checkRateLimit("website:contact:1.2.3.4", OPTS)
-    expect(shared).toHaveBeenLastCalledWith("", "website:contact:1.2.3.4", OPTS, "")
+    expect(shared).toHaveBeenLastCalledWith("", "website:contact:1.2.3.4", OPTS, "", undefined)
   })
 
   it("passes a refusal through unchanged", async () => {
@@ -107,10 +109,91 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     expect(shared).not.toHaveBeenCalled()
   })
 
+  it("keeps the keys a caller chooses and the address keys in groups of their own", async () => {
+    shared.mockResolvedValue(ALLOWED)
+    const groups = async (key: string) => {
+      await checkRateLimit(key, OPTS)
+      return shared.mock.lastCall![3]
+    }
+    expect(await groups("login:ip:1.2.3.4")).toBe("login:ip:")
+    expect(await groups("login:email:a@b.example")).toBe("login:email:")
+    expect(await groups("login:combined:a@b.example:1.2.3.4")).toBe("login:combined:")
+    expect(await groups("forgot:ip:1.2.3.4")).toBe("forgot:ip:")
+    expect(await groups("forgot:acct:a@b.example")).toBe("forgot:acct:")
+    expect(await groups("reset-otp:1.2.3.4")).toBe("reset-otp:")
+    expect(await groups("reset-otp:acct:a@b.example")).toBe("reset-otp:acct:")
+    expect(await groups("register:ip:1.2.3.4")).toBe("register:ip:")
+    expect(await groups("register:identity:a@b.example")).toBe("register:identity:")
+    expect(await groups("sealed-new:login:email::1.2.3.4")).toBe("sealed-new:")
+  })
+
+  describe("one store call in flight per key", () => {
+    const tracked = () => {
+      let running = 0
+      let peak = 0
+      const perKey = new Map<string, number>()
+      shared.mockImplementation(async (_ns: string, key: string) => {
+        running++
+        peak = Math.max(peak, running)
+        perKey.set(key, (perKey.get(key) ?? 0) + 1)
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        running--
+        return ALLOWED
+      })
+      return { peak: () => peak, perKey }
+    }
+
+    it("runs concurrent callers of one key one after the other, each making its own call, so every hit is counted", async () => {
+      const t = tracked()
+      const calls = Array.from({ length: 10 }, () => checkRateLimit("login:email:a@b.example", OPTS))
+      await vi.advanceTimersByTimeAsync(500)
+      expect((await Promise.all(calls)).every((r) => r.allowed)).toBe(true)
+      expect(shared).toHaveBeenCalledTimes(10)
+      expect(t.peak()).toBe(1)
+    })
+
+    it("lets different keys run side by side", async () => {
+      const t = tracked()
+      const calls = ["a", "b", "c", "d"].map((k) => checkRateLimit(`login:email:${k}@b.example`, OPTS))
+      await vi.advanceTimersByTimeAsync(100)
+      await Promise.all(calls)
+      expect(t.peak()).toBe(4)
+    })
+
+    it("does not run the turn of a caller that gave up waiting: a stalled key holds one call, not the queue behind it", async () => {
+      quiet()
+      shared.mockReturnValue(new Promise(() => {}))
+      const calls = Array.from({ length: 6 }, () => checkRateLimit("login:email:stuck@b.example", OPTS))
+      await vi.advanceTimersByTimeAsync(2_000)
+      const results = await Promise.all(calls)
+      expect(results.map((r) => r.allowed)).toEqual([false, false, false, false, false, false])
+      // only the first reached the store; the others timed out waiting and never ran
+      expect(shared).toHaveBeenCalledTimes(1)
+    })
+
+    it("never runs the turn of a caller that gave up, even when the call ahead of it finishes late", async () => {
+      quiet()
+      shared.mockImplementationOnce(() => new Promise((resolve) => setTimeout(() => resolve(ALLOWED), 3_000))).mockResolvedValue(ALLOWED)
+      const calls = Array.from({ length: 4 }, () => checkRateLimit("login:email:slow@b.example", OPTS))
+      await vi.advanceTimersByTimeAsync(5_000)
+      const results = await Promise.all(calls)
+      // the first call gave up at 1.5 s (its answer came at 3 s), the three behind it gave up waiting: none of them ran
+      expect(results.every((r) => r.allowed === false)).toBe(true)
+      expect(shared).toHaveBeenCalledTimes(1)
+    })
+
+    it("forgets a key's lane once it is idle", async () => {
+      shared.mockResolvedValue(ALLOWED)
+      await checkRateLimit("login:email:a@b.example", OPTS)
+      await checkRateLimit("login:email:a@b.example", OPTS)
+      expect(shared).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe("when the store is unavailable", () => {
     it.each([
       ["login:email:a@b.example"], ["totp-current-code:u1"], ["sso:code:u1"], ["sso:start:1.2.3.4"], ["forgot:ip:1.2.3.4"],
-      ["reset-otp:1.2.3.4"], ["register:a@b.example"], ["portal-password-ip:1.2.3.4"], ["signing-otp:verify:ip:1.2.3.4"],
+      ["reset-otp:1.2.3.4"], ["register:identity:a@b.example"], ["portal-password-ip:1.2.3.4"], ["signing-otp:verify:ip:1.2.3.4"],
     ])("refuses the authentication attempt %s, and does not fall back to a fresh in-memory budget", async (key) => {
       quiet()
       shared.mockRejectedValue(down())
@@ -160,7 +243,7 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
     it.each([["a timeout", slow], ["a database error", down], ["a full pool", full]])("never decides an authentication call in memory on %s", async (_label, make) => {
       quiet()
       shared.mockRejectedValue(make())
-      for (const key of ["login:email:a@b.example", "totp-current-code:u1", "sso:code:u1", "forgot:ip:1.2.3.4", "reset-otp:1.2.3.4", "register:a@b.example", "portal-password-ip:1.2.3.4", "signing-otp:verify:ip:1.2.3.4"]) {
+      for (const key of ["login:email:a@b.example", "totp-current-code:u1", "sso:code:u1", "forgot:ip:1.2.3.4", "reset-otp:1.2.3.4", "register:identity:a@b.example", "portal-password-ip:1.2.3.4", "signing-otp:verify:ip:1.2.3.4"]) {
         expect((await createRateLimiter(10, "oauth:client")(key, OPTS)).allowed).toBe(false)
         expect((await checkRateLimit(key, OPTS)).allowed).toBe(false)
       }
