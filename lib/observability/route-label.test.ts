@@ -59,6 +59,8 @@ describe("route label without a manifest (dev, tests)", () => {
     ["/files/report.final.pdf", "/files/:id"],
     ["/api/tokens/aB3dE5gH7jK9mN1pQ3sT", "/api/tokens/:id"],
     ["/", "/"],
+    ["/graph/v19.0/messages", "/graph/v19.0/messages"],
+    ["/graph/v19.0.1.7/messages", "/graph/:id/messages"],
     // A UUID whose characters are all hex letters has no digit to give it away.
     ["/api/loans/abcdefab-cdef-abcd-efab-cdefabcdefab/statement", "/api/loans/:id/statement"],
   ])("%s -> %s", (path, expected) => {

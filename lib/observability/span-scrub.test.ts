@@ -270,7 +270,8 @@ describe("scrubSpan", () => {
     })
 
     it.each([
-      ["a phone number", "https://graph.example/v20.0/27821234567/messages", "https://graph.example/:id/:id/messages"],
+      ["a WhatsApp-style phone path, keeping the API version", "https://graph.example/v19.0/27820000000/messages", "https://graph.example/v19.0/:id/messages"],
+      ["a version that is not strictly a version", "https://graph.example/v19.0.1.7/x", "https://graph.example/:id/x"],
       ["an email", "https://crm.example/contacts/jo@lender.example/notes", "https://crm.example/contacts/:id/notes"],
       ["a UUID", "https://p.example/loans/3f1c8a9e-1b2c-4d3e-8f90-123456789abc", "https://p.example/loans/:id"],
       ["a long opaque token", "https://p.example/links/Zk3-OneTimeLinkToken_9aF", "https://p.example/links/:id"],
@@ -283,6 +284,14 @@ describe("scrubSpan", () => {
       const scrubbed = scrubSpan(fetchSpan("https://api.provider.example/api/loans/42?k=SECRET", { "url.full": "https://api.provider.example/api/loans/42?k=SECRET" }), labeler)
       expect(scrubbed.attributes["http.url"]).toBe("https://api.provider.example/api/loans/:id")
       expect(scrubbed.attributes["url.full"]).toBe("https://api.provider.example/api/loans/:id")
+    })
+
+    it("masks url.path and http.target the same way", () => {
+      const scrubbed = scrubSpan(fetchSpan("https://graph.example/v19.0/27820000000/messages", { "url.path": "/v19.0/27820000000/messages", "http.target": "/v19.0/27820000000/messages?t=SECRET" }), labeler)
+      expect(scrubbed.attributes["url.path"]).toBe("/v19.0/:id/messages")
+      expect(scrubbed.attributes["http.target"]).toBe("/v19.0/:id/messages")
+      expect(scrubbed.attributes["http.url"]).toBe("https://graph.example/v19.0/:id/messages")
+      expect(JSON.stringify(scrubbed)).not.toMatch(/27820000000|SECRET/)
     })
 
     it("still removes userinfo and a header attribute", () => {

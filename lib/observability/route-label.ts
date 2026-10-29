@@ -44,8 +44,11 @@ function isStaticSegment(segment: string): boolean {
   return !(segment.length >= 20 && /\d/.test(segment) && !segment.includes("-"))
 }
 
+// An API version (v1, v19.0): two digits at most per part, so a number cannot pass as one.
+const VERSION = /^v\d{1,2}(\.\d{1,2})?$/
+
 function collapseSegment(segment: string): string {
-  return segment === "" || isStaticSegment(segment) ? segment : ":id"
+  return segment === "" || VERSION.test(segment) || isStaticSegment(segment) ? segment : ":id"
 }
 
 /**
