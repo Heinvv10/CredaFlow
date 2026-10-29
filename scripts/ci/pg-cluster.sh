@@ -8,18 +8,27 @@
 #
 # Each start makes its own directory (mktemp), picks a port the kernel just
 # handed out and listens on 127.0.0.1 only (no unix socket), so shards running
-# at once on one machine never share a cluster. Login is scram with ituser /
-# itpass (a superuser, as POSTGRES_USER was in the container) on database
-# credaflow_it. Durability is off: the data is thrown away when the run ends.
-# Outside Actions (no $GITHUB_ENV) `start` prints the two export lines instead.
+# at once on one machine never share a cluster. The directory is mode 0700 and
+# login is scram with ituser and a random per-run password (masked in the
+# Actions log), on database credaflow_it. Durability is off: the data is thrown
+# away when the run ends. Outside Actions (no $GITHUB_ENV) `start` prints the
+# two export lines instead.
+#
+# ituser is a SUPERUSER, as POSTGRES_USER was in the container, because the
+# suites need it: several run `SET LOCAL session_replication_role = replica`
+# (lib/telematics/*, lib/operator/console-round1, lib/valuation-guides/*), which
+# only a superuser may do, and lib/tenant-isolation.integration.test.ts creates
+# its own roles and says DATABASE_URL is a superuser in CI. TCP on 127.0.0.1
+# rather than a unix socket: scripts/run-integration-tests.sh refuses any URL
+# with a host= query, so the URL must name a loopback host.
 #
 # Locale C.UTF-8 and timezone UTC: the postgres:16-alpine image the container
 # used is musl, which collates by code point.
 set -euo pipefail
+umask 077
 
 PG_BIN="${PG_BIN:-/usr/lib/postgresql/16/bin}"
 PG_USER=ituser
-PG_PASSWORD=itpass
 PG_DATABASE=credaflow_it
 
 # A port the kernel says is free right now. Another process can take it before
@@ -52,7 +61,12 @@ start() {
   dir=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cf-it-pg.XXXXXX")
   PENDING_DIR=$dir
   trap cleanup_pending EXIT
+  chmod 700 "$dir"
 
+  local PG_PASSWORD
+  PG_PASSWORD=$(openssl rand -hex 24)
+  # Mask before the password can appear in any output.
+  [ -n "${GITHUB_ENV:-}" ] && echo "::add-mask::${PG_PASSWORD}"
   printf '%s\n' "$PG_PASSWORD" > "$dir/pwfile"
   "$PG_BIN/initdb" -D "$dir/data" -U "$PG_USER" --auth=scram-sha-256 --pwfile="$dir/pwfile" \
     -E UTF8 --locale=C.UTF-8 > "$dir/initdb.log" 2>&1 || { cat "$dir/initdb.log" >&2; return 1; }
