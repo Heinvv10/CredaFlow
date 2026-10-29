@@ -177,17 +177,18 @@ gives up on a wait for a locked row after 0.8 s and on any statement after 1 s (
 statement_timeout=1000`, sent as the connection's `options`; behind PgBouncer add `ignore_startup_parameters = options`),
 both under the limiter's own 1.5 s timeout. A busy application, or a transaction that calls a limiter, cannot starve it.
 
-- **A call that finds its pool full** is decided by the in-memory limiter for that call, whatever its group: that is local
-  congestion, not an outage, and nothing else changes.
-- **A call that times out** (a lock held on its key, no free connection) concerns that call alone. An
-  authentication limit refuses it (429, `Retry-After` 30); any other limit is decided by the in-memory limiter.
-  Nothing else changes: whoever can stall one key cannot switch the others off.
-- **A database error** (connection refused, query failure) counts towards an outage. After 3 in a row a group's
-  store is not asked for 30 s, and meanwhile **authentication limits fail closed** (sign-in, second-factor codes,
-  SSO start and code, OAuth token client and failed-auth, forgot/reset password, portal password and registration,
-  signing OTP): sign-in needs the database anyway, and an in-memory fallback would give every pod a fresh budget
-  exactly when the database struggles. Every other limit falls back to the in-memory limiter (per pod, up to N times
-  looser, never absent). One line is logged per outage. The breaker is per group.
+- **Authentication limits** (sign-in, second-factor codes in settings and at sign-in, SSO start and code, OAuth token
+  client and failed-auth, forgot/reset password, portal password and registration, signing OTP) are decided by the
+  store or **refused (429, `Retry-After` 30)**: never by the in-memory fallback, which would give every pod a fresh
+  budget exactly when the database struggles. That holds for any problem with the call: a database error, a timeout, a
+  lock wait, or the authentication pool being full. Three database errors in a row open a breaker that refuses the whole
+  group for 30 s. **Accepted trade-off: security over availability for authentication.** A sustained sign-in flood that
+  fills the authentication pool, or a database outage, can make sign-ins refuse; ordinary traffic cannot, because it
+  has its own pool.
+- **Every other limit**, on any problem with the call (error, timeout, lock wait, full pool), is decided by the in-memory
+  limiter (per pod, up to N times looser, never absent). The breaker for a group of these opens after the same 3 errors
+  in a row and also falls back to memory. A timeout or a full pool never counts towards the breaker. One line is logged
+  per outage.
 - Single-key site-wide counters (`website:chat:start:all` and the unattributed-address failed-auth counters of the lender
   API and OAuth token endpoint) stay per pod on purpose: in the shared store every caller would queue on one row
   lock. The per-address and per-identity limits beside them are the ones that hold across pods.
@@ -198,10 +199,15 @@ whole /64, and keying the full address would give an attacker a fresh budget and
 `lib/limiter-address.ts`). Audit and login records keep the full address. Every hit rewrites its row (and moves
 `expiresAt` in an index, so no update is HOT): `RateLimitHit` is pure churn. The migration sets aggressive per-table
 autovacuum (`autovacuum_vacuum_scale_factor = 0.01`); on a busy lender watch `pg_stat_user_tables.n_dead_tup` for it.
-The cleanup job bounds every group, authentication groups included, in two steps: above 200 000 rows it deletes the
-least recently used rows that are **not** lockouts (a lockout is a key whose hits have reached its limit with its window
-open); above 5 times that it deletes the rows expiring soonest even if they are lockouts, and logs an `ALERT` line per
-group each time. It also alerts for a group that is still over 200 000 rows because the excess is all lockouts.
+The cleanup job treats two kinds of group differently. **Ordinary groups** are bounded at 200 000 rows by deleting the
+least recently used rows that are not lockouts (a lockout is a key whose hits have reached its limit with its window
+open); above 5 times that it deletes the rows expiring soonest even if they are lockouts, with an `ALERT` log per group.
+**Authentication groups are never evicted**: every row in one with a hit inside its window is an active counter or a
+lockout, and deleting it would lift it. Instead, an authentication group that reaches 1 000 000 rows is **sealed**
+(`RateLimitSealedGroup`): the store takes no new key in it, so a call whose key has no row is refused (`Retry-After`
+300) while every key that has a row keeps counting and a lockout stays locked out. The job logs an `ALERT` line on every
+run a group is sealed, and unseals it when it is back under the ceiling (rows expire by themselves). The address-first
+gate order and the IPv6 /64 keys are what keep a flood from getting there in practice.
 
 Still worth an edge limit at the ingress for the login and portal OTP paths
 (`nginx.ingress.kubernetes.io/limit-rps`): it absorbs a flood before it reaches the database.

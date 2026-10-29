@@ -568,6 +568,14 @@ model RateLimitHit {
   @@index([ns, expiresAt])
 }
 
+// An authentication limiter group (lib/rate-limit-groups.ts) that has reached its hard row ceiling: while its name is
+// here the shared store takes no NEW key in that group (a call whose key has no row is refused); keys with a row keep
+// working. Written by /api/cron/rate-limit-cleanup, which lifts it when the group is under the ceiling again.
+model RateLimitSealedGroup {
+  ns       String   @id
+  sealedAt DateTime @default(now()) @db.Timestamptz(3)
+}
+
 // One row per (single-run in-process job, SAST day): the replica that inserts it
 // runs the job, and the row records how the run ended (lib/ops/cron-run-claim.ts).
 // A later firing the same day proceeds only over a FAILED row, or a RUNNING one

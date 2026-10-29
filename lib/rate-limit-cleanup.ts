@@ -1,4 +1,5 @@
 /** Housekeeping for RateLimitHit (lib/rate-limit-store.ts): expired rows, and a ceiling on each group's row count. */
+import { FAIL_CLOSED_KEY_PREFIXES, FAIL_CLOSED_NAMESPACES } from "./rate-limit-groups"
 
 interface ExecClient {
   $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>
@@ -18,6 +19,8 @@ export const MAX_ROWS_PER_GROUP = 200_000
  * this way. Each such eviction is an alert (the route logs it).
  */
 export const HARD_CEILING_MULTIPLIER = 5
+
+const AUTH_GROUPS: readonly string[] = [...FAIL_CLOSED_KEY_PREFIXES, ...FAIL_CLOSED_NAMESPACES]
 
 /** Rows whose window has passed hold no hit that still counts: deleting them changes no decision. */
 export async function purgeExpired(db: ExecClient): Promise<number> {
@@ -44,11 +47,11 @@ export interface GroupSize {
 }
 
 /**
- * Bounds every group, authentication groups included. A group over `cap` rows loses the rows that expire soonest
- * (the least recently used keys), down to `cap`, but only rows that do NOT still hold a full window: a key that is
- * locked out (its hits have reached its limit and its window is open) is not evicted, or the cap would be a way to
- * lift a lockout. If a group is still over `hardCeiling` (a flood of lockouts), the rows expiring soonest are evicted
- * whatever they hold, and reported.
+ * Bounds the ordinary groups. An authentication group is never touched here: every row in it with a hit inside its window
+ * is an active counter or a lockout, and evicting one lifts it (see sealOverfullAuthGroups for how those are bounded).
+ * A group over `cap` rows loses the rows that expire soonest (the least recently used keys), down to `cap`, but only rows
+ * that do NOT still hold a full window. If a group is still over `hardCeiling` (a flood of lockouts), the rows expiring
+ * soonest are evicted whatever they hold, and reported.
  */
 export async function capRowsPerGroup(db: ExecClient, options: CapOptions = {}): Promise<CapResult> {
   const cap = options.cap ?? MAX_ROWS_PER_GROUP
@@ -61,6 +64,7 @@ export async function capRowsPerGroup(db: ExecClient, options: CapOptions = {}):
                row_number() OVER (PARTITION BY "ns" ORDER BY "expiresAt", "keyHash") AS rn
         FROM "RateLimitHit"
         WHERE NOT (cardinality("hits") >= "maxHits" AND "maxHits" > 0 AND "expiresAt" > now())
+          AND NOT ("ns" = ANY(${AUTH_GROUPS}::text[]))
           AND (${groups}::text[] IS NULL OR "ns" = ANY(${groups}::text[]))
       ) e
       JOIN (SELECT "ns", count(*) AS total FROM "RateLimitHit" GROUP BY "ns") t ON t."ns" = e."ns"
@@ -72,7 +76,8 @@ export async function capRowsPerGroup(db: ExecClient, options: CapOptions = {}):
              row_number() OVER (PARTITION BY "ns" ORDER BY "expiresAt", "keyHash") AS rn,
              count(*) OVER (PARTITION BY "ns") AS total
       FROM "RateLimitHit"
-      WHERE (${groups}::text[] IS NULL OR "ns" = ANY(${groups}::text[]))
+      WHERE NOT ("ns" = ANY(${AUTH_GROUPS}::text[]))
+        AND (${groups}::text[] IS NULL OR "ns" = ANY(${groups}::text[]))
     ), removed AS (
       DELETE FROM "RateLimitHit" WHERE "keyHash" IN (SELECT "keyHash" FROM ranked WHERE rn <= total - ${hardCeiling}::int)
       RETURNING "ns"
@@ -86,4 +91,25 @@ export async function groupsOverCap(db: ExecClient, cap = MAX_ROWS_PER_GROUP): P
   const rows = await db.$queryRaw<Array<{ ns: string; rows: bigint }>>`
     SELECT "ns", count(*) AS rows FROM "RateLimitHit" GROUP BY "ns" HAVING count(*) > ${cap}::int ORDER BY 2 DESC`
   return rows.map((r) => ({ ns: r.ns, rows: Number(r.rows) }))
+}
+
+/**
+ * Bounds the authentication groups without ever deleting a counter or a lockout: a group that holds `hardCeiling` rows or
+ * more is SEALED (RateLimitSealedGroup): the store takes no new key in it, so a flood of made-up keys cannot grow it
+ * further, while every key that has a row keeps counting and a lockout stays locked out. A sealed group that is back
+ * under the ceiling (rows expire on their own) is unsealed. Returns the groups sealed now, with their row counts; the
+ * route raises an alert for each, every run.
+ */
+export async function sealOverfullAuthGroups(db: ExecClient, hardCeiling = MAX_ROWS_PER_GROUP * HARD_CEILING_MULTIPLIER): Promise<GroupSize[]> {
+  await db.$executeRaw`
+    INSERT INTO "RateLimitSealedGroup" ("ns")
+    SELECT "ns" FROM "RateLimitHit" WHERE "ns" = ANY(${AUTH_GROUPS}::text[]) GROUP BY "ns" HAVING count(*) >= ${hardCeiling}::int
+    ON CONFLICT ("ns") DO NOTHING`
+  await db.$executeRaw`
+    DELETE FROM "RateLimitSealedGroup" WHERE "ns" = ANY(${AUTH_GROUPS}::text[]) AND "ns" NOT IN (
+      SELECT "ns" FROM "RateLimitHit" WHERE "ns" = ANY(${AUTH_GROUPS}::text[]) GROUP BY "ns" HAVING count(*) >= ${hardCeiling}::int
+    )`
+  const sealed = await db.$queryRaw<Array<{ ns: string; rows: number }>>`
+    SELECT h."ns", count(*)::int AS rows FROM "RateLimitHit" h JOIN "RateLimitSealedGroup" s ON s."ns" = h."ns" GROUP BY h."ns" ORDER BY 2 DESC`
+  return sealed.map((r) => ({ ns: r.ns, rows: Number(r.rows) }))
 }

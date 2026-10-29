@@ -30,6 +30,9 @@ function failureKind(error: unknown): "timeout" | "saturated" | "error" {
   return typeof e?.meta?.code === "string" && TIMED_OUT_SQLSTATES.has(e.meta.code) ? "timeout" : "error"
 }
 
+/** What a caller is told to wait when its key was refused because its group is sealed. */
+const SEALED_RETRY_SECONDS = 300
+
 /** Server-side cap on one limiter statement; below the limiter's own SHARED_TIMEOUT_MS (lib/rate-limit.ts). */
 export const STATEMENT_TIMEOUT_MS = 1000
 /** Server-side cap on waiting for one row lock. */
@@ -64,6 +67,9 @@ export function createPostgresStore(client: RawQueryClient) {
       up AS (
         INSERT INTO "RateLimitHit" ("keyHash", "ns", "maxHits", "hits", "expiresAt")
         SELECT ${hash}::text, ${group}::text, ${opts.limit}::int, ARRAY[c.t], c.t + c.w FROM c
+        -- A sealed group (past its hard row ceiling) takes no new key: an existing key still reaches the conflict below.
+        WHERE NOT EXISTS (SELECT 1 FROM "RateLimitSealedGroup" sealed WHERE sealed."ns" = ${group}::text)
+           OR EXISTS (SELECT 1 FROM "RateLimitHit" present WHERE present."keyHash" = ${hash}::text)
         ON CONFLICT ("keyHash") DO UPDATE SET
           "hits" = ARRAY(SELECT x FROM unnest("RateLimitHit"."hits") x WHERE x > (SELECT t - w FROM c)) || (SELECT t FROM c),
           "expiresAt" = (SELECT t + w FROM c),
@@ -78,7 +84,9 @@ export function createPostgresStore(client: RawQueryClient) {
           WHERE r."keyHash" = ${hash}::text AND x > (SELECT t - w FROM c))::float8 AS retry_ms`)
     const row = rows[0]
     if (row?.n != null) return { allowed: true, remaining: Math.max(0, opts.limit - row.n), retryAfterSeconds: 0 }
-    return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil((row?.retry_ms ?? 1000) / 1000)) }
+    // No count and no wait: the key had no row and its group is sealed, so nothing was recorded. Try again later.
+    if (row?.retry_ms == null) return { allowed: false, remaining: 0, retryAfterSeconds: SEALED_RETRY_SECONDS }
+    return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(row.retry_ms / 1000)) }
   }
 }
 

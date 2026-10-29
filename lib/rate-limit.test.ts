@@ -140,15 +140,30 @@ describe("shared store (RATE_LIMIT_STORE=postgres)", () => {
       expect(shared).toHaveBeenCalledTimes(9)
     })
 
-    it("decides a call in memory when its pool is full, even an authentication call, and opens nothing", async () => {
+    it("refuses an authentication call whose pool is full, never deciding it in memory, and opens nothing", async () => {
       quiet()
       shared.mockRejectedValue(full())
-      for (let i = 0; i < 10; i++) expect((await checkRateLimit("login:ip:1.2.3.4", { limit: 10, windowMs: 60_000 })).allowed).toBe(true)
-      expect((await checkRateLimit("login:ip:1.2.3.4", { limit: 10, windowMs: 60_000 })).allowed).toBe(false)
-      // the next key still reaches the store: nothing was opened
+      for (let i = 0; i < 12; i++) expect((await checkRateLimit("login:ip:1.2.3.4", { limit: 10, windowMs: 60_000 })).allowed).toBe(false)
+      // nothing was opened: the next key still reaches the store
       shared.mockResolvedValue(ALLOWED)
       expect(await checkRateLimit("login:ip:5.6.7.8", OPTS)).toEqual(ALLOWED)
-      expect(shared).toHaveBeenCalledTimes(12)
+      expect(shared).toHaveBeenCalledTimes(13)
+    })
+
+    it("decides a call of any other limit in memory when its pool is full", async () => {
+      quiet()
+      shared.mockRejectedValue(full())
+      for (let i = 0; i < 3; i++) expect((await checkRateLimit("website:contact:k", OPTS)).allowed).toBe(true)
+      expect((await checkRateLimit("website:contact:k", OPTS)).allowed).toBe(false)
+    })
+
+    it.each([["a timeout", slow], ["a database error", down], ["a full pool", full]])("never decides an authentication call in memory on %s", async (_label, make) => {
+      quiet()
+      shared.mockRejectedValue(make())
+      for (const key of ["login:email:a@b.example", "totp-current-code:u1", "sso:code:u1", "forgot:ip:1.2.3.4", "reset-otp:1.2.3.4", "register:a@b.example", "portal-password-ip:1.2.3.4", "signing-otp:verify:ip:1.2.3.4"]) {
+        expect((await createRateLimiter(10, "oauth:client")(key, OPTS)).allowed).toBe(false)
+        expect((await checkRateLimit(key, OPTS)).allowed).toBe(false)
+      }
     })
 
     it("serves a timed-out call of any other limit from memory, again without opening anything", async () => {

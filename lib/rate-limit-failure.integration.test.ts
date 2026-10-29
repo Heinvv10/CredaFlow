@@ -194,16 +194,13 @@ suite("the cleanup caps a flooded group", () => {
     await side.rateLimitHit.deleteMany({ where: { ns: group } })
   })
 
-  it("bounds an authentication group too: beyond the cap it evicts its rows that are not lockouts, oldest first", async () => {
+  it("never evicts from an authentication group, whatever the ceiling: only expired rows go", async () => {
     const { capRowsPerGroup } = await import("./rate-limit-cleanup")
     await side.rateLimitHit.deleteMany({ where: { ns: "login:" } })
-    // 3 lockouts (10 of 10) that expire soonest, then 9 ordinary rows
     await side.rateLimitHit.createMany({ data: [...rows("login:", 3, { hits: 10 }), ...rows("login:", 9, { from: 3 }).map((r, i) => ({ ...r, keyHash: `login:-${i + 3}` }))] })
-    const result = await capRowsPerGroup(side, { cap: 6, hardCeiling: 1000, onlyGroups: ["login:"] })
-    expect(result.evicted).toBe(6)
-    const left = (await side.rateLimitHit.findMany({ where: { ns: "login:" }, select: { keyHash: true } })).map((r) => r.keyHash).sort()
-    // the three lockouts stay; of the nine ordinary rows the three that expire last stay
-    expect(left).toEqual(["login:-0", "login:-1", "login:-2", "login:-9", "login:-10", "login:-11"].sort())
+    const result = await capRowsPerGroup(side, { cap: 2, hardCeiling: 4, onlyGroups: ["login:"] })
+    expect(result).toEqual({ evicted: 0, hardEvicted: [] })
+    expect(await side.rateLimitHit.count({ where: { ns: "login:" } })).toBe(12)
     await side.rateLimitHit.deleteMany({ where: { ns: "login:" } })
   })
 
@@ -232,5 +229,61 @@ suite("the cleanup caps a flooded group", () => {
     expect((await checkRateLimit(key, opts)).allowed).toBe(false)
     await capRowsPerGroup(side, { cap: 0, hardCeiling: 1_000_000, onlyGroups: [""] })
     expect((await checkRateLimit(key, opts)).allowed).toBe(false)
+  })
+})
+
+suite("an authentication group past its hard ceiling stops taking new keys", () => {
+  beforeEach(async () => {
+    vi.stubEnv("RATE_LIMIT_STORE", "postgres")
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { _resetRateLimitStore } = await import("./rate-limit")
+    _resetRateLimitStore()
+    await side.rateLimitSealedGroup.deleteMany({})
+  })
+  afterAll(async () => {
+    await side.rateLimitSealedGroup.deleteMany({})
+  })
+
+  it("refuses a call whose key has no row, and keeps deciding the keys that have one: a lockout stays locked out, nothing is deleted", async () => {
+    const { checkRateLimit } = await import("./rate-limit")
+    const { sealOverfullAuthGroups } = await import("./rate-limit-cleanup")
+    const opts = { limit: 3, windowMs: WINDOW }
+    const locked = `login:email:${randomUUID()}@x.test`
+    const used = `login:email:${randomUUID()}@x.test`
+    for (let i = 0; i < 3; i++) await checkRateLimit(locked, opts)
+    await checkRateLimit(used, opts)
+    const before = await side.rateLimitHit.count({ where: { ns: "login:" } })
+    // the ceiling is what the group holds now: it is sealed
+    expect(await sealOverfullAuthGroups(side, before)).toEqual([{ ns: "login:", rows: before }])
+    // a made-up key is refused and writes nothing
+    const fresh = `login:email:${randomUUID()}@x.test`
+    const refused = await checkRateLimit(fresh, opts)
+    expect(refused.allowed).toBe(false)
+    expect(refused.retryAfterSeconds).toBeGreaterThan(0)
+    expect(await side.rateLimitHit.count({ where: { ns: "login:" } })).toBe(before)
+    // the lockout is still locked out, and a key with a row still counts and is allowed up to its limit
+    expect((await checkRateLimit(locked, opts)).allowed).toBe(false)
+    expect(await checkRateLimit(used, opts)).toMatchObject({ allowed: true, remaining: 1 })
+    expect(await side.rateLimitHit.count({ where: { ns: "login:", keyHash: keyHash("", locked) } })).toBe(1)
+  })
+
+  it("keeps ordinary limits taking new keys while an authentication group is sealed", async () => {
+    const { checkRateLimit } = await import("./rate-limit")
+    const { sealOverfullAuthGroups } = await import("./rate-limit-cleanup")
+    await sealOverfullAuthGroups(side, 0)
+    const key = `website:contact:${randomUUID()}`
+    expect((await checkRateLimit(key, { limit: 2, windowMs: 60_000 })).allowed).toBe(true)
+    expect(await side.rateLimitHit.count({ where: { keyHash: keyHash("", key) } })).toBe(1)
+  })
+
+  it("lifts the seal when the group is under the ceiling again", async () => {
+    const { checkRateLimit } = await import("./rate-limit")
+    const { sealOverfullAuthGroups } = await import("./rate-limit-cleanup")
+    const opts = { limit: 3, windowMs: WINDOW }
+    await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)
+    expect((await sealOverfullAuthGroups(side, 1)).map((g) => g.ns)).toContain("login:")
+    expect((await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)).allowed).toBe(false)
+    expect(await sealOverfullAuthGroups(side, 10_000_000)).toEqual([])
+    expect((await checkRateLimit(`login:email:${randomUUID()}@x.test`, opts)).allowed).toBe(true)
   })
 })

@@ -13,8 +13,7 @@ import { checkSharedRateLimit } from "./rate-limit-store"
  * RATE_LIMIT_STORE=memory|postgres chooses explicitly; any other value throws.
  *
  * FAIL MODE (lib/rate-limit-groups.ts says which limits are authentication limits):
- *  - A call whose pool has no free connection is decided by the in-memory limiter for that call (local congestion).
- *  - A call that TIMES OUT (a lock held on its key, SHARED_TIMEOUT_MS) concerns that call alone:
+ *  - A call whose pool has no free connection, or that TIMES OUT (a lock held on its key, SHARED_TIMEOUT_MS), concerns that call alone:
  *    an authentication limit refuses it, any other is decided by the in-memory limiter. Nothing else changes.
  *  - A database ERROR counts towards an outage: after FAILURES_TO_OPEN in a row the group's store is not asked for
  *    BREAKER_MS, and meanwhile an authentication group refuses (sign-in needs the database anyway) while any other is
@@ -109,8 +108,9 @@ async function decide(
     // Only the store being unavailable degrades (to a refusal, or the in-memory limiter, by group). Anything else is
     // a bug (a TypeError, a bad argument) and is thrown to the caller: it must not be hidden as an outage.
     if (!(error instanceof SharedStoreUnavailableError)) throw error
-    // A full pool is local congestion, not the database being down: decided in memory for this call, whatever the group.
-    if (error.kind === "saturated") return checkIn(memory, maxKeys, key, opts)
+    // A full pool is local congestion, not the database being down, and opens nothing. This call is refused (an
+    // authentication limit) or decided in memory (any other): never an authentication call in memory.
+    if (error.kind === "saturated") return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
     // A timeout concerns this call alone (a lock held on this one key, a busy pool): it is refused, or served from memory,
     // and no other key is affected. Whoever can stall one key must not be able to refuse the rest.
     if (error.kind === "timeout") return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
