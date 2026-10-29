@@ -43,6 +43,10 @@ export const ACCOUNT_ROLES = [
   // Dealer commission (slice 5). Appended for the same reason; VAT on commission posts to INPUT_VAT.
   "DEALER_COMMISSION_EXPENSE",
   "DEALER_COMMISSION_PAYABLE",
+  // IFRS 9 (lib/ifrs9). Appended likewise; IFRS9_ROLES names them, and ASSET_FINANCE_ROLES stops before them.
+  "ECL_ALLOWANCE",
+  "ECL_EXPENSE",
+  "INTEREST_SUSPENSE",
 ] as const
 
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
@@ -56,11 +60,17 @@ export type AccountRole = (typeof ACCOUNT_ROLES)[number]
  */
 export const NOT_CARRIED_AT_OPENING: readonly AccountRole[] = [
   "BANK", "INTEREST_INCOME", "FEE_INCOME", "DEFAULT_INTEREST_INCOME", "DEFAULT_FEE_INCOME",
-  "BAD_DEBT_RECOVERY", "BAD_DEBT_EXPENSE", "WAIVER_EXPENSE",
+  "BAD_DEBT_RECOVERY", "BAD_DEBT_EXPENSE", "WAIVER_EXPENSE", "ECL_EXPENSE",
   "RENTAL_INCOME", "MAINTENANCE_INCOME", "MAINTENANCE_EXPENSE", "RECOVERY_COST_EXPENSE",
   "RECOVERY_COSTS_RECHARGED", "RECOVERY_RESULT", "ASSET_DISPOSAL_PROCEEDS", "AF_PRICE_CREDITS",
   "DEALER_COMMISSION_EXPENSE",
 ]
+
+/**
+ * IFRS 9 roles (expected credit loss allowance and expense, interest in suspense). Like the asset-finance roles
+ * they are confirmed with the mapping, and a month that posts one the confirmation does not cover is refused.
+ */
+export const IFRS9_ROLES: readonly AccountRole[] = ["ECL_ALLOWANCE", "ECL_EXPENSE", "INTEREST_SUSPENSE"]
 
 /** Fee income roles a lender may mark VAT-inclusive (interest is VAT-exempt). */
 export const VAT_INCLUSIVE_ROLES: readonly AccountRole[] = ["FEE_INCOME", "DEFAULT_FEE_INCOME"]
@@ -73,7 +83,7 @@ export const RECEIVABLE_ROLES: readonly AccountRole[] = ["LOAN_BOOK", "AF_INSTAL
  * has not confirmed these (AccountingSettings.mappingConfirmedRoles), so a month
  * that posts one is refused until the mapping is confirmed again.
  */
-export const ASSET_FINANCE_ROLES: readonly AccountRole[] = ACCOUNT_ROLES.slice(ACCOUNT_ROLES.indexOf("AF_INSTALMENT_DEBTORS"))
+export const ASSET_FINANCE_ROLES: readonly AccountRole[] = ACCOUNT_ROLES.slice(ACCOUNT_ROLES.indexOf("AF_INSTALMENT_DEBTORS"), ACCOUNT_ROLES.indexOf("DEALER_COMMISSION_PAYABLE") + 1)
 
 /**
  * Asset-finance amounts are gross or net of VAT as the source posts them, with
@@ -122,6 +132,9 @@ export const DEFAULT_ACCOUNTS: Record<AccountRole, AccountDefault> = {
   AF_PRICE_CREDITS: { code: "6400", name: "Asset-finance price credits", description: "Price excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it" },
   DEALER_COMMISSION_EXPENSE: { code: "6500", name: "Dealer commission", description: "Commission earned by dealers and brokers on booked asset-finance deals, excluding VAT, less clawbacks" },
   DEALER_COMMISSION_PAYABLE: { code: "2600", name: "Dealer commission payable", description: "Commission owed to dealers including VAT until a payable run is released; a clawback not yet netted is owed by the dealer" },
+  ECL_ALLOWANCE: { code: "1190", name: "Loss allowance (ECL)", description: "IFRS 9 expected credit loss allowance on loans and contracts receivable: a credit balance against the receivables" },
+  ECL_EXPENSE: { code: "6020", name: "Impairment charge (ECL)", description: "IFRS 9 movement in the expected credit loss allowance" },
+  INTEREST_SUSPENSE: { code: "1180", name: "Interest in suspense", description: "Interest on non-performing loans accrued and not collected: held here, not in income, until collected; a credit balance against the receivables" },
 }
 
 export function isAccountRole(value: unknown): value is AccountRole {

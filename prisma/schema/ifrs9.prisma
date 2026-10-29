@@ -1,0 +1,144 @@
+// ════════════════════════════════════════════════════════════════════════════
+// IFRS 9 staging, expected credit loss and interest suspension (lib/ifrs9).
+// Lesotho PostBank tender items 2.8.2 and 2.8.3 (docs/ifrs9/DESIGN.md).
+// Hand-written guards: prisma/migrations/20261029100000_ifrs9 (config ranges,
+// parameter bounds, runs and their loan snapshots append-only).
+// ════════════════════════════════════════════════════════════════════════════
+
+// A lender's staging and suspension policy, one row each. No row = IFRS 9 off
+// with the defaults of lib/ifrs9/types.ts DEFAULT_SETTINGS.
+model Ifrs9Config {
+  tenantId              String   @id
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
+  enabled               Boolean  @default(false)
+  // First month ("yyyy-mm") whose accounting close needs a monthly run.
+  effectiveFromMonth    String?
+  // Stage 2 when days past due is MORE than this.
+  sicrDpdOver           Int      @default(30)
+  // Stage 3 (default) when days past due is at or above this.
+  defaultDpd            Int      @default(90)
+  restructuredIsSicr    Boolean  @default(true)
+  debtReviewIsSicr      Boolean  @default(true)
+  stage2ProbationMonths Int      @default(3)
+  stage3ProbationMonths Int      @default(6)
+  suspensionEnabled     Boolean  @default(true)
+  suspensionDpd         Int      @default(90)
+  suspendOnStage3       Boolean  @default(true)
+  updatedById           String?
+  updatedAt             DateTime @updatedAt
+}
+
+// The PD/LGD table, basis points. scopeKey is DEFAULT, CONTRACT:<type> or
+// PRODUCT:<id>; the most specific row for a stage wins. Stage 1 PD is 12-month,
+// Stage 2 and 3 lifetime. Replaced as a whole by the audited PUT.
+model Ifrs9EclParameter {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  scopeKey    String
+  stage       Int
+  pdBps       Int
+  lgdBps      Int
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, scopeKey, stage])
+}
+
+// A significant-increase-in-credit-risk signal on one loan, set by staff or by
+// an integration (bureau downgrade, behavioural score). While active the loan
+// is at least Stage 2. Cleared, never deleted; both actions are audited.
+model Ifrs9SicrFlag {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  loanId      String
+  loan        Loan      @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind        String
+  reason      String
+  setById     String?
+  setAt       DateTime  @default(now())
+  clearedById String?
+  clearedAt   DateTime?
+
+  @@index([tenantId, loanId])
+}
+
+enum Ifrs9RunKind {
+  // The month-end run the accounting close reads (one per tenant per period).
+  MONTHLY
+  // Any other run: analysis, never posted.
+  ON_DEMAND
+}
+
+// One staging run. Immutable (DB-enforced) together with its loan snapshots; the
+// policy and the PD/LGD rows it used are copied in, so a later change to either
+// never alters what the run says.
+model Ifrs9Run {
+  id            String       @id @default(cuid())
+  tenantId      String
+  tenant        Tenant       @relation(fields: [tenantId], references: [id])
+  kind          Ifrs9RunKind
+  // The SAST calendar day the position describes.
+  runDate       DateTime     @db.Date
+  // "yyyy-mm" the run stands for: set for MONTHLY, null for ON_DEMAND.
+  periodKey     String?
+  settings      Json
+  parameters    Json
+  loanCount     Int
+  totalEadCents BigInt
+  totalEclCents BigInt
+  // Null for the cron.
+  startedById   String?
+  createdAt     DateTime     @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  snapshots Ifrs9LoanSnapshot[]
+
+  @@unique([tenantId, periodKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, runDate])
+}
+
+// One loan's stage, ECL inputs and ECL on one run date. Cents and basis points.
+model Ifrs9LoanSnapshot {
+  id                            String    @id @default(cuid())
+  tenantId                      String
+  tenant                        Tenant    @relation(fields: [tenantId], references: [id])
+  runId                         String
+  run                           Ifrs9Run  @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId                        String
+  loan                          Loan      @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  runDate                       DateTime  @db.Date
+  loanStatus                    String
+  productId                     String
+  contractType                  String
+  daysPastDue                   Int
+  stage                         Int
+  triggerStage                  Int
+  previousStage                 Int?
+  reasons                       String[]
+  // The date the loan entered `stage`, and when the current probation began.
+  stageSince                    DateTime  @db.Date
+  cureStartedOn                 DateTime? @db.Date
+  outstandingPrincipalCents     Int
+  unpaidInterestCents           Int
+  unpaidFeesCents               Int
+  chargesOutstandingCents       Int
+  accruedInterestCents          Int
+  interestSuspended             Boolean
+  // Raised, unpaid contractual interest held in suspense (a part of unpaidInterestCents).
+  suspendedInterestCents        Int
+  // Default interest owed and held in suspense (a part of chargesOutstandingCents).
+  suspendedDefaultInterestCents Int
+  eadCents                      Int
+  parameterScope                String
+  pdBps                         Int
+  lgdBps                        Int
+  eclCents                      Int
+  createdAt                     DateTime  @default(now())
+
+  @@unique([runId, loanId])
+  @@index([tenantId, loanId, runDate])
+  @@index([tenantId, runDate])
+}

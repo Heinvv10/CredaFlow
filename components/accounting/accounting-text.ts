@@ -16,6 +16,7 @@ const REFUSALS: Record<string, RefusalCopy> = {
   OUT_OF_ORDER: { title: "Months close in order", advice: "Close the earlier month first." },
   RECONCILIATION_FAILED: { title: "A receivable does not tie to what borrowers owe", advice: "The journal and the loan records disagree for the contracts below, so nothing is posted." },
   AF_SOURCE_UNSUPPORTED: { title: "Some asset-finance contracts cannot be exported yet", advice: "They are left out of this preview and the month stays open until they can be posted (for example a lease with a deposit or trade-in, or a credit note on an instalment sale's invoice)." },
+  IFRS9_RUN_MISSING: { title: "The IFRS 9 monthly run is missing", advice: "IFRS 9 is on for this lender, so each month closes against its month-end staging run. It is made on the last day of the month; if that was missed, run it from the IFRS 9 report during the first five days of the next month." },
   AF_CONTROL_FAILED: { title: "An asset-finance check does not agree with the contract records", advice: "The journals for this month differ from the invoices, recoveries or maintenance funds they come from. Nothing is posted until the differences are resolved." },
 }
 

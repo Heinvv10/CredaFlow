@@ -34,7 +34,8 @@ const key = (kind: "dealer-commission" | "dealer-commission-paid", lineId: strin
 
 describe("dealer commission account roles", () => {
   it("are appended after AF_PRICE_CREDITS, so every earlier role keeps its place, and need the mapping confirmed again", () => {
-    expect(ACCOUNT_ROLES.slice(-3)).toEqual(["AF_PRICE_CREDITS", "DEALER_COMMISSION_EXPENSE", "DEALER_COMMISSION_PAYABLE"])
+    // the IFRS 9 roles were appended after them (accounts.ts IFRS9_ROLES)
+    expect(ACCOUNT_ROLES.slice(-6, -3)).toEqual(["AF_PRICE_CREDITS", "DEALER_COMMISSION_EXPENSE", "DEALER_COMMISSION_PAYABLE"])
     expect(ASSET_FINANCE_ROLES.slice(-2)).toEqual(["DEALER_COMMISSION_EXPENSE", "DEALER_COMMISSION_PAYABLE"])
   })
 

@@ -15,7 +15,9 @@ import { compareBooks, independentBook, journalBook, type Reconciliation } from 
 import { assetFinanceControls, journalByKey, type ControlMismatch } from "./reconcile-controls"
 import { loadAccountMap, loadLedger, loadSettings, loadSourceLoans, type AccountingDb } from "./store"
 import { loadAssetFinanceLoans } from "./store-asset-finance"
-import { ASSET_FINANCE_ROLES } from "./accounts"
+import { ASSET_FINANCE_ROLES, IFRS9_ROLES } from "./accounts"
+import { ifrs9Sources } from "./sources-ifrs9"
+import { ifrs9RunRefusal, loadIfrs9Positions, type Ifrs9AccountingDb } from "./store-ifrs9"
 import { verifyBalanced, type BatchTotals } from "./verify"
 
 export type CloseRefusal =
@@ -27,6 +29,7 @@ export type CloseRefusal =
   | "RECONCILIATION_FAILED"
   | "AF_CONTROL_FAILED"
   | "AF_SOURCE_UNSUPPORTED"
+  | "IFRS9_RUN_MISSING"
   | "CONCURRENT_CHANGE"
 
 export class AccountingPeriodError extends Error {
@@ -42,7 +45,7 @@ export function requirePeriod(periodKey: unknown): AccountingPeriod {
   return period
 }
 
-export type PlanDb = AccountingDb & Pick<typeof prisma, "$queryRaw">
+export type PlanDb = AccountingDb & Ifrs9AccountingDb & Pick<typeof prisma, "$queryRaw">
 
 export interface PeriodPlan {
   period: AccountingPeriod
@@ -86,20 +89,25 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   const positions = isGoLive ? openingPositions(loans, period) : []
   const base = isGoLive ? positionsAsLedger(positions) : ledger
   const vat = { registered: settings.vatRegistered, rateBps: settings.vatRateBps }
-  const own = deriveEntries({ loans, period, accounts, vat, heldBack: unsupportedIds, ...base })
+  const extraSources = ifrs9Sources(await loadIfrs9Positions(db, tenantId, period, base.postedKeys), period.end)
+  const own = deriveEntries({ loans, period, accounts, vat, heldBack: unsupportedIds, extraSources, ...base })
   const opening = isGoLive ? openingEntry(positions, period, accounts) : null
   const entries = opening ? [opening, ...own] : own
   const totals = verifyBalanced(entries)
   const reconciliation = compareBooks(journalBook(base.posted, base.postedLoans, own), await independentBook(db, tenantId, period.end))
   // A contract left out of the preview would fail its own controls by construction: its refusal is the unsupported one.
   const controls = assetFinance.loans.length === 0 ? [] : (await assetFinanceControls(db, tenantId, period.end, journalByKey(base.posted, base.postedLoans, own))).filter((c) => !unsupportedIds.has(c.key))
-  const unconfirmed = ASSET_FINANCE_ROLES.filter((role) => !(settings.mappingConfirmedRoles ?? []).includes(role) && entries.some((e) => e.lines.some((l) => l.role === role)))
+  const unconfirmed = [...ASSET_FINANCE_ROLES, ...IFRS9_ROLES].filter((role) => !(settings.mappingConfirmedRoles ?? []).includes(role) && entries.some((e) => e.lines.some((l) => l.role === role)))
 
   let refusal: PeriodPlan["refusal"] = null
   if (!periodHasEnded(period, now)) refusal = { code: "PERIOD_NOT_ENDED", message: `${period.label} has not ended; a month closes once it is over` }
   else if (!settings.mappingConfirmedAt) refusal = { code: "MAPPING_NOT_CONFIRMED", message: "Review and confirm the chart-of-accounts mapping first" }
-  else if (unconfirmed.length > 0) refusal = { code: "MAPPING_NOT_CONFIRMED", message: `This month posts asset-finance accounts that were not in the mapping you confirmed (${unconfirmed.join(", ")}): review and confirm the mapping again` }
+  else if (unconfirmed.length > 0) refusal = { code: "MAPPING_NOT_CONFIRMED", message: `This month posts asset-finance or IFRS 9 accounts that were not in the mapping you confirmed (${unconfirmed.join(", ")}): review and confirm the mapping again` }
   else refusal = await orderRefusal(db, tenantId, period, settings.goLiveMonth)
+  if (!refusal) {
+    const missingRun = await ifrs9RunRefusal(db, tenantId, period)
+    if (missingRun) refusal = { code: "IFRS9_RUN_MISSING", message: missingRun }
+  }
   if (!refusal && unsupported.length > 0) {
     refusal = { code: "AF_SOURCE_UNSUPPORTED", message: `Asset-finance contracts the export cannot post yet: ${unsupported.slice(0, 3).map((u) => u.message).join("; ")}` }
   }
