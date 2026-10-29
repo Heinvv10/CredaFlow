@@ -1,0 +1,41 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: lib/observability
+<!-- summary: JSON console logs, OpenTelemetry tracing, Prometheus metrics; each off until its env is set -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+Logs, traces and `/api/metrics` for the Kubernetes deployment (`deploy/README.md`).
+`instrumentation.ts` starts them; every one is off unless its env is set, so a Compose
+stack behaves as before.
+
+## Rules
+- The metrics registry lives on `globalThis` (`metrics.ts`): `instrumentation.ts`, the
+  HTTP hook and the route handlers are bundled separately, and a module-level registry
+  would exist once per bundle. Create metrics through `getMetrics()` only.
+- `route-label.ts` labels a request with its Next route template from
+  `.next/routes-manifest.json` (shipped in the standalone image); unmatched paths and
+  every 404 are `unmatched`. Without a manifest (dev, tests) it falls back to path
+  shapes with a cap. Never put a client id, loan id, token or any request-derived free
+  text in a metric label.
+- `span-scrub.ts` fails closed (outbound `SpanKind.CLIENT` spans get only these rules plus path masking: every path segment that is not a lowercase word becomes `:id`, since a provider path carries ID or phone numbers; never an app route template): in every string value, the span name, event and link
+  attributes and the status message, each whitespace-delimited token holding `?` or `#` is
+  cut there (shape does not matter: `url=/x?t=S`, `fetch(/x?t=S)`, `h.example/x?t=S` and JSON
+  all leak otherwise), `&key=value` runs and `user:pass@` are removed, and only a token
+  ending in a single `?` ("what?") is kept. Trade-off, accepted: exception text is cut at its
+  first `?`. `http.*.header.*` are dropped. The request path becomes the route template
+  everywhere; a span with no `next.route` (Next's middleware span) gets it from the route
+  labeler. Do not turn any of this into an allow-list of keys or shapes.
+- `/api/metrics` is 404 until `METRICS_TOKEN` is set, then bearer-only. It is in
+  `lib/public-routes.ts` because it authenticates itself, like `/api/cron/*`.
+- DB-backed gauges (`metrics-collectors.ts`) read only tables without row-level
+  security (`CronHeartbeat`, `WebhookOutboxFailure`). A count over a tenant table
+  would be 0 under RLS without a tenant context: do not add one here.
+- `json-console.ts` rewrites `console.*` (LOG_FORMAT=json). New code may use `logger`.
+  Do not put personal data in log messages, with either.
+- `CRON_SCHEDULER=off` (`lib/ops/cron-scheduler-flag.ts`) is for web replicas beside the
+  one worker; only `singleRun` cron jobs are claim-guarded, the rest fire on every
+  scheduling replica.
