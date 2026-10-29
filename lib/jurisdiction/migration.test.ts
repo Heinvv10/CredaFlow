@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { baselineConstraintSql, baselineFunctionSql, baselineTriggerSql } from "@/lib/db-baseline.test-helpers"
 
-// Static pins on migrations 20261029100000_jurisdiction_guards,
+// Static pins on migrations 20261029101000_jurisdiction_guards,
 // 20261029110000_jurisdiction_instance_guard and 20261029120000_instance_jurisdiction;
 // the rules run against Postgres in RUN_DB_IT (instance-guard.integration.test.ts).
 const flat = (sql: string) => sql.replace(/\s+/g, " ")
@@ -30,22 +30,47 @@ describe("jurisdiction hand-written objects", () => {
     )
     for (const name of ["guardTenantConfigMatchesInstance", "guardTenantMatchesInstance"]) {
       const fn = flat(baselineFunctionSql(name))
-      expect(fn, name).toContain(`pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))`)
+      expect(fn, name).toContain(`public."lockInstanceJurisdiction"()`)
       expect(fn, name).toContain(`FROM public."InstanceJurisdiction" WHERE "id" = 1`)
       expect(fn, name).toContain("One instance serves one jurisdiction")
     }
-    // The lock comes first in each.
-    for (const name of ["guardTenantConfigMatchesInstance", "guardTenantMatchesInstance", "guardInstanceJurisdictionChange"]) {
+    // The lock (which also refuses a snapshot isolation level) comes first in each guard, before it reads anything.
+    for (const name of ["guardTenantConfigMatchesInstance", "guardTenantMatchesInstance", "guardTenantConfigDelete", "guardInstanceJurisdictionChange"]) {
       const fn = flat(baselineFunctionSql(name))
-      expect(fn.indexOf("pg_advisory_xact_lock"), name).toBeGreaterThan(-1)
-      expect(fn.indexOf("pg_advisory_xact_lock"), name).toBeLessThan(fn.indexOf("SELECT") === -1 ? Infinity : fn.indexOf("SELECT"))
+      const lock = fn.indexOf(`public."lockInstanceJurisdiction"()`)
+      expect(lock, name).toBeGreaterThan(-1)
+      expect(lock, name).toBeLessThan(fn.indexOf("SELECT") === -1 ? Infinity : fn.indexOf("SELECT"))
+      expect(lock, name).toBeLessThan(fn.indexOf("EXISTS") === -1 ? Infinity : fn.indexOf("EXISTS"))
     }
+    const lock = flat(baselineFunctionSql("lockInstanceJurisdiction"))
+    expect(lock).toContain(`pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))`)
+    expect(lock).toContain(`current_setting('transaction_isolation') <> 'read committed'`)
+  })
+
+  it("a new config takes the instance's values on INSERT (an upsert inserts first), and an update that would differ is refused", () => {
+    const fn = flat(baselineFunctionSql("guardTenantConfigMatchesInstance"))
+    expect(fn).toContain(`IF TG_OP = 'INSERT' THEN`)
+    expect(fn).toContain(`NEW."jurisdiction" := inst_j::"Jurisdiction"`)
+    expect(fn).toContain(`NEW."currency" := inst_c::"LenderCurrency"`)
+    expect(fn).toContain("this lender would be")
+  })
+
+  it("an application or loan INSERT holds the instance lock shared and stamps frozenAt, which the change guard honours and never clears", () => {
+    for (const [trigger, table] of [["LoanApplication_hold_instance_jurisdiction", "LoanApplication"], ["Loan_hold_instance_jurisdiction", "Loan"]]) {
+      expect(baselineTriggerSql(trigger)).toMatch(new RegExp(`BEFORE INSERT ON "${table}" FOR EACH STATEMENT`))
+    }
+    const hold = flat(baselineFunctionSql("holdInstanceJurisdiction"))
+    expect(hold).toContain(`pg_advisory_xact_lock_shared(hashtext('credaflow.instance_jurisdiction'))`)
+    expect(hold).toContain(`SET "frozenAt" = now() WHERE "id" = 1 AND "frozenAt" IS NULL`)
+    const change = flat(baselineFunctionSql("guardInstanceJurisdictionChange"))
+    expect(change).toContain(`OLD."frozenAt" IS NOT NULL`)
+    expect(change).toContain("frozenAt cannot be changed or cleared")
   })
 
   it("the instance row is immutable once any loan application or loan exists, cannot be deleted or truncated, and a change needs every lender to agree", () => {
     expect(baselineTriggerSql("InstanceJurisdiction_guard_change")).toMatch(/BEFORE INSERT OR UPDATE OR DELETE ON "InstanceJurisdiction"/)
     expect(baselineTriggerSql("InstanceJurisdiction_guard_truncate")).toMatch(/BEFORE TRUNCATE ON "InstanceJurisdiction" FOR EACH STATEMENT/)
-    expect(baselineTriggerSql("InstanceJurisdiction_configs_agree")).toMatch(/AFTER INSERT OR UPDATE ON "InstanceJurisdiction" DEFERRABLE INITIALLY DEFERRED/)
+    expect(baselineTriggerSql("InstanceJurisdiction_configs_agree")).toMatch(/AFTER INSERT OR UPDATE OF "jurisdiction", "currency" ON "InstanceJurisdiction" DEFERRABLE INITIALLY DEFERRED/)
     const change = flat(baselineFunctionSql("guardInstanceJurisdictionChange"))
     expect(change).toContain(`SELECT 1 FROM public."LoanApplication"`)
     expect(change).toContain(`SELECT 1 FROM public."Loan"`)

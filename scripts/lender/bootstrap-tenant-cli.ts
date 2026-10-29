@@ -39,7 +39,7 @@ async function main(): Promise<number> {
   // registration numbers differ from South African ones).
   const db = new PrismaClient()
   try {
-    await loadActiveJurisdiction(db)
+    await loadActiveJurisdiction(db as never)
     const parsed = parseTenantConfig(raw)
     if (!parsed.ok) {
       process.stderr.write(`INVALID ${values.config}:\n${parsed.errors.map((e) => `  - ${e}`).join("\n")}\n`)

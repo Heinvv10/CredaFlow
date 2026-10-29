@@ -12,6 +12,12 @@ type InstanceDb = {
   instanceJurisdiction: {
     findUnique: (args: { where: { id: 1 } }) => Promise<InstanceRow | null>
   }
+  tenantConfig: {
+    findFirst: (args: {
+      where: { OR: [{ jurisdiction: { not: string } }, { currency: { not: string } }] }
+      select: { jurisdiction: true; currency: true; tenant: { select: { slug: true } } }
+    }) => Promise<(InstanceRow & { tenant: { slug: string } }) | null>
+  }
 }
 
 export interface ActiveJurisdictionState {
@@ -35,6 +41,22 @@ export class JurisdictionChangedError extends Error {
   }
 }
 
+/**
+ * A lender's TenantConfig differs from the instance row. The triggers make that impossible
+ * (InstanceJurisdiction, migration 20261029120000); seeing it means they were bypassed (a
+ * restore, triggers disabled), and the process refuses to serve rather than print one
+ * jurisdiction's documents for another's lender.
+ */
+export class JurisdictionMismatchError extends Error {
+  constructor(readonly slug: string, readonly lender: string, readonly instance: string) {
+    super(`Lender "${slug}" is ${lender} but the instance row says ${instance}. The process refuses to serve until they agree.`)
+    this.name = "JurisdictionMismatchError"
+  }
+}
+
+type Refusal = JurisdictionChangedError | JurisdictionMismatchError
+const isRefusal = (e: unknown): e is Refusal => e instanceof JurisdictionChangedError || e instanceof JurisdictionMismatchError
+
 const current = (): ActiveJurisdictionState => ({ jurisdiction: activeJurisdiction(), currency: activeCurrency() })
 const key = (s: ActiveJurisdictionState) => `${s.jurisdiction}/${s.currency}`
 
@@ -45,24 +67,30 @@ const logError = (message: string, error?: unknown) =>
  * Reads the InstanceJurisdiction row (the single source of truth: every lender's
  * TenantConfig must equal it, enforced by triggers). First read adopts it; a
  * later read that differs from what the process is already using throws
- * JurisdictionChangedError. `settled` is false when there is no row (the
+ * JurisdictionChangedError, and any lender whose config differs from the row
+ * throws JurisdictionMismatchError (checked before the row is adopted). `settled` is false when there is no row (the
  * database is not migrated), leaving the fail-closed default: ZA, NCA gates on.
  */
 async function readJurisdiction(db: InstanceDb): Promise<{ state: ActiveJurisdictionState; settled: boolean }> {
   const row = await db.instanceJurisdiction.findUnique({ where: { id: 1 } })
   if (!row) return { state: current(), settled: false }
   const stored: ActiveJurisdictionState = { jurisdiction: parseJurisdiction(row.jurisdiction), currency: parseCurrency(row.currency) }
+  const stray = await db.tenantConfig.findFirst({
+    where: { OR: [{ jurisdiction: { not: stored.jurisdiction } }, { currency: { not: stored.currency } }] },
+    select: { jurisdiction: true, currency: true, tenant: { select: { slug: true } } },
+  })
+  if (stray) throw new JurisdictionMismatchError(stray.tenant.slug, `${stray.jurisdiction}/${stray.currency}`, key(stored))
   if (isJurisdictionLoaded() && key(stored) !== key(current())) throw new JurisdictionChangedError(key(current()), key(stored))
   setActiveJurisdiction(stored)
   return { state: current(), settled: true }
 }
 
-/** One read. Throws JurisdictionChangedError; any other failure is logged and leaves the current value. */
+/** One read. Throws JurisdictionChangedError or JurisdictionMismatchError; any other failure is logged and leaves the current value. */
 export async function loadActiveJurisdiction(db: InstanceDb = prisma as unknown as InstanceDb): Promise<ActiveJurisdictionState> {
   try {
     return (await readJurisdiction(db)).state
   } catch (error) {
-    if (error instanceof JurisdictionChangedError) throw error
+    if (isRefusal(error)) throw error
     logError("could not load the instance jurisdiction; keeping the current value", error)
     return current()
   }
@@ -79,7 +107,7 @@ type Outcome = "loaded" | "empty" | "failed"
 interface Memo {
   inflight: Promise<ActiveJurisdictionState> | null
   lastAttemptAt: number
-  changed: JurisdictionChangedError | null
+  changed: Refusal | null
 }
 const MEMO_KEY = Symbol.for("credaflow.jurisdictionLoad")
 function memo(): Memo {
@@ -100,7 +128,7 @@ async function attempt(db: InstanceDb): Promise<{ state: ActiveJurisdictionState
     m.changed = null
     return { state, outcome: settled ? "loaded" : "empty" }
   } catch (error) {
-    if (error instanceof JurisdictionChangedError) {
+    if (isRefusal(error)) {
       m.changed = error
       logError(error.message)
       throw error
@@ -145,7 +173,16 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
 async function loadWithBackoff(db: InstanceDb, sleep: (ms: number) => Promise<void>): Promise<ActiveJurisdictionState> {
   for (const [i, delay] of BOOT_DELAYS_MS.entries()) {
     if (delay > 0) await sleep(delay)
-    const { state, outcome } = await attempt(db)
+    let result: Awaited<ReturnType<typeof attempt>>
+    try {
+      result = await attempt(db)
+    } catch (error) {
+      if (!isRefusal(error)) throw error
+      // Already logged. Boot does not crash-loop on it: the process comes up refusing to serve
+      // (ensureActiveJurisdiction rejects until the database agrees again).
+      return current()
+    }
+    const { state, outcome } = result
     if (outcome === "loaded") return state
     if (outcome === "empty") {
       logError("no instance jurisdiction row (is the database migrated?); booting as ZA with the NCA gates on")

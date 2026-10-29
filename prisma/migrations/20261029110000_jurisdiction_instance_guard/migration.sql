@@ -1,5 +1,5 @@
 -- Jurisdiction, round 2 (lib/jurisdiction). Enforcement, so it ships with the
--- code that depends on it. Builds on 20261029100000_jurisdiction_guards.
+-- code that depends on it. Builds on 20261029101000_jurisdiction_guards.
 --
 -- 1. ONE JURISDICTION PER INSTANCE. The application holds the lender's
 --    jurisdiction and currency process-wide and checks at boot that the ACTIVE
@@ -28,7 +28,7 @@
 --   DROP FUNCTION public."guardInstanceJurisdiction"();
 --   DROP TRIGGER "TenantConfig_guard_jurisdiction_change" ON "TenantConfig";
 --   DROP FUNCTION public."guardTenantConfigJurisdictionChange"();
---   -- then re-create both from 20261029100000_jurisdiction_guards
+--   -- then re-create both from 20261029101000_jurisdiction_guards
 --   DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261029110000_jurisdiction_instance_guard';
 --   COMMIT;
 

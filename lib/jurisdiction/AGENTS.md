@@ -11,9 +11,10 @@
 Lets one lender run outside South Africa. `TenantConfig.jurisdiction` (ZA|LS)
 and `currency` (ZAR|LSL) choose a profile (`profiles.ts`); `active.ts` holds the
 one this deployment runs as. **One jurisdiction per instance, held in one row**
-(`InstanceJurisdiction`, read by the app); triggers refuse any lender whose
-config differs, so a ZA lender cannot be created, provisioned or activated on an
-LS instance. If the row changes under a running process it refuses to serve.
+(`InstanceJurisdiction`, read by the app); a new `TenantConfig` takes its
+values and triggers refuse a lender that would differ, so a ZA lender cannot be
+provisioned or activated on an LS instance. If the row changes under a running
+process, or a lender's config differs from it, it refuses to serve.
 
 ## Critical Rules
 - **ZA must behave exactly as before.** The default (nothing loaded, or a read
@@ -24,8 +25,12 @@ LS instance. If the row changes under a running process it refuses to serve.
   point, not per file.
 - **No request can write the instance row.** Only `instance-write.ts`
   (`npm run lender:set-jurisdiction`, the demo seed): audited, refused once any
-  application or loan exists. Provision/activate paths pre-check with
-  `instance.server.ts` and answer 409.
+  application or loan has ever existed (`frozenAt`). Provision/activate paths
+  pre-check with `instance.server.ts` and answer 409.
+- **The guards need READ COMMITTED** (`lockInstanceJurisdiction()` refuses
+  otherwise): never write `Tenant`/`TenantConfig` in a stricter transaction.
+  Application/loan inserts hold the lock shared: don't insert one and then a
+  tenant/config in one transaction (deadlock risk).
 - **Lenders are retired by status, never deleted**: a trigger refuses deleting a
   `TenantConfig` once the lender has applications or loans (ITs delete loans
   first). PROVISIONING staff may sign in (onboarding), but their config must

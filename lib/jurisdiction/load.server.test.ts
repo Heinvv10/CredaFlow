@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const findUnique = vi.fn()
+const findFirst = vi.fn()
 const logError = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/observability/logger", () => ({ logger: { error: logError } }))
-vi.mock("@/lib/prisma", () => ({ prisma: { instanceJurisdiction: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
+vi.mock("@/lib/prisma", () => ({
+  prisma: { instanceJurisdiction: { findUnique: (...a: unknown[]) => findUnique(...a) }, tenantConfig: { findFirst: (...a: unknown[]) => findFirst(...a) } },
+}))
 
 import { activeCurrency, activeJurisdiction, isJurisdictionLoaded, resetActiveJurisdiction } from "./active"
 import {
   JurisdictionChangedError,
+  JurisdictionMismatchError,
   RELOAD_TTL_MS,
   bootActiveJurisdiction,
   ensureActiveJurisdiction,
@@ -19,6 +23,7 @@ const row = (jurisdiction: string, currency: string) => ({ id: 1, jurisdiction, 
 
 beforeEach(() => {
   findUnique.mockReset()
+  findFirst.mockReset().mockResolvedValue(null)
   logError.mockReset()
 })
 afterEach(() => {
@@ -64,6 +69,38 @@ describe("loadActiveJurisdiction (reads the instance row, not the tenants)", () 
     findUnique.mockResolvedValue(row("ZA", "ZAR"))
     await expect(loadActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionChangedError)
     expect(activeJurisdiction()).toBe("LS")
+  })
+})
+
+describe("a lender whose config differs from the instance row (the triggers were bypassed)", () => {
+  const stray = { jurisdiction: "ZA", currency: "ZAR", tenant: { slug: "acme" } }
+
+  it("is refused before the row is adopted, and the lookup asks for any config unlike the row", async () => {
+    findUnique.mockResolvedValue(row("LS", "LSL"))
+    findFirst.mockResolvedValue(stray)
+    await expect(loadActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionMismatchError)
+    expect(isJurisdictionLoaded()).toBe(false)
+    expect(findFirst.mock.calls[0][0].where).toEqual({ OR: [{ jurisdiction: { not: "LS" } }, { currency: { not: "LSL" } }] })
+  })
+
+  it("a warm process stops serving when one appears, and serves again when it is put right", async () => {
+    vi.useFakeTimers()
+    findUnique.mockResolvedValue(row("LS", "LSL"))
+    await ensureActiveJurisdiction()
+    findFirst.mockResolvedValue(stray)
+    vi.advanceTimersByTime(RELOAD_TTL_MS + 1)
+    await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionMismatchError)
+    await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionMismatchError)
+    findFirst.mockResolvedValue(null)
+    vi.advanceTimersByTime(6_000)
+    await expect(ensureActiveJurisdiction()).resolves.toEqual({ jurisdiction: "LS", currency: "LSL" })
+  })
+
+  it("boot does not crash: it comes up refusing to serve", async () => {
+    findUnique.mockResolvedValue(row("LS", "LSL"))
+    findFirst.mockResolvedValue(stray)
+    await expect(bootActiveJurisdiction({ sleep: async () => undefined })).resolves.toEqual({ jurisdiction: "ZA", currency: "ZAR" })
+    await expect(ensureActiveJurisdiction()).rejects.toBeInstanceOf(JurisdictionMismatchError)
   })
 })
 

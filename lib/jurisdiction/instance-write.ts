@@ -2,14 +2,15 @@
  * The only writer of InstanceJurisdiction after the migration: an OPERATOR
  * action (scripts/lender/set-instance-jurisdiction-cli.ts, and the demo seed),
  * never reachable from a request. It is refused once any loan application or
- * loan exists (and the database refuses it too: guardInstanceJurisdictionChange),
- * because money, documents and gates have all been decided under the old value.
+ * loan has ever existed (and the database refuses it too: guardInstanceJurisdictionChange,
+ * which remembers the first one in frozenAt), because money, documents and gates have all
+ * been decided under the old value.
  *
  * It also moves every existing TenantConfig to the new value in the same
  * transaction: a deferred database check requires them to agree at commit.
  * Run it before onboarding lenders.
  */
-import type { Prisma, PrismaClient } from "@prisma/client"
+import { Prisma, type PrismaClient } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { parseCurrency, parseJurisdiction } from "./profiles"
 
@@ -37,15 +38,19 @@ export async function setInstanceJurisdiction(
   if (!actor) return { ok: false, error: "An actor is required" }
 
   return db.$transaction(async (tx: Prisma.TransactionClient): Promise<InstanceWriteResult> => {
+    // The lock every instance guard takes (and every application / loan insert holds shared until
+    // it commits): taken first, the counts below include inserts that were in flight, and
+    // READ COMMITTED (stated, not assumed) makes them read what committed while we waited.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))`
     const before = await tx.instanceJurisdiction.findUnique({ where: { id: 1 } })
     if (before && before.jurisdiction === jurisdiction && before.currency === currency) {
       return { ok: true, changed: false, jurisdiction, currency }
     }
     const [applications, loans] = await Promise.all([tx.loanApplication.count(), tx.loan.count()])
-    if (applications + loans > 0) {
+    if (applications + loans > 0 || before?.frozenAt) {
       return {
         ok: false,
-        error: `This instance already has ${applications} loan application(s) and ${loans} loan(s); its jurisdiction can no longer change. Use a new instance.`,
+        error: `This instance already has ${applications} loan application(s) and ${loans} loan(s)${before?.frozenAt ? " (it has had them before)" : ""}; its jurisdiction can no longer change. Use a new instance.`,
       }
     }
     await tx.instanceJurisdiction.upsert({
@@ -67,5 +72,5 @@ export async function setInstanceJurisdiction(
       newValue: { jurisdiction, currency, reason, lendersMoved: moved.count },
     }, tx as unknown as Parameters<typeof logAuditStrict>[1]) // a plain-client transaction, as the lender CLIs pass
     return { ok: true, changed: true, jurisdiction, currency }
-  })
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted })
 }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const findUnique = vi.fn()
-vi.mock("@/lib/prisma", () => ({ prisma: { instanceJurisdiction: { findUnique: (...a: unknown[]) => findUnique(...a) } } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { instanceJurisdiction: { findUnique: (...a: unknown[]) => findUnique(...a) }, tenantConfig: { findFirst: async () => null } } }))
 import { resetActiveJurisdiction, setActiveJurisdiction } from "./active"
 import { resetEnsuredJurisdiction } from "./load.server"
 import { ncaOnlyRefusal } from "./nca-only"

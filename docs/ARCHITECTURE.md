@@ -187,29 +187,39 @@ currency. It is the one source of truth.
   ZAR on every existing database). After that only
   `lib/jurisdiction/instance-write.ts` writes it, through
   `npm run lender:set-jurisdiction` (and the demo seed): audited, never
-  reachable from a request, refused once any loan application or loan exists
-  (and a trigger refuses it too). It moves the lenders' configs with it. Run it
+  reachable from a request, refused once any loan application or loan has ever
+  existed (`frozenAt`, stamped by the first insert and never cleared, so deleting
+  every application does not thaw it; a trigger refuses it too). It moves the lenders' configs with it. Run it
   before onboarding lenders.
-- **Every lender equals it.** Triggers refuse a `TenantConfig` whose
-  jurisdiction/currency differs (insert, or a change to either or `tenantId`),
-  and a tenant becoming ACTIVE or PROVISIONING whose config differs; a change of
-  the row commits only if every lender then equals it. Each takes
-  `pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))` first, so
-  a lender created while the row is being changed waits and then sees the new
-  value. A CHECK ties currency to jurisdiction (ZA is rand only).
+- **Every lender equals it.** A `TenantConfig` INSERT takes the instance's
+  values whatever it carried (the column defaults are ZA / ZAR and an upsert
+  inserts first, so refusing would break every settings writer on an LS
+  instance); a trigger refuses a change of either column or of `tenantId` that
+  would differ, and a tenant becoming ACTIVE or PROVISIONING whose config
+  differs; a change of the row commits only if every lender then equals it. Each
+  guard calls `lockInstanceJurisdiction()` first: it takes
+  `pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))`, so a
+  lender created while the row is being changed waits and then sees the new
+  value, and it refuses to run outside READ COMMITTED (waiting for a lock does
+  not refresh a REPEATABLE READ / SERIALIZABLE snapshot, so the reads after it
+  would be stale). A LoanApplication or Loan INSERT holds the same lock shared
+  until it commits, so a change of the row waits for inserts in flight and then
+  counts them. A CHECK ties currency to jurisdiction (ZA is rand only).
 - **The app reads the row, not the tenants.** `lib/jurisdiction/active.ts`
   holds it process-wide (synchronous formatters and gates need no tenant
   argument). `instrumentation.ts` loads it at boot (retries with backoff,
   bounded wait; a database that is not migrated boots as ZA, NCA gates on), and
   `ensureActiveJurisdiction()` (cron runner, tenant resolution, root layout)
   re-reads it every 60 s. If the database value ever differs from the one in
-  use, the process refuses to serve (`JurisdictionChangedError`) and logs, until
-  it matches again or is restarted. A re-read that merely fails keeps serving.
+  use, or any lender's `TenantConfig` differs from the row (the triggers were
+  bypassed: `JurisdictionMismatchError`), the process refuses to serve
+  (`JurisdictionChangedError`) and logs, until it matches again or is restarted. A re-read that merely fails keeps serving.
 - **Provisioning** takes the instance's jurisdiction: the operator console and
   `lender:bootstrap-tenant` validate the lender file under it and write it to the
   new config; a process that validated under another one is refused (409 /
   `JURISDICTION_CONFLICT`). Admin PATCH to ACTIVE and operator reactivation
-  pre-check and answer 409; the triggers are the backstop.
+  pre-check and answer 409; admin tenant creation maps the trigger's refusal to
+  409; the triggers are the backstop.
 - **Lenders are retired, never deleted.** A `TenantConfig` cannot be deleted once
   the lender has a loan application or loan; set its status to SUSPENDED.
 - **NCA-only steps** are gated at their entry points by `ncaOnlyRefusal()` /

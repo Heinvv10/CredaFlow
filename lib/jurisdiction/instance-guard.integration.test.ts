@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { applyStaffAccessPolicy } from "@/lib/security/staff-access-write"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { resetActiveJurisdiction, activeCurrency, activeJurisdiction } from "./active"
 import { setInstanceJurisdiction } from "./instance-write"
@@ -23,6 +24,9 @@ import { bootstrapTenant } from "@/scripts/lender/bootstrap-tenant"
 import { parseTenantConfig } from "@/scripts/lender/tenant-config"
 import { validFile } from "@/scripts/lender/tenant-config.test-helpers"
 import { createThrowawayDb, type ThrowawayDb } from "./throwaway-db.integration-fixture"
+
+const MIGRATION = "prisma/migrations/20261029120000_instance_jurisdiction/migration.sql"
+const backfillBlock = () => readFileSync(MIGRATION, "utf8").match(/DO \$backfill\$[^]*?\$backfill\$;/)?.[0] ?? ""
 
 const suite = process.env.RUN_DB_IT === "1" ? describe.sequential : describe.skip
 const REFUSED = /One instance serves one jurisdiction/
@@ -48,17 +52,21 @@ suite("a Lesotho instance (real DB)", () => {
     await lender("ls-parked", "SUSPENDED", LS)
   })
 
-  it("refuses a lender whose config differs, whatever its status and however it is written", async () => {
-    await expect(lender("za-active", "ACTIVE", { jurisdiction: "ZA", currency: "ZAR" })).rejects.toThrow(REFUSED)
-    await expect(lender("za-prov", "PROVISIONING", { jurisdiction: "ZA", currency: "ZAR" })).rejects.toThrow(REFUSED)
-    await expect(lender("za-parked", "SUSPENDED", { jurisdiction: "ZA", currency: "ZAR" })).rejects.toThrow(REFUSED)
-    await expect(lender("ls-rand", "ACTIVE", { jurisdiction: "LS", currency: "ZAR" })).rejects.toThrow(REFUSED)
-    // Tenant row first, config second: the config insert is where it is caught.
-    await expect(db().$transaction(async (tx) => {
+  it("gives a new config the instance's values whatever it carried, however it is written", async () => {
+    const za = { jurisdiction: "ZA", currency: "ZAR" } as const
+    for (const [slug, status, config] of [
+      ["za-active", "ACTIVE", za], ["za-prov", "PROVISIONING", za], ["za-parked", "SUSPENDED", za],
+      ["ls-rand", "ACTIVE", { jurisdiction: "LS", currency: "ZAR" }],
+    ] as const) {
+      await lender(slug, status, config)
+      expect(await db().tenantConfig.findFirstOrThrow({ where: { tenant: { slug } } })).toMatchObject(LS)
+    }
+    // Tenant row first, config second with the column defaults (ZA / ZAR): the default becomes the instance's.
+    const split = await db().$transaction(async (tx) => {
       const t = await tx.tenant.create({ data: { slug: "za-split", name: "za-split", status: "ACTIVE" } })
-      await tx.tenantConfig.create({ data: { tenantId: t.id } })
-    })).rejects.toThrow(REFUSED)
-    expect(await db().tenant.count({ where: { slug: { startsWith: "za-" } } })).toBe(0)
+      return tx.tenantConfig.create({ data: { tenantId: t.id } })
+    })
+    expect(split).toMatchObject(LS)
   })
 
   it("refuses to change a lender's config away from the instance, and to move a config onto another tenant", async () => {
@@ -90,14 +98,34 @@ suite("a Lesotho instance (real DB)", () => {
       await tx.$executeRawUnsafe(`UPDATE "TenantConfig" SET "jurisdiction" = 'ZA', "currency" = 'ZAR' WHERE "tenantId" = '${donor.id}'`)
     })
     await expect(db().tenantConfig.update({ where: { tenantId: donor.id }, data: { tenantId: target.id } })).rejects.toThrow(REFUSED)
+    // Put the legacy mismatch right: the app refuses to serve beside one (loadActiveJurisdiction).
+    await db().tenantConfig.update({ where: { tenantId: donor.id }, data: { jurisdiction: "LS", currency: "LSL" } })
   })
 
   it("holds under a strict-RLS session that shows the guards no rows", async () => {
+    const stale = await lender("ls-rls", "SUSPENDED", LS)
+    await db().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+      await tx.$executeRawUnsafe(`UPDATE "TenantConfig" SET "jurisdiction" = 'ZA', "currency" = 'ZAR' WHERE "tenantId" = '${stale.id}'`)
+    })
     await expect(db().$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', 'some-other-tenant', true)`
-      await tx.$executeRawUnsafe(`INSERT INTO "Tenant" ("id","slug","name","status","updatedAt") VALUES ('rls-za','rls-za','rls-za','PROVISIONING', now())`)
-      await tx.$executeRawUnsafe(`INSERT INTO "TenantConfig" ("id","tenantId","updatedAt") VALUES ('rls-za-cfg','rls-za', now())`)
+      await tx.$executeRawUnsafe(`UPDATE "Tenant" SET "status" = 'ACTIVE' WHERE "id" = '${stale.id}'`)
     })).rejects.toThrow(REFUSED)
+    // Put the legacy mismatch right: the app refuses to serve beside one (loadActiveJurisdiction).
+    await db().tenantConfig.update({ where: { tenantId: stale.id }, data: { jurisdiction: "LS", currency: "LSL" } })
+  })
+
+  it("lets the settings writers upsert a TenantConfig on an LS instance (insert path and update path)", async () => {
+    const t = await createChargesTenant(db(), false)
+    expect(await db().tenantConfig.findUniqueOrThrow({ where: { tenantId: t.tenantId } })).toMatchObject(LS)
+    const actor = { id: t.userId, email: "ops@test.invalid" }
+    // Update path.
+    await applyStaffAccessPolicy(db() as never, { tenantId: t.tenantId, actor, next: { hours: null, ipAllowlist: ["203.0.113.5"] } })
+    // Insert path: no config yet, so the upsert inserts with the ZA / ZAR column defaults.
+    await db().tenantConfig.delete({ where: { tenantId: t.tenantId } })
+    await applyStaffAccessPolicy(db() as never, { tenantId: t.tenantId, actor, next: { hours: null, ipAllowlist: ["203.0.113.6"] } })
+    expect(await db().tenantConfig.findUniqueOrThrow({ where: { tenantId: t.tenantId } })).toMatchObject({ ...LS, staffIpAllowlist: ["203.0.113.6"] })
   })
 
   it("the instance row is a singleton that cannot be deleted or truncated", async () => {
@@ -157,8 +185,9 @@ suite("a South African instance (real DB)", () => {
     await expect(db().$executeRawUnsafe(`UPDATE "TenantConfig" SET "jurisdiction" = 'US' WHERE "tenantId" = '${t.tenantId}'`)).rejects.toThrow()
   })
 
-  it("refuses an LS lender; ZA lenders come in as they always did", async () => {
-    await expect(db().tenant.create({ data: { slug: "ls-new", name: "x", status: "ACTIVE", config: { create: { jurisdiction: "LS", currency: "LSL" } } } })).rejects.toThrow(REFUSED)
+  it("an LS config written here becomes ZA / ZAR; ZA lenders come in as they always did", async () => {
+    await db().tenant.create({ data: { slug: "ls-new", name: "x", status: "ACTIVE", config: { create: { jurisdiction: "LS", currency: "LSL" } } } })
+    expect(await db().tenantConfig.findFirstOrThrow({ where: { tenant: { slug: "ls-new" } } })).toMatchObject({ jurisdiction: "ZA", currency: "ZAR" })
     await createChargesTenant(db(), false)
   })
 
@@ -194,6 +223,19 @@ suite("the instance after its first loan (real DB)", () => {
       await tx.tenantConfig.updateMany({ data: { jurisdiction: "LS", currency: "LSL" } })
     })).rejects.toThrow(/cannot change once any loan application or loan exists/)
     expect((await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).jurisdiction).toBe("ZA")
+  })
+
+  it("stays frozen after every application and loan is deleted (frozenAt, set by the first insert)", async () => {
+    expect((await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).frozenAt).not.toBeNull()
+    await db().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+      for (const table of ["RepaymentSchedule", "Loan", "LoanApplication"]) await tx.$executeRawUnsafe(`DELETE FROM "${table}"`)
+    })
+    expect(await db().loanApplication.count()).toBe(0)
+    expect(await setInstanceJurisdiction(db(), { jurisdiction: "LS", currency: "LSL", actor: "ops@test.invalid", reason: "empty again" }))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/had them before/) })
+    await expect(db().instanceJurisdiction.update({ where: { id: 1 }, data: { jurisdiction: "LS", currency: "LSL" } })).rejects.toThrow(/cannot change once any loan application or loan exists/)
+    await expect(db().instanceJurisdiction.update({ where: { id: 1 }, data: { frozenAt: null } })).rejects.toThrow(/frozenAt cannot be changed or cleared/)
   })
 
   it("a lender's configuration cannot be deleted once it has loans; lenders are retired by status", async () => {
@@ -243,7 +285,7 @@ suite("a tenant created while the instance is being changed (real DB)", () => {
     await fresh?.drop()
   })
 
-  it("waits for the change and then sees the new value (the advisory lock), instead of slipping a ZA lender in beside LS", async () => {
+  it("waits for the change and then takes the new value (the advisory lock), instead of slipping a ZA lender in beside LS", async () => {
     let release: () => void = () => undefined
     const held = new Promise<void>((resolve) => { release = resolve })
     let instanceChanged: () => void = () => undefined
@@ -270,8 +312,9 @@ suite("a tenant created while the instance is being changed (real DB)", () => {
     expect(finished, "the second transaction must wait for the instance change").toBe(false)
     release()
     await change
-    await expect(create).rejects.toThrow(REFUSED)
-    expect(await fresh.db.tenant.count({ where: { slug: "za-race" } })).toBe(0)
+    await create
+    // Without the lock it would have read ZA and kept it: a ZA lender on a Lesotho instance.
+    expect(await fresh.db.tenantConfig.findFirstOrThrow({ where: { tenant: { slug: "za-race" } } })).toMatchObject({ jurisdiction: "LS", currency: "LSL" })
   }, 120_000)
 })
 
@@ -280,7 +323,7 @@ suite("the migration's backfill (real DB)", () => {
   const db = () => fresh.db
   // The DO block of the migration, run again against lenders written with the triggers off
   // (as an upgraded database that predates the row would hold them).
-  const backfill = readFileSync("prisma/migrations/20261029120000_instance_jurisdiction/migration.sql", "utf8").match(/DO \$backfill\$[^]*?\$backfill\$;/)?.[0] ?? ""
+  const backfill = backfillBlock()
   const rerun = (setup: string[]) => db().$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
     await tx.$executeRawUnsafe(`DELETE FROM "InstanceJurisdiction"`)
@@ -299,9 +342,22 @@ suite("the migration's backfill (real DB)", () => {
 
   it("found the backfill block in the migration", () => { expect(backfill).toContain("InstanceJurisdiction") })
 
-  it("takes the value the ACTIVE lenders agree on, ignoring parked ones", async () => {
-    await rerun([...lender("a-ls", "ACTIVE", "LS", "LSL"), ...lender("b-za", "SUSPENDED", "ZA", "ZAR")])
+  it("takes the value the lenders agree on, parked ones included", async () => {
+    await rerun([...lender("a-ls", "ACTIVE", "LS", "LSL"), ...lender("b-ls", "SUSPENDED", "LS", "LSL")])
     expect(await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ jurisdiction: "LS", currency: "LSL", setBy: "migration" })
+  })
+
+  it("marks the instance frozen when an application or loan already exists", async () => {
+    await rerun([])
+    expect((await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).frozenAt).toBeNull()
+    const t = await createChargesTenant(db(), false)
+    await createChargesLoan(db(), t)
+    await db().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+      await tx.$executeRawUnsafe(`DELETE FROM "InstanceJurisdiction"`)
+      await tx.$executeRawUnsafe(backfill)
+    })
+    expect((await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).frozenAt).not.toBeNull()
   })
 
   it("is ZA / ZAR with no lenders", async () => {
@@ -309,7 +365,125 @@ suite("the migration's backfill (real DB)", () => {
     expect(await db().instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ jurisdiction: "ZA", currency: "ZAR" })
   })
 
-  it("fails the migration when ACTIVE lenders disagree", async () => {
-    await expect(rerun([...lender("a-ls", "ACTIVE", "LS", "LSL"), ...lender("b-za", "ACTIVE", "ZA", "ZAR")])).rejects.toThrow(/disagree/)
+  it("fails the migration when any lender disagrees, a parked one too", async () => {
+    await expect(rerun([...lender("a-ls", "ACTIVE", "LS", "LSL"), ...lender("b-za", "SUSPENDED", "ZA", "ZAR")])).rejects.toThrow(/disagree/)
+  })
+})
+
+suite("an application being created while the instance is being changed (real DB)", () => {
+  let fresh: ThrowawayDb
+  let second: PrismaClient
+
+  beforeAll(async () => {
+    fresh = await createThrowawayDb()
+    second = new PrismaClient({ datasources: { db: { url: fresh.url } } })
+  }, 240_000)
+  afterAll(async () => {
+    await second?.$disconnect()
+    await fresh?.drop()
+  })
+
+  it("the change waits for the insert in flight and then refuses, instead of passing a count that missed it", async () => {
+    const t = await createChargesTenant(fresh.db, false)
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let inserted: () => void = () => undefined
+    const insertedFlag = new Promise<void>((resolve) => { inserted = resolve })
+
+    // Connection 1: a loan and its application, uncommitted.
+    const insert = fresh.db.$transaction(async (tx) => {
+      await createChargesLoan(tx as unknown as PrismaClient, t)
+      inserted()
+      await held
+    }, { timeout: 60_000 })
+    await insertedFlag
+
+    // Connection 2: the operator writer. Its own count cannot see the uncommitted rows.
+    let finished = false
+    const change = setInstanceJurisdiction(second, { jurisdiction: "LS", currency: "LSL", actor: "ops@test.invalid", reason: "race" })
+      .finally(() => { finished = true })
+    change.catch(() => undefined)
+    await sleep(1_000)
+    expect(finished, "the instance change must wait for the insert in flight").toBe(false)
+    release()
+    await insert
+    expect(await change).toMatchObject({ ok: false, error: expect.stringMatching(/can no longer change/) })
+    expect((await fresh.db.instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).jurisdiction).toBe("ZA")
+  }, 120_000)
+
+  it("the same race through the database alone (a raw UPDATE, no writer): the trigger waits and then counts the committed insert", async () => {
+    const t = await createChargesTenant(fresh.db, false)
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let inserted: () => void = () => undefined
+    const insertedFlag = new Promise<void>((resolve) => { inserted = resolve })
+    const insert = fresh.db.$transaction(async (tx) => {
+      await createChargesLoan(tx as unknown as PrismaClient, t)
+      inserted()
+      await held
+    }, { timeout: 60_000 })
+    await insertedFlag
+
+    let finished = false
+    const change = second.instanceJurisdiction.update({ where: { id: 1 }, data: { jurisdiction: "LS", currency: "LSL" } }).finally(() => { finished = true })
+    change.catch(() => undefined)
+    await sleep(1_000)
+    expect(finished, "the instance change must wait for the insert in flight").toBe(false)
+    release()
+    await insert
+    await expect(change).rejects.toThrow(/cannot change once any loan application or loan exists/)
+  }, 120_000)
+})
+
+suite("the guards need READ COMMITTED (real DB)", () => {
+  let fresh: ThrowawayDb
+  let second: PrismaClient
+  const RC = /READ COMMITTED/
+
+  beforeAll(async () => {
+    fresh = await createThrowawayDb()
+    second = new PrismaClient({ datasources: { db: { url: fresh.url } } })
+  }, 240_000)
+  afterAll(async () => {
+    await second?.$disconnect()
+    await fresh?.drop()
+  })
+
+  it("a REPEATABLE READ tenant insert that began before the instance changed is refused, not judged on its stale snapshot", async () => {
+    const result = fresh.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1`
+      // The instance becomes Lesotho (committed on another connection) after this snapshot was taken.
+      expect(await setInstanceJurisdiction(second, { jurisdiction: "LS", currency: "LSL", actor: "ops@test.invalid", reason: "rr" })).toMatchObject({ ok: true })
+      const t = await tx.tenant.create({ data: { slug: "za-rr", name: "za-rr", status: "ACTIVE" } })
+      await tx.tenantConfig.create({ data: { tenantId: t.id } })
+    }, { isolationLevel: "RepeatableRead" })
+    await expect(result).rejects.toThrow(RC)
+    expect(await fresh.db.tenant.count({ where: { slug: "za-rr" } })).toBe(0)
+  }, 120_000)
+
+  it("a REPEATABLE READ instance change is refused outright by the guard", async () => {
+    await expect(fresh.db.$transaction((tx) => tx.instanceJurisdiction.update({ where: { id: 1 }, data: { jurisdiction: "ZA", currency: "ZAR" } }), { isolationLevel: "RepeatableRead" })).rejects.toThrow(RC)
+  })
+
+  it("a REPEATABLE READ instance change that began before an application committed cannot pass on a count that missed it", async () => {
+    // The instance is LS now; changing it back is what the stale transaction attempts. Postgres
+    // itself stops this one (the first insert also stamps frozenAt on the row the stale transaction
+    // would update), so the assertion is that it is refused whichever guard speaks first and the
+    // instance is untouched.
+    const t = await createChargesTenant(fresh.db, false)
+    const result = fresh.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1`
+      await createChargesLoan(second, t)
+      await tx.instanceJurisdiction.update({ where: { id: 1 }, data: { jurisdiction: "ZA", currency: "ZAR" } })
+    }, { isolationLevel: "RepeatableRead" })
+    await expect(result).rejects.toThrow(/READ COMMITTED|write conflict|cannot change once any loan application or loan exists/)
+    expect((await fresh.db.instanceJurisdiction.findUniqueOrThrow({ where: { id: 1 } })).jurisdiction).toBe("LS")
+  }, 120_000)
+
+  it("a SERIALIZABLE tenant-config delete is refused too", async () => {
+    const t = await createChargesTenant(fresh.db, false)
+    await fresh.db.user.deleteMany({ where: { tenantId: t.tenantId } })
+    await fresh.db.loanProduct.deleteMany({ where: { tenantId: t.tenantId } })
+    await expect(fresh.db.$transaction((tx) => tx.tenantConfig.delete({ where: { tenantId: t.tenantId } }), { isolationLevel: "Serializable" })).rejects.toThrow(RC)
   })
 })

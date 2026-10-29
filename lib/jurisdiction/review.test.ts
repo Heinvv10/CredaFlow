@@ -17,7 +17,10 @@ import { LenderIdentityError } from "@/lib/config/identity-schema"
 afterEach(() => { resetActiveJurisdiction(); delete process.env.NEXT_PUBLIC_TENANT_SLUG })
 
 const zaLoan = { status: "ACTIVE", ncaRegime: "NCA" as const, arrearsAmount: 500_00, outstandingPrincipal: 10_000_00, daysInArrears: 120 }
-const instance = (jurisdiction: string, currency: string) => ({ instanceJurisdiction: { findUnique: vi.fn(async () => ({ id: 1, jurisdiction, currency })) } })
+const instance = (jurisdiction: string, currency: string) => ({
+  instanceJurisdiction: { findUnique: vi.fn(async () => ({ id: 1, jurisdiction, currency })) },
+  tenantConfig: { findFirst: vi.fn(async () => null) },
+})
 vi.mock("@/lib/observability/logger", () => ({ logger: { error: vi.fn() } }))
 
 describe("a warm process never serves under a stale jurisdiction (breaker repro A)", () => {

@@ -66,6 +66,13 @@ describe("POST /api/admin/tenants", () => {
     await expect(post(BASE)).rejects.toThrow("audit down")
   })
 
+  it("answers 409, not 500, when the database refuses the lender for its jurisdiction", async () => {
+    transaction.mockReset().mockRejectedValue(new Error("One instance serves one jurisdiction: this instance is LS/LSL, this lender is ZA/ZAR. Give that lender its own instance and database."))
+    const response = await post(BASE)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toMatch(/^One instance serves one jurisdiction.*database\.$/)
+  })
+
   it("is refused without the super-admin session and the admin secret", async () => {
     authMock.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } })
     expect((await post(BASE)).status).toBe(403)

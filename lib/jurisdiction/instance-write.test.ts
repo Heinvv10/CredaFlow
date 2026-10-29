@@ -6,7 +6,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
 import { setInstanceJurisdiction } from "./instance-write"
 
-function fakeDb(state: { row: { jurisdiction: string; currency: string } | null; applications?: number; loans?: number }) {
+function fakeDb(state: { row: { jurisdiction: string; currency: string; frozenAt?: Date | null } | null; applications?: number; loans?: number }) {
   const upsert = vi.fn(async () => undefined)
   const updateMany = vi.fn(async () => ({ count: 2 }))
   const executeRaw = vi.fn(async () => 0)
@@ -30,8 +30,9 @@ describe("setInstanceJurisdiction", () => {
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ update: expect.objectContaining({ jurisdiction: "LS", currency: "LSL", setBy: "ops@host" }) }))
     expect(updateMany).toHaveBeenCalledWith({ data: { jurisdiction: "LS", currency: "LSL" } })
     // The commit-time agreement check is forced inside the transaction, after the lenders moved.
-    expect(executeRaw).toHaveBeenCalledTimes(1)
-    expect(updateMany.mock.invocationCallOrder[0]).toBeLessThan(executeRaw.mock.invocationCallOrder[0])
+    // First call takes the instance lock; the last forces the agreement check.
+    expect(executeRaw).toHaveBeenCalledTimes(2)
+    expect(updateMany.mock.invocationCallOrder[0]).toBeLessThan(executeRaw.mock.invocationCallOrder[1])
     expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "INSTANCE_JURISDICTION_SET", userEmail: "ops@host",
       oldValue: { jurisdiction: "ZA", currency: "ZAR" },
@@ -53,6 +54,23 @@ describe("setInstanceJurisdiction", () => {
     expect((refused as { error: string }).error).toMatch(/1 loan application.*new instance/)
     expect(withApp.upsert).not.toHaveBeenCalled()
     expect(await setInstanceJurisdiction(fakeDb({ row: { jurisdiction: "ZA", currency: "ZAR" }, loans: 3 }).db, ask())).toMatchObject({ ok: false })
+  })
+
+  it("takes the instance lock before it counts, so inserts in flight are counted", async () => {
+    const order: string[] = []
+    const tx = {
+      $executeRaw: async () => { order.push("lock"); return 0 },
+      instanceJurisdiction: { findUnique: async () => ({ jurisdiction: "ZA", currency: "ZAR" }) },
+      loanApplication: { count: async () => { order.push("count"); return 0 } },
+      loan: { count: async () => 0 },
+    }
+    await setInstanceJurisdiction({ $transaction: async (fn: (t: unknown) => unknown) => fn(tx) } as never, ask()).catch(() => undefined)
+    expect(order.slice(0, 2)).toEqual(["lock", "count"])
+  })
+
+  it("is refused for good once the instance has been frozen, even with no application or loan left", async () => {
+    const refused = await setInstanceJurisdiction(fakeDb({ row: { jurisdiction: "ZA", currency: "ZAR", frozenAt: new Date() } }).db, ask())
+    expect(refused).toMatchObject({ ok: false, error: expect.stringMatching(/had them before/) })
   })
 
   it("refuses an unknown code, ZA with loti, a missing reason and a missing actor", async () => {
