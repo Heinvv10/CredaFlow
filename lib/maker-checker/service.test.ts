@@ -152,4 +152,21 @@ describe("stale approval", () => {
     h.handler = handler({ apply: async () => { throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" }) } })
     await expect(approve({ ...scope, actor: checker }, fakeDb(row({ makerId: "someone-else" })).db)).rejects.toMatchObject({ code: "STALE", status: 409 })
   })
+
+  it("a draft made under an older payload format cannot be submitted (STALE), and submit does not re-stamp its version", async () => {
+    h.handler = handler({ payloadVersion: 2 })
+    const { db, tx } = fakeDb(row({ status: "DRAFT", payloadVersion: 1 }))
+    await expect(submit({ ...scope, actor: maker }, db)).rejects.toMatchObject({ code: "STALE", status: 409 })
+    expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
+    const ok = fakeDb(row({ status: "DRAFT", payloadVersion: 2 }))
+    await submit({ ...scope, actor: maker }, ok.db)
+    expect((ok.tx.changeRequest.updateMany.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data).not.toHaveProperty("payloadVersion")
+  })
+
+  it("editing a draft stamps the current payload format on it", async () => {
+    h.handler = handler({ payloadVersion: 2 })
+    const { db, tx } = fakeDb(row({ status: "DRAFT", payloadVersion: 1 }))
+    await updateDraft({ ...scope, actor: maker, payload: { amount: 7 } }, db)
+    expect((tx.changeRequest.updateMany.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data).toMatchObject({ payloadVersion: 2 })
+  })
 })

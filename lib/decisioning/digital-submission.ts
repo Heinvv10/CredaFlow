@@ -1,16 +1,19 @@
 import { startApplicationReview } from "@/app/api/applications/[id]/review/review-application"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { runAutoDecision } from "./auto-decision"
 import { findSystemUser } from "./system-user"
 
 export type DigitalSubmissionResult =
   | { status: "SKIPPED"; reason: "engine_off" | "mode_off" | "channel_not_enabled" | "product_not_enabled" | "no_system_user" | "application_not_submitted" }
   | { status: "REVIEW_REFUSED"; httpStatus: number }
   | { status: "REVIEWED" }
+  /** SHADOW: a rehearsal run was recorded; the application was not touched. */
+  | { status: "REHEARSED" }
 
 /**
  * A client submitted an application on a digital channel (the portal or the
- * website): when the lender's engine covers the PORTAL channel for the product,
+ * website): when the lender's engine is LIVE and covers the PORTAL channel for the product,
  * start the review as the lender's system user (the same KYC, mismatch and bureau
  * steps, the same engine) so the decision is not waiting for a person. The review
  * refuses what staff review would refuse (unverified KYC, say); the application then
@@ -26,6 +29,11 @@ export async function reviewDigitalSubmission(input: { tenantId: string; applica
     const application = await prisma.loanApplication.findFirst({ where: { id: applicationId, tenantId }, select: { status: true, productId: true } })
     if (!application || application.status !== "SUBMITTED") return { status: "SKIPPED", reason: "application_not_submitted" }
     if (!config.productIds.includes(application.productId)) return { status: "SKIPPED", reason: "product_not_enabled" }
+    // A rehearsal never changes the live workflow: no review, no status change, no assignment, no bureau pull.
+    if (config.mode === "SHADOW") {
+      await runAutoDecision({ tenantId, applicationId, trigger: "DIGITAL_SUBMISSION" })
+      return { status: "REHEARSED" }
+    }
     const system = await findSystemUser(prisma, tenantId)
     if (!system) return { status: "SKIPPED", reason: "no_system_user" }
     const started = await startApplicationReview({ tenant: { id: tenantId }, user: system, id: applicationId, autoDecisionTrigger: "DIGITAL_SUBMISSION", assignToUser: false })

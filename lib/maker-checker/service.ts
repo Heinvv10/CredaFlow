@@ -127,12 +127,14 @@ export async function submit(scope: Scope & { id: string }, db: Db = prisma): Pr
     const handler = handlerOrThrow(row.kind)
     mayMake(handler, scope.actor)
     if (row.makerId !== scope.actor.id) throw new ChangeRequestError("NOT_MAKER", "Only the person who drafted a change can submit it")
+    // A draft's format is whatever it was drafted under: it is never re-stamped by submitting. Editing it re-parses and re-stamps.
+    if (row.payloadVersion !== handler.payloadVersion) throw stale("This change was drafted under an older format. Edit it again to bring it up to date, or draft it afresh.")
     const payload = handler.parse(row.payload)
     await handler.verify?.(tx, scope.tenantId, payload)
     const baseRef = (await handler.baseRef?.(tx, scope.tenantId, payload)) ?? null
     const changed = await tx.changeRequest.updateMany({
       where: { id: row.id, tenantId: scope.tenantId, status: "DRAFT" },
-      data: { status: "SUBMITTED", submittedAt: new Date(), baseRef, payloadVersion: handler.payloadVersion },
+      data: { status: "SUBMITTED", submittedAt: new Date(), baseRef },
     })
     if (changed.count !== 1) throw new ChangeRequestError("WRONG_STATE", "Only a draft can be submitted")
     const submitted = await load(tx, scope.tenantId, row.id)

@@ -590,3 +590,30 @@ describe("DELETE /api/settings/users/[id]", () => {
     })
   })
 })
+
+describe("the automated decisioning account (isSystem)", () => {
+  it("a SUPER_ADMIN cannot edit it (PATCH 403), and nothing is written", async () => {
+    signedIn("SUPER_ADMIN")
+    target("LOAN_ADMIN", { isSystem: true })
+    const res = await patch({ password: "a-new-long-password-1", active: true })
+    expect(res.status).toBe(403)
+    expect(h.userUpdate).not.toHaveBeenCalled()
+  })
+
+  it("nor remove it (DELETE 403)", async () => {
+    signedIn("SUPER_ADMIN")
+    target("LOAN_ADMIN", { isSystem: true })
+    const res = await del()
+    expect(res.status).toBe(403)
+    expect(h.userDelete).not.toHaveBeenCalled()
+  })
+
+  it("the locked re-check refuses it even if the first read missed the flag", async () => {
+    signedIn("SUPER_ADMIN")
+    target("LOAN_ADMIN", { isSystem: false })
+    locked.target = { id: "target-1", role: "LOAN_ADMIN", active: false, isSystem: true } as never
+    const res = await patch({ name: "Renamed" })
+    expect(res.status).toBe(403)
+    expect(h.userUpdate).not.toHaveBeenCalled()
+  })
+})

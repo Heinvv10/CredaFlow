@@ -257,4 +257,48 @@ suite("maker-checker (real Postgres)", () => {
     await sql(`UPDATE "LoanApplication" SET "riskGrade"='A', "riskGradedAt"=now(), "riskGradeVersionId"='${version.id}', "riskGradeRank"=0, "riskScore"=9, "riskPricingTier"='PRIME' WHERE "id"='${app.id}'`)
     expect(await db.loanApplication.findUniqueOrThrow({ where: { id: app.id } })).toMatchObject({ riskGrade: "A", riskGradeRank: 0, riskPricingTier: "PRIME" })
   })
+
+  const approvedSettings = async (title: string, over: Record<string, unknown>, by: "checker" | "checker2" = "checker") => {
+    const d = await createDraft({ tenantId: lender.tenantId, actor: asMaker(lender), kind: "DECISION_ENGINE_CONFIG", title, payload: engineConfig(over) })
+    await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id })
+    await approve({ tenantId: lender.tenantId, actor: by === "checker" ? asChecker(lender) : asChecker2(lender), id: d.id })
+    return d.id
+  }
+  const NOTICE = "This decision was made by automated means; you may ask for a person to review it."
+  const rewrite = (set: string, requestId: string) => sql(`UPDATE "DecisionEngineConfig" SET ${set}, "changeRequestId" = '${requestId}' WHERE "tenantId" = '${lender.tenantId}'`)
+
+  it("the engine-settings trigger holds what was approved: the mode, the repayment method, the share and the sign-off", async () => {
+    const older = await approvedSettings("Shadow, staff channel", { mode: "SHADOW" })
+    await approvedSettings("Off", { mode: "OFF", channels: [], productIds: [] })
+    // The older request is approved and is not the row's current one, but it approved SHADOW with no share and no sign-off.
+    expect(await refusal(rewrite(`"mode" = 'LIVE'`, older))).toContain("must match the approved change request")
+    expect(await refusal(rewrite(`"repaymentMethod" = 'DEBIT_ORDER'`, older))).toContain("must match the approved change request")
+    expect(await refusal(rewrite(`"challengerPercent" = 10`, older))).toContain("must match the approved change request")
+    expect(await refusal(rewrite(`"s71SignedOffAt" = now(), "s71SignedOffById" = '${lender.checkerId}', "automatedDeclineNotice" = '${NOTICE}'`, older))).toContain("must match the approved change request")
+  })
+
+  it("a sign-off is recorded against the checker who approved it; anyone else's name is refused", async () => {
+    const first = await approvedSettings("Sign-off A", { mode: "SHADOW", s71SignOff: true, automatedDeclineNotice: NOTICE }, "checker2")
+    await approvedSettings("Sign-off B", { mode: "SHADOW", s71SignOff: true, automatedDeclineNotice: `${NOTICE} Contact us.` }, "checker2")
+    expect((await db.decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: lender.tenantId } })).s71SignedOffById).toBe(lender.checker2Id)
+    // Request A's checker was checker2, and the row's current sign-off is checker2's too: naming anyone else is a forgery.
+    expect(await refusal(rewrite(`"s71SignedOffById" = '${lender.makerId}'`, first))).toContain("recorded against the checker who approved the change")
+    expect(await refusal(rewrite(`"s71SignedOffById" = '${lender.checkerId}'`, first))).toContain("recorded against the checker who approved the change")
+    // Carrying the existing name over, or the approving checker's own, is not.
+    await rewrite(`"s71SignedOffById" = '${lender.checker2Id}'`, first)
+  })
+
+  it("an older-format draft cannot be submitted (STALE 409); editing it brings it up to date", async () => {
+    const d = await draft({ name: "Old format" })
+    await sql(`UPDATE "ChangeRequest" SET "payloadVersion" = 0 WHERE "id" = '${d.id}'`)
+    await expect(submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id })).rejects.toMatchObject({ code: "STALE", status: 409 })
+    await updateDraft({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id, payload: payload({ name: "Old format, re-entered" }) })
+    expect((await db.changeRequest.findUniqueOrThrow({ where: { id: d.id } })).payloadVersion).toBe(1)
+    expect((await submit({ tenantId: lender.tenantId, actor: asMaker(lender), id: d.id })).status).toBe("SUBMITTED")
+  })
+
+  it("the system user must be LOAN_ADMIN, and the database refuses another role", async () => {
+    const system = await db.user.findFirstOrThrow({ where: { tenantId: lender.tenantId, isSystem: true } })
+    expect(await refusal(sql(`UPDATE "User" SET "role" = 'READONLY' WHERE "id" = '${system.id}'`))).toContain("User_system_no_login")
+  })
 })

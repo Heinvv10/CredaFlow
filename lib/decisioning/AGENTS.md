@@ -39,8 +39,22 @@ applications only for the same `riskGradeVersionId`. `getRiskGrade` reads it.
   (`automated-declines.ts`) and can be reopened (`human-review.ts`). The client
   notice is the lender's own approved text (`notice.ts`); we ship none, only a
   draft prompt that cannot be saved. TODO for the lender's legal team.
-- **Digital submissions** are reviewed and decided after the response
-  (`schedule-digital.ts`, `digital-submission.ts`) when the lender covers PORTAL.
+- **Digital submissions**: a due row (`AutoDecisionDue`) is written BEFORE the
+  after-response task is scheduled; the task or, if it is lost, the sweep
+  (`/api/cron/digital-decisions`, every 5 min, rows are claimed) runs the review
+  (`digital-due.ts`). Only LIVE reviews (as the system user, unassigned); SHADOW
+  rehearses from bureau data already on file (no review, no status change, no paid
+  pull; none on file: a `NO_BUREAU` run). Paid pulls are capped per client (3) and per
+  address (10) per day: past it the application stays with staff (`RATE_LIMITED`).
+- **A person's look-again is final**: `humanReviewRequestedAt` (set by the reopen,
+  which also starts a fresh bureau generation and clears the reckless-lending
+  attestation) stops the engine deciding that application again. Reopen and the
+  client notice apply only while the CURRENT decline is the system user's; the
+  notice is the wording stored on that run, not a later edit.
+- **SoD for an engine approval**: the people whose attestations it rested on
+  (reckless-lending, income, bureau override) cannot disburse it
+  (`segregationOfDutiesConflict`, trigger `guardLoanApplicationSegregationOfDuties`).
+- The system user is hidden from user lists and refused by every user-write route.
 - **Facts** (`facts.ts`, `load-facts.ts`): affordability reuses the approval's own
   arithmetic, unrounded; bureau flags are null (not false) without a bureau
   check; a missing fact matches no comparison (only `isNull`).

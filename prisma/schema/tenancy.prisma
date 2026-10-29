@@ -71,6 +71,7 @@ model Tenant {
   assetTheftReports          AssetTheftReport[]
   attorneyFirms              AttorneyFirm[]
   auditLogs                  AuditLog[]
+  autoDecisionDues           AutoDecisionDue[]
   autoDecisionRuns           AutoDecisionRun[]
   automationLogs             AutomationLog[]
   automationPauses           AutomationPause[]

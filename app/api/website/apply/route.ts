@@ -3,7 +3,7 @@ import { requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
 import { dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { getTenantFromRequest } from "@/lib/tenant"
-import { checkRateLimit, callerIp } from "@/lib/rate-limit"
+import { checkRateLimit, callerIp, recordedCallerIp } from "@/lib/rate-limit"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/referrals"
 import { AuditAction } from "@/lib/audit"
@@ -1532,7 +1532,7 @@ export async function POST(req: NextRequest) {
       const submittedApplicationId = applicationId
       deferAfterResponse(() => screenOnSubmit({ tenantId: tenant.id, applicationId: submittedApplicationId, actor: null }))
       // The lender's decision engine, when it covers the portal channel: reviewed and decided after this response.
-      scheduleDigitalDecision({ tenantId: tenant.id, applicationId: submittedApplicationId })
+      await scheduleDigitalDecision({ tenantId: tenant.id, applicationId: submittedApplicationId, ip: recordedCallerIp(req) })
     }
 
     return NextResponse.json({ success: true, reference: responseReference, applicationId, portalAccountStatus })

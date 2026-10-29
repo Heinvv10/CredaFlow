@@ -22,9 +22,9 @@ export async function PATCH(req: NextRequest) {
   }
   return withTenantContext(req, async (tenant) => {
     // The same gate as Settings → Users, except that a peer may toggle a peer: this is a flag, not an account edit.
-    const target = await prisma.user.findFirst({ where: { id: body.userId, tenantId: tenant.id }, select: { role: true } })
+    const target = await prisma.user.findFirst({ where: { id: body.userId, tenantId: tenant.id }, select: { role: true, isSystem: true } })
     if (!target) return NextResponse.json({ error: "not found" }, { status: 404 })
-    const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetId: body.userId, targetRole: target.role, assignedRole: undefined, allowPeer: true })
+    const refused = await refuseStaffUserWrite(guard.user, { tenantId: tenant.id, targetId: body.userId, targetRole: target.role, assignedRole: undefined, allowPeer: true, targetIsSystem: target.isSystem })
     if (refused) return refused
     // Re-checked on the locked rows: the member's role may have changed since.
     const res = await prisma.$transaction(async (tx) => {

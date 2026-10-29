@@ -1,6 +1,6 @@
 -- Maker-checker change requests and business-configurable decisioning (A4).
--- Additive: new tables, nullable LoanApplication.risk* columns and User.isSystem (default false).
--- No existing row is touched.
+-- Additive: new tables, nullable LoanApplication.risk*/humanReviewRequestedAt columns and User.isSystem (default false).
+-- No existing row is touched. The one replaced function is guardLoanApplicationSegregationOfDuties (adds a check).
 
 -- CreateEnum
 CREATE TYPE "DecisionEngineMode" AS ENUM ('OFF', 'SHADOW', 'LIVE');
@@ -18,7 +18,8 @@ CREATE TYPE "AutoDecisionExecution" AS ENUM ('APPROVED', 'DECLINED', 'REFERRED',
 CREATE TYPE "ChangeRequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'WITHDRAWN');
 
 -- AlterTable
-ALTER TABLE "LoanApplication" ADD COLUMN     "riskGrade" TEXT,
+ALTER TABLE "LoanApplication" ADD COLUMN     "humanReviewRequestedAt" TIMESTAMP(3),
+ADD COLUMN     "riskGrade" TEXT,
 ADD COLUMN     "riskGradeRank" INTEGER,
 ADD COLUMN     "riskGradeVersionId" TEXT,
 ADD COLUMN     "riskGradedAt" TIMESTAMP(3),
@@ -83,9 +84,26 @@ CREATE TABLE "AutoDecisionRun" (
     "executionNote" TEXT,
     "latencyMs" INTEGER NOT NULL,
     "submissionLatencyMs" INTEGER,
+    "noticeText" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AutoDecisionRun_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AutoDecisionDue" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "applicationId" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "ip" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "claimedAt" TIMESTAMP(3),
+    "completedAt" TIMESTAMP(3),
+    "outcome" TEXT,
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "AutoDecisionDue_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -138,6 +156,18 @@ CREATE INDEX "AutoDecisionRun_tenantId_createdAt_idx" ON "AutoDecisionRun"("tena
 CREATE UNIQUE INDEX "AutoDecisionRun_tenantId_id_key" ON "AutoDecisionRun"("tenantId", "id");
 
 -- CreateIndex
+CREATE INDEX "AutoDecisionDue_tenantId_completedAt_createdAt_idx" ON "AutoDecisionDue"("tenantId", "completedAt", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "AutoDecisionDue_tenantId_clientId_createdAt_idx" ON "AutoDecisionDue"("tenantId", "clientId", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AutoDecisionDue_tenantId_applicationId_key" ON "AutoDecisionDue"("tenantId", "applicationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AutoDecisionDue_tenantId_id_key" ON "AutoDecisionDue"("tenantId", "id");
+
+-- CreateIndex
 CREATE INDEX "ChangeRequest_tenantId_kind_status_idx" ON "ChangeRequest"("tenantId", "kind", "status");
 
 -- CreateIndex
@@ -163,6 +193,9 @@ ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_tenantId_fkey" FOR
 
 -- AddForeignKey
 ALTER TABLE "AutoDecisionRun" ADD CONSTRAINT "AutoDecisionRun_tenantId_ruleSetVersionId_fkey" FOREIGN KEY ("tenantId", "ruleSetVersionId") REFERENCES "DecisionRuleSetVersion"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "AutoDecisionDue" ADD CONSTRAINT "AutoDecisionDue_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ChangeRequest" ADD CONSTRAINT "ChangeRequest_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -217,7 +250,7 @@ BEGIN
     RETURN NEW;
   END IF;
   allowed := CASE OLD."status"::TEXT || '>' || NEW."status"::TEXT
-    WHEN 'DRAFT>DRAFT' THEN ARRAY['title', 'payload', 'updatedAt']
+    WHEN 'DRAFT>DRAFT' THEN ARRAY['title', 'payload', 'payloadVersion', 'updatedAt']
     WHEN 'DRAFT>SUBMITTED' THEN ARRAY['status', 'submittedAt', 'baseRef', 'updatedAt']
     WHEN 'DRAFT>WITHDRAWN' THEN ARRAY['status', 'decidedAt', 'decisionNote', 'updatedAt']
     WHEN 'SUBMITTED>APPROVED' THEN ARRAY['status', 'checkerId', 'decidedAt', 'decisionNote', 'appliedAt', 'updatedAt']
@@ -283,14 +316,38 @@ ALTER TABLE "DecisionEngineConfig" ADD CONSTRAINT "DecisionEngineConfig_s71_sign
 -- each change is a new request: the row cannot be edited under the request that last wrote it.
 CREATE OR REPLACE FUNCTION public."guardDecisionEngineConfig"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
+DECLARE
+  req RECORD;
+  carried TEXT;
 BEGIN
   IF TG_OP = 'UPDATE' AND NEW."changeRequestId" IS NOT DISTINCT FROM OLD."changeRequestId" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Decision engine settings change only with a newly approved DECISION_ENGINE_CONFIG change request';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM "ChangeRequest" c
-      WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."changeRequestId"
-        AND c."kind" = 'DECISION_ENGINE_CONFIG' AND c."status" = 'APPROVED') THEN
+  SELECT c."payload", c."checkerId" INTO req FROM "ChangeRequest" c
+    WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."changeRequestId"
+      AND c."kind" = 'DECISION_ENGINE_CONFIG' AND c."status" = 'APPROVED';
+  IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Decision engine settings are written only by an approved DECISION_ENGINE_CONFIG change request';
+  END IF;
+  -- What was approved is what is written: the mode, repayment method, challenger share and the s71 sign-off.
+  IF NEW."mode"::TEXT IS DISTINCT FROM req."payload" ->> 'mode'
+    OR NEW."repaymentMethod"::TEXT IS DISTINCT FROM req."payload" ->> 'repaymentMethod'
+    OR NEW."challengerPercent" IS DISTINCT FROM (req."payload" ->> 'challengerPercent')::INTEGER
+    OR (NEW."s71SignedOffAt" IS NOT NULL) IS DISTINCT FROM COALESCE((req."payload" ->> 's71SignOff')::BOOLEAN, false)
+  THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Decision engine settings must match the approved change request''s payload';
+  END IF;
+  -- The sign-off is given by the checker who approved it, or carried over unchanged. An upsert reaches this as an
+  -- INSERT first (ON CONFLICT), so the existing row's value is read for that case.
+  IF TG_OP = 'UPDATE' THEN
+    carried := OLD."s71SignedOffById";
+  ELSE
+    SELECT e."s71SignedOffById" INTO carried FROM "DecisionEngineConfig" e WHERE e."tenantId" = NEW."tenantId";
+  END IF;
+  IF NEW."s71SignedOffById" IS NOT NULL AND NEW."s71SignedOffById" IS DISTINCT FROM req."checkerId"
+    AND NEW."s71SignedOffById" IS DISTINCT FROM carried
+  THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The s71 sign-off is recorded against the checker who approved the change';
   END IF;
   RETURN NEW;
 END;
@@ -339,7 +396,7 @@ ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_risk_grade_shape" 
 );
 
 -- The per-lender automated decisioning actor never signs in: inactive, no usable password, one per lender.
-ALTER TABLE "User" ADD CONSTRAINT "User_system_no_login" CHECK (NOT "isSystem" OR ("active" = false AND "password" = '!' AND "tenantId" IS NOT NULL));
+ALTER TABLE "User" ADD CONSTRAINT "User_system_no_login" CHECK (NOT "isSystem" OR ("active" = false AND "password" = '!' AND "role" = 'LOAN_ADMIN' AND "tenantId" IS NOT NULL));
 CREATE UNIQUE INDEX "User_one_system_per_tenant" ON "User" ("tenantId") WHERE "isSystem";
 
 -- Tenant isolation (as 20261015130000_tenant_rls_new_scoped_models) ----------
@@ -359,3 +416,102 @@ CREATE POLICY "tenant_isolation" ON "DecisionEngineConfig" USING (public.cf_rls_
 ALTER TABLE "AutoDecisionRun" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AutoDecisionRun" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "AutoDecisionRun" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+-- AutoDecisionDue ---------------------------------------------------------------
+
+ALTER TABLE "AutoDecisionDue" ADD CONSTRAINT "AutoDecisionDue_attempts" CHECK ("attempts" >= 0);
+ALTER TABLE "AutoDecisionDue" ADD CONSTRAINT "AutoDecisionDue_ip" CHECK ("ip" IS NULL OR length("ip") <= 64);
+-- A finished entry says how it ended; an open one has no outcome.
+ALTER TABLE "AutoDecisionDue" ADD CONSTRAINT "AutoDecisionDue_outcome" CHECK (("completedAt" IS NULL) = ("outcome" IS NULL));
+
+ALTER TABLE "AutoDecisionDue" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AutoDecisionDue" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "AutoDecisionDue" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+-- Segregation of duties for a system approval (lib/decisioning/): the engine approved it, so the people whose
+-- attestations the approval rested on (the reckless-lending assessor, the income verifier, the bureau-override
+-- giver) cannot also disburse it. guardLoanApplicationSegregationOfDuties as of 20261016200200, plus that check.
+CREATE OR REPLACE FUNCTION public."guardLoanApplicationSegregationOfDuties"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  disbursing BOOLEAN;
+  countersigning BOOLEAN;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW."disbursedById" IS NOT NULL THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'The staff member who disbursed an application is recorded only with the DISBURSED transition';
+    END IF;
+    disbursing := NEW."status" = 'DISBURSED'::"AppStatus";
+    countersigning := NEW."agreementCountersignedAt" IS NOT NULL;
+  ELSE
+    disbursing := NEW."status" = 'DISBURSED'::"AppStatus"
+      AND OLD."status" IS DISTINCT FROM 'DISBURSED'::"AppStatus";
+    countersigning := OLD."agreementCountersignedAt" IS NULL
+      AND NEW."agreementCountersignedAt" IS NOT NULL;
+    IF NEW."disbursedById" IS DISTINCT FROM OLD."disbursedById" AND NOT disbursing THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'The staff member who disbursed an application is recorded only with the DISBURSED transition';
+    END IF;
+  END IF;
+
+  IF disbursing AND NEW."disbursedById" IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM "User" u
+    WHERE u."id" = NEW."disbursedById"
+      AND u."tenantId" = NEW."tenantId"
+      AND u."active" = TRUE
+      AND u."role" IN (
+        'LOAN_ADMIN'::"UserRole",
+        'BRANCH_MANAGER'::"UserRole",
+        'ADMIN'::"UserRole",
+        'SUPER_ADMIN'::"UserRole"
+      )
+  ) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'A disbursement is recorded against an active staff member of the application tenant who may disburse';
+  END IF;
+
+  IF NEW."entityId" IS NOT NULL OR EXISTS (
+    SELECT 1 FROM "AssetFinanceDeal" d WHERE d."applicationId" = NEW."id" AND d."tenantId" = NEW."tenantId"
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  IF disbursing AND "tenantRequiresSegregationOfDuties"(NEW."tenantId") THEN
+    IF NEW."disbursedById" IS NULL OR LENGTH(BTRIM(NEW."disbursedById")) = 0 THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'Segregation of duties: a disbursement must record the staff member who made it';
+    END IF;
+    IF NEW."disbursedById" = NEW."approvedById" THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'Segregation of duties: the staff member who approved an application cannot disburse it';
+    END IF;
+    IF NEW."disbursedById" IN (NEW."recklessLendingAssessedById", NEW."incomeVerifiedById", NEW."bureauOverrideById")
+      AND EXISTS (SELECT 1 FROM "User" a WHERE a."id" = NEW."approvedById" AND a."tenantId" = NEW."tenantId" AND a."isSystem")
+    THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'Segregation of duties: the engine approved this application on the attestation of the staff member who would disburse it';
+    END IF;
+  END IF;
+
+  IF countersigning
+    AND NEW."agreementSignedMethod" = 'branch'
+    AND NEW."agreementSignedByUserId" = NEW."agreementCountersignedById"
+    AND "tenantRequiresSegregationOfDuties"(NEW."tenantId")
+  THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'Segregation of duties: the staff witness of the in-branch signature cannot countersign for the provider';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;

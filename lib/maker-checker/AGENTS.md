@@ -42,6 +42,8 @@ consumers: decision rule sets and engine settings (`lib/decisioning/`).
   is `STALE` (409). Approvals of one kind per lender are serialised by an advisory
   lock, so the check and `apply` see one state. Use it wherever "approve over a
   newer change" would silently undo it (versions, settings).
+- **Older drafts**: a draft whose `payloadVersion` is not the handler's cannot be
+  submitted or approved (`STALE`, 409); editing its payload re-stamps it.
 - **The payload is frozen at submission** (trigger `guardChangeRequest`); no
   delete, no truncate; a mistake is a new request.
 - **Provenance for what `apply` writes**: the table should refuse rows no approved

@@ -56,6 +56,7 @@ import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { listAutomatedDeclines } from "./automated-declines"
 import { runAutoDecision } from "./auto-decision"
+import { markDigitalDecisionDue, runDigitalDue, sweepDigitalDecisions } from "./digital-due"
 import { reviewDigitalSubmission } from "./digital-submission"
 import { HumanReviewError, requestHumanReview } from "./human-review"
 import { ENGINE_CONFIG_KIND, RULE_SET_KIND } from "./change-payloads"
@@ -219,6 +220,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     await db.$transaction([
       db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
       db.autoDecisionRun.deleteMany({ where: { tenantId } }),
+      db.autoDecisionDue.deleteMany({ where: { tenantId } }),
       db.creditDecisionRecord.deleteMany({ where: { tenantId } }),
       db.auditLog.deleteMany({ where: { tenantId } }),
       db.webhookEvent.deleteMany({ where: { tenantId } }),
@@ -316,8 +318,18 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ event: "application_declined", loanId: "dec-decline" }))
     const runRow = await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-decline", execution: "DECLINED" } })
     expect(runRow.id).toBe(outcome.status === "RAN" ? outcome.runId : "")
+    // The wording in force at the decline is stored on the run, and is what the client is sent.
     expect(await automatedDeclineNoticeFor(ids.tenant, "dec-decline")).toBe(NOTICE)
+    expect(runRow.noticeText).toBe(NOTICE)
     expect(await automatedDeclineNoticeFor(ids.tenant, "dec-approve")).toBeNull()
+    // A later edit of the wording does not change what this client was told.
+    await db.$executeRawUnsafe(`ALTER TABLE "DecisionEngineConfig" DISABLE TRIGGER "DecisionEngineConfig_guard"`)
+    await db.$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "automatedDeclineNotice" = 'A different paragraph the lender approved later on.' WHERE "tenantId" = '${ids.tenant}'`)
+    await db.$executeRawUnsafe(`ALTER TABLE "DecisionEngineConfig" ENABLE TRIGGER "DecisionEngineConfig_guard"`)
+    expect(await automatedDeclineNoticeFor(ids.tenant, "dec-decline")).toBe(NOTICE)
+    await db.$executeRawUnsafe(`ALTER TABLE "DecisionEngineConfig" DISABLE TRIGGER "DecisionEngineConfig_guard"`)
+    await db.$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "automatedDeclineNotice" = '${NOTICE}' WHERE "tenantId" = '${ids.tenant}'`)
+    await db.$executeRawUnsafe(`ALTER TABLE "DecisionEngineConfig" ENABLE TRIGGER "DecisionEngineConfig_guard"`)
   })
 
   it("a client's request for a person to look again reopens an automated decline to UNDER_REVIEW, audited and recorded; nothing else can be reopened", async () => {
@@ -331,6 +343,20 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     const record = await db.creditDecisionRecord.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-decline", decision: "RETURN_TO_REVIEW" } })
     expect(record).toMatchObject({ actorType: "STAFF", actorUserId: ids.officer })
     await expect(requestHumanReview({ tenantId: ids.tenant, applicationId: "dec-decline", actor: officer, reason: "Client asked again for a review" })).rejects.toMatchObject({ code: "NOT_DECLINED" })
+    // A fresh review cycle, as a return to review: no reckless-lending attestation or bureau generation carries over.
+    const reopened = await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-decline" } })
+    expect(reopened).toMatchObject({ recklessLendingAssessed: false, recklessLendingAssessedById: null })
+    expect(reopened.humanReviewRequestedAt).not.toBeNull()
+    // The engine never decides it again, in either mode.
+    expect(await run("dec-decline")).toEqual({ status: "SKIPPED", reason: "human_review_requested" })
+  })
+
+  it("a person's decline after an engine decline is a person's decision: no automated notice, no human-review reopen, not in the queue as automated", async () => {
+    const officer = { id: ids.officer, email: `${ids.officer}@test.invalid`, role: "LOAN_ADMIN" }
+    // The reopened application is declined by a person (the officer), as staff would.
+    await db.loanApplication.update({ where: { id: "dec-decline" }, data: { status: "DECLINED", approvedById: ids.officer, approvedAt: new Date(), decisionReason: "Declined by a person", declineCategory: "AFFORDABILITY" } })
+    expect(await automatedDeclineNoticeFor(ids.tenant, "dec-decline")).toBeNull()
+    await expect(requestHumanReview({ tenantId: ids.tenant, applicationId: "dec-decline", actor: officer, reason: "Client asked for a review again" })).rejects.toMatchObject({ code: "NOT_AUTOMATED" })
   })
 
   it("refers when a refer rule fires: the application stays with staff, and the code says why", async () => {
@@ -410,9 +436,11 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(report.snapshotBacked).toBeGreaterThan(0)
     expect(report.liveRuleSet).toBe("ALL:v1")
     expect(report.sampled).toBeGreaterThanOrEqual(7)
-    expect(report.withBureau).toBe(report.sampled)
+    // The reopened application has a fresh review cycle and no bureau check of it yet.
+    expect(report.withBureau).toBe(report.sampled - 1)
     // Live (v1): the 640s approve, 520 declines, the 700k amount refers. Candidate: everything under 650 declines.
-    expect(report.live).toMatchObject({ DECLINE: 1, REFER: 1 })
+    // (the reopened application has no bureau check of its new cycle, so it no longer declines)
+    expect(report.live).toMatchObject({ DECLINE: 0, REFER: 1 })
     expect(report.candidate.DECLINE).toBeGreaterThan(report.live!.DECLINE)
     expect(report.changes).toContainEqual(expect.objectContaining({ from: "APPROVE", to: "DECLINE" }))
     expect(report.ruleHits).toEqual([expect.objectContaining({ ruleId: "bureau-650", hits: report.candidate.DECLINE })])
@@ -447,6 +475,68 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     latencies.push(runRow.submissionLatencyMs ?? 0)
     // Not submitted any more: nothing to review.
     expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-digital" })).toEqual({ status: "SKIPPED", reason: "application_not_submitted" })
+  })
+
+  it("SHADOW on a digital submission rehearses only: status, assignment and bureau data are untouched, and no review is started", async () => {
+    await approveChange(ENGINE_CONFIG_KIND, "Shadow, digital", engine({ mode: "SHADOW", channels: ["PORTAL", "STAFF"], ...signOff }))
+    await underReview("dec-shadow-digital", { bureauScore: 640 })
+    await db.loanApplication.update({ where: { id: "dec-shadow-digital" }, data: { status: "SUBMITTED", assignedToId: null } })
+    await db.auditLog.create({ data: { tenantId: ids.tenant, action: "APPLICATION_SUBMITTED_BY_CLIENT", entity: "LoanApplication", entityId: "dec-shadow-digital", newValue: {} } })
+    const checksBefore = await db.creditBureauCheck.count({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-digital" } })
+    bureauStub.run = async () => { throw new Error("a shadow rehearsal must never start a bureau review") }
+    expect(await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-shadow-digital" })).toEqual({ status: "REHEARSED" })
+    expect(await db.loanApplication.findUniqueOrThrow({ where: { id: "dec-shadow-digital" } })).toMatchObject({ status: "SUBMITTED", assignedToId: null, riskGrade: null })
+    expect(await db.creditBureauCheck.count({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-digital" } })).toBe(checksBefore)
+    expect(await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-digital" } })).toMatchObject({ mode: "SHADOW", trigger: "DIGITAL_SUBMISSION", execution: "NOT_ACTED", verdict: "APPROVE" })
+    // No bureau data on file for another client: a no_bureau rehearsal, never a score.
+    await underReview("dec-shadow-nobureau", { bureauScore: 640 })
+    await db.creditBureauCheck.deleteMany({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-nobureau" } })
+    await db.loanApplication.update({ where: { id: "dec-shadow-nobureau" }, data: { status: "SUBMITTED" } })
+    await reviewDigitalSubmission({ tenantId: ids.tenant, applicationId: "dec-shadow-nobureau" })
+    expect(await db.autoDecisionRun.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-shadow-nobureau" } })).toMatchObject({ verdict: "REFER", reasonCodes: ["NO_BUREAU"], riskGrade: null })
+  })
+
+  it("a due row written before the task is scheduled lets the sweep run a review whose task was lost, once, and the daily limit stops spam", async () => {
+    await approveChange(ENGINE_CONFIG_KIND, "Live, digital", engine({ mode: "LIVE", channels: ["PORTAL", "STAFF"], ...signOff }))
+    bureauStub.run = async ({ applicationId, clientId, reviewGeneration }) => {
+      const client = await db.client.findUniqueOrThrow({ where: { id: clientId } })
+      await db.creditBureauCheck.create({ data: { tenantId: ids.tenant, clientId, applicationId, reviewGeneration, subjectFingerprint: bureauSubjectFingerprint(client), provider: "experian", score: 640, riskGrade: "LOW", adverseInfo: [], declineReasons: [], obligations: { totalMonthly: 0 }, ok: true } })
+      return "completed"
+    }
+    await underReview("dec-swept", { bureauScore: 640, submittedAgoMs: 600_000 })
+    await db.loanApplication.update({ where: { id: "dec-swept" }, data: { status: "SUBMITTED" } })
+    expect(await markDigitalDecisionDue({ tenantId: ids.tenant, applicationId: "dec-swept", ip: "203.0.113.9" })).toBe(true)
+    // The after-response task never ran. A fresh row is left alone; one past the grace period is swept.
+    expect(await sweepDigitalDecisions()).toMatchObject({ swept: 0 })
+    await db.$executeRawUnsafe(`UPDATE "AutoDecisionDue" SET "createdAt" = now() - interval '10 minutes' WHERE "tenantId" = '${ids.tenant}' AND "applicationId" = 'dec-swept'`)
+    expect(await sweepDigitalDecisions()).toMatchObject({ swept: 1, failed: 0 })
+    expect(await db.autoDecisionRun.count({ where: { tenantId: ids.tenant, applicationId: "dec-swept", trigger: "DIGITAL_SUBMISSION" } })).toBe(1)
+    expect(await db.autoDecisionDue.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-swept" } })).toMatchObject({ outcome: "REVIEWED" })
+    // Swept again: nothing to do.
+    expect(await sweepDigitalDecisions()).toMatchObject({ swept: 0 })
+    // The daily limit: three completed reviews for one client in a day, and the next is refused with no bureau pull.
+    await underReview("dec-spam", { bureauScore: 640, clearFlags: false })
+    await db.loanApplication.update({ where: { id: "dec-spam" }, data: { status: "SUBMITTED" } })
+    for (let i = 0; i < 3; i++) {
+      await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `dec-earlier-${i}`, clientId: clientOf("dec-spam"), ip: "198.51.100.7", completedAt: new Date(), outcome: "REVIEWED" } })
+    }
+    const pulls = vi.fn(async () => "completed")
+    bureauStub.run = pulls
+    await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: "dec-spam", clientId: clientOf("dec-spam"), ip: "198.51.100.7", createdAt: new Date(Date.now() - 600_000) } })
+    await runDigitalDue({ tenantId: ids.tenant, applicationId: "dec-spam" })
+    expect(await db.autoDecisionDue.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-spam" } })).toMatchObject({ outcome: "RATE_LIMITED" })
+    expect(pulls).not.toHaveBeenCalled()
+    expect(await statusOf("dec-spam")).toBe("SUBMITTED")
+    // ...and ten for one address, whoever the client is.
+    for (let i = 0; i < 10; i++) {
+      await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: `dec-ip-${i}`, clientId: `other-client-${i}`, ip: "198.51.100.99", completedAt: new Date(), outcome: "REVIEWED" } })
+    }
+    await underReview("dec-ip", { bureauScore: 640, clearFlags: false })
+    await db.loanApplication.update({ where: { id: "dec-ip" }, data: { status: "SUBMITTED" } })
+    await db.autoDecisionDue.create({ data: { tenantId: ids.tenant, applicationId: "dec-ip", clientId: clientOf("dec-ip"), ip: "198.51.100.99", createdAt: new Date(Date.now() - 600_000) } })
+    await runDigitalDue({ tenantId: ids.tenant, applicationId: "dec-ip" })
+    expect(await db.autoDecisionDue.findFirstOrThrow({ where: { tenantId: ids.tenant, applicationId: "dec-ip" } })).toMatchObject({ outcome: "RATE_LIMITED" })
+    expect(pulls).not.toHaveBeenCalled()
   })
 
   it("decides well inside the 60 second target", () => {

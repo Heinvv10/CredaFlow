@@ -4,7 +4,9 @@
  * with no config row).
  *
  * While on, three pairs need two different staff members:
- *   - approving an application / disbursing it (disburse route);
+ *   - approving an application / disbursing it (disburse route); where the decision
+ *     engine approved it, the staff members whose attestations it rested on take the
+ *     approver's place (trigger guardLoanApplicationSegregationOfDuties);
  *   - witnessing the consumer's in-branch signature / countersigning for the
  *     provider (countersign route);
  *   - creating an asset-finance payout / approving it (lib/asset-finance/payout.ts).
@@ -22,6 +24,8 @@ export const SEGREGATION_OF_DUTIES_DEFAULT = true
 export const SEGREGATION_OF_DUTIES_REFUSALS = {
   approve_disburse:
     "Segregation of duties: you approved this application, so another staff member must disburse it.",
+  attester_disburse:
+    "Segregation of duties: the decision engine approved this application on your attestation (reckless-lending assessment, income verification or bureau override), so another staff member must disburse it.",
   branch_sign_countersign:
     "Segregation of duties: you witnessed the client's in-branch signature, so another staff member must countersign for the lender.",
 } as const
@@ -42,9 +46,26 @@ export async function isSegregationOfDutiesRequired(tenantId: string, db: Config
 export function segregationOfDutiesConflict(
   step: "disburse" | "countersign",
   actorId: string,
-  application: { approvedById?: string | null; agreementSignedMethod?: string | null; agreementSignedByUserId?: string | null },
+  application: {
+    approvedById?: string | null
+    /** The approver is the lender's automated decisioning account (User.isSystem). */
+    approvedBySystem?: boolean
+    recklessLendingAssessedById?: string | null
+    incomeVerifiedById?: string | null
+    bureauOverrideById?: string | null
+    agreementSignedMethod?: string | null
+    agreementSignedByUserId?: string | null
+  },
 ): SegregationOfDutiesPair | null {
-  if (step === "disburse") return application.approvedById === actorId ? "approve_disburse" : null
+  if (step === "disburse") {
+    if (application.approvedById === actorId) return "approve_disburse"
+    // The engine approved it, so no person approved: the people whose attestations it rested on take the approver's place.
+    if (application.approvedBySystem === true && actorId !== "") {
+      const attesters = [application.recklessLendingAssessedById, application.incomeVerifiedById, application.bureauOverrideById]
+      if (attesters.includes(actorId)) return "attester_disburse"
+    }
+    return null
+  }
   return application.agreementSignedMethod === "branch" && application.agreementSignedByUserId === actorId
     ? "branch_sign_countersign"
     : null

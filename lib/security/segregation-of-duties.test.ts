@@ -17,4 +17,28 @@ describe("segregationOfDutiesConflict", () => {
   it("has no witness to conflict with for a portal signature", () => {
     expect(segregationOfDutiesConflict("countersign", "witness", { ...application, agreementSignedMethod: "portal" })).toBeNull()
   })
+
+  describe("an application the decision engine approved (approved by the system user)", () => {
+    const engineApproved = { ...application, approvedById: "sys", approvedBySystem: true, recklessLendingAssessedById: "assessor", incomeVerifiedById: "verifier", bureauOverrideById: "overrider" }
+
+    it("the system user cannot disburse, as an approver cannot", () => {
+      expect(segregationOfDutiesConflict("disburse", "sys", engineApproved)).toBe("approve_disburse")
+    })
+
+    it.each(["assessor", "verifier", "overrider"])("the staff member whose attestation the approval rested on (%s) may not disburse it", (who) => {
+      expect(segregationOfDutiesConflict("disburse", who, engineApproved)).toBe("attester_disburse")
+    })
+
+    it("anyone else may", () => {
+      expect(segregationOfDutiesConflict("disburse", "someone-else", engineApproved)).toBeNull()
+    })
+
+    it("an application a person approved is judged by the original pair only: the attester may disburse what another approved", () => {
+      expect(segregationOfDutiesConflict("disburse", "assessor", { ...engineApproved, approvedBySystem: false, approvedById: "approver" })).toBeNull()
+    })
+
+    it("a missing attester never matches a missing actor", () => {
+      expect(segregationOfDutiesConflict("disburse", "", { ...engineApproved, recklessLendingAssessedById: null, incomeVerifiedById: null, bureauOverrideById: null })).toBeNull()
+    })
+  })
 })

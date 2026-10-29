@@ -10,7 +10,7 @@ import {
   totalAffordabilityDebt,
 } from "@/lib/affordability/snapshot"
 import { calculateCreditLifePremiumPeriods, createPasqBillingEvidence } from "@/lib/compliance/pasq"
-import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
+import { approvalBureauCheckUsableWhere, approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { calculateLoan } from "@/lib/loan-calculator"
 import type { prisma } from "@/lib/prisma"
@@ -21,7 +21,7 @@ type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureau
 
 export interface LoadedFacts {
   facts: DecisionFacts
-  application: { id: string; clientId: string; productId: string; status: string; updatedAt: Date; submittedAt: Date | null }
+  application: { id: string; clientId: string; productId: string; status: string; updatedAt: Date; submittedAt: Date | null; humanReviewRequestedAt: Date | null }
   /** The bureau check the facts read (an evidence reference for the decision log), if any. */
   bureauCheckId: string | null
   /** Whether affordability came from the application's recorded submission snapshot or was worked out from the records now. */
@@ -29,6 +29,12 @@ export interface LoadedFacts {
 }
 
 export interface LoadOptions {
+  /**
+   * Use only bureau data already on file for the client (the latest usable check,
+   * whatever review it was pulled for) and never wait for a review's own pull.
+   * For a rehearsal on an application nobody has started reviewing.
+   */
+  existingBureauOnly?: boolean
   /**
    * Read affordability from the submission snapshot recorded when the client
    * applied, where there is one (a simulation replays the numbers the decision
@@ -102,7 +108,12 @@ export async function loadDecisionFacts(db: Db, tenantId: string, applicationId:
   const client = application.client
 
   const config = await db.tenantConfig.findFirst({ where: { tenantId }, select: { bureauMaxAgeDays: true, ndiBufferPct: true } })
-  const bureau = application.bureauReviewGeneration
+  const bureau = options.existingBureauOnly
+    ? await db.creditBureauCheck.findFirst({
+        where: { tenantId, clientId: application.clientId, ...approvalBureauCheckUsableWhere({ maxAgeDays: bureauMaxAgeDays(config), now }) },
+        orderBy: { createdAt: "desc" },
+      })
+    : application.bureauReviewGeneration
     ? await db.creditBureauCheck.findFirst({
         where: approvalBureauCheckWhere({
           tenantId, applicationId, clientId: application.clientId,
@@ -182,7 +193,7 @@ export async function loadDecisionFacts(db: Db, tenantId: string, applicationId:
   }
   return {
     facts,
-    application: { id: application.id, clientId: application.clientId, productId: application.productId, status: application.status, updatedAt: application.updatedAt, submittedAt: application.submittedAt },
+    application: { id: application.id, clientId: application.clientId, productId: application.productId, status: application.status, updatedAt: application.updatedAt, submittedAt: application.submittedAt, humanReviewRequestedAt: application.humanReviewRequestedAt },
     bureauCheckId: bureau?.id ?? null,
     affordabilitySource: submission ? "SNAPSHOT" : "LIVE",
   }

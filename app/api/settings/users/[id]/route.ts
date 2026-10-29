@@ -48,7 +48,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // through audit logs and URLs).
     const existing = await prisma.user.findFirst({
       where: { id, tenantId: tenant.id },
-      select: { role: true, active: true, name: true, email: true },
+      select: { role: true, active: true, name: true, email: true, isSystem: true },
     })
     if (!existing) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
@@ -57,7 +57,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // unauthorised caller can't use the 409 to learn whether an email is
     // already registered.
     const refused = await refuseStaffUserWrite(guard.user, {
-      tenantId: tenant.id, targetId: id, targetRole: existing.role, assignedRole: role,
+      tenantId: tenant.id, targetId: id, targetRole: existing.role, assignedRole: role, targetIsSystem: existing.isSystem,
     })
     if (refused) return refused
 
@@ -217,6 +217,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       select: {
         id: true,
         role: true,
+        isSystem: true,
         // FAIS Fit & Proper (RE exam, licence, CPD hours) is itself a
         // regulatory record — its mere presence is operator-identity history,
         // so a user who has one is deactivated, never hard-deleted (which would
@@ -247,7 +248,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
     const refused = await refuseStaffUserWrite(guard.user, {
-      tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined,
+      tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined, targetIsSystem: target.isSystem,
     })
     if (refused) return refused
 

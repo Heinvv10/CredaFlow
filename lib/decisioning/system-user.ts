@@ -1,3 +1,4 @@
+import type { UserRole } from "@prisma/client"
 import type { Tx } from "@/lib/maker-checker/types"
 import type { prisma } from "@/lib/prisma"
 
@@ -8,7 +9,8 @@ export const SYSTEM_USER_PASSWORD = "!"
 export interface SystemUser {
   id: string
   email: string
-  role: "LOAN_ADMIN"
+  /** As stored: the database holds it at LOAN_ADMIN (CHECK User_system_no_login), but the decision path is told what the row says. */
+  role: UserRole
 }
 
 /**
@@ -21,8 +23,8 @@ export interface SystemUser {
  * Provisioned when engine settings are first approved (the change handler).
  */
 export async function ensureSystemUser(tx: Pick<Tx, "user">, tenantId: string): Promise<SystemUser> {
-  const existing = await tx.user.findFirst({ where: { tenantId, isSystem: true }, select: { id: true, email: true } })
-  if (existing) return { ...existing, role: "LOAN_ADMIN" }
+  const existing = await tx.user.findFirst({ where: { tenantId, isSystem: true }, select: { id: true, email: true, role: true } })
+  if (existing) return existing
   const created = await tx.user.create({
     data: {
       tenantId,
@@ -33,12 +35,11 @@ export async function ensureSystemUser(tx: Pick<Tx, "user">, tenantId: string): 
       active: false,
       isSystem: true,
     },
-    select: { id: true, email: true },
+    select: { id: true, email: true, role: true },
   })
-  return { ...created, role: "LOAN_ADMIN" }
+  return created
 }
 
 export async function findSystemUser(db: Pick<typeof prisma, "user">, tenantId: string): Promise<SystemUser | null> {
-  const user = await db.user.findFirst({ where: { tenantId, isSystem: true }, select: { id: true, email: true } })
-  return user ? { ...user, role: "LOAN_ADMIN" } : null
+  return db.user.findFirst({ where: { tenantId, isSystem: true }, select: { id: true, email: true, role: true } })
 }

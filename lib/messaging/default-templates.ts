@@ -73,6 +73,10 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     body: WABA_BODY_TEMPLATES.application_declined, bodyTemplate: WABA_BODY_TEMPLATES.application_declined,
   },
   {
+    key: "application_declined_automated_whatsapp", event: "application_declined_automated", channel: "WHATSAPP", category: "TRANSACTIONAL",
+    body: WABA_BODY_TEMPLATES.application_declined_automated, bodyTemplate: WABA_BODY_TEMPLATES.application_declined_automated,
+  },
+  {
     key: "application_submitted_email", event: "application_submitted", channel: "EMAIL", category: "TRANSACTIONAL",
     subject: "{{subject}}",
     body: "{{text}}",

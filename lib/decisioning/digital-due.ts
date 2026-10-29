@@ -1,0 +1,110 @@
+import { prisma } from "@/lib/prisma"
+import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
+
+/** An open row is left to its own after-response task for this long before the sweep takes it. */
+export const DIGITAL_SWEEP_AFTER_MINUTES = 3
+/** A claim older than this is a worker that died: the row is taken again. */
+export const DIGITAL_CLAIM_STALE_MINUTES = 10
+export const DIGITAL_MAX_ATTEMPTS = 5
+/** Finished rows only feed the daily limits; they are pruned after this long. */
+export const DIGITAL_DUE_RETENTION_DAYS = 30
+/**
+ * Automatic bureau pulls are paid for, and anyone can submit an application: past
+ * these in 24 hours the application stays with staff, with no pull. Per client and per
+ * submitting address (a client limit alone is walked around with new accounts).
+ */
+export const DIGITAL_REVIEWS_PER_CLIENT_PER_DAY = 3
+export const DIGITAL_REVIEWS_PER_IP_PER_DAY = 10
+const SWEEP_BATCH = 50
+
+const minutes = (n: number) => n * 60_000
+
+/**
+ * Records, before the after-response task is scheduled, that a digitally submitted
+ * application is due its automatic review; the task (or, if it is lost, the sweep)
+ * completes it. Only for a lender whose engine is on and covers the portal. True
+ * when a row exists (this call's or an earlier one's).
+ */
+export async function markDigitalDecisionDue(input: { tenantId: string; applicationId: string; clientId?: string; ip: string | null }): Promise<boolean> {
+  const config = await prisma.decisionEngineConfig.findUnique({ where: { tenantId: input.tenantId }, select: { mode: true, channels: true } })
+  if (!config || config.mode === "OFF" || !config.channels.includes("PORTAL")) return false
+  // A route that does not hold the client's id (the website form) leaves it to the application.
+  const clientId = input.clientId ?? (await prisma.loanApplication.findFirst({ where: { id: input.applicationId, tenantId: input.tenantId }, select: { clientId: true } }))?.clientId
+  if (!clientId) return false
+  try {
+    await prisma.autoDecisionDue.create({ data: { tenantId: input.tenantId, applicationId: input.applicationId, clientId, ip: input.ip } })
+  } catch (error) {
+    if ((error as { code?: string }).code !== "P2002") throw error
+  }
+  return true
+}
+
+async function complete(tenantId: string, applicationId: string, outcome: string, now: Date): Promise<void> {
+  await prisma.autoDecisionDue.updateMany({ where: { tenantId, applicationId, completedAt: null }, data: { completedAt: now, outcome } })
+}
+
+async function overDailyLimit(row: { tenantId: string; clientId: string; ip: string | null }, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - minutes(24 * 60))
+  const done = { tenantId: row.tenantId, outcome: "REVIEWED", completedAt: { gte: since } }
+  if ((await prisma.autoDecisionDue.count({ where: { ...done, clientId: row.clientId } })) >= DIGITAL_REVIEWS_PER_CLIENT_PER_DAY) return true
+  return row.ip !== null && (await prisma.autoDecisionDue.count({ where: { ...done, ip: row.ip } })) >= DIGITAL_REVIEWS_PER_IP_PER_DAY
+}
+
+/**
+ * Claims one due row and runs its review. Nothing is run for a row someone else
+ * holds or that is complete. An error leaves the row open (claimed), so the sweep
+ * retakes it once the claim goes stale.
+ */
+export async function runDigitalDue(input: { tenantId: string; applicationId: string; now?: Date }): Promise<void> {
+  const now = input.now ?? new Date()
+  const claimed = await prisma.autoDecisionDue.updateMany({
+    where: {
+      tenantId: input.tenantId, applicationId: input.applicationId, completedAt: null,
+      OR: [{ claimedAt: null }, { claimedAt: { lt: new Date(now.getTime() - minutes(DIGITAL_CLAIM_STALE_MINUTES)) } }],
+    },
+    data: { claimedAt: now, attempts: { increment: 1 } },
+  })
+  if (claimed.count !== 1) return
+  const row = await prisma.autoDecisionDue.findFirst({ where: { tenantId: input.tenantId, applicationId: input.applicationId }, select: { tenantId: true, clientId: true, ip: true } })
+  if (!row) return
+  try {
+    if (await overDailyLimit(row, now)) return await complete(input.tenantId, input.applicationId, "RATE_LIMITED", now)
+    const { reviewDigitalSubmission } = await import("./digital-submission")
+    const result = await reviewDigitalSubmission({ tenantId: input.tenantId, applicationId: input.applicationId })
+    await complete(input.tenantId, input.applicationId, result.status === "SKIPPED" ? result.reason : result.status === "REVIEW_REFUSED" ? `REVIEW_REFUSED_${result.httpStatus}` : result.status, now)
+  } catch (error) {
+    // TODO: use the structured logger once lib/observability/logger.ts lands (PR #252).
+    console.error("[auto-decision] digital review failed; the sweep will retry:", input.applicationId, error)
+  }
+}
+
+/** The cron's work: every open row older than the grace period that nobody holds, across lenders. */
+export async function sweepDigitalDecisions(input: { now?: Date } = {}): Promise<{ swept: number; gaveUp: number; failed: number; pruned: number }> {
+  const now = input.now ?? new Date()
+  const pruned = await withoutTenantScope(async () => await prisma.autoDecisionDue.deleteMany({ where: { completedAt: { lt: new Date(now.getTime() - minutes(DIGITAL_DUE_RETENTION_DAYS * 24 * 60)) } } }))
+  // Awaited inside the frame: a Prisma query is lazy and would otherwise run after the frame has closed.
+  const rows = await withoutTenantScope(async () => await prisma.autoDecisionDue.findMany({
+    where: {
+      completedAt: null,
+      createdAt: { lt: new Date(now.getTime() - minutes(DIGITAL_SWEEP_AFTER_MINUTES)) },
+      OR: [{ claimedAt: null }, { claimedAt: { lt: new Date(now.getTime() - minutes(DIGITAL_CLAIM_STALE_MINUTES)) } }],
+    },
+    orderBy: { createdAt: "asc" },
+    take: SWEEP_BATCH,
+  }))
+  const result = { swept: 0, gaveUp: 0, failed: 0, pruned: pruned.count }
+  for (const row of rows) {
+    if (row.attempts >= DIGITAL_MAX_ATTEMPTS) {
+      await runWithTenant(row.tenantId, () => complete(row.tenantId, row.applicationId, "GAVE_UP", now))
+      result.gaveUp += 1
+      continue
+    }
+    try {
+      await runWithTenant(row.tenantId, () => runDigitalDue({ tenantId: row.tenantId, applicationId: row.applicationId, now }))
+      result.swept += 1
+    } catch {
+      result.failed += 1
+    }
+  }
+  return result
+}

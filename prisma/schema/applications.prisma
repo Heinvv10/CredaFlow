@@ -177,6 +177,9 @@ model LoanApplication {
   riskGradeVersionId                      String?
   riskGradeRank                           Int?
   riskPricingTier                         String?
+  /// Set when a person asked for the automated decline to be looked at again (lib/decisioning/human-review.ts):
+  /// the decision engine never decides this application again.
+  humanReviewRequestedAt                  DateTime?
   riskGradeVersion                        DecisionRuleSetVersion? @relation("ApplicationRiskGradeVersion", fields: [tenantId, riskGradeVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt                               DateTime             @default(now())
   updatedAt                               DateTime             @updatedAt

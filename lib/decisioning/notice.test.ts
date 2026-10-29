@@ -1,33 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const db = vi.hoisted(() => ({ run: null as unknown, config: null as unknown }))
+const db = vi.hoisted(() => ({ run: null as unknown, app: null as unknown }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     autoDecisionRun: { findFirst: vi.fn(async () => db.run) },
-    decisionEngineConfig: { findUnique: vi.fn(async () => db.config) },
+    loanApplication: { findFirst: vi.fn(async () => db.app) },
   },
 }))
 
 import { automatedDeclineNoticeFor, DRAFT_AUTOMATED_DECLINE_NOTICE } from "./notice"
 
-const signedOff = { s71SignedOffAt: new Date("2026-10-01"), automatedDeclineNotice: "This decision was made by an automated process; you may ask for a person to review it." }
+const NOTICE = "This decision was made by automated means; you may ask for a person to review it."
+const systemDeclined = { status: "DECLINED", approvedBy: { isSystem: true } }
 
-beforeEach(() => { db.run = { id: "r1" }; db.config = signedOff })
+beforeEach(() => { db.app = systemDeclined; db.run = { id: "r1", noticeText: NOTICE } })
 
 describe("automatedDeclineNoticeFor", () => {
-  it("returns the lender's approved wording for an application the engine declined", async () => {
-    expect(await automatedDeclineNoticeFor("t", "a")).toBe(signedOff.automatedDeclineNotice)
+  it("returns the wording that was in force when the engine declined this application", async () => {
+    expect(await automatedDeclineNoticeFor("t", "a")).toBe(NOTICE)
   })
-  it("returns nothing for an application a person declined", async () => {
+  it("returns nothing for an application a person declined (even if the engine declined it earlier)", async () => {
+    db.app = { status: "DECLINED", approvedBy: { isSystem: false } }
+    expect(await automatedDeclineNoticeFor("t", "a")).toBeNull()
+  })
+  it("returns nothing for one that is not declined, or has no decliner", async () => {
+    db.app = { status: "UNDER_REVIEW", approvedBy: null }
+    expect(await automatedDeclineNoticeFor("t", "a")).toBeNull()
+    db.app = null
+    expect(await automatedDeclineNoticeFor("t", "a")).toBeNull()
+  })
+  it("returns nothing when no wording was approved at the time (the run stored none)", async () => {
+    db.run = { id: "r1", noticeText: null }
+    expect(await automatedDeclineNoticeFor("t", "a")).toBeNull()
     db.run = null
-    expect(await automatedDeclineNoticeFor("t", "a")).toBeNull()
-  })
-  it("returns nothing until the lender has signed off", async () => {
-    db.config = { ...signedOff, s71SignedOffAt: null }
-    expect(await automatedDeclineNoticeFor("t", "a")).toBeNull()
-  })
-  it("returns nothing when the lender has no wording", async () => {
-    db.config = { ...signedOff, automatedDeclineNotice: null }
     expect(await automatedDeclineNoticeFor("t", "a")).toBeNull()
   })
 })

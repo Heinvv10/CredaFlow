@@ -23,6 +23,7 @@ import {
 const suite = process.env.RUN_SEGREGATION_OF_DUTIES_IT === "1" ? describe : describe.skip
 
 const APPROVER_DISBURSES = /Segregation of duties: the staff member who approved an application cannot disburse it/
+const ENGINE_ATTESTER_DISBURSES = /Segregation of duties: the engine approved this application on the attestation of the staff member who would disburse it/
 const WITNESS_COUNTERSIGNS = /Segregation of duties: the staff witness of the in-branch signature cannot countersign/
 const COUNTERSIGNED_AT = new Date("2026-07-24T08:12:00.000Z")
 const SIGNATURE_CLEARED = {
@@ -77,6 +78,30 @@ suite("segregation of duties in the database", () => {
     it("lets the approver disburse when the setting is off", async () => {
       const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: false })
       await expect(disburse(scenario, scenario.officerId)).rejects.toBe(rollback)
+    })
+
+    // The decision engine approved it (the approver is the lender's system user): the staff members whose attestations the
+    // approval rested on take the approver's place (migration 20261029100000_maker_checker_decision_rules).
+    it("an engine approval cannot be disbursed by the staff member whose attestation it rested on, whichever attestation", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      await prisma.$executeRawUnsafe(`UPDATE "User" SET "active" = false, "password" = '!', "isSystem" = true WHERE "id" = '${scenario.officerId}'`)
+      for (const column of ["recklessLendingAssessedById", "incomeVerifiedById", "bureauOverrideById"]) {
+        await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "${column}" = '${scenario.colleagueId}' WHERE "id" = '${scenario.applicationId}'`)
+        await expect(disburse(scenario, scenario.colleagueId), column).rejects.toThrow(ENGINE_ATTESTER_DISBURSES)
+        await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "${column}" = NULL WHERE "id" = '${scenario.applicationId}'`)
+      }
+      // Nobody attested through those columns: the colleague may disburse.
+      await expect(disburse(scenario, scenario.colleagueId)).rejects.toBe(rollback)
+    })
+
+    it("the attester rule applies only to an engine approval, and only while the setting is on", async () => {
+      const person = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "recklessLendingAssessedById" = '${person.colleagueId}' WHERE "id" = '${person.applicationId}'`)
+      await expect(disburse(person, person.colleagueId)).rejects.toBe(rollback)
+      const off = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: false })
+      await prisma.$executeRawUnsafe(`UPDATE "User" SET "active" = false, "password" = '!', "isSystem" = true WHERE "id" = '${off.officerId}'`)
+      await prisma.$executeRawUnsafe(`UPDATE "LoanApplication" SET "recklessLendingAssessedById" = '${off.colleagueId}' WHERE "id" = '${off.applicationId}'`)
+      await expect(disburse(off, off.colleagueId)).rejects.toBe(rollback)
     })
 
     it("records the disburser only with the DISBURSED transition", async () => {

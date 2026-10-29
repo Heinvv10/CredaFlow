@@ -174,6 +174,8 @@ interface WaVars {
   outstanding: number
   dueDate: string
   days: number
+  /** The lender's approved notice for an automated decline (application_declined only); empty otherwise. */
+  notice: string
 }
 
 const EMPTY_WA_VARS: WaVars = {
@@ -182,6 +184,7 @@ const EMPTY_WA_VARS: WaVars = {
   outstanding: 0,
   dueDate: "",
   days: 0,
+  notice: "",
 }
 
 // ── Inline HTML builders for events without dedicated portal templates ─────────
@@ -272,7 +275,7 @@ async function buildTemplate(
       subject: "Update on Your Loan Application",
       html: applicationDeclinedEmail(identity, fullName, reference, reason, automatedNotice),
       text: `Dear ${fullName}, we regret that your application (${reference}) was unsuccessful. ${reason}${automatedNotice ? ` ${automatedNotice}` : ""}`,
-      waVars: { ...EMPTY_WA_VARS, reference },
+      waVars: { ...EMPTY_WA_VARS, reference, notice: automatedNotice ?? "" },
     }
   }
 
@@ -384,11 +387,16 @@ function ok(message: string, templateVars: Record<string, string> = {}): WaBuild
 
 /**
  * The WABA template event an event's WhatsApp leg sends. Identity for every
- * event but `loan_overdue`, whose free text branches 1-day notice vs 7-day
+ * event but `loan_overdue` and an automated `application_declined`, whose free text branches 1-day notice vs 7-day
  * "URGENT" escalation on days overdue — a Meta template is ONE fixed body, so
  * each branch has its own row. The threshold is the one buildWaMessage uses.
  */
-function waTemplateEventFor(event: NotificationEvent, days: number): string {
+/** The WABA template event of an automated decline (lib/whatsapp/template-vars.ts). Not a delivery status. */
+const AUTOMATED_DECLINE_WA_EVENT = "application_declined_automated"
+
+function waTemplateEventFor(event: NotificationEvent, days: number, notice = ""): string {
+  // An automated decline has its own body, which carries the lender's approved notice.
+  if (event === "application_declined" && notice) return AUTOMATED_DECLINE_WA_EVENT
   if (event !== "loan_overdue") return event
   return days >= 7 ? "loan_overdue_7d" : "loan_overdue_1d"
 }
@@ -403,7 +411,7 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
   const phone = identity.collectionsPhone
   // Derived from the same locals the free-text wording interpolates, so a
   // template send and an in-window send can never quote different figures.
-  const tv = waTemplateVarsFor(waTemplateEventFor(event, vars.days), {
+  const tv = waTemplateVarsFor(waTemplateEventFor(event, vars.days, vars.notice), {
     firstName,
     reference: ref,
     amount,
@@ -411,6 +419,7 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
     dueDate,
     supportPhone: phone,
     daysOverdue: vars.days ? String(vars.days) : "",
+    notice: vars.notice,
   })
 
   switch (event) {
@@ -426,6 +435,8 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
     }
     case "application_declined": {
       if (!ref) return skipMissingVars(event, { reference: ref })
+      // An automated decision carries the lender's approved notice here too (English, like the rest of the decline).
+      if (vars.notice) return ok(WA_TEMPLATES.application_declined_automated(firstName, ref, vars.notice), tv)
       return ok(WA_TEMPLATES.application_declined(firstName, ref), tv)
     }
     case "loan_disbursed": {
@@ -958,7 +969,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<No
       template,
       waMessage,
       waBuild.templateVars,
-      waTemplateEventFor(opts.event, template.waVars.days),
+      waTemplateEventFor(opts.event, template.waVars.days, template.waVars.notice),
       locale,
       log,
     )

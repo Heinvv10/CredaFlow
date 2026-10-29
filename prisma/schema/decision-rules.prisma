@@ -123,9 +123,37 @@ model AutoDecisionRun {
   latencyMs        Int
   /// From the client's submission to this run, when the application was submitted by the client.
   submissionLatencyMs Int?
+  /// The client notice wording in force when the engine declined (the lender's approved text then);
+  /// the decline message uses this, never a later edit. Null unless a DECLINED run.
+  noticeText       String?
   createdAt        DateTime                @default(now())
 
   @@unique([tenantId, id])
   @@index([tenantId, applicationId])
   @@index([tenantId, createdAt])
+}
+
+/// A digitally submitted application whose automatic review is due (lib/decisioning/digital-due.ts).
+/// Written before the after-response task is scheduled and completed when it finishes, so a task lost
+/// to a restart is found and run by the sweep (/api/cron/digital-decisions) instead of vanishing.
+model AutoDecisionDue {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  applicationId String
+  clientId      String
+  /// The submitting caller's address, for the per-address daily limit on automatic bureau pulls.
+  ip            String?
+  createdAt     DateTime  @default(now())
+  /// Taken by a sweep (or the task itself); a claim older than the stale window is retaken.
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  /// How it ended: REVIEWED, a skip reason, RATE_LIMITED or GAVE_UP.
+  outcome       String?
+  attempts      Int       @default(0)
+
+  @@unique([tenantId, applicationId])
+  @@unique([tenantId, id])
+  @@index([tenantId, completedAt, createdAt])
+  @@index([tenantId, clientId, createdAt])
 }

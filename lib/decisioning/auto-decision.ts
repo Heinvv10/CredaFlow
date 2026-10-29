@@ -26,6 +26,7 @@ export type SkipReason =
   | "no_rule_set"
   | "rule_set_invalid"
   | "application_changed"
+  | "human_review_requested"
 
 export type AutoDecisionOutcome =
   | { status: "SKIPPED"; reason: SkipReason }
@@ -61,9 +62,14 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
     const config = await prisma.decisionEngineConfig.findUnique({ where: { tenantId } })
     if (!config || config.mode === "OFF") return skipped("engine_off")
 
-    const loaded = await loadDecisionFacts(prisma, tenantId, applicationId, now)
+    // A shadow rehearsal on a digital submission runs before anyone has started a review: it reads the
+    // application as it is (SUBMITTED), from bureau data already on file, and changes nothing.
+    const rehearsal = config.mode === "SHADOW" && trigger === "DIGITAL_SUBMISSION"
+    const loaded = await loadDecisionFacts(prisma, tenantId, applicationId, now, rehearsal ? { existingBureauOnly: true } : {})
     if (!loaded) return skipped("not_a_consumer_application")
-    if (loaded.application.status !== "UNDER_REVIEW") return skipped("not_under_review")
+    // A person was asked to look again: from then on the engine decides nothing about this application.
+    if (loaded.application.humanReviewRequestedAt) return skipped("human_review_requested")
+    if (loaded.application.status !== "UNDER_REVIEW" && !(rehearsal && loaded.application.status === "SUBMITTED")) return skipped("not_under_review")
     if (!config.channels.includes(loaded.facts.channel)) return skipped("channel_not_enabled")
     if (!config.productIds.includes(loaded.application.productId)) return skipped("product_not_enabled")
 
@@ -96,8 +102,13 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
       return skipped("rule_set_invalid")
     }
 
+    // No bureau data to rehearse on: say so, rather than score an applicant nobody checked.
+    if (rehearsal && !loaded.bureauCheckId) {
+      verdict = { ...verdict, decision: "REFER", reasonCodes: ["NO_BUREAU"], declineCategory: null, riskGrade: null, gradeRank: null, score: null, pricingTier: null, hits: [] }
+    }
     const ctx: RunContext = {
       tenantId, applicationId, trigger, mode: config.mode, role, loaded, verdict, startedAt, now,
+      noticeText: config.s71SignedOffAt ? config.automatedDeclineNotice : null,
       version: { id: row.id, scopeKey: row.scopeKey, version: row.version },
     }
     try {

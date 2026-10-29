@@ -35,7 +35,7 @@ const RULES = [{ id: "r1", name: "R1", outcome: "REFER", reasonCode: "R_ONE", wh
 const KNOCK = [{ id: "k1", name: "K1", outcome: "KNOCK_OUT", reasonCode: "K_ONE", declineCategory: "POLICY", when: { field: "monthlyIncomeCents", op: "gt", value: 0 } }]
 const CARD = { baseScore: 0, characteristics: [{ field: "monthlyIncomeCents", missingPoints: 0, bins: [{ min: 0, points: 120 }] }], bands: [{ minScore: 100, grade: "A", action: "ALLOW", pricingTier: "PRIME" }, { minScore: 0, grade: "B", action: "REFER" }] }
 const UPDATED_AT = new Date("2026-10-29T07:00:00Z")
-const SYSTEM = { id: "sys1", email: "automated-decisioning+t@system.invalid" }
+const SYSTEM = { id: "sys1", email: "automated-decisioning+t@system.invalid", role: "LOAN_ADMIN" }
 
 function version(over: Record<string, unknown> = {}) {
   return { id: "v1", tenantId: "t", scopeKey: "ALL", version: 1, effectiveFrom: new Date("2026-01-01T00:00:00Z"), challengerOnly: false, rules: RULES, scorecard: null, ...over }
@@ -321,5 +321,79 @@ describe("submission-to-decision latency on the run", () => {
     const latency = (w.runs[0] as { data: { submissionLatencyMs: number } }).data.submissionLatencyMs
     expect(latency).toBeGreaterThanOrEqual(10_000)
     expect(latency).toBeLessThan(11_000)
+  })
+})
+
+describe("an application a person was asked to look at again", () => {
+  it("is never decided by the engine again, in any mode (breaker A, fix review)", async () => {
+    for (const mode of ["LIVE", "SHADOW"]) {
+      const w = stubDb({ config: config({ mode }) })
+      const reopened = loaded()
+      ;(reopened.application as Record<string, unknown>).humanReviewRequestedAt = new Date("2026-10-29T09:00:00Z")
+      h.loadDecisionFacts.mockResolvedValueOnce(reopened)
+      expect(await run()).toEqual({ status: "SKIPPED", reason: "human_review_requested" })
+      expect(h.decideApplication).not.toHaveBeenCalled()
+      expect(w.runs).toHaveLength(0)
+    }
+  })
+})
+
+describe("the client notice is the wording approved when the engine declined", () => {
+  it("is stored on a DECLINED run, and on no other run", async () => {
+    const w = stubDb()
+    const NOTICE = "This decision was made by automated means; you may ask for a person to review it."
+    h.decideApplication.mockImplementationOnce(async ({ automation }: { automation: { inTransaction: (tx: unknown) => Promise<void> } }) => {
+      await automation.inTransaction(w.tx)
+      return ok()
+    })
+    const verdict = { ...ctxWith().verdict, decision: "DECLINE" as const, declineCategory: "POLICY" as const }
+    await declineThroughStaffPath(ctxWith({ verdict, noticeText: NOTICE }))
+    expect(w.runs[0]).toMatchObject({ data: { execution: "DECLINED", noticeText: NOTICE } })
+    await refer(ctxWith({ noticeText: NOTICE }), ["R_ONE"], null)
+    expect(w.runs[1]).toMatchObject({ data: { execution: "REFERRED", noticeText: null } })
+  })
+
+  it("the run carries the current wording only once the lender has signed off", async () => {
+    stubDb({ config: config({ automatedDeclineNotice: "Draft wording not yet signed off by anyone.", s71SignedOffAt: null }), versions: [version({ rules: KNOCK })] })
+    const out = await run()
+    expect(out).toMatchObject({ execution: "REFERRED" })
+  })
+})
+
+describe("SHADOW on a digital submission rehearses without moving the workflow (no paid bureau pull)", () => {
+  const submitted = (bureauCheckId: string | null) => {
+    const l = loaded()
+    l.application.status = "SUBMITTED"
+    l.bureauCheckId = bureauCheckId as never
+    return l
+  }
+  const shadowRun = () => runAutoDecision({ tenantId: "t", applicationId: "app-1", trigger: "DIGITAL_SUBMISSION", now: new Date("2026-10-29T08:00:00Z") })
+
+  it("computes a verdict for a SUBMITTED application from bureau data already on file, writing only the run", async () => {
+    const w = stubDb({ config: config({ mode: "SHADOW", channels: ["STAFF"] }), versions: [version({ rules: [], scorecard: CARD })] })
+    h.loadDecisionFacts.mockResolvedValueOnce(submitted("b1"))
+    const out = await shadowRun()
+    expect(out).toMatchObject({ status: "RAN", execution: "NOT_ACTED" })
+    expect(h.loadDecisionFacts.mock.calls[0][4]).toMatchObject({ existingBureauOnly: true })
+    expect(w.runs[0]).toMatchObject({ data: { mode: "SHADOW", trigger: "DIGITAL_SUBMISSION", execution: "NOT_ACTED", riskGrade: "A" } })
+    expect(w.gradeUpdates).toHaveLength(0)
+    expect(h.decideApplication).not.toHaveBeenCalled()
+  })
+
+  it("records a no_bureau shadow run when there is no bureau data to use, never a score", async () => {
+    const w = stubDb({ config: config({ mode: "SHADOW", channels: ["STAFF"] }), versions: [version({ rules: [], scorecard: CARD })] })
+    h.loadDecisionFacts.mockResolvedValueOnce(submitted(null))
+    const out = await shadowRun()
+    expect(out).toMatchObject({ status: "RAN", execution: "NOT_ACTED" })
+    expect(w.runs[0]).toMatchObject({ data: { verdict: "REFER", reasonCodes: ["NO_BUREAU"], riskGrade: null, score: null } })
+  })
+
+  it("a LIVE engine does not decide a SUBMITTED application through this door, and a manual run never does", async () => {
+    stubDb({ config: config({ mode: "LIVE" }) })
+    h.loadDecisionFacts.mockResolvedValueOnce(submitted("b1"))
+    expect(await shadowRun()).toEqual({ status: "SKIPPED", reason: "not_under_review" })
+    stubDb({ config: config({ mode: "SHADOW" }) })
+    h.loadDecisionFacts.mockResolvedValueOnce(submitted("b1"))
+    expect(await runAutoDecision({ tenantId: "t", applicationId: "app-1", trigger: "MANUAL" })).toEqual({ status: "SKIPPED", reason: "not_under_review" })
   })
 })

@@ -81,7 +81,8 @@ describe("GET /api/settings/users", () => {
     const res = await GET(new NextRequest(URL))
     expect(res.status).toBe(200)
     const { where, select } = h.userFindMany.mock.calls[0][0]
-    expect(where).toEqual({ tenantId: "tenant-a" })
+    // The automated decisioning account is the system's, not a person to manage: never listed.
+    expect(where).toEqual({ tenantId: "tenant-a", isSystem: false })
     expect(select.totpEnabled).toBe(true)
     for (const secret of ["totpSecret", "lastTotpCounter", "password"]) expect(select).not.toHaveProperty(secret)
   })

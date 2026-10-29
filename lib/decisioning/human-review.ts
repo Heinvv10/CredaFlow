@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerReturnRecord } from "@/lib/learning-loop/records"
@@ -21,9 +22,13 @@ export class HumanReviewError extends Error {
 /**
  * A client's right to have a person look again at a decision no person took
  * (POPIA s71): reopens an application the engine declined to UNDER_REVIEW,
- * as staff would on a return to review, so a person decides it afresh. The
- * automatic decline stays in the record (decision log, audit, run); nothing is
- * deleted. Only an engine decline can be reopened here.
+ * as staff would on a return to review, so a person decides it afresh. Only a
+ * decline that is the engine's NOW can be reopened (the application's decider is
+ * the lender's system user): one a person took after an earlier engine decline is
+ * a person's decision. The reopening starts a fresh review cycle (new bureau
+ * generation, reckless-lending attestation cleared) and marks the application so
+ * the engine never decides it again. The automatic decline stays in the record
+ * (decision log, audit, run); nothing is deleted.
  */
 export async function requestHumanReview(input: {
   tenantId: string
@@ -36,15 +41,32 @@ export async function requestHumanReview(input: {
     throw new HumanReviewError("REASON_REQUIRED", `Say why a person should review it, in at least ${HUMAN_REVIEW_REASON_MIN_LENGTH} characters.`)
   }
   await prisma.$transaction(async (tx) => {
-    const application = await tx.loanApplication.findFirst({ where: { id: input.applicationId, tenantId: input.tenantId }, select: { id: true, status: true, clientId: true } })
+    const application = await tx.loanApplication.findFirst({
+      where: { id: input.applicationId, tenantId: input.tenantId },
+      select: { id: true, status: true, clientId: true, approvedById: true, approvedBy: { select: { isSystem: true } }, humanReviewRequestedAt: true },
+    })
     if (!application) throw new HumanReviewError("NOT_FOUND", "Application not found")
     if (application.status !== "DECLINED") throw new HumanReviewError("NOT_DECLINED", "Only a declined application can be reopened for review")
-    const run = await tx.autoDecisionRun.findFirst({ where: { tenantId: input.tenantId, applicationId: input.applicationId, execution: "DECLINED" }, select: { id: true } })
-    if (!run) throw new HumanReviewError("NOT_AUTOMATED", "A person made this decision; it is not an automated decline")
+    if (application.approvedBy?.isSystem !== true) throw new HumanReviewError("NOT_AUTOMATED", "A person made the current decision; it is not an automated decline")
+    const run = await tx.autoDecisionRun.findFirst({
+      where: { tenantId: input.tenantId, applicationId: input.applicationId, execution: "DECLINED" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, createdAt: true },
+    })
+    if (!run || (application.humanReviewRequestedAt && run.createdAt <= application.humanReviewRequestedAt)) {
+      throw new HumanReviewError("NOT_AUTOMATED", "There is no automated decline newer than the last human review of this application")
+    }
     const now = new Date()
     const changed = await tx.loanApplication.updateMany({
-      where: { id: input.applicationId, tenantId: input.tenantId, status: "DECLINED" },
-      data: { status: "UNDER_REVIEW", approvedById: null, approvedAt: null, decisionReason: null, declineCategory: null, declineInternalNote: null, assignedToId: input.actor.id },
+      where: { id: input.applicationId, tenantId: input.tenantId, status: "DECLINED", approvedById: application.approvedById },
+      data: {
+        status: "UNDER_REVIEW", approvedById: null, approvedAt: null, decisionReason: null, declineCategory: null, declineInternalNote: null,
+        assignedToId: input.actor.id,
+        // A new review cycle, as a return to review has: evidence tied to the old one does not carry over.
+        bureauReviewGeneration: randomUUID(),
+        recklessLendingAssessed: false, recklessLendingAssessedById: null, recklessLendingAssessedAt: null,
+        humanReviewRequestedAt: now,
+      },
     })
     if (changed.count !== 1) throw new HumanReviewError("NOT_DECLINED", "The application changed first; refresh and try again")
     await logAuditStrict({

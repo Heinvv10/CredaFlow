@@ -81,6 +81,7 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (key: string, opts: unknown) => checkRateLimit(key, opts),
   callerIp: () => "127.0.0.1",
+  recordedCallerIp: () => null,
 }))
 vi.mock("@/lib/utils", () => ({ generateReference: () => "APP-TEST-0001" }))
 vi.mock("@/lib/notifications", () => ({
@@ -88,6 +89,8 @@ vi.mock("@/lib/notifications", () => ({
 }))
 const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
 vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: (a: unknown) => screenOnSubmitMock(a) }))
+const { scheduleDigitalMock } = vi.hoisted(() => ({ scheduleDigitalMock: vi.fn(async (_input: unknown) => undefined) }))
+vi.mock("@/lib/decisioning/schedule-digital", () => ({ scheduleDigitalDecision: (a: unknown) => scheduleDigitalMock(a) }))
 // The helper's transaction and fallback are proven in
 // lib/learning-loop/submission-refusal.test.ts; here it forwards the audit row
 // to the logAudit mock and records which refusal each site logged.
@@ -486,6 +489,7 @@ describe("POST /api/portal/applications", () => {
     }, undefined)
     expect(triggerNotification).not.toHaveBeenCalled()
     expect(screenOnSubmitMock).not.toHaveBeenCalled()
+    expect(scheduleDigitalMock).not.toHaveBeenCalled()
   })
 
   it("the CREATE cap is enforced on a genuine create — 429 blocks the create", async () => {
@@ -521,6 +525,8 @@ describe("POST /api/portal/applications", () => {
     }))
     // A6: PEP / sanctions screening starts once the portal submission committed; no staff actor.
     expect(screenOnSubmitMock).toHaveBeenCalledWith(expect.objectContaining({ actor: null }))
+    // The decision engine's digital door (lib/decisioning/schedule-digital.ts): the application, the client and the recorded address.
+    expect(scheduleDigitalMock).toHaveBeenCalledWith({ tenantId: "t1", applicationId: expect.any(String), clientId: "c1", ip: null })
   })
 
   it("409s when cover becomes available between the client's screen and the transaction", async () => {

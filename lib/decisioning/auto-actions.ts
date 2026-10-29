@@ -20,6 +20,8 @@ export interface RunContext {
   loaded: LoadedFacts
   /** What the rules said, whatever was then done with it. */
   verdict: Verdict
+  /** The lender's approved client notice at the time of the run (null until signed off); stored on a DECLINED run. */
+  noticeText?: string | null
   startedAt: number
   now: Date
 }
@@ -65,6 +67,7 @@ export function writeRun(tx: Pick<Tx, "autoDecisionRun">, ctx: RunContext, execu
       executionNote: note,
       latencyMs: elapsed(ctx),
       submissionLatencyMs: submissionLatencyMs(ctx),
+      noticeText: execution === "DECLINED" ? (ctx.noticeText ?? null) : null,
     },
     select: { id: true },
   })

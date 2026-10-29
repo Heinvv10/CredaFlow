@@ -17,7 +17,8 @@ import { requestHumanReview } from "./human-review"
 const actor = { id: "u1", email: "u@x.invalid", role: "LOAN_ADMIN" }
 const input = { tenantId: "t", applicationId: "a", actor, reason: "Client asked for a person to review the decision" }
 
-beforeEach(() => { h.app = { id: "a", status: "DECLINED", clientId: "c" }; h.run = { id: "r1" }; h.count = 1; h.records = []; h.audits = [] })
+const systemDeclined = { id: "a", status: "DECLINED", clientId: "c", approvedById: "sys", approvedBy: { isSystem: true }, humanReviewRequestedAt: null }
+beforeEach(() => { h.app = systemDeclined; h.run = { id: "r1", createdAt: new Date("2026-10-29T08:00:00Z") }; h.count = 1; h.records = []; h.audits = [] })
 
 describe("requestHumanReview", () => {
   it("reopens an automatically declined application to UNDER_REVIEW, audited, with the decision log saying who reopened it and why", async () => {
@@ -25,6 +26,9 @@ describe("requestHumanReview", () => {
     const update = h.records.find((r) => (r as unknown[])[0] === "update") as [string, { where: Record<string, unknown>; data: Record<string, unknown> }]
     expect(update[1].where).toMatchObject({ id: "a", tenantId: "t", status: "DECLINED" })
     expect(update[1].data).toMatchObject({ status: "UNDER_REVIEW", approvedById: null, approvedAt: null, decisionReason: null, declineCategory: null })
+    // A fresh review cycle, as a return to review has: the old bureau generation and the reckless-lending attestation do not carry over.
+    expect(update[1].data).toMatchObject({ recklessLendingAssessed: false, recklessLendingAssessedById: null, recklessLendingAssessedAt: null, humanReviewRequestedAt: expect.any(Date) })
+    expect(typeof (update[1].data as { bureauReviewGeneration: unknown }).bureauReviewGeneration).toBe("string")
     expect(h.audits).toHaveLength(1)
     expect(h.audits[0]).toMatchObject({ data: { action: "AUTO_DECISION_HUMAN_REVIEW_REQUESTED", entityId: "a", userId: "u1" } })
     const record = h.records.find((r) => (r as unknown[])[0] === "record") as [string, { data: Record<string, unknown> }]
@@ -37,7 +41,7 @@ describe("requestHumanReview", () => {
   })
 
   it("refuses an application that is not declined", async () => {
-    h.app = { id: "a", status: "APPROVED", clientId: "c" }
+    h.app = { ...systemDeclined, status: "APPROVED" }
     await expect(requestHumanReview(input)).rejects.toMatchObject({ code: "NOT_DECLINED" })
   })
 
@@ -50,5 +54,18 @@ describe("requestHumanReview", () => {
   it("loses the race cleanly when the status moved first", async () => {
     h.count = 0
     await expect(requestHumanReview(input)).rejects.toMatchObject({ code: "NOT_DECLINED" })
+  })
+
+  // Breaker A: history was "engine declined, reopened, then a person declined"; the old engine run must not license reopening it as automated.
+  it("refuses when the CURRENT decline is a person's, even though the engine declined it earlier", async () => {
+    h.app = { ...systemDeclined, approvedById: "u-branch-manager", approvedBy: { isSystem: false } }
+    await expect(requestHumanReview(input)).rejects.toMatchObject({ code: "NOT_AUTOMATED" })
+    expect(h.records.find((r) => (r as unknown[])[0] === "update")).toBeUndefined()
+  })
+
+  it("refuses when the latest automated decline is older than the human review already requested", async () => {
+    h.app = { ...systemDeclined, humanReviewRequestedAt: new Date("2026-10-29T09:00:00Z") }
+    h.run = { id: "old", createdAt: new Date("2026-10-29T08:00:00Z") }
+    await expect(requestHumanReview(input)).rejects.toMatchObject({ code: "NOT_AUTOMATED" })
   })
 })
