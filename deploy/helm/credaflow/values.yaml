@@ -1,0 +1,158 @@
+# One release serves one audience of one lender: CredaFlow is one instance and
+# one database per lender (docs/ARCHITECTURE.md). For a separate client portal
+# host, install a second release with web.appMode=client and worker.enabled=false.
+
+image:
+  # The runner image: `docker build .` (the last Dockerfile stage).
+  repository: credaflow
+  # Empty: the chart's appVersion. Pin a git SHA or digest in production.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Secrets are never rendered by this chart. Name existing Secrets (created by
+# the operator, External Secrets, Sealed Secrets, Vault...): every key becomes
+# an environment variable of the web, worker and migration pods. At least
+# DATABASE_URL, AUTH_SECRET, CRON_SECRET; see .env.example and deploy/README.md.
+# METRICS_TOKEN (enables /api/metrics), UPLOADS_ENC_KEY and provider keys go here too.
+existingSecrets:
+  - credaflow-app
+
+# Non-secret environment, rendered into a ConfigMap shared by web and worker.
+# NEXTAUTH_URL / AUTH_URL are this audience's public origin. NEXT_PUBLIC_* values
+# are baked into the image at build time (Dockerfile ARGs) and cannot be set here.
+config:
+  NODE_ENV: production
+  LOG_FORMAT: json
+  NEXTAUTH_URL: ""
+  AUTH_URL: ""
+
+observability:
+  # OTLP/HTTP collector, e.g. http://otel-collector.observability:4318. Empty: tracing off.
+  otlpEndpoint: ""
+  # Extra OTEL_* variables (sampler, headers from a Secret via existingSecrets...).
+  extraEnv: {}
+
+web:
+  # staff | client | all (proxy.ts audience gate).
+  appMode: all
+  replicaCount: 2
+  # Rolling update with no unavailable pod: a new pod must be Ready (database
+  # reachable) before an old one goes.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 3Gi }
+  terminationGracePeriodSeconds: 60
+  # Seconds to keep serving after SIGTERM so the Service stops routing first.
+  preStopSleepSeconds: 10
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  extraEnv: {}
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: null
+  # Scale down slowly: an in-flight upload or PDF render must finish.
+  scaleDownStabilizationSeconds: 300
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# Runs every in-process cron job (instrumentation.ts) and nothing else of the web
+# tier's: web pods set CRON_SCHEDULER=off. Exactly one replica, and Recreate:
+# only singleRun jobs take a CronRunClaim, every other job fires on each
+# replica that schedules it, so a second worker (or a surge pod during a rolling
+# update) would run those twice.
+worker:
+  enabled: true
+  appMode: staff
+  resources:
+    requests: { cpu: 250m, memory: 1Gi }
+    limits: { cpu: "2", memory: 3Gi }
+  terminationGracePeriodSeconds: 120
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  extraEnv: {}
+
+# `prisma migrate deploy` before each install/upgrade (Helm hook). Its image is the
+# Dockerfile `migrator` target. A migration that adds a trigger, CHECK or UNIQUE
+# takes effect while the old pods still run: ship such a migration with its code
+# as a Recreate upgrade, see deploy/README.md "Releases and migrations".
+migrate:
+  enabled: true
+  image:
+    repository: credaflow-migrate
+    tag: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    # Server actions accept 5 MB bodies (next.config.ts).
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+  hosts: []        # - host: staff.lender.example
+  tls: []          # - secretName: staff-tls, hosts: [staff.lender.example]
+
+# Uploaded documents are files under /app/uploads (lib/storage.ts), shared by every
+# pod: use a ReadWriteMany class (NFS, CephFS, EFS, Azure Files) with more than one
+# replica. enabled=false uses a per-pod emptyDir and LOSES uploads: development only.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteMany
+  size: 20Gi
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  # Who may reach the web pods on 3300: the ingress controller's namespace by default.
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  # Who may scrape /api/metrics (still needs the bearer token).
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+  # PostgreSQL. Narrow to the database's CIDR or pod selector in production.
+  databaseTo:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+  databasePort: 5432
+  # Outbound HTTPS/SMTP/IMAP to providers (Stitch, bureaus, Resend, WhatsApp, SmileIdentity, the OTLP collector).
+  egressPorts: [443, 587, 465, 993, 4318]
+
+serviceMonitor:
+  # Prometheus Operator. Needs METRICS_TOKEN in a Secret: tokenSecret names it.
+  enabled: false
+  interval: 30s
+  tokenSecret:
+    name: credaflow-app
+    key: METRICS_TOKEN

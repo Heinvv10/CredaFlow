@@ -133,6 +133,13 @@ describe("/api/health, operator (x-cron-secret)", () => {
     expect(body.detail.cronJobs.find((j: { job: string }) => j.job === "webhook-deliveries").stale).toBe(true)
   })
 
+  it("does not judge cron on a replica that runs no scheduler (CRON_SCHEDULER=off)", async () => {
+    vi.stubEnv("CRON_SCHEDULER", "off")
+    const { body } = await operator()
+    expect(body.checks.cron).toBe("not_scheduled")
+    expect(heartbeats).not.toHaveBeenCalled()
+  })
+
   it("does not judge cron on the client container", async () => {
     vi.stubEnv("APP_MODE", "client")
     const { body } = await operator()
