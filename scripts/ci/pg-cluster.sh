@@ -34,7 +34,7 @@ PG_DATABASE=credaflow_it
 # A port the kernel says is free right now. Another process can take it before
 # postgres binds it, so `start` retries on a fresh one.
 free_port() {
-  node -e "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})"
+  python3 -c "import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1]);s.close()"
 }
 
 # Stop the postmaster in <dir>/data, only while that pid is still a process
@@ -56,8 +56,21 @@ cleanup_pending() {
   rm -rf "$PENDING_DIR"
 }
 
+# Remove clusters that earlier runs on this machine left behind (a cancelled or
+# crashed job never reaches its stop step): cf-it-pg.* directories under the
+# runner temp dir untouched for a day. A postmaster still alive is stopped first.
+reap_stale() {
+  local base=${RUNNER_TEMP:-${TMPDIR:-/tmp}} d
+  while IFS= read -r d; do
+    stop_cluster "$d"
+    rm -rf "$d"
+    echo ">> reaped stale $d" >&2
+  done < <(find "$base" -maxdepth 1 -type d -name 'cf-it-pg.*' -mtime +0 2> /dev/null)
+}
+
 start() {
   local dir port try
+  reap_stale
   dir=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cf-it-pg.XXXXXX")
   PENDING_DIR=$dir
   trap cleanup_pending EXIT
@@ -108,7 +121,10 @@ stop() {
   # Nothing was started (the start step never ran or failed before it set the
   # variable): nothing to stop. Only ever delete a directory start made.
   [ -n "$dir" ] && [ -d "$dir" ] || return 0
-  case "$(basename "$dir")" in cf-it-pg.*) ;; *) echo "!! refusing to remove $dir" >&2; return 1 ;; esac
+  local real base
+  real=$(realpath "$dir")
+  base=$(realpath "${RUNNER_TEMP:-${TMPDIR:-/tmp}}")
+  case "$real" in "$base"/cf-it-pg.*) ;; *) echo "!! refusing to remove $dir" >&2; return 1 ;; esac
   stop_cluster "$dir"
   rm -rf "$dir"
   echo ">> removed $dir" >&2

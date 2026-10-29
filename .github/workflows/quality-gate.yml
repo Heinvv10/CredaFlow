@@ -9,8 +9,10 @@ name: ci
 # shards) run on the two velo runners (user gha-credaflow: no sudo, no docker).
 # They execute whatever the PR's workflow and package scripts say, so they must
 # never run code from a fork. This repo is private and fork-PR workflows are
-# disabled (run_workflows_from_fork_pull_requests=false); every self-hosted job
-# also starts with a step that fails if the PR head is a fork. Keep both.
+# disabled (run_workflows_from_fork_pull_requests=false): that setting is the
+# real control. Every self-hosted job also starts with a step that fails unless
+# the PR head repo is this repo (fails closed if the fork was deleted); it is a
+# backstop only.
 # The runners have poppler-utils and qpdf preinstalled; the steps below check
 # for them rather than apt-installing.
 on:
@@ -65,7 +67,7 @@ jobs:
     steps:
       # Fail closed if a fork PR ever reaches this runner (see the header).
       - name: Refuse fork pull requests
-        if: github.event.pull_request.head.repo.fork == true
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         run: |
           echo "::error::fork pull requests must not run on the self-hosted runner"
           exit 1
@@ -167,7 +169,7 @@ jobs:
     steps:
       # Fail closed if a fork PR ever reaches this runner (see the header).
       - name: Refuse fork pull requests
-        if: github.event.pull_request.head.repo.fork == true
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         run: |
           echo "::error::fork pull requests must not run on the self-hosted runner"
           exit 1
@@ -205,16 +207,9 @@ jobs:
   quality:
     needs: [checks, unit]
     if: always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # Fail closed if a fork PR ever reaches this runner (see the header).
-      - name: Refuse fork pull requests
-        if: github.event.pull_request.head.repo.fork == true
-        run: |
-          echo "::error::fork pull requests must not run on the self-hosted runner"
-          exit 1
-
       - name: Checks and every unit shard succeeded
         env:
           CHECKS: ${{ needs.checks.result }}
@@ -250,7 +245,7 @@ jobs:
     steps:
       # Fail closed if a fork PR ever reaches this runner (see the header).
       - name: Refuse fork pull requests
-        if: github.event.pull_request.head.repo.fork == true
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         run: |
           echo "::error::fork pull requests must not run on the self-hosted runner"
           exit 1
