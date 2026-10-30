@@ -12,6 +12,7 @@ import type { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
 import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration-fixture"
+import { sastStartOfDay } from "@/lib/date/sast"
 import { acceptHeldReading, rejectHeldReading } from "./held-readings"
 import { verifyTrackerMeter } from "./devices"
 import { pollTenant } from "./poll"
@@ -74,7 +75,10 @@ suite.sequential("telematics round-2 edge cases (real DB)", () => {
     const first = await ingest(d.deviceId, alertEvent(d.externalDeviceId, ago(5 * HOUR), "POWER_CUT")) as { alertId: string }
     await asTestSetup([`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, d.loanId], [`UPDATE "AssetFinanceDeal" SET "status" = 'CANCELLED', "cancelledAt" = now(), "cancelledById" = $2, "cancelReason" = 'test setup: the old lease is over' WHERE "loanId" = $1`, d.loanId, fx.officer])
     const second = await bookOperatingLease(database(), fx, setSession, d.assetId, 0)
-    const repeat = await ingest(d.deviceId, alertEvent(d.externalDeviceId, ago(HOUR), "POWER_CUT")) as { alertId: string }
+    // A tenure runs in SAST days (telematicsLoanAt): the new lease owns the asset from the start of its SAST day,
+    // so "an hour ago" would still be the old loan's between 00:00 and 01:00 SAST. Not before that midnight.
+    const newTenureEvent = new Date(Math.max(Date.now() - HOUR, sastStartOfDay(new Date()).getTime()))
+    const repeat = await ingest(d.deviceId, alertEvent(d.externalDeviceId, newTenureEvent, "POWER_CUT")) as { alertId: string }
     const alert = await database().telematicsAlert.findUniqueOrThrow({ where: { id: repeat.alertId } })
     expect(alert.loanId, "the alert of the new lease's tenure sits on the old loan").toBe(second)
     expect(repeat.alertId).not.toBe(first.alertId)
