@@ -39,7 +39,8 @@ jobs:
           persist-credentials: false
       - name: Install helm and kubeconform
         run: |
-          mkdir -p "$RUNNER_TEMP/bin"
+          rm -rf "${RUNNER_TEMP:?}/bin" "$RUNNER_TEMP/linux-amd64" "$RUNNER_TEMP/helm.tgz" "$RUNNER_TEMP/kubeconform.tgz"
+          mkdir "$RUNNER_TEMP/bin"
           curl -sSfL -o "$RUNNER_TEMP/helm.tgz" "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
           echo "${HELM_SHA256}  $RUNNER_TEMP/helm.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP" linux-amd64/helm && mv "$RUNNER_TEMP/linux-amd64/helm" "$RUNNER_TEMP/bin/"
@@ -85,6 +86,7 @@ jobs:
           PROM_VERSION: 3.15.1
           PROM_SHA256: 6a726885328ad9efebbf36e876ce2fb6225468a71fd1e7ce3ba666d5f4d97a84
         run: |
+          rm -rf "$RUNNER_TEMP/promtool" "$RUNNER_TEMP/prom.tgz"
           curl -sSfL -o "$RUNNER_TEMP/prom.tgz" "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz"
           echo "${PROM_SHA256}  $RUNNER_TEMP/prom.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/prom.tgz" -C "$RUNNER_TEMP" --strip-components=1 "prometheus-${PROM_VERSION}.linux-amd64/promtool"

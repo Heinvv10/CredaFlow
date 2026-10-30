@@ -3,7 +3,7 @@ name: security
 # Scans, kept apart from quality-gate.yml so they neither slow nor loosen the
 # required `quality` and `integration` checks. Every third-party action is pinned
 # to a full commit SHA; scanner binaries are pinned by version AND sha256, and
-# semgrep by PyPI version, so a moved tag cannot change what runs here.
+# semgrep and its dependencies by hash, so a moved tag cannot change what runs here.
 # Not wired into branch protection: add `sast`, `dependencies`, `secrets` and
 # `image` as required checks when the first runs are green.
 on:
@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Static analysis of the TypeScript source (semgrep from PyPI via a pinned uv). Semgrep rather than CodeQL: CodeQL
+  # Static analysis of the TypeScript source (semgrep hash-locked, installed by a pinned uv). Semgrep rather than CodeQL: CodeQL
   # code scanning on a private repository needs GitHub Advanced Security.
   sast:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -46,18 +46,26 @@ jobs:
       # positive); lib/crypto/secret-box.ts openSecret() takes the tag length from
       # the stored value (real, low severity: needs write access to the database).
       # Fix with `{ authTagLength: 16 }`, then delete this exclusion.
+      # Nothing persists between jobs: uv, its cache and the venv live in
+      # RUNNER_TEMP, are removed first, and uv is re-hashed on every run. Semgrep
+      # and every transitive dependency are installed with --require-hashes from
+      # .github/ci/semgrep-requirements.txt (regenerate: uv pip compile
+      # --generate-hashes --python-version 3.12 --python-platform
+      # x86_64-unknown-linux-gnu, from a one-line semgrep==X input).
       - name: Semgrep
         env:
           UV_VERSION: 0.13.6
           UV_SHA256: f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
-          SEMGREP_VERSION: 1.183.0
+          UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
         run: |
+          rm -rf "$RUNNER_TEMP/uv.tgz" "$RUNNER_TEMP/uvbin" "$RUNNER_TEMP/semgrep-venv" "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR"
           curl -sSfL -o "$RUNNER_TEMP/uv.tgz" "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
           echo "${UV_SHA256}  $RUNNER_TEMP/uv.tgz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/uvbin" && tar -xzf "$RUNNER_TEMP/uv.tgz" -C "$RUNNER_TEMP/uvbin" --strip-components=1
-          export UV_TOOL_DIR="$RUNNER_TEMP/uvtools" UV_TOOL_BIN_DIR="$RUNNER_TEMP/uvbin"
-          "$RUNNER_TEMP/uvbin/uv" tool install "semgrep==${SEMGREP_VERSION}"
-          "$RUNNER_TEMP/uvbin/semgrep" scan --metrics=off --error --severity ERROR \
+          mkdir "$RUNNER_TEMP/uvbin" && tar -xzf "$RUNNER_TEMP/uv.tgz" -C "$RUNNER_TEMP/uvbin" --strip-components=1
+          "$RUNNER_TEMP/uvbin/uv" venv --python 3.12 "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/uvbin/uv" pip install --python "$RUNNER_TEMP/semgrep-venv/bin/python" --require-hashes -r .github/ci/semgrep-requirements.txt
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --metrics=off --error --severity ERROR \
             --config p/typescript --config p/nextjs --config p/security-audit \
             --exclude-rule javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length \
             --exclude node_modules --exclude '*.test.ts' --exclude '*.test.tsx' \
@@ -111,9 +119,10 @@ jobs:
           GITLEAKS_VERSION: 8.30.1
           GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
+          rm -rf "$RUNNER_TEMP/gitleaks" "$RUNNER_TEMP/gitleaks.tgz"
           curl -sSfL -o "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/gitleaks" && tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          mkdir "$RUNNER_TEMP/gitleaks" && tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP/gitleaks" gitleaks
           "$RUNNER_TEMP/gitleaks/gitleaks" detect --source . --no-banner --redact --exit-code 1
 
   # Both images the Helm chart deploys: the runner and the migration runner. HIGH
