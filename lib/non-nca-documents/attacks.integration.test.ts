@@ -215,6 +215,23 @@ suite("Adversarial (PR 267 round 1) LS instance, hardening", () => {
     })).rejects.toThrow(/rendered for another application/)
   })
 
+  it("H13 a new ClientDocument row over another application's file and bytes cannot claim to be rendered for this one (A5b)", async () => {
+    const fx = await createApprovedApplication(db())
+    const other = await createApprovedApplication(db())
+    const forOther = await issueDocument(db(), other, "KEY_FACTS_STATEMENT")
+    const forged = db().clientDocument.create({ data: {
+      tenantId: fx.tenant.tenantId, clientId: fx.clientId, docType: "OTHER", fileName: "forged.pdf", fileUrl: "", storagePath: forOther.document.storagePath,
+      fileSize: 1, mimeType: "application/pdf", uploadedByType: "staff", extractionStatus: "skipped", verified: false,
+      templateId: fx.kfs.templateId, generatedFromVersionId: fx.kfs.versionId, contentSha256: forOther.pdfSha256, issuedForApplicationId: fx.applicationId,
+    } })
+    await expect(forged).rejects.toThrow(/ClientDocument_issued_content_unique|Unique constraint/)
+    // The bytes of a document stay claimed by the application it was rendered for; an ordinary document is not caught by it.
+    await db().clientDocument.create({ data: {
+      tenantId: fx.tenant.tenantId, clientId: fx.clientId, docType: "OTHER", fileName: "plain.pdf", fileUrl: "", storagePath: "/synthetic/plain.pdf", fileSize: 1,
+      mimeType: "application/pdf", uploadedByType: "staff", extractionStatus: "skipped", verified: false, contentSha256: forOther.pdfSha256,
+    } })
+  })
+
   it("H8 one UPDATE that changes the approved terms and signs (or disburses) is judged on the new terms", async () => {
     const signing = await createApprovedApplication(db())
     await issueBoth(db(), signing)

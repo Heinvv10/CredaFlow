@@ -22,7 +22,8 @@ vi.mock("@/lib/storage", () => ({
   deleteFile: async (path: string) => { holder.files.delete(path) },
   readFile: async (path: string) => { const b = holder.files.get(path); if (!b) throw new Error("missing"); return b },
 }))
-vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) => { await holder.onRender?.(); return Buffer.from(`%PDF-synthetic ${html}`) } }))
+vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) => { await holder.onRender?.(); // Real renders differ on every call (embedded timestamps and ids), and the database relies on it (ClientDocument_issued_content_unique).
+  return Buffer.from(`%PDF-synthetic ${html} ${crypto.randomUUID()}`) } }))
 vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<typeof import("@/lib/signing-otp/policy")>()), isSigningOtpRequired: async () => false }))
 vi.mock("@/lib/config/identity", () => ({ findLenderIdentity: async () => ({ legalName: "Demo Basotho Lending (Pty) Ltd", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"] }) }))
 

@@ -118,4 +118,9 @@ describe("the new objects", () => {
     expect(baselineTriggerSql("ClientDocument_guard_loan_document_file_delete")).toMatch(/BEFORE DELETE ON "ClientDocument"/)
     expect(baselineTriggerSql("LoanApplication_z_guard_key_facts_approval")).toMatch(/BEFORE UPDATE OF "status", "approvedAt", "approvedById" ON "LoanApplication"/)
   })
+
+  it("the digest of a rendered document is unique among documents rendered for an application", async () => {
+    const { baselineIndexSql } = await import("@/lib/db-baseline.test-helpers")
+    expect(flat(baselineIndexSql("ClientDocument_issued_content_unique"))).toContain(`ON "ClientDocument"("contentSha256") WHERE "issuedForApplicationId" IS NOT NULL`)
+  })
 })

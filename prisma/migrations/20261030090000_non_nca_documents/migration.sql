@@ -34,7 +34,8 @@
 --    (guardLoanDocumentTemplate); the gate also reads the stored files (present, not deleted,
 --    the issued bytes, rendered for this application: ClientDocument.issuedForApplicationId),
 --    which cannot be deleted or swapped while an issuance references them
---    (guardLoanDocumentFile); the terms hash is taken of the NEW row inside the gate (a single
+--    (guardLoanDocumentFile) and a rendered document's digest is unique among them
+--    (ClientDocument_issued_content_unique); the terms hash is taken of the NEW row inside the gate (a single
 --    UPDATE that changes the terms and signs is judged on the new terms); a signed loan is
 --    checked against the version it was issued from, not the template's present state; the
 --    approval attribution of a key-facts application is fixed once approved.
@@ -58,6 +59,11 @@ ALTER TABLE "LoanApplication" ADD COLUMN "disclosureRegime" "DisclosureRegime" N
 
 -- The application a generated key facts statement or loan agreement was rendered for.
 ALTER TABLE "ClientDocument" ADD COLUMN "issuedForApplicationId" TEXT;
+-- The bytes of a document rendered for an application belong to that application: a second row over the same
+-- bytes cannot claim another one (a raw insert of a ClientDocument with another application's file and
+-- digest, claiming issuedForApplicationId, is refused). Generated PDFs differ on every render, so a re-issue
+-- never collides.
+CREATE UNIQUE INDEX "ClientDocument_issued_content_unique" ON "ClientDocument"("contentSha256") WHERE "issuedForApplicationId" IS NOT NULL;
 
 CREATE TABLE "LoanDocumentIssuance" (
     "id" TEXT NOT NULL,
