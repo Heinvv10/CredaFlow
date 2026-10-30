@@ -30,29 +30,33 @@ export function PricingInputsCard({ applicationId, onChanged }: { applicationId:
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null)
 
-  async function load() {
-    const res = await api<PricingInputs>(`/api/applications/${applicationId}/pricing-inputs`, "GET")
-    if (!res.ok || !res.data) return
-    setData(res.data)
-    setSegment(res.data.inputs.segment ?? "")
-    setChannel(res.data.inputs.channel ?? "")
-    setCampaign(res.data.inputs.campaignCode ?? "")
+  const apply = (next: PricingInputs) => {
+    setData(next)
+    setSegment(next.inputs.segment ?? "")
+    setChannel(next.inputs.channel ?? "")
+    setCampaign(next.inputs.campaignCode ?? "")
   }
-  useEffect(() => { void load() }, [applicationId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const path = `/api/applications/${applicationId}/pricing-inputs`
+  useEffect(() => {
+    let live = true
+    void api<PricingInputs>(path, "GET").then((res) => { if (live && res.ok && res.data) apply(res.data) })
+    return () => { live = false }
+  }, [path])
 
   if (!data || data.price.productVersion === null) return null
 
   async function save() {
     setBusy(true)
     setMessage(null)
-    const res = await api(`/api/applications/${applicationId}/pricing-inputs`, "PUT", { segment: segment || null, channel: channel || null, campaignCode: campaign.trim() || null })
+    const res = await api(path, "PUT", { segment: segment || null, channel: channel || null, campaignCode: campaign.trim() || null })
     setBusy(false)
     if (!res.ok) {
       setMessage({ kind: "error", text: res.error ?? "Could not save." })
       return
     }
     setMessage({ kind: "ok", text: "Saved. The price below is what approval will use." })
-    await load()
+    const fresh = await api<PricingInputs>(path, "GET")
+    if (fresh.ok && fresh.data) apply(fresh.data)
     onChanged?.()
   }
 
