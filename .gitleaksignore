@@ -11,3 +11,5 @@ ab1824867202578d5969603338e211a69fc38877:app/api/website/apply/route.test.ts:gen
 ab1824867202578d5969603338e211a69fc38877:lib/crm/lead-outreach.test.ts:generic-api-key:239
 d0c1068434866f541a6d3b75a0f54258bae513d2:prisma/seed.integration.test.ts:generic-api-key:280
 f922a62c0ffc17e2977d34a9534855c3192dc004:app/api/integrations/isaflow/route.test.ts:generic-api-key:5
+# synthetic CRON_SECRET test fixture in lpb-f2 WIP commit; not a real secret
+2750c49a72fd326e317069170a11109c06dee63f:app/api/cron/rate-limit-cleanup/route.test.ts:generic-api-key:13
