@@ -50,6 +50,8 @@ export function segregationOfDutiesConflict(
     approvedById?: string | null
     /** The approver is the lender's automated decisioning account (User.isSystem). */
     approvedBySystem?: boolean
+    /** Everyone who approved a level of the approval matrix's chain (lib/approval/): each takes the approver's place, not only the last. */
+    approvalStepApproverIds?: readonly string[]
     /** Staff who captured the application or changed the figures it is decided on (and the API key's creator for an API one). */
     inputStaffIds?: string[] | null
     recklessLendingAssessedById?: string | null
@@ -60,7 +62,7 @@ export function segregationOfDutiesConflict(
   },
 ): SegregationOfDutiesPair | null {
   if (step === "disburse") {
-    if (application.approvedById === actorId) return "approve_disburse"
+    if (application.approvedById === actorId || (actorId !== "" && application.approvalStepApproverIds?.includes(actorId))) return "approve_disburse"
     // The engine approved it, so no person approved: the people whose attestations it rested on take the approver's place.
     if (application.approvedBySystem === true && actorId !== "") {
       const attesters = [application.recklessLendingAssessedById, application.incomeVerifiedById, application.bureauOverrideById, ...(application.inputStaffIds ?? [])]

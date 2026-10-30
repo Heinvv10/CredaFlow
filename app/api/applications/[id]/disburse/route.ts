@@ -10,6 +10,7 @@ import { logAudit, AuditAction } from "@/lib/audit"
 import { auditRefusal, refusalReasonFrom } from "@/lib/audit-refusals"
 import { requireApiRole } from "@/lib/auth-guards"
 import { DisbursementBankDetailsError, resolveDisbursementBankDetails } from "@/lib/disbursement-bank-details"
+import { approvalStepApproverIds } from "@/lib/approval/progress"
 import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { generateFaisDisclosurePdf } from "@/lib/pdf/faisDisclosure"
 import { readFile, saveFile } from "@/lib/storage"
@@ -330,7 +331,9 @@ export async function POST(
       // records disbursedById and the database refuses the same pair
       // (LoanApplication_z_guard_segregation_of_duties).
       const segregationOfDuties = await isSegregationOfDutiesRequired(tenant.id)
-      const conflict = segregationOfDutiesConflict("disburse", user.id, { ...application, approvedBySystem: application.approvedBy?.isSystem === true })
+      const conflict = segregationOfDutiesConflict("disburse", user.id, {
+        ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenant.id, id),
+      })
       if (conflict && segregationOfDuties) {
         return NextResponse.json({
           error: SEGREGATION_OF_DUTIES_REFUSALS[conflict],

@@ -325,6 +325,27 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     await act(async () => renderer.unmount())
   })
 
+  it("says so when the approval was one level of several, instead of claiming the application was updated", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response(200, { ok: true, status: "UNDER_REVIEW", approvalRecorded: true, level: 1, requiredLevels: 2, nextLevel: 2, nextLevelName: "Branch manager" })))
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(<ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />)
+    })
+    const eft = renderer.root.findAllByType("input").find((node) => node.props.type === "radio" && node.props.value === "EFT")
+    if (!eft) throw new Error("EFT repayment option not found")
+    await act(async () => {
+      eft.props.onChange()
+    })
+    await act(async () => {
+      await button(renderer, "Approve").props.onClick()
+    })
+    expect(childText(renderer.root.findByProps({ role: "status" }).props.children)).toBe(
+      "Your approval is recorded as level 1 of 2. The application stays under review. Level 2 (Branch manager) approves next.",
+    )
+    expect(refresh).toHaveBeenCalledOnce()
+    await act(async () => renderer.unmount())
+  })
+
   it("uses action-neutral terminal feedback after a successful decline", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response(200, { ok: true }))
     vi.stubGlobal("fetch", fetchMock)

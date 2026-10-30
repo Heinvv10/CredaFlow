@@ -12,6 +12,9 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
+vi.mock("@/lib/approval/chain", () => ({ openApprovalCaseSafely: vi.fn(async () => undefined) }))
+
+import { openApprovalCaseSafely } from "@/lib/approval/chain"
 import { requestHumanReview } from "./human-review"
 
 const actor = { id: "u1", email: "u@x.invalid", role: "LOAN_ADMIN" }
@@ -39,6 +42,19 @@ describe("requestHumanReview", () => {
     expect(h.audits[0]).toMatchObject({ data: { action: "AUTO_DECISION_HUMAN_REVIEW_REQUESTED", entityId: "a", userId: "u1" } })
     const record = h.records.find((r) => (r as unknown[])[0] === "record") as [string, { data: Record<string, unknown> }]
     expect(record[1].data).toMatchObject({ decision: "RETURN_TO_REVIEW", actorType: "STAFF", actorUserId: "u1" })
+  })
+
+  it("starts the approval matrix's chain and clock for the new review, once the reopening has committed", async () => {
+    vi.mocked(openApprovalCaseSafely).mockClear()
+    await requestHumanReview(input)
+    expect(openApprovalCaseSafely).toHaveBeenCalledWith({ tenantId: "t", applicationId: "a" })
+  })
+
+  it("does not start one when the reopening was lost", async () => {
+    vi.mocked(openApprovalCaseSafely).mockClear()
+    h.count = 0
+    await expect(requestHumanReview(input)).rejects.toMatchObject({ code: "NOT_DECLINED" })
+    expect(openApprovalCaseSafely).not.toHaveBeenCalled()
   })
 
   it("refuses an application a person declined", async () => {

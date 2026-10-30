@@ -1,0 +1,173 @@
+// ── Approval matrix (lib/approval/) ──────────────────────────────────────────
+// Multi-level approval of a loan application by amount, product, risk grade and branch, with delegated
+// authority, turnaround-time escalation and credit-committee decisions. A lender with no enabled matrix
+// keeps the single-approver flow. The matrix is versioned and created only by an approved maker-checker
+// request (kind APPROVAL_MATRIX); an application's approval chain is an ApprovalCase whose steps the
+// database checks before the application can become APPROVED (migration 20261030100000_approval_matrix).
+// Module rules: lib/approval/.claude.md.
+
+enum ApprovalCaseStatus {
+  /// Awaiting approvals: one per application while it is under review.
+  OPEN
+  /// Every required level approved; the application is APPROVED.
+  APPROVED
+  /// The application left review without being approved (declined, returned, cancelled).
+  CLOSED
+}
+
+enum ApprovalStepVia {
+  ROLE
+  DELEGATION
+}
+
+enum CommitteeDecisionKind {
+  APPROVED
+  DECLINED
+  DEFERRED
+}
+
+/// One approved version of the lender's matrix. Never changes (trigger); the latest effective version applies.
+model ApprovalMatrixVersion {
+  id                    String   @id @default(cuid())
+  tenantId              String
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
+  version               Int
+  name                  String
+  /// false: back on the single-approver flow from its effective date.
+  enabled               Boolean
+  effectiveFrom         DateTime @db.Date
+  /// MatrixLevel[] and MatrixRule[] (lib/approval/types.ts), validated by the handler before they are stored.
+  levels                Json
+  rules                 Json
+  defaultRequiredLevels Int
+  /// The approved ChangeRequest that made it (trigger guardApprovalMatrixVersion). Plain text, no relation.
+  changeRequestId       String
+  createdAt             DateTime @default(now())
+
+  cases ApprovalCase[]
+
+  @@unique([tenantId, version])
+  @@unique([tenantId, id])
+  @@index([tenantId, effectiveFrom])
+}
+
+/// The approval chain of one application's current review.
+model ApprovalCase {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id])
+  applicationId   String
+  application     LoanApplication        @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  matrixVersionId String?
+  matrixVersion   ApprovalMatrixVersion? @relation(fields: [tenantId, matrixVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status          ApprovalCaseStatus     @default(OPEN)
+  /// Set once, when the first approval is attempted: how many levels must approve (null until then; the database
+  /// refuses APPROVED while it is null). Frozen with the levels below, so a matrix change never moves a case in flight.
+  requiredLevels  Int?
+  /// MatrixLevel[] as they were when requiredLevels was set.
+  levelsSnapshot  Json?
+  /// Rules that put the requirement where it is, for the committee pack and the audit.
+  matchedRuleIds  String[]               @default([])
+  /// The level awaiting an approval.
+  pendingLevel    Int                    @default(1)
+  /// When the pending level started waiting, and when it is overdue.
+  levelStartedAt  DateTime               @default(now())
+  dueAt           DateTime?
+  escalationCount Int                    @default(0)
+  lastEscalatedAt DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime               @default(now())
+
+  escalations ApprovalEscalation[]
+  steps       ApprovalStep[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, applicationId])
+  @@index([tenantId, status, dueAt])
+}
+
+/// One level's approval, by one person, by role or by delegation.
+model ApprovalStep {
+  id            String          @id @default(cuid())
+  tenantId      String
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  caseId        String
+  case          ApprovalCase    @relation(fields: [tenantId, caseId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  applicationId String
+  level         Int
+  approverId    String
+  approver      User            @relation("ApprovalStepApprover", fields: [tenantId, approverId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  via           ApprovalStepVia
+  delegationId  String?
+  note          String?
+  /// Conditions the approval carries (a committee's, say): string[].
+  conditions    Json?
+  createdAt     DateTime        @default(now())
+
+  @@unique([caseId, level])
+  @@unique([caseId, approverId])
+  @@index([tenantId, applicationId])
+}
+
+/// An overdue level escalated to the next: who was told. Append-only.
+model ApprovalEscalation {
+  id              String       @id @default(cuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id])
+  caseId          String
+  case            ApprovalCase @relation(fields: [tenantId, caseId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  fromLevel       Int
+  toLevel         Int
+  notifiedUserIds String[]     @default([])
+  createdAt       DateTime     @default(now())
+
+  @@index([tenantId, caseId])
+}
+
+/// A person's authority at a level, for an amount, for a while, given to someone else. Never edited: it ends by revocation or expiry.
+model ApprovalDelegation {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  delegatorId    String
+  delegator      User      @relation("ApprovalDelegator", fields: [tenantId, delegatorId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  delegateId     String
+  delegate       User      @relation("ApprovalDelegate", fields: [tenantId, delegateId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  level          Int
+  maxAmountCents Int
+  validFrom      DateTime
+  validTo        DateTime
+  reason         String
+  /// Who recorded it (the delegator, or an administrator on their behalf).
+  createdById    String
+  revokedAt      DateTime?
+  revokedById    String?
+  createdAt      DateTime  @default(now())
+
+  @@index([tenantId, delegateId, validTo])
+  @@index([tenantId, delegatorId])
+}
+
+/// What the credit committee decided about an application at its level, with the conditions of an approval.
+model CreditCommitteeDecision {
+  id            String                @id @default(cuid())
+  tenantId      String
+  tenant        Tenant                @relation(fields: [tenantId], references: [id])
+  caseId        String
+  applicationId String
+  level         Int
+  decision      CommitteeDecisionKind
+  meetingDate   DateTime              @db.Date
+  /// Names of the members present: string[].
+  attendees     String[]              @default([])
+  /// Conditions attached to an approval: string[]. Disbursement-blocking conditions precedent are a later module.
+  conditions    Json
+  rationale     String
+  recordedById  String
+  recordedBy    User                  @relation("CommitteeDecisionRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// The delegation whose authority the recorder used, when their own role did not reach the committee's level.
+  delegationId  String?
+  createdAt     DateTime              @default(now())
+
+  @@index([tenantId, applicationId])
+}
