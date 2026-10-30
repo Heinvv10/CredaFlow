@@ -33,6 +33,7 @@ vi.mock("@/lib/turnstile", () => ({
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: vi.fn().mockReturnValue({ allowed: true, remaining: 9, retryAfterSeconds: 0 }),
   callerIp: vi.fn().mockReturnValue("127.0.0.1"),
+  recordedCallerIp: vi.fn().mockReturnValue(null),
 }))
 vi.mock("@/lib/referral-agents/referrals", () => ({
   resolveReferralCode: vi.fn().mockResolvedValue(null),

@@ -150,7 +150,7 @@ describe("returned signed packet docType", () => {
   // (return_to_review, return_to_draft, approve) and missing any one of them
   // leaves that path stale.
   it("is retired by every agreement-lifecycle teardown in the decide route", () => {
-    const src = source("app/api/applications/[id]/decide/route.ts")
+    const src = source("app/api/applications/[id]/decide/decide-application.ts")
     const executed = [...src.matchAll(/agreementExecutedDocumentSha256:\s*null,/g)].length
     const packet = [...src.matchAll(/signedPacketDocumentSha256:\s*null,/g)].length
     expect(executed, "teardown-site count changed — this test is stale").toBe(3)

@@ -71,6 +71,7 @@ const request = (body: unknown = { existingDebtObligations: [] }) => new NextReq
 
 const application = {
   id: "app-1",
+  inputStaffIds: ["earlier-capturer"],
   status: "UNDER_REVIEW",
   updatedAt: new Date("2026-07-18T12:00:00Z"),
   productId: "product-1",
@@ -147,6 +148,8 @@ describe("PATCH /api/applications/[id]/affordability", () => {
         updatedAt: application.updatedAt,
       },
       data: expect.objectContaining({
+        // The officer who changes the debt figures is an input staff member of the application.
+        inputStaffIds: ["earlier-capturer", "officer-1"],
         affordabilityResult: expect.objectContaining({
           schemaVersion: 3,
           legacy: application.affordabilityResult,

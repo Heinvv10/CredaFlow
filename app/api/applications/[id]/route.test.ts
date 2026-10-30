@@ -212,6 +212,8 @@ it("allows DRAFT -> SUBMITTED", async () => {
     data: expect.objectContaining({
       status: "SUBMITTED",
       submittedAt: expect.any(Date),
+      // Whoever submits the figures cannot later disburse an engine approval of the application.
+      inputStaffIds: ["u1"],
       totalExistingDebt: 50_000,
       affordabilityResult: expect.objectContaining({
         submission: expect.objectContaining({
@@ -409,6 +411,7 @@ it("PATCH action:update — happy path writes via updateMany pinned on DRAFT + t
     status: "DRAFT",
     updatedAt,
     affordabilityResult: priorSubmissionResult,
+    inputStaffIds: ["u0"],
   })
   prepareApplicationFieldsMock.mockResolvedValue({ ok: true, fields: preparedDraftFields })
 
@@ -432,6 +435,8 @@ it("PATCH action:update — happy path writes via updateMany pinned on DRAFT + t
     data: {
       ...preparedDraftFields,
       affordabilityResult: priorSubmissionResult,
+      // The earlier capturer stays recorded and the editor is added, once.
+      inputStaffIds: ["u0", "u1"],
     },
   })
   expect(auditLogCreateMock).toHaveBeenCalledWith({

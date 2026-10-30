@@ -21,7 +21,8 @@ export async function GET(req: NextRequest) {
   return withTenantContext(req, async (tenant) => {
     const [users, branches] = await Promise.all([
       prisma.user.findMany({
-        where: { tenantId: tenant.id },
+        // The automated decisioning account is the system's, not a person to manage.
+        where: { tenantId: tenant.id, isSystem: false },
         orderBy: { name: "asc" },
         select: {
           id: true,

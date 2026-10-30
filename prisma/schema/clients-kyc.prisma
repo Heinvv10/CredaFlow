@@ -70,6 +70,11 @@ model Client {
   // Written only by the portal language switcher (app/actions/locale.ts).
   preferredLanguage                  String?
   createdAt                          DateTime               @default(now())
+  /// Staff who captured this client or changed a figure the decision facts read (lib/decisioning/facts.ts
+  /// FACT_CLIENT_SOURCES). Grows only (trigger guardInputStaffIds). Copied onto each application of the client when it is
+  /// created and when its status changes (trigger inheritApplicationInputStaff), so an edit made before the application
+  /// existed still bars the editor from disbursing an engine approval of it.
+  inputStaffIds                      String[]               @default([])
   updatedAt                          DateTime               @updatedAt
   referralCount                      Int                    @default(0) // count of referrals from this client
   referredFromId                     String? // lead.id that converted to this client (the source lead)

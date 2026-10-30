@@ -38,7 +38,7 @@ const { users, links, audits, flags, tx } = vi.hoisted(() => {
   }
   return { users, links, audits, flags, tx }
 })
-type U = { id: string; email: string; role: string; tenantId: string | null; active: boolean; operatorId: string | null; name: string | null }
+type U = { id: string; email: string; role: string; tenantId: string | null; active: boolean; operatorId: string | null; name: string | null; isSystem?: boolean }
 vi.mock("@/lib/prisma", () => ({ prisma: { ...tx, $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) } }))
 
 import { resolveStaffUser, type IdpIdentity } from "./identity"
@@ -165,6 +165,16 @@ describe("resolveStaffUser: subject binding", () => {
     seed({ tenantId: "t2" })
     links.push({ tenantId: "t1", userId: "u1", subject: "https://idp.example.test|sub-ann" })
     expect(await resolveStaffUser(who(), conn())).toEqual({ ok: false, reason: "no_account" })
+  })
+})
+
+describe("resolveStaffUser: the automated decisioning account has no identity", () => {
+  it("refuses the system user by email and by a bound subject, and links nothing", async () => {
+    seed({ isSystem: true })
+    expect(await resolveStaffUser(who(), conn())).toEqual({ ok: false, reason: "no_account" })
+    links.push({ tenantId: "t1", userId: "u1", subject: "https://idp.example.test|sub-ann" })
+    expect(await resolveStaffUser(who(), conn())).toEqual({ ok: false, reason: "no_account" })
+    expect(links).toHaveLength(1)
   })
 })
 

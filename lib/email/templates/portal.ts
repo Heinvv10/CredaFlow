@@ -187,7 +187,9 @@ export function applicationDeclinedEmail(
   identity: PortalEmailIdentity,
   clientName: string,
   reference: string,
-  reason: string
+  reason: string,
+  /** The lender's approved paragraph for an automated decision (lib/decisioning/notice.ts); absent for a decision a person took. */
+  automatedNotice?: string | null,
 ): string {
   const body = `
     <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">Regarding your loan application</p>
@@ -201,7 +203,8 @@ export function applicationDeclinedEmail(
         <p style="margin:0;color:#7F1D1D;line-height:1.6;">${reason}</p>
       </td></tr>
     </table>
-    ` : ""}
+    ` : ""}${automatedNotice ? `
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${escapeHtml(automatedNotice)}</p>` : ""}
 
     <p style="margin:0 0 16px;color:#444;line-height:1.6;">This decision was made in accordance with the National Credit Act (NCA) affordability requirements. You have the right to:</p>
     <ul style="margin:0 0 16px;padding-left:20px;color:#444;line-height:1.8;">
