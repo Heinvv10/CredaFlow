@@ -104,6 +104,14 @@ describe("the monthly equivalent of an instalment (what affordability compares w
     expect(rows[1]!.totalDue).toBeLessThan(10_000)
   })
 
+  it("an interest-only loan of two instalments is its first one, the interest, not the closing payment that carries the principal", () => {
+    const t: T = { frequency: "MONTHLY", structure: "INTEREST_ONLY", instalments: 2 }
+    const rows = run(t, 0.04)
+    expect(rows).toHaveLength(2)
+    expect(monthlyEquivalentInstalment(rows, full(t))).toBe(rows[0]!.totalDue)
+    expect(rows[0]!.totalDue).toBe(40_000)
+  })
+
   it("a bullet is its one payment, not a recurring amount: it is not scaled to a month", () => {
     const t: T = { frequency: "WEEKLY", structure: "BULLET", instalments: 8 }
     const rows = run(t, 0.04)

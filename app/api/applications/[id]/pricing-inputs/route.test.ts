@@ -44,7 +44,7 @@ describe("PUT /api/applications/[id]/pricing-inputs", () => {
   it("saves a configured segment and a fixed channel, audited, under the application's row lock", async () => {
     const res = await put({ segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27" })
     expect(res.status).toBe(200)
-    expect(queryRaw).toHaveBeenCalled()
+    expect((queryRaw.mock.calls[0]![0] as string[]).join("?")).toMatch(/FROM "LoanApplication" WHERE .*FOR UPDATE/)
     expect(inputUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27", updatedById: "officer-1" } }))
     expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "APPLICATION_PRICING_INPUT_SET", newValue: { segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27" } }), expect.anything())
   })

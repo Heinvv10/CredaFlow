@@ -132,7 +132,7 @@ suite("product engine (real Postgres)", () => {
   })
 
   it("the version table refuses two versions of a product on one day, or with one number, whatever wrote it", async () => {
-    const row = (version: number, effectiveFrom: string) => ({ tenantId: lender.tenantId, productId, version, effectiveFrom: new Date(effectiveFrom), minAmount: 1, maxAmount: 2, minTermDays: 1, maxTermDays: 2, interestRatePm: 0.01, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 0, collateral: [], eligibility: {}, reason: "test reason", changeRequestId: "x" })
+    const row = (version: number, effectiveFrom: string) => ({ tenantId: lender.tenantId, productId, version, effectiveFrom: new Date(effectiveFrom), minAmount: 1, maxAmount: 2, minTermDays: 1, maxTermDays: 2, interestRatePm: 0.01, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 0, collateral: [], eligibility: {}, reason: "test reason", changeRequestId: `x-${version}-${effectiveFrom}-${Math.random()}` })
     const behindTriggers = (data: ReturnType<typeof row>) => db.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
       return tx.productVersion.create({ data: data as never })
@@ -225,15 +225,16 @@ suite("product engine (real Postgres)", () => {
     expect(await refusal(db.loanTerms.create({ data: { ...terms, loanId: await fresh(), deferredInterest: -1 } }))).toContain("LoanTerms_values")
   })
 
-  it("a version cannot start in the past: the row must carry the day the approval gave it, today at the earliest", async () => {
-    const request = await propose(versionPayload({ config: config({ interestRatePm: 0.031 }) }, "2031-05-01"))
+  it("a version cannot start in the past: a day already gone starts today, and a row dated earlier than that is refused whatever wrote it", async () => {
+    const own = await db.loanProduct.create({ data: { tenantId: lender.tenantId, code: `PD${Date.now() % 100000}`, name: "Past", productType: "PERSONAL", minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" } })
+    const request = await propose({ productId: own.id, effectiveFrom: "2000-01-01", reason: "Backdated on purpose", config: config() })
     await approveRequest(request.id)
     const made = await db.productVersion.findFirstOrThrow({ where: { changeRequestId: request.id } })
-    expect(sastCalendarDate(made.effectiveFrom)).toBe("2031-05-01")
-    // the same row, a day earlier, is not the approved version: the day is held by the trigger (a past day starts today, never earlier)
+    expect(sastCalendarDate(made.effectiveFrom)).toBe(TODAY)
+    // the approved payload says 1 January 2000; the same row dated yesterday is not the version the approval gave
     const { id: _id, createdAt: _createdAt, appliedAt: _appliedAt, ...copy } = made
-    const yesterday = new Date(Date.now() - 2 * 86_400_000)
-    expect(await refusal(db.productVersion.create({ data: { ...copy, version: 99, effectiveFrom: yesterday, collateral: [], eligibility: copy.eligibility as never } as never }))).toContain("must equal")
+    const yesterday = new Date(Date.parse(`${TODAY}T00:00:00Z`) - 86_400_000)
+    expect(await refusal(db.productVersion.create({ data: { ...copy, version: 99, effectiveFrom: yesterday, collateral: copy.collateral as never, eligibility: copy.eligibility as never } as never }))).toContain("must equal")
   })
 
   it("a version with a structure stops the customer channels offering the product; the night an NCA lender may not use it, it is not applied", async () => {

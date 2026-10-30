@@ -14,7 +14,8 @@ export function monthlyEquivalentInstalment(
   terms: Pick<RepaymentTerms, "frequency" | "structure" | "graceKind" | "graceInstalments">,
 ): number {
   if (rows.length === 0) return 0
-  if (terms.structure === "BULLET" || rows.length === 1) return rows[0]!.totalDue
+  // a bullet is one row: its one payment, which is not a recurring amount and so is not scaled to a month
+  if (rows.length === 1) return rows[0]!.totalDue
   const recurring = terms.structure === "INTEREST_ONLY" ? rows.slice(0, -1) : rows
   const first = terms.graceKind === "PRINCIPAL_ONLY" && terms.structure === "AMORTISING" ? Math.min(terms.graceInstalments, recurring.length - 1) : Math.min(1, recurring.length - 1)
   const regular = recurring[first]!.totalDue
