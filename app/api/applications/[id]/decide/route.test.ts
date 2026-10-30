@@ -91,6 +91,10 @@ vi.mock("@/lib/prisma", () => ({
     tenantConfig: { findFirst: (a: unknown) => tenantConfigFindFirstMock(a) },
     referenceRate: { findFirst: (a: unknown) => referenceRateFindFirstMock(a), findMany: async () => [] },
     loan: { findMany: (a: unknown) => loanFindManyMock(a) },
+    // No product under the product engine: the product's own terms apply (lib/product-engine/approval-terms.ts).
+    productVersion: { findFirst: async () => null },
+    productPricingRule: { findMany: async () => [] },
+    applicationPricingInput: { findUnique: async () => null },
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => transactionMock(cb),
   },
 }))

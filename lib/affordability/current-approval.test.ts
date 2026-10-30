@@ -127,6 +127,10 @@ function transactionFor(
     tenantConfig: { findUnique: vi.fn().mockResolvedValue(tenantConfig) },
     // No own loans with this lender (lib/affordability/own-lender-debt.ts).
     loan: { findMany: vi.fn().mockResolvedValue([]) },
+    // No product under the product engine: the product's own terms apply.
+    productVersion: { findFirst: vi.fn().mockResolvedValue(null) },
+    productPricingRule: { findMany: vi.fn().mockResolvedValue([]) },
+    applicationPricingInput: { findUnique: vi.fn().mockResolvedValue(null) },
     loanApplication: { findUnique: vi.fn().mockResolvedValue(application), findMany: vi.fn().mockResolvedValue([]) },
     tenant: { findUnique: vi.fn().mockResolvedValue({ name: "Acme Lending" }) },
     clientDocument: {
