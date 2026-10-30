@@ -251,7 +251,7 @@ jobs:
       # Log the semantics the suites rely on: C collation, UTC, superuser.
       - name: Show database settings
         run: |
-          /usr/lib/postgresql/16/bin/psql "$DATABASE_URL" -Atc "SHOW lc_collate; SHOW timezone; SELECT rolsuper FROM pg_roles WHERE rolname = current_user;"
+          /usr/lib/postgresql/16/bin/psql "$DATABASE_URL" -Atc "SELECT datcollate, current_setting('TimeZone'), (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) FROM pg_database WHERE datname = current_database();"
 
       # The integration baseline is a debt register and may only shrink.
       # Once per run: the check reads only git, so shard 1 carries it.
