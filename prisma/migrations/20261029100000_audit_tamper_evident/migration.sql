@@ -920,7 +920,9 @@ BEGIN
   IF matched <> cardinality(p_ids) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_mark: not all rows are this lender''s pending rows';
   END IF;
-  IF EXISTS (SELECT 1 FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids) AND o."nextAttemptAt" > now()) THEN
+  -- nextAttemptAt is TIMESTAMP(3), which ROUNDS the default now() to the millisecond, up to half of one ahead of a
+  -- now() read a moment later: a row marked within a millisecond of being queued would read as "backing off".
+  IF EXISTS (SELECT 1 FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids) AND o."nextAttemptAt" > now() + interval '1 millisecond') THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'audit_outbox_mark: a row is still backing off';
   END IF;
 

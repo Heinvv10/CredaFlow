@@ -157,6 +157,17 @@ suite("the database functions trust nothing they are given", () => {
       expect((await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).deadAt).not.toBeNull()
     })
 
+    it("does not read a row queued this millisecond as backing off (TIMESTAMP(3) rounds the default up to half a millisecond ahead of now())", async () => {
+      await clear()
+      const row = await queued()
+      // Within one transaction now() is fixed: put the row at the next millisecond boundary, as rounding does, and mark it.
+      await owner.$transaction(async (tx) => {
+        await tx.$executeRaw`UPDATE "AuditSiemOutbox" SET "nextAttemptAt" = date_trunc('milliseconds', now()) + interval '1 millisecond' WHERE id = ${row.id}`
+        await expect(tx.$queryRaw`SELECT audit_outbox_mark(${tenantId}, ${HOLDER}, ${[row.id]}::int[], 'retry', 'siem_unavailable', ${new Date(Date.now() + 120_000).toISOString()}::timestamp, NULL)`).resolves.toBeDefined()
+      })
+      expect((await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).attempts).toBe(1)
+    })
+
     it("gives a row up as row_missing only when the AuditLog row itself is gone", async () => {
       await clear()
       const row = await queued()
