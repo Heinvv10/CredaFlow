@@ -1,7 +1,7 @@
 import type { LoanCalcResult } from "@/lib/loan-calculator"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { approvalTermsFor, capApplicationFor } from "@/lib/product-engine/approval-terms"
+import { approvalTermsFor, capApplicationFor, versionLimitRefusal } from "@/lib/product-engine/approval-terms"
 import { Prisma } from "@prisma/client"
 import {
   lockAffordabilityApplicationEvidence,
@@ -499,7 +499,7 @@ export async function verifyLockedApprovalCandidate(
   let calculation: LoanCalcResult
   try {
     terms = await approvalTermsFor(tx, args.tenantId, { id: application.id, productId: application.productId, appliedTermDays: application.appliedTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(args.calculationStartDate))
-    if (terms.ncaIssues.length > 0) return { ok: false, reason: "changed" }
+    if (terms.ncaIssues.length > 0 || versionLimitRefusal(terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays })) return { ok: false, reason: "changed" }
     if (terms.versioned && !(await approvalInterestCapCheck(tx, args.tenantId, capApplicationFor(application, terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays }))).ok) return { ok: false, reason: "changed" }
     calculation = calculateLoan({
       principal: application.appliedAmount,

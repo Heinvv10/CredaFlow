@@ -15,3 +15,13 @@ export const PRODUCT_TYPE_LABELS: Record<ProductType, string> = {
 export const CONSUMER_PRODUCT_WHERE = {
   productType: { not: "ASSET_FINANCE" },
 } satisfies Prisma.LoanProductWhereInput
+
+/**
+ * The products a customer channel (portal, website, lender API) may offer: the consumer ones that are not on a repayment
+ * structure (lib/product-engine). Those channels show and schedule monthly instalments only, so a weekly, fortnightly, graced,
+ * interest-only or bullet product is originated by staff until they follow the structure.
+ */
+export const CUSTOMER_PRODUCT_WHERE = {
+  ...CONSUMER_PRODUCT_WHERE,
+  repaymentStructured: false,
+} satisfies Prisma.LoanProductWhereInput

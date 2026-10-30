@@ -8,12 +8,12 @@ vi.mock("@/lib/tenant", () => ({ getTenantFromRequest: vi.fn(async () => ({ id: 
 import { GET } from "./route"
 
 describe("GET /api/website/loan-pricing (Fair Score E4)", () => {
-  it("reads only active consumer products: an asset-finance product never reaches the public calculator", async () => {
+  it("reads only active consumer products on no repayment structure: an asset-finance product, or a weekly one, never reaches the public calculator", async () => {
     findMany.mockResolvedValue([])
     const res = await GET(new NextRequest("http://localhost/api/website/loan-pricing"))
     expect(res.status).toBe(200)
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", active: true, productType: { not: "ASSET_FINANCE" } },
+      where: { tenantId: "tenant-1", active: true, productType: { not: "ASSET_FINANCE" }, repaymentStructured: false },
     }))
   })
 })

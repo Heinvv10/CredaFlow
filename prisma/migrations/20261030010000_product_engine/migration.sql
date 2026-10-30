@@ -7,6 +7,9 @@ CREATE TYPE "RepaymentStructure" AS ENUM ('AMORTISING', 'INTEREST_ONLY', 'BULLET
 -- CreateEnum
 CREATE TYPE "GraceKind" AS ENUM ('NONE', 'PRINCIPAL_ONLY', 'FULL');
 
+-- AlterTable
+ALTER TABLE "LoanProduct" ADD COLUMN "repaymentStructured" BOOLEAN NOT NULL DEFAULT false;
+
 -- CreateTable
 CREATE TABLE "ProductVersion" (
     "id" TEXT NOT NULL,

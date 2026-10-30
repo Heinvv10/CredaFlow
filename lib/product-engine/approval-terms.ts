@@ -11,6 +11,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { MICRO30_CODE } from "@/lib/product-config/micro30"
 import { priceApplication } from "./resolve"
+import { assertValidTerms } from "./schedule"
 import { ncaStructureIssues } from "./terms"
 import type { RepaymentTerms } from "./types"
 
@@ -39,6 +40,8 @@ export interface ApprovalTerms extends ProductPricing {
   repayment: RepaymentTerms | null
   /** Null for a product with no version in effect. */
   versioned: VersionedTerms | null
+  /** The limits of the version in effect, which an approval's amount and term must be within; null for a product with no version. */
+  limits: { minAmountCents: number; maxAmountCents: number; minTermDays: number; maxTermDays: number } | null
   /**
    * Why an NCA lender may not approve a loan on this version, or []: the structure and fee rules it was approved under, checked
    * again now, because the process may have been configured differently when the version was approved (lib/product-engine/terms.ts).
@@ -55,13 +58,14 @@ export async function approvalTermsFor(
   asOf: string = sastCalendarDate(new Date()),
 ): Promise<ApprovalTerms> {
   const priced = await priceApplication(db, tenantId, { productId: application.productId, applicationId: application.id, riskRank: application.riskGradeRank, termDays: application.appliedTermDays, asOf, useRules: product.code !== MICRO30_CODE })
-  if (!priced) return { ...pickPricing(product), repayment: null, versioned: null, ncaIssues: [] }
+  if (!priced) return { ...pickPricing(product), repayment: null, versioned: null, limits: null, ncaIssues: [] }
   const c = priced.version.config
   return {
     interestRatePm: priced.pricing.ratePm, interestModel: c.interestModel, initiationFeeModel: c.initiationFeeModel, initiationFeePct: priced.pricing.initiationFeePct,
     initiationFeeMax: c.initiationFeeMaxCents, monthlyServiceFee: c.monthlyServiceFeeCents,
     repayment: priced.repayment,
     ncaIssues: isNcaJurisdiction() ? ncaStructureIssues(c) : [],
+    limits: { minAmountCents: c.minAmountCents, maxAmountCents: c.maxAmountCents, minTermDays: c.minTermDays, maxTermDays: c.maxTermDays },
     versioned: {
       productVersionId: priced.version.id, version: priced.version.version, baseRatePm: priced.base.ratePm,
       pricingRuleId: priced.pricing.ruleId, pricingRuleName: priced.pricing.ruleName, pricingInputs: priced.inputs,
@@ -116,4 +120,21 @@ export async function previewCalcInput(
     initiationFeePayment: application.initiationFeePayment,
     ...(terms.repayment ? { repayment: terms.repayment } : {}),
   }
+}
+
+/** Why a loan of this principal and term is outside the version's limits (or its structure cannot schedule it), or null. */
+export function versionLimitRefusal(terms: ApprovalTerms, loan: { principalCents: number; termDays: number }): string | null {
+  const l = terms.limits
+  if (l) {
+    if (loan.principalCents < l.minAmountCents || loan.principalCents > l.maxAmountCents) return `the amount is outside the product version's limits of ${l.minAmountCents} to ${l.maxAmountCents} cents`
+    if (loan.termDays < l.minTermDays || loan.termDays > l.maxTermDays) return `the term is outside the product version's limits of ${l.minTermDays} to ${l.maxTermDays} days`
+  }
+  if (terms.repayment) {
+    try {
+      assertValidTerms(terms.repayment)
+    } catch (error) {
+      return `the product version's repayment structure cannot schedule this term: ${error instanceof Error ? error.message : "invalid"}`
+    }
+  }
+  return null
 }

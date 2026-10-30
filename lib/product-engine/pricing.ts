@@ -8,6 +8,7 @@
  * The risk grade is read by RANK, never by label (lib/decisioning/risk-grade.ts): 0 is the best band of the scorecard
  * that graded the application. An application with no grade matches no rule that names one.
  */
+import { PRICING_CHANNELS, isPricingChannel } from "./channels"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
 
@@ -120,6 +121,7 @@ export function parsePricingRule(raw: unknown): PricingRulePayload {
   if (typeof rule.name !== "string" || rule.name !== rule.name.trim() || rule.name.length < 1 || rule.name.length > 100) problems.add("rule.name", "1 to 100 characters, no surrounding spaces")
   const segment = label("rule.segment", rule.segment ?? null, problems)
   const channel = label("rule.channel", rule.channel ?? null, problems)
+  if (channel !== null && !isPricingChannel(channel)) problems.add("rule.channel", `one of ${PRICING_CHANNELS.join(", ")} (the channel is set by the system, not typed)`)
   const rankOk = (v: unknown) => v === null || v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 50)
   if (!rankOk(rule.riskRankMin) || !rankOk(rule.riskRankMax)) problems.add("rule.riskRankMin", "a whole grade rank from 0 (best) to 50, or null")
   else if ((rule.riskRankMin ?? null) === null !== ((rule.riskRankMax ?? null) === null)) problems.add("rule.riskRankMin", "give both ends of the rank range, or neither")

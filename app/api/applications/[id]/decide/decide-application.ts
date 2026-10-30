@@ -10,7 +10,7 @@ import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { calculateLoan } from "@/lib/loan-calculator"
-import { approvalTermsFor, capApplicationFor } from "@/lib/product-engine/approval-terms"
+import { approvalTermsFor, capApplicationFor, versionLimitRefusal } from "@/lib/product-engine/approval-terms"
 import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
 import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
@@ -982,6 +982,16 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // lender may write loans on: its structure and fee are held to the NCA rules at every approval, not only when it was approved.
     if (terms.ncaIssues.length > 0) {
       return NextResponse.json({ error: `Approval blocked: the product version in effect is not one an NCA lender may use. ${terms.ncaIssues.join("; ")}`, productVersionRefused: true }, { status: 422 })
+    }
+    const limitRefusal = versionLimitRefusal(terms, { principalCents: approvalPrincipal, termDays: approvalTermDays })
+    if (limitRefusal) return NextResponse.json({ error: `Approval blocked: ${limitRefusal}.`, productVersionRefused: true }, { status: 422 })
+    // The price a pricing rule gives follows the application's pricing inputs, which staff set: whoever set them does not also approve
+    // a loan priced on them (the segment or campaign they typed could otherwise earn the discount they approve).
+    if (terms.versioned?.pricingRuleId) {
+      const inputs = await prisma.applicationPricingInput.findFirst({ where: { tenantId: tenant.id, applicationId: id }, select: { updatedById: true } })
+      if (inputs?.updatedById === user.id) {
+        return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs, and a pricing rule priced it on them. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
+      }
     }
     // A debit-order mandate (DebiCheck) is registered monthly, one recurring amount, one debit day. A weekly or fortnightly loan
     // would fall into arrears the first week, and an interest-only, graced or bullet schedule has no one recurring amount. Until

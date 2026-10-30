@@ -240,6 +240,13 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     expect(update).toHaveBeenCalled()
   })
 
+  it("a rename is not a change of rate: a rate that comes back from the form a float's width off is the same rate", async () => {
+    versioned(1)
+    findUnique.mockResolvedValue({ ...before, interestRatePm: 0.0225, initiationFeePct: 0.15 })
+    const response = await PUT(request({ name: "Short-term Loan", interestRatePm: 0.022500000000000003, initiationFeePct: 0.15000000000000002 }), context)
+    expect(await response.json()).not.toMatchObject({ code: "PRODUCT_VERSIONED" })
+  })
+
   it("leaves a product with no versions exactly as it was", async () => {
     versioned(0)
     const response = await PUT(request({ minAmount: 400 }), context)

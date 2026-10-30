@@ -164,7 +164,7 @@ suite("product engine (real Postgres)", () => {
   it("a pricing rule exists only because an approved request made it, and is retired by another", async () => {
     setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
     const create = await propose({
-      action: "CREATE", rule: { productId, name: "Salaried, mobile, best grades", segment: "SALARIED", channel: "MOBILE", riskRankMin: 0, riskRankMax: 1, campaignCode: null, validFrom: TODAY, validTo: null, priority: 5, rate: { mode: "SET", value: 0.02 }, initiationFeePct: null },
+      action: "CREATE", rule: { productId, name: "Salaried, mobile, best grades", segment: "SALARIED", channel: "DIGITAL", riskRankMin: 0, riskRankMax: 1, campaignCode: null, validFrom: TODAY, validTo: null, priority: 5, rate: { mode: "SET", value: 0.02 }, initiationFeePct: null },
     }, PRICING_RULE_KIND)
     await approveRequest(create.id)
     const rule = await db.productPricingRule.findFirstOrThrow({ where: { tenantId: lender.tenantId, changeRequestId: create.id } })
@@ -172,7 +172,7 @@ suite("product engine (real Postgres)", () => {
 
     // priced: an application graded in the best band, salaried, on mobile
     const app = await db.loanApplication.create({ data: { tenantId: lender.tenantId, reference: `APP-PR-${Date.now()}`, clientId: (await db.client.create({ data: { tenantId: lender.tenantId, idNumber: `92${Date.now().toString().slice(-11)}`, firstName: "P", lastName: "R", email: `${Date.now()}@client.invalid`, phone: "0820000002" } })).id, productId, appliedAmount: 300_000, appliedTermDays: 84 } })
-    await db.applicationPricingInput.create({ data: { applicationId: app.id, tenantId: lender.tenantId, segment: "SALARIED", channel: "MOBILE" } })
+    await db.applicationPricingInput.create({ data: { applicationId: app.id, tenantId: lender.tenantId, segment: "SALARIED", channel: "DIGITAL" } })
     const priced = await as(() => priceApplication(prisma, lender.tenantId, { productId, applicationId: app.id, riskRank: 1, termDays: 84, asOf: TODAY }))
     expect(priced?.pricing).toMatchObject({ ruleId: rule.id, ratePm: 0.02 })
     expect(priced?.base.ratePm).toBe(0.04)

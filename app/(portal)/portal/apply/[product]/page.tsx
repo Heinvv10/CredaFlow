@@ -10,7 +10,7 @@ import { ArrearsApplyBlock, OwnArrearsNotice } from "../OwnArrearsNotice"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
-import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
+import { CUSTOMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 // Resolve by tenant-scoped UNIQUE product code, never by productType:
 // two products can both be productType MICRO, and type+creation-order
@@ -51,7 +51,7 @@ export default async function PortalApplyProductPage({
       include: { debtObligations: true },
     }),
     prisma.loanProduct.findFirst({
-      where: { tenantId, code: productCode, active: true, ...CONSUMER_PRODUCT_WHERE },
+      where: { tenantId, code: productCode, active: true, ...CUSTOMER_PRODUCT_WHERE },
     }),
     prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId)),
   ])

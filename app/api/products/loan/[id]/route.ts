@@ -19,6 +19,9 @@ const VERSIONED_PRODUCT_FIELDS = [
   "minAmount", "maxAmount", "minTermDays", "maxTermDays", "interestRatePm", "interestModel", "initiationFeeModel", "initiationFeePct", "initiationFeeMax", "monthlyServiceFee",
 ] as const
 
+/** Rates arrive from a form as percent x 0.01, so 0.0225 can come back as 0.022500000000000003: compare numbers in basis points. */
+const sameValue = (a: unknown, b: unknown) => (typeof a === "number" && typeof b === "number" ? Math.round(a * 10_000) === Math.round(b * 10_000) : a === b)
+
 const PORTAL_STABLE_PRODUCT_CODES = new Set(["MICRO30", "PERSONAL", "POFUND"])
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -146,7 +149,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       // A product under the product engine changes through a version a second person approves (lib/product-engine): its
       // limits, price and fees are no longer edited here. Name, activation and the other fields still are.
       if (await tx.productVersion.count({ where: { tenantId: tenant.id, productId: id } }) > 0) {
-        const versioned = VERSIONED_PRODUCT_FIELDS.filter((field) => before[field] !== data[field])
+        const versioned = VERSIONED_PRODUCT_FIELDS.filter((field) => !sameValue(before[field], data[field]))
         if (versioned.length > 0) return { kind: "versioned" as const, fields: versioned }
       }
       const product = await tx.loanProduct.update({

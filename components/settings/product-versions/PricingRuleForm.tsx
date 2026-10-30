@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PRICING_CHANNELS } from "@/lib/product-engine/channels"
 import { api, controlClass, type ChangeRow, type EngineOverview } from "./types"
 
 const nullable = (text: string) => (text.trim() === "" ? null : text.trim())
@@ -73,7 +74,12 @@ export function PricingRuleForm({ overview, onDone, onCancel }: { overview: Engi
           {field("priority", "pr-priority", "Priority (0 to 1000)")}
         </div>
         <div className="grid gap-3 md:grid-cols-5">
-          {field("segment", "pr-segment", "Customer segment")}{field("channel", "pr-channel", "Channel")}{field("campaign", "pr-campaign", "Campaign code")}
+          {field("segment", "pr-segment", "Customer segment")}<div className="space-y-1">
+            <Label htmlFor="pr-channel">Channel</Label>
+            <select id="pr-channel" className={`${controlClass} w-full`} value={f.channel} onChange={(e) => set({ channel: e.target.value })}>
+              <option value="">Any channel</option>{PRICING_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>{field("campaign", "pr-campaign", "Campaign code")}
           {field("rankMin", "pr-rankmin", "Best grade rank")}{field("rankMax", "pr-rankmax", "Worst grade rank")}
         </div>
         <div className="grid gap-3 md:grid-cols-4">

@@ -20,6 +20,7 @@ import { AlertTriangle, CheckCircle, XCircle } from "lucide-react"
 import { AgreementSection } from "@/components/applications/AgreementSection"
 import { PipelineStepper } from "@/components/applications/PipelineStepper"
 import { AffordabilityCapture } from "@/components/applications/AffordabilityCapture"
+import { PricingInputsCard } from "@/components/applications/PricingInputsCard"
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
@@ -835,6 +836,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           </DataPanel>
 
         </div>
+
+        {/* Pricing inputs: only for a product under the product engine (the card hides itself otherwise) */}
+        {canDo(userRole, "set_application_pricing_inputs") && <PricingInputsCard applicationId={application.id} />}
 
         {/* Affordability Capture */}
         <AffordabilityCapture

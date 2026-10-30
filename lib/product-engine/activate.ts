@@ -57,13 +57,15 @@ export async function activateDueVersions(tx: Tx, tenantId: string, today: strin
       minAmount: target.minAmount, maxAmount: target.maxAmount, minTermDays: target.minTermDays, maxTermDays: target.maxTermDays,
       interestRatePm: target.interestRatePm, interestModel: target.interestModel, initiationFeeModel: target.initiationFeeModel,
       initiationFeePct: target.initiationFeePct, initiationFeeMax: target.initiationFeeMax, monthlyServiceFee: target.monthlyServiceFee,
+      // The customer channels show monthly instalments only: they stop offering a product while its version has a structure.
+      repaymentStructured: target.structure !== null,
     }
     await tx.loanProduct.update({ where: { id: productId, tenantId }, data })
     const skipped = versions.slice(0, -1).map((v) => v.version)
     await logAuditStrict({
       tenantId, userId: actor?.id, userEmail: actor?.email ?? "system:product-version-activate", action: AuditAction.PRODUCT_VERSION_ACTIVATED,
       entity: "ProductVersion", entityId: target.id,
-      oldValue: { minAmount: before.minAmount, maxAmount: before.maxAmount, minTermDays: before.minTermDays, maxTermDays: before.maxTermDays, interestRatePm: before.interestRatePm, interestModel: before.interestModel, initiationFeePct: before.initiationFeePct, monthlyServiceFee: before.monthlyServiceFee },
+      oldValue: { minAmount: before.minAmount, maxAmount: before.maxAmount, minTermDays: before.minTermDays, maxTermDays: before.maxTermDays, interestRatePm: before.interestRatePm, interestModel: before.interestModel, initiationFeePct: before.initiationFeePct, monthlyServiceFee: before.monthlyServiceFee, repaymentStructured: before.repaymentStructured },
       newValue: { productId, version: target.version, effectiveFrom: today, skippedVersions: skipped, ...data },
     }, tx)
     activated.push({ productId, versionId: target.id, version: target.version, skipped })

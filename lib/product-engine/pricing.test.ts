@@ -78,7 +78,7 @@ describe("resolvePricing", () => {
 })
 
 describe("parsePricingRule", () => {
-  const raw = { action: "CREATE", rule: { productId: "p1", name: "Spring salaried", segment: "SALARIED", channel: "MOBILE", riskRankMin: 0, riskRankMax: 2, campaignCode: "SPRING27", validFrom: "2027-03-01", validTo: "2027-05-31", priority: 10, rate: { mode: "SET", value: 0.025 }, initiationFeePct: 0.03 } }
+  const raw = { action: "CREATE", rule: { productId: "p1", name: "Spring salaried", segment: "SALARIED", channel: "DIGITAL", riskRankMin: 0, riskRankMax: 2, campaignCode: "SPRING27", validFrom: "2027-03-01", validTo: "2027-05-31", priority: 10, rate: { mode: "SET", value: 0.025 }, initiationFeePct: 0.03 } }
   const problems = (x: unknown) => {
     try {
       parsePricingRule(x)
