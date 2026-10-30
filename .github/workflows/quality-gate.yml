@@ -5,7 +5,8 @@ name: ci
 # agent-doc and date checks into quality avoids two runner startups and two
 # duplicate npm installs on every revision.
 #
-# GitHub-hosted runners (ubuntu-latest). postgresql-16 (for
+# GitHub-hosted runners (ubuntu-latest, which is 26.04 and packages PostgreSQL 18;
+# integration-shard pins ubuntu-24.04, whose archive has postgresql-16). postgresql-16 (for
 # scripts/ci/pg-cluster.sh, PG_BIN default /usr/lib/postgresql/16/bin),
 # poppler-utils and qpdf are apt-installed.
 on:
@@ -201,7 +202,7 @@ jobs:
     # Main is tested as a candidate merge by the PR event and again nightly.
     # Avoid paying for the same integration suite immediately after each merge.
     if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
     # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
     # (440 gated) it was still running, with no failure, when 45 cancelled it
