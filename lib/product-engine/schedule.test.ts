@@ -7,7 +7,7 @@ import type { Frequency, GraceKind, RepaymentStructure } from "./types"
 // Start: 10 Feb 2027, noon SAST. A day every month has, so calendar months fall on the same day.
 const START = new Date("2027-02-10T12:00:00+02:00")
 
-const input = (over: Partial<ScheduleInput> & { terms?: Partial<ScheduleInput["terms"]> } = {}): ScheduleInput => ({
+const input = (over: Omit<Partial<ScheduleInput>, "terms"> & { terms?: Partial<ScheduleInput["terms"]> } = {}): ScheduleInput => ({
   principalCents: 1_000_000,
   interestRatePm: 0.02,
   interestModel: "REDUCING_BALANCE",

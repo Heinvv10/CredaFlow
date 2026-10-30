@@ -1,0 +1,146 @@
+// The product engine (lib/product-engine, docs/product-engine/DESIGN.md): versions of a product's configuration with
+// effective dates, pricing rules by segment / risk grade / channel / campaign, and the terms a loan was written on.
+// Every version and rule is made by an approved maker-checker request (lib/maker-checker); the tables refuse
+// rows nothing approved and never change what they hold.
+
+enum RepaymentFrequency {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+}
+
+enum RepaymentStructure {
+  AMORTISING
+  INTEREST_ONLY
+  BULLET
+}
+
+enum GraceKind {
+  NONE
+  PRINCIPAL_ONLY
+  FULL
+}
+
+// One version of a loan product's configuration. The latest one in effect (effectiveFrom <= today) is what new
+// applications are priced and scheduled on; LoanProduct itself is kept equal to it (lib/product-engine/activate.ts), so
+// every reader of LoanProduct sees the version in effect. A version never changes or goes away: a change is a new one.
+model ProductVersion {
+  id                    String             @id @default(cuid())
+  tenantId              String
+  tenant                Tenant             @relation(fields: [tenantId], references: [id])
+  productId             String
+  product               LoanProduct        @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  version               Int
+  /// First SAST calendar day the version is in effect.
+  effectiveFrom         DateTime           @db.Date
+  minAmount             Int
+  maxAmount             Int
+  minTermDays           Int
+  maxTermDays           Int
+  interestRatePm        Float
+  interestModel         InterestModel
+  initiationFeeModel    InitiationFeeModel
+  initiationFeePct      Float
+  initiationFeeMax      Int
+  monthlyServiceFee     Int
+  /// The repayment structure, all three null for a product that keeps its single-payment / monthly behaviour.
+  frequency             RepaymentFrequency?
+  structure             RepaymentStructure?
+  graceKind             GraceKind?
+  graceInstalments      Int                @default(0)
+  /// [{ code, description, required }] (lib/product-engine/terms.ts)
+  collateral            Json
+  /// { minAge, maxAge, minMonthlyIncomeCents, minEmploymentMonths }, each null when unused
+  eligibility           Json
+  reason                String
+  /// The approved ChangeRequest that made it. No relation (lib/maker-checker/.claude.md); the insert trigger requires it
+  /// to exist, APPROVED, of kind PRODUCT_VERSION, and the row to equal its payload.
+  changeRequestId       String
+  /// Set once, by the activation that made LoanProduct equal to this version.
+  appliedAt             DateTime?          @db.Timestamptz(3)
+  createdAt             DateTime           @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  loanTerms LoanTerms[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, productId, version])
+  @@unique([tenantId, productId, effectiveFrom])
+  @@index([tenantId, productId, effectiveFrom])
+}
+
+// A pricing rule: the conditions it needs (none named = any) and the price it sets. Immutable once approved except that a
+// second approved request retires it (retiredAt, once). lib/product-engine/pricing.ts says which rule prices an application.
+model ProductPricingRule {
+  id               String       @id @default(cuid())
+  tenantId         String
+  tenant           Tenant       @relation(fields: [tenantId], references: [id])
+  productId        String?
+  product          LoanProduct? @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  name             String
+  segment          String?
+  channel          String?
+  riskRankMin      Int?
+  riskRankMax      Int?
+  campaignCode     String?
+  validFrom        DateTime     @db.Date
+  validTo          DateTime?    @db.Date
+  priority         Int          @default(0)
+  /// SET replaces the product's monthly rate, ADD moves it.
+  rateMode         String
+  rateValue        Float
+  initiationFeePct Float?
+  /// The approved ChangeRequest (kind PRODUCT_PRICING_RULE, action CREATE) that made it ...
+  changeRequestId  String
+  /// ... and the one (action RETIRE) that retired it.
+  retiredAt        DateTime?    @db.Timestamptz(3)
+  retiredByRequestId String?
+  createdAt        DateTime     @default(now())
+
+  @@unique([tenantId, id])
+  @@index([tenantId, productId])
+}
+
+// The terms a loan was written on: which version of the product, the repayment structure it was scheduled with, the
+// rate it was priced at and the rule that priced it. Written once, with the loan; a later version never reaches it.
+model LoanTerms {
+  loanId           String              @id
+  tenantId         String
+  tenant           Tenant              @relation(fields: [tenantId], references: [id])
+  loan             Loan                @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  productVersionId String
+  productVersion   ProductVersion      @relation(fields: [tenantId, productVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  frequency        RepaymentFrequency?
+  structure        RepaymentStructure?
+  graceKind        GraceKind?
+  graceInstalments Int                 @default(0)
+  /// Periods in the whole term, grace included; null when the loan has no engine structure.
+  instalments      Int?
+  /// The monthly rate the loan was priced at (the product's, or the pricing rule's) and the rule, if one priced it.
+  baseRatePm       Float
+  interestRatePm   Float
+  pricingRuleId    String?
+  pricingRuleName  String?
+  /// { segment, channel, campaignCode, riskRank }: what the rule was matched on.
+  pricingInputs    Json?
+  createdAt        DateTime            @default(now())
+
+  @@unique([tenantId, loanId])
+  @@index([tenantId, productVersionId])
+}
+
+// What the pricing rules are matched on for one application, set by staff before it is approved. Channel and segment are
+// the lender's own labels; a rule that names one matches only an application that carries it.
+model ApplicationPricingInput {
+  applicationId String   @id
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  application   LoanApplication @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  segment       String?
+  channel       String?
+  campaignCode  String?
+  updatedById   String?
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, applicationId])
+}

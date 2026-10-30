@@ -215,6 +215,7 @@ model LoanApplication {
   loan                      Loan?
   ncaRegimeOverrides        NcaRegimeOverride[]
   pasqAcknowledgementTokens PasqAcknowledgementToken[]
+  pricingInput ApplicationPricingInput?
   selfieCaptureTokens       SelfieCaptureToken[]
   statementAiOutputs        StatementAiOutput[]
 
