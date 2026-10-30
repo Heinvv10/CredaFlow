@@ -14,7 +14,7 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { sendWhatsAppForTenant } from "@/lib/whatsapp/send-for-tenant"
 import { getLenderIdentity, type LenderIdentity } from "@/lib/config/identity"
 import { requireAppBaseUrl } from "@/lib/config/deployment-urls"
-import { escapeHtml } from "@/lib/utils"
+import { activeCurrencySymbol, escapeHtml } from "@/lib/utils"
 import { portalContinueUrl } from "@/lib/portal-urls"
 import {
   applicationSubmittedEmail,
@@ -204,7 +204,7 @@ function section129Html(identity: LenderIdentity, name: string): string {
 <p style="margin:0;color:#888;font-size:12px;">Questions? <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;">${escapeHtml(identity.publicEmail)}</a></p>
 </td></tr>
 <tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-<p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}</p></td></tr>
+<p style="margin:0;color:#888;font-size:11px;">${identity.ncrNumber ? `NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}` : escapeHtml(identity.legalName)}</p></td></tr>
 </table></td></tr></table></body></html>`
 }
 
@@ -300,7 +300,7 @@ async function buildTemplate(
       return {
         subject: t("subjReceived"),
         html: paymentReceivedEmail(identity, fullName, amount, reference, outstanding, locale),
-        text: t("textReceived", { name: fullName, balance: `R${(outstanding / 100).toFixed(2)}` }),
+        text: t("textReceived", { name: fullName, balance: `${activeCurrencySymbol()}${(outstanding / 100).toFixed(2)}` }),
         waVars: { ...EMPTY_WA_VARS, reference, amount, outstanding },
       }
     }
@@ -352,7 +352,7 @@ async function buildTemplate(
 // see lib/pdf/.claude.md). This preserves the WA_TEMPLATES formatting that
 // was already live before this fix (e.g. application_submitted).
 function formatRand(cents: number): string {
-  return `R${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
+  return `${activeCurrencySymbol()}${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
 }
 
 interface WaBuildResult {

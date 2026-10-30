@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation"
 import { getSession } from "@/lib/auth-session"
 import { redirectStaleSession } from "@/lib/auth-guards"
+import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 
 /**
  * The tenant a dashboard or portal page reads with: the signed-in principal's
@@ -19,6 +20,7 @@ import { redirectStaleSession } from "@/lib/auth-guards"
  * redirect loops while the edge still trusts the cookie); a CLIENT → /portal.
  */
 export async function getStaffTenantId(): Promise<string> {
+  await ensureActiveJurisdiction()
   const session = await getSession()
   if (!session?.user) redirectStaleSession()
   if (session.user.role === "CLIENT") redirect("/portal")
@@ -37,6 +39,7 @@ export async function getStaffTenantId(): Promise<string> {
  * signed-in client back to /portal, a redirect loop.
  */
 export async function getPortalTenantId(): Promise<string> {
+  await ensureActiveJurisdiction()
   const session = await getSession()
   if (!session?.user) redirect("/portal/login")
   if (session.user.role !== "CLIENT") redirect("/dashboard")

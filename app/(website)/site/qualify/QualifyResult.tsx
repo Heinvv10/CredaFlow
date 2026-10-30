@@ -216,7 +216,7 @@ export default function QualifyResult({
       <p className="text-center text-[11px] leading-relaxed text-white/42">
         This is a pre-qualification estimate only. Final approval is subject to a full credit and
         affordability assessment as required by the National Credit Act (NCA) No. 34 of 2005.
-        {identity.legalName} — Registered Credit Provider (NCR Reg: {identity.ncrNumber}).
+        {identity.legalName} — Registered Credit Provider{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null}.
       </p>
 
     </div>

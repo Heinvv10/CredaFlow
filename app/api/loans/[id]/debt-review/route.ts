@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -62,6 +63,8 @@ function parseNoticeDate(value: unknown): Date | null {
 export async function POST(req: NextRequest, { params }: Params) {
   const guard = await guardCollections()
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("Debt review (NCA s86)")
+  if (notNca) return notNca
   const { user } = guard
 
   return await withTenantContext(req, async (tenant) => {
@@ -144,6 +147,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 export async function DELETE(req: NextRequest, { params }: Params) {
   const guard = await guardCollections()
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("Debt review (NCA s86)")
+  if (notNca) return notNca
   const { user } = guard
 
   return await withTenantContext(req, async (tenant) => {

@@ -9,6 +9,7 @@ import { homeFaqs } from "@/app/(website)/site/home-faqs"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
 import { localizeProduct } from "@/lib/i18n/products"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 // Client-facing portal URLs (lib/portal-urls.ts), null when the deployment has
 // no portal URL configured: the portal links are then left out rather than
@@ -34,7 +35,7 @@ const returnShortcuts: { label: HomeKey; href: string; icon: typeof FilePlus2 }[
 
 const protections: HomeKey[] = ["protection1", "protection2", "protection3", "protection4"]
 
-const rands = (cents: number) => `R${Math.round(cents / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
+const rands = (cents: number) => `${activeCurrencySymbol()}${Math.round(cents / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 
 function productRange(product: PublicLoanProduct, t: Translator<"websiteHome">): string {
   const unit = t(product.termUnit === "days" ? "unitDays" : "unitMonths")
@@ -61,10 +62,12 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
 
         <div className="relative mx-auto flex min-h-[560px] max-w-7xl flex-col justify-end px-4 py-12 sm:px-6 lg:px-8">
           <div className="max-w-3xl py-16 lg:max-w-[660px]">
-            <div className="mb-6 inline-flex items-center gap-2 border border-white/18 bg-white/10 px-4 py-2 text-xs font-semibold text-white/84 backdrop-blur">
-              <BadgeCheck className="h-4 w-4 text-[#a5b4fc]" />
-              {t("ncrBadge", { ncr: identity.ncrNumber })}
-            </div>
+            {identity.ncrNumber && (
+              <div className="mb-6 inline-flex items-center gap-2 border border-white/18 bg-white/10 px-4 py-2 text-xs font-semibold text-white/84 backdrop-blur">
+                <BadgeCheck className="h-4 w-4 text-[#a5b4fc]" />
+                {t("ncrBadge", { ncr: identity.ncrNumber })}
+              </div>
+            )}
             <h1 className="max-w-3xl text-balance text-5xl font-semibold leading-[0.98] tracking-normal text-white sm:text-6xl lg:text-7xl">
               {identity.tradingName}
             </h1>
@@ -249,7 +252,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
               {t("protectedHeading")}
             </h2>
             {/* The sentence claims FSP authorisation; it is not translated without it. */}
-            {identity.fspNumber && (
+            {identity.fspNumber && identity.ncrNumber && (
               <p className="mt-5 text-lg leading-8 text-white/66">
                 {t("protectedBody", { legalName: identity.legalName, ncr: identity.ncrNumber, fsp: identity.fspNumber })}
               </p>

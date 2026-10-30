@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
@@ -27,6 +28,8 @@ function pageOf(req: NextRequest): { limit: number; offset: number } | null {
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("Reference rates")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     // Without asset finance a tenant still keeps its repo rate (the NCA cap).
@@ -58,6 +61,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("Reference rates")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     const body: unknown = await req.json().catch(() => null)

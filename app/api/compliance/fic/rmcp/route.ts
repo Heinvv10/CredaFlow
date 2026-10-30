@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { PERMISSIONS, requireApiRole } from "@/lib/auth-guards"
@@ -19,6 +20,8 @@ import { ficTotpRefusal } from "@/lib/fic/session"
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("FIC Act compliance")
+  if (notNca) return notNca
   return withTenantContext(req, async (tenant) => {
     const totp = await ficTotpRefusal(guard.user, tenant.id)
     if (totp) return totp
@@ -37,6 +40,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("FIC Act compliance")
+  if (notNca) return notNca
   return withTenantContext(req, async (tenant) => {
     const totp = await ficTotpRefusal(guard.user, tenant.id)
     if (totp) return totp

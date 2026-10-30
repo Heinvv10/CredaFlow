@@ -1,6 +1,7 @@
 // Content shared by the deal documents: the letterhead, the party and asset
 // particulars, and how a rate is described. Real data only; no legal wording.
 import { Prisma } from "@prisma/client"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { ENTITY_TYPE_LABELS } from "../labels"
 import { RATE_BASIS_LABELS } from "../deal-labels"
@@ -31,7 +32,7 @@ export function rateDescription(p: Pick<DealDocumentData["pricing"], "annualRate
 export function lenderLetterhead(w: DealDocumentWriter, data: Pick<DealDocumentData, "lender">): void {
   const l = data.lender
   w.letterhead(l.legalName, [
-    `${l.tradingName !== l.legalName ? `Trading as ${l.tradingName} · ` : ""}Registration No ${l.companyRegNumber} · NCR ${l.ncrNumber}`,
+    `${l.tradingName !== l.legalName ? `Trading as ${l.tradingName} · ` : ""}Registration No ${l.companyRegNumber} · NCR ${requireNcrNumber(l)}`,
     l.registeredOfficeLines.join(", "),
   ])
 }
@@ -41,7 +42,7 @@ export function lenderRows(data: Pick<DealDocumentData, "lender">): [string, str
   return [
     ["Name", l.legalName],
     ["Registration number", l.companyRegNumber],
-    ["NCR registration", l.ncrNumber],
+    ["NCR registration", requireNcrNumber(l)],
     ["Registered office", l.registeredOfficeLines.join(", ")],
   ]
 }

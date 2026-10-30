@@ -13,6 +13,8 @@ export type FakeTables = {
   tenantConfigs: Row[]
   users: Row[]
   auditLogs: Row[]
+  /** The InstanceJurisdiction row; absent = a database that is not migrated. */
+  instance: Row | null
 }
 
 let seq = 0
@@ -24,6 +26,7 @@ export function createFakeDb(seed: Partial<FakeTables> = {}) {
     tenantConfigs: seed.tenantConfigs ?? [],
     users: seed.users ?? [],
     auditLogs: seed.auditLogs ?? [],
+    instance: seed.instance ?? null,
   }
   const calls: string[] = []
 
@@ -57,6 +60,7 @@ export function createFakeDb(seed: Partial<FakeTables> = {}) {
         return row
       },
     },
+    instanceJurisdiction: { findUnique: async () => tables.instance },
     tenantConfig: {
       create: async ({ data }: { data: Row }) => {
         const row = { id: nextId(), ...data }

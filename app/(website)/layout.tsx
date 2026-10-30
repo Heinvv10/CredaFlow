@@ -14,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
   if (!identity) return NOT_CONFIGURED_METADATA
   return {
     title: identity.tradingName,
-    description: `${identity.tradingName} — registered credit provider ${identity.ncrNumber}.`,
+    description: `${identity.tradingName} — registered credit provider${identity.ncrNumber ? ` ${identity.ncrNumber}` : ""}.`,
     openGraph: { type: "website", siteName: identity.tradingName, title: identity.tradingName },
     twitter: { card: "summary", title: identity.tradingName },
   }

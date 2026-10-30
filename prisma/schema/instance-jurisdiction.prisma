@@ -1,0 +1,17 @@
+// The one jurisdiction and currency this instance (one database) serves. A
+// single row, id fixed at 1 (CHECK), written by the migration and afterwards
+// only by lib/jurisdiction/instance-write.ts (an operator action, audited,
+// refused once any loan application or loan has existed). Every TenantConfig must
+// equal it: triggers refuse a tenant that does not (docs/ARCHITECTURE.md,
+// "Jurisdiction"). The application reads its jurisdiction from here, not from
+// the tenants. Not tenant-scoped: it belongs to the instance.
+model InstanceJurisdiction {
+  id           Int            @id @default(1)
+  jurisdiction Jurisdiction
+  currency     LenderCurrency
+  setAt        DateTime       @default(now())
+  setBy        String         @default("migration")
+  // Set by the first LoanApplication or Loan insert (a trigger) and never cleared: from then on the
+  // jurisdiction cannot change, even if every application is later deleted.
+  frozenAt     DateTime?
+}

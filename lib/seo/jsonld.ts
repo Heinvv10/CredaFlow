@@ -20,7 +20,7 @@ export function organizationLd(identity: LenderIdentity) {
     ...(siteUrl() ? { url: siteUrl() } : {}),
     description:
       `${identity.legalName} is a South African credit provider. ` +
-      `Registered with the National Credit Regulator under ${identity.ncrNumber}` +
+      (identity.ncrNumber ? `Registered with the National Credit Regulator under ${identity.ncrNumber}` : "Credit provider") +
       (identity.fspNumber
         ? ` and authorised by the Financial Sector Conduct Authority as a financial services provider under FSP number ${identity.fspNumber}.`
         : "."),
@@ -35,7 +35,7 @@ export function organizationLd(identity: LenderIdentity) {
     },
     areaServed: { "@type": "Country", name: "South Africa" },
     identifier: [
-      { "@type": "PropertyValue", propertyID: "NCR Registration", value: identity.ncrNumber },
+      ...(identity.ncrNumber ? [{ "@type": "PropertyValue", propertyID: "NCR Registration", value: identity.ncrNumber }] : []),
       ...(identity.fspNumber ? [{ "@type": "PropertyValue", propertyID: "FSP Licence", value: identity.fspNumber }] : []),
       { "@type": "PropertyValue", propertyID: "CIPC Registration", value: identity.companyRegNumber },
     ],

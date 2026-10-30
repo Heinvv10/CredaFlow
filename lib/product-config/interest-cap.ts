@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { NCA_CREDIT_TYPE_LABELS, productCreditType } from "@/lib/loan/nca-interest-cap"
 import { checkNcaInterestRateFor } from "@/lib/loan/nca-interest-cap.server"
 
@@ -26,6 +27,8 @@ export async function loanProductInterestCapRefusal(
   if (!Number.isFinite(product.interestRatePm) || product.interestRatePm < 0) {
     return { error: "The interest rate must be a non-negative percentage per month.", invalidFields: ["interestRatePm"], creditType: label }
   }
+  // Outside the NCA there is no statutory ceiling; the sign check above is not a cap and stays.
+  if (!isNcaJurisdiction()) return null
   const result = await checkNcaInterestRateFor(prisma, tenantId, { creditType, ...product })
   return result.ok ? null : { error: result.message, invalidFields: ["interestRatePm"], creditType: label }
 }

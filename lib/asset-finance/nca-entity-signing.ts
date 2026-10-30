@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { pasqEvidenceIsIntact } from "@/lib/compliance/pasq"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { deleteFile } from "@/lib/storage"
@@ -81,7 +82,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
   if (!required.some((s) => s.clientId === representative && s.document === "AGREEMENT")) return { kind: "no_authority" }
   const ncaData: NcaAssetDocumentData = {
     legalWordingApproved: authorityData.legalWordingApproved, reference: deal.application.reference, documentDate: deal.decidedAt ?? new Date(), contractType: deal.contractType,
-    lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
+    lender: { legalName: lender.legalName, ncrNumber: requireNcrNumber(lender), registeredOfficeLines: lender.registeredOfficeLines },
     borrower: {
       name: deal.entity.legalName, identityNumber: deal.entity.mastersReference ?? deal.entity.registrationNumber,
       addressLines: [deal.entity.addressLine1, deal.entity.addressLine2, deal.entity.city, deal.entity.province, deal.entity.postalCode].filter((v): v is string => !!v),

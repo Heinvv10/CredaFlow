@@ -38,7 +38,7 @@ function addCalendarDays(value: string, days: number): string {
 
 // Gregorian computus (Meeus/Jones/Butcher), used for Good Friday and Family
 // Day under the South African Public Holidays Act.
-function easterSunday(year: number): string {
+export function easterSunday(year: number): string {
   const a = year % 19
   const b = Math.floor(year / 100)
   const c = year % 100

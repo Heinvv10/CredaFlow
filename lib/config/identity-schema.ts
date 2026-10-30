@@ -5,6 +5,8 @@
  * this and adds the readers; see it for the history.
  */
 import { z } from "zod"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import type { Jurisdiction } from "@/lib/jurisdiction/profiles"
 
 export class LenderIdentityError extends Error {
   /** Column names that are missing or invalid. */
@@ -82,7 +84,12 @@ export const STATUTORY_FIELDS = ["ncrNumber", "fscaNumber", "companyRegNumber"] 
 export type LenderIdentity = {
   legalName: string
   tradingName: string
-  ncrNumber: string
+  /**
+   * The NCR registration, or null for a lender outside the NCA's jurisdiction
+   * (LS), which has none. A document that prints it asks for it through
+   * requireLenderIdentityFields, which refuses null: never "NCR null" on paper.
+   */
+  ncrNumber: string | null
   /**
    * The FSCA licence number, or null for a lender that holds none (it sells no
    * insurance). Nothing may claim FAIS authorisation without it: every
@@ -137,6 +144,11 @@ const saPhone = z.string().max(20).refine(
   (v) => /^\+27\d{9}$/.test(v.replace(/ /g, "")),
   "must be +27 followed by 9 digits",
 )
+// +266 followed by 8 digits, spaces allowed ("+266 2231 2345").
+const lsPhone = z.string().max(20).refine(
+  (v) => /^\+266\d{8}$/.test(v.replace(/ /g, "")),
+  "must be +266 followed by 8 digits",
+)
 const email = z.string().max(254).pipe(z.email())
 
 /** A `Date` as Prisma returns a DATE column (UTC midnight) → `YYYY-MM-DD`; anything else unchanged. */
@@ -171,7 +183,7 @@ const officeLines = z.string().max(500).transform((v, ctx) => {
  * to return an invalid identity) and the writer (refuses to store one), so
  * the two can never disagree about what valid means.
  */
-export const lenderIdentityColumnsSchema = z.object({
+const zaIdentityColumnsSchema = z.object({
   legalName: required(text(2, 120)),
   brandName: required(text(2, 80)),
   ncrNumber: z.preprocess(upper, z.string().regex(/^NCRCP\d{1,8}$/, "must be NCRCP followed by digits")),
@@ -191,13 +203,35 @@ export const lenderIdentityColumnsSchema = z.object({
   headOfficeCity: optional(text(2, 60)),
 })
 
+// Lesotho: no NCR number (the NCA does not apply), a free-form company
+// registration (the layout is not confirmed, so shape only), +266 phones.
+const lsIdentityColumnsSchema = z.object({
+  ...zaIdentityColumnsSchema.shape,
+  ncrNumber: optional(text(2, 40)),
+  companyRegNumber: required(text(3, 40)),
+  publicPhone: required(lsPhone),
+  publicWhatsapp: optional(lsPhone),
+  collectionsPhone: required(lsPhone),
+  collectionsPhoneSecondary: optional(lsPhone),
+})
+
+const IDENTITY_SCHEMAS = { ZA: zaIdentityColumnsSchema, LS: lsIdentityColumnsSchema } as const
+
+/** The identity schema of a jurisdiction (default: the deployment's). */
+export function identityColumnsSchemaFor(jurisdiction: Jurisdiction = activeJurisdiction()) {
+  return IDENTITY_SCHEMAS[jurisdiction]
+}
+
+/** The South African schema, kept under its original name. */
+export const lenderIdentityColumnsSchema = zaIdentityColumnsSchema
+
 export type LenderIdentityParseResult =
   | { ok: true; columns: LenderIdentityColumns }
   | { ok: false; errors: Partial<Record<keyof LenderIdentityColumns, string>> }
 
 /** Non-throwing validation, for the writer's per-field error messages. */
 export function validateLenderIdentityColumns(raw: unknown): LenderIdentityParseResult {
-  const result = lenderIdentityColumnsSchema.safeParse(raw ?? {})
+  const result = identityColumnsSchemaFor().safeParse(raw ?? {})
   if (result.success) {
     const columns = Object.fromEntries(
       LENDER_IDENTITY_FIELDS.map((field) => [field, result.data[field] ?? null]),
@@ -216,7 +250,7 @@ const e164 = (phone: string) => phone.replace(/ /g, "")
 
 /** Throws `LenderIdentityError` naming every missing or invalid field. */
 export function parseLenderIdentity(raw: Partial<StoredLenderIdentityColumns> | null | undefined): LenderIdentity {
-  const result = lenderIdentityColumnsSchema.safeParse(raw ?? {})
+  const result = identityColumnsSchemaFor().safeParse(raw ?? {})
   if (!result.success) {
     throw new LenderIdentityError([...new Set(result.error.issues.map((issue) => String(issue.path[0])))])
   }
@@ -224,7 +258,7 @@ export function parseLenderIdentity(raw: Partial<StoredLenderIdentityColumns> | 
   return {
     legalName: c.legalName,
     tradingName: c.brandName,
-    ncrNumber: c.ncrNumber,
+    ncrNumber: c.ncrNumber ?? null,
     fspNumber: c.fscaNumber ?? null,
     companyRegNumber: c.companyRegNumber,
     registeredOfficeLines: c.registeredOffice.split("\n"),
@@ -244,6 +278,16 @@ export function parseLenderIdentity(raw: Partial<StoredLenderIdentityColumns> | 
   }
 }
 
+/**
+ * The NCR number of an identity that must print one (an NCA document), or a
+ * `LenderIdentityError` naming ncrNumber when the lender has none. For code
+ * that already holds a whole `LenderIdentity`.
+ */
+export function requireNcrNumber(identity: { ncrNumber: string | null }): string {
+  if (!identity.ncrNumber) throw new LenderIdentityError(["ncrNumber"])
+  return identity.ncrNumber
+}
+
 /** `YYYY-MM-DD` → "7 October 2025", as the regulatory page prints a date. */
 export function formatIdentityDate(isoDate: string): string {
   const [year, month, day] = isoDate.split("-").map(Number)
@@ -256,7 +300,7 @@ export function parseRequiredIdentityField(
   field: "legalName" | (typeof STATUTORY_FIELDS)[number],
   raw: unknown,
 ): string {
-  const result = lenderIdentityColumnsSchema.shape[field].safeParse(raw)
+  const result = identityColumnsSchemaFor().shape[field].safeParse(raw)
   // fscaNumber is optional in the identity, but required wherever it is asked for.
   if (!result.success || result.data == null) throw new LenderIdentityError([field])
   return result.data
@@ -293,6 +337,9 @@ const IDENTITY_COLUMN = {
 
 export type PrintableIdentityField = keyof typeof IDENTITY_COLUMN
 
+/** What requireLenderIdentityFields hands back: the NCR number, if asked for, is present. */
+type RequiredIdentity = Omit<LenderIdentity, "ncrNumber"> & { ncrNumber: string }
+
 /**
  * Re-validates the identity fields an NCA document is about to print, with
  * the same schema as the reader and the writer, and returns exactly those
@@ -303,7 +350,7 @@ export type PrintableIdentityField = keyof typeof IDENTITY_COLUMN
 export function requireLenderIdentityFields<K extends PrintableIdentityField>(
   identity: Partial<LenderIdentity> | null | undefined,
   fields: readonly K[],
-): Pick<LenderIdentity, K> {
+): Pick<RequiredIdentity, K> {
   const failed: string[] = []
   const picked: Partial<LenderIdentity> = {}
   for (const field of fields) {
@@ -315,10 +362,11 @@ export function requireLenderIdentityFields<K extends PrintableIdentityField>(
     const stored = field === "registeredOfficeLines"
       ? (Array.isArray(value) && value.every((line) => typeof line === "string" && !/[\r\n]/.test(line)) ? value.join("\n") : undefined)
       : value
-    const result = lenderIdentityColumnsSchema.shape[column].safeParse(stored)
+    const result = identityColumnsSchemaFor().shape[column].safeParse(stored)
     // The FSP number is optional in the identity, but a document that prints
     // it must have one: never "FSP null" on paper.
-    const absentFsp = field === "fspNumber" && (stored ?? null) === null
+    // Likewise the NCR number, absent for a lender outside the NCA.
+    const absentFsp = (field === "fspNumber" || field === "ncrNumber") && (stored ?? null) === null
     if (!result.success || absentFsp || (result.data ?? null) !== (stored ?? null)) {
       failed.push(column)
       continue
@@ -326,6 +374,6 @@ export function requireLenderIdentityFields<K extends PrintableIdentityField>(
     Object.assign(picked, { [field]: field === "registeredOfficeLines" ? [...(value as string[])] : (value ?? null) })
   }
   if (failed.length > 0) throw new LenderIdentityError(failed)
-  return picked as Pick<LenderIdentity, K>
+  return picked as Pick<RequiredIdentity, K>
 }
 
