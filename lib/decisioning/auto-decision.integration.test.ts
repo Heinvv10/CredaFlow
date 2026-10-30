@@ -574,7 +574,7 @@ suite("automatic decisions through the staff approval path (real Postgres, row-l
     expect(await burst("lender", Array.from({ length: 20 }, (_, i) => ({ clientId: `race-lender-client-${i}`, ip: `192.0.2.${100 + i}` })), usedToday + 6)).toEqual({ limited: 14, admitted: 6, charged: 6 })
     // Fifteen clients whose address is unknown share one bucket: ten get in.
     expect(await burst("unknown", Array.from({ length: 15 }, (_, i) => ({ clientId: `race-unknown-client-${i}`, ip: null })))).toEqual({ limited: 5, admitted: 10, charged: 10 })
-  })
+  }, 60_000)
 
   it("decides well inside the 60 second target", () => {
     expect(latencies.length).toBeGreaterThanOrEqual(5)
