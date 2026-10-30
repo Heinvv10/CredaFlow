@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -91,5 +91,81 @@ describe('sim_env_preflight', () => {
     expect(r.status).not.toBe(0)
     expect(r.out).toContain('AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1')
     expect(preflight(['DEMO_MODE=true', 'AUDIT_ALLOW_PRIVILEGED_DB_ROLE=0', 'UNSUB_TOKEN_SECRET=synthetic-secret']).status).not.toBe(0)
+  })
+})
+
+describe('ensure_demo_audit_env', () => {
+  const setup = (envText: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'audit-env-'))
+    const file = join(dir, '.env.production')
+    writeFileSync(file, envText, { mode: 0o600 })
+    return { dir, file, backups: join(dir, 'backups') }
+  }
+  const run = (file: string, backups: string) =>
+    spawnSync('bash', ['-c', '. "$0"; ensure_demo_audit_env "$1" "$2"', LIB, file, backups], { encoding: 'utf8' })
+  const read = (file: string) => Object.fromEntries(readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
+  const backupsOf = (backups: string) => (existsSync(backups) ? readdirSync(backups) : [])
+  const KEY = 'k'.repeat(48)
+
+  it('adds the allowance and a generated 48-byte key to a DEMO_MODE=true env, backs the file up first, and names the keys but never a value', () => {
+    const { file, backups } = setup('DEMO_MODE=true\nTENANT_HOST_MAP=a.example=acme\n')
+    const r = run(file, backups)
+    expect(r.status, r.stderr).toBe(0)
+    const env = read(file)
+    expect(env.AUDIT_ALLOW_PRIVILEGED_DB_ROLE).toBe('1')
+    expect(env.AUDIT_CHAIN_KEY).toMatch(/^[A-Za-z0-9+/]{64}$/) // 48 bytes of base64
+    expect(env.TENANT_HOST_MAP).toBe('a.example=acme')
+    const [backup] = backupsOf(backups)
+    expect(backup).toMatch(/^\.env\.production\.pre-audit-\d{8}T\d{6}Z$/)
+    expect(readFileSync(join(backups, backup), 'utf8')).toBe('DEMO_MODE=true\nTENANT_HOST_MAP=a.example=acme\n')
+    expect(statSync(join(backups, backup)).mode & 0o777).toBe(0o600)
+    expect(r.stderr).toContain('AUDIT_ALLOW_PRIVILEGED_DB_ROLE')
+    expect(r.stderr).toContain('AUDIT_CHAIN_KEY')
+    expect(r.stderr).not.toContain(env.AUDIT_CHAIN_KEY)
+  })
+
+  it('is idempotent: a second run changes and backs up nothing, and the key stays the same', () => {
+    const { file, backups } = setup('DEMO_MODE=true\n')
+    run(file, backups)
+    const after = readFileSync(file, 'utf8')
+    const r = run(file, backups)
+    expect(r.status).toBe(0)
+    expect(readFileSync(file, 'utf8')).toBe(after)
+    expect(backupsOf(backups)).toHaveLength(1)
+    expect(r.stderr).toContain('already has')
+  })
+
+  it('never replaces an existing key (rotating it would orphan the history), and only adds what is missing', () => {
+    const { file, backups } = setup(`DEMO_MODE=true\nAUDIT_CHAIN_KEY=${KEY}\n`)
+    run(file, backups)
+    expect(read(file)).toMatchObject({ AUDIT_CHAIN_KEY: KEY, AUDIT_ALLOW_PRIVILEGED_DB_ROLE: '1' })
+    const { file: file2, backups: backups2 } = setup('DEMO_MODE=true\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\n')
+    run(file2, backups2)
+    expect(read(file2).AUDIT_CHAIN_KEY).toMatch(/^[A-Za-z0-9+/]{64}$/)
+  })
+
+  it('reports a key that is too short and leaves it', () => {
+    const { file, backups } = setup('DEMO_MODE=true\nAUDIT_CHAIN_KEY=short\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\n')
+    const r = run(file, backups)
+    expect(r.stderr).toMatch(/WARNING: AUDIT_CHAIN_KEY .* shorter than 32/)
+    expect(read(file).AUDIT_CHAIN_KEY).toBe('short')
+    expect(backupsOf(backups)).toEqual([])
+  })
+
+  it('leaves an env that does not say DEMO_MODE=true completely alone: no flag, no key, no backup', () => {
+    for (const text of ['NODE_ENV=production\n', 'DEMO_MODE=false\n', 'DEMO_MODE=1\n']) {
+      const { file, backups } = setup(text)
+      const r = run(file, backups)
+      expect(r.status).toBe(0)
+      expect(readFileSync(file, 'utf8')).toBe(text)
+      expect(backupsOf(backups)).toEqual([])
+      expect(r.stderr).toContain('left alone')
+    }
+  })
+
+  it('turns an allowance that is set to something other than 1 into 1', () => {
+    const { file, backups } = setup(`DEMO_MODE=true\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=0\nAUDIT_CHAIN_KEY=${KEY}\n`)
+    run(file, backups)
+    expect(read(file).AUDIT_ALLOW_PRIVILEGED_DB_ROLE).toBe('1')
   })
 })

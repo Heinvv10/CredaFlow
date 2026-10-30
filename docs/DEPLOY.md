@@ -165,15 +165,23 @@ for you except where stated, and no agent edits these files.
    `docker compose --profile tools run --rm db-migrate && docker compose --profile tools run --rm db-roles && docker compose up -d app app-portal`.
 5. Check: `curl -s localhost:<port>/api/health` with the cron secret header lists no `audit_runtime_role_*` or
    `audit_chain_key_missing` warning, and `docker compose exec app printenv POSTGRES_PASSWORD` prints an empty line.
-6. The live demo stacks (Tsela, Fair Score; `scripts/demo/upgrade-stack.sh`, `restore.sh`, `bake.sh`) and the
-   demo-sim stack (`docker-compose.demo-sim.yml`) run as the database owner or superuser. **Operator action, after
-   hours, before the deploy that brings this version:** add `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` to each live demo
-   stack's env file (the one that already carries `DEMO_MODE=true`), next to `DEMO_MODE`; their `DATABASE_URL` stays
-   as it is. `DEMO_MODE` does not stand in for it (one variable must not switch off both the demo gates and the
-   audit role guard on a misconfigured real lender): a demo stack without the flag exits at boot. With it, the app
-   logs `PRIVILEGED DATABASE ROLE ALLOWED (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1)` at every boot and `/api/health` lists
-   `audit_privileged_role_allowed`. The demo-sim stack sets it in its compose file and `sim_env_preflight` refuses
-   to bake without it. They are not a pattern for a real lender.
+6. The live demo stacks (Fair Score `~/Workspace/CredaFlow-fairscore`, Acme `~/Workspace/CredaFlow-demo`, and the
+   demo-sim stack) run as the database owner or superuser, so their app env needs two things:
+   `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (without it a production process exits at boot; `DEMO_MODE` does not stand in
+   for it, so that one variable cannot switch off both the demo gates and the audit role guard on a misconfigured real
+   lender) and an `AUDIT_CHAIN_KEY` (without it the audit crons answer 503 and tamper-evidence cannot be shown).
+   **No operator action is needed for either:** `scripts/demo/upgrade-stack.sh` (Fair Score) and `scripts/demo/restore.sh`
+   (Acme, by bake + restore) call `ensure_demo_audit_env`, which, only when `$LIVE_DIR/.env.production` says
+   `DEMO_MODE=true`, adds whichever of the two is missing: the allowance as `1`, and a key of 48 random bytes in base64.
+   It first copies the file as it was to `$LIVE_DIR/backups/.env.production.pre-audit-<UTC>` (0600), logs which keys it
+   added (never a value), never replaces an existing key (rotating it would make the history unverifiable; a key shorter
+   than 32 characters is reported and left), and does nothing, writes no backup, when both are already there. The new
+   image therefore boots, and `/api/health` lists `audit_privileged_role_allowed` and the app logs
+   `PRIVILEGED DATABASE ROLE ALLOWED (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1)` at every boot. Keep the generated
+   `AUDIT_CHAIN_KEY` with the other demo secrets. The demo-sim stack sets the allowance in its compose file and
+   `sim_env_preflight` refuses to bake without it. (The portal container reads the same env file, so it also
+   warns `audit_chain_key_on_web`: harmless on a demo; only the staff container runs the crons.) They are not a pattern
+   for a real lender.
 
 **`AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1`: demo/legacy only, never a real lender.** A production process whose database
 role owns an audit table, is a superuser, can create roles or databases, or holds CREATE on `public` exits at boot,

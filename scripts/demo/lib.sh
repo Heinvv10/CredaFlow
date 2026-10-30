@@ -133,6 +133,38 @@ env_set() {
   mv "$tmp" "$file"
 }
 
+# ensure_demo_audit_env ENV_FILE BACKUP_DIR — a demo stack's app env gets what the tamper-evident audit needs
+# (docs/DEPLOY.md): AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 (the demo stacks run as the database owner; a production process
+# refuses that unless told, on purpose, and DEMO_MODE does not stand in for it) and an AUDIT_CHAIN_KEY (without it the
+# audit crons answer 503 and tamper-evidence cannot be shown). ONLY when the file says DEMO_MODE=true: any other file is
+# left alone. An existing key is NEVER replaced (rotating it makes the history unverifiable); one that is too short is
+# reported and left. Idempotent: with nothing to add it writes and backs up nothing. When it changes the file, the
+# file as it was is copied to BACKUP_DIR/<name>.pre-audit-<UTC> (0600) first, and each key added is named in the log
+# (never a value).
+ensure_demo_audit_env() {
+  local file="$1" backups="$2" added="" key ts
+  [ -f "$file" ] || die "ensure_demo_audit_env: $file not found"
+  if [ "$(env_get "$file" DEMO_MODE)" != true ]; then
+    note "audit env: $file does not say DEMO_MODE=true; left alone"
+    return 0
+  fi
+  key="$(env_get "$file" AUDIT_CHAIN_KEY)"
+  if [ -n "$key" ] && [ "${#key}" -lt 32 ]; then
+    note "WARNING: AUDIT_CHAIN_KEY in $file is shorter than 32 characters; the audit chain cannot use it. It is not replaced (replacing it would orphan history): fix it by hand."
+  fi
+  [ "$(env_get "$file" AUDIT_ALLOW_PRIVILEGED_DB_ROLE)" = 1 ] || added+=" AUDIT_ALLOW_PRIVILEGED_DB_ROLE"
+  [ -n "$key" ] || added+=" AUDIT_CHAIN_KEY"
+  if [ -z "$added" ]; then
+    note "audit env: $file already has AUDIT_ALLOW_PRIVILEGED_DB_ROLE and AUDIT_CHAIN_KEY"
+    return 0
+  fi
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  (umask 077; mkdir -p "$backups"; cp "$file" "$backups/${file##*/}.pre-audit-$ts")
+  case "$added" in *AUDIT_ALLOW_PRIVILEGED_DB_ROLE*) env_set "$file" AUDIT_ALLOW_PRIVILEGED_DB_ROLE 1 ;; esac
+  case "$added" in *AUDIT_CHAIN_KEY*) env_set "$file" AUDIT_CHAIN_KEY "$(openssl rand -base64 48 | tr -d '\n')" ;; esac
+  note "audit env: added${added} to $file (the file as it was: $backups/${file##*/}.pre-audit-$ts)"
+}
+
 # demo_slug — DEMO_LENDER's tenant slug.
 demo_slug() {
   (cd "$DEMO_ROOT" && npx tsx prisma/demo-lender.ts slug) || die "DEMO_LENDER=${DEMO_LENDER:-} is not a known demo lender"

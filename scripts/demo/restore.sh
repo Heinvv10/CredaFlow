@@ -282,6 +282,9 @@ new_moving=true
 uploads_sh 'find "/u/$STAGE" -mindepth 1 -maxdepth 1 -exec mv -t /u {} +
   rmdir "/u/$STAGE"'
 
+step="audit env"
+# A demo stack's app env carries what the tamper-evident audit needs (backed up first; an existing key is kept).
+ensure_demo_audit_env "$live_dir/.env.production" "$live_dir/backups"
 step="tenant id"
 prev_tenant="$(env_get "$live_dir/.env.production" DEBIT_MANDATE_CREDITOR_TENANT_ID)"
 env_changed=true

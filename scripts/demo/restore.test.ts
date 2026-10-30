@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -280,5 +280,42 @@ describe('restore.sh lender guard', { timeout: TEST_TIMEOUT_MS }, () => {
     const r = run()
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/no NEXT_PUBLIC_TENANT_SLUG/)
+  })
+})
+
+describe('restore.sh audit env', { timeout: TEST_TIMEOUT_MS }, () => {
+  const prodEnv = () => join(root, 'live', '.env.production')
+
+  it('gives a DEMO_MODE=true stack the audit allowance and a key before app + portal start, with the old file backed up', () => {
+    writeFileSync(prodEnv(), 'DEMO_MODE=true\nDEBIT_MANDATE_CREDITOR_TENANT_ID=old\n')
+    const r = run()
+    expect(r.status, r.out).toBe(0)
+    const env = readFileSync(prodEnv(), 'utf8')
+    expect(env).toContain('AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1')
+    expect(env).toMatch(/AUDIT_CHAIN_KEY=[A-Za-z0-9+/]{64}\n/)
+    const backups = readdirSync(join(root, 'live', 'backups'))
+    expect(backups).toHaveLength(1)
+    expect(readFileSync(join(root, 'live', 'backups', backups[0]), 'utf8')).toBe('DEMO_MODE=true\nDEBIT_MANDATE_CREDITOR_TENANT_ID=old\n')
+    const up = r.calls.findIndex((c) => c.startsWith('docker-compose') && c.includes(' up '))
+    expect(up).toBeGreaterThan(-1)
+    expect(r.out).toContain('audit env: added')
+  })
+
+  it('does not touch an env that does not say DEMO_MODE=true', () => {
+    const r = run()
+    expect(r.status, r.out).toBe(0)
+    expect(readFileSync(prodEnv(), 'utf8')).not.toMatch(/AUDIT_/)
+    expect(existsSync(join(root, 'live', 'backups'))).toBe(false)
+  })
+
+  it('keeps an existing key on a restore, and a second restore adds nothing', () => {
+    const key = 'k'.repeat(48)
+    writeFileSync(prodEnv(), `DEMO_MODE=true\nAUDIT_CHAIN_KEY=${key}\n`)
+    expect(run().status).toBe(0)
+    expect(readFileSync(prodEnv(), 'utf8')).toContain(`AUDIT_CHAIN_KEY=${key}\n`)
+    const before = readFileSync(prodEnv(), 'utf8')
+    expect(run().status).toBe(0)
+    expect(readFileSync(prodEnv(), 'utf8').replace(/DEBIT_MANDATE_CREDITOR_TENANT_ID=.*\n/, '')).toBe(before.replace(/DEBIT_MANDATE_CREDITOR_TENANT_ID=.*\n/, ''))
+    expect(readdirSync(join(root, 'live', 'backups'))).toHaveLength(1)
   })
 })

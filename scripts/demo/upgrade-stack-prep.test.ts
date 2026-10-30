@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ENCODED_PASSWORD, OLD_IMAGE, PASSWORD, RESTORE_BY_MOUNT, RESTORE_BY_STDIN, commits, data, idx, installStackHooks, live, log, mutating, pinned, repo, root, run, short, worktrees } from './upgrade-stack.harness'
@@ -119,11 +119,48 @@ describe('upgrade-stack.sh pre-flights', () => {
 })
 
 describe('upgrade-stack.sh backup, migrate and secrets', () => {
+  describe('audit env', () => {
+    const prod = () => join(live, '.env.production')
+    const keyOf = () => /^AUDIT_CHAIN_KEY=(.*)$/m.exec(readFileSync(prod(), 'utf8'))?.[1] ?? ''
+
+    it('gives a DEMO_MODE=true stack the allowance and a key after the backup and before migrate, keeping the file as it was', () => {
+      const before = readFileSync(prod(), 'utf8')
+      const r = run([commits.c2!])
+      expect(r.status, r.out).toBe(0)
+      expect(readFileSync(prod(), 'utf8')).toContain('AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\n')
+      expect(keyOf()).toMatch(/^[A-Za-z0-9+/]{64}$/)
+      const kept = readdirSync(join(live, 'backups')).find((f) => f.startsWith('.env.production.pre-audit-'))!
+      expect(readFileSync(join(live, 'backups', kept), 'utf8')).toBe(before)
+      expect(r.out).toContain('audit env: added')
+      expect(r.out).not.toContain(keyOf())
+    })
+
+    it('keeps an existing key through an upgrade, and a second upgrade adds nothing', () => {
+      const key = 'k'.repeat(48)
+      writeFileSync(prod(), `${readFileSync(prod(), 'utf8')}AUDIT_CHAIN_KEY=${key}\n`)
+      expect(run([commits.c2!]).status).toBe(0)
+      expect(keyOf()).toBe(key)
+      const after = readFileSync(prod(), 'utf8')
+      expect(run([commits.c2!], {}).status).toBe(0)
+      expect(readFileSync(prod(), 'utf8')).toBe(after)
+      expect(readdirSync(join(live, 'backups')).filter((f) => f.includes('pre-audit-'))).toHaveLength(1)
+    })
+
+    it('leaves a stack whose env does not say DEMO_MODE=true alone (the target guard refuses such a stack before this)', () => {
+      writeFileSync(prod(), 'TENANT_HOST_MAP=fairscore.example.invalid=acme\n')
+      const before = readFileSync(prod(), 'utf8')
+      const r = run([commits.c2!])
+      expect(r.status, r.out).toBe(0)
+      expect(readFileSync(prod(), 'utf8')).toBe(before)
+      expect(readdirSync(join(live, 'backups')).filter((f) => f.includes('pre-audit-'))).toEqual([])
+    })
+  })
+
   it('writes the dump and the env copies before migrate runs', () => {
     const r = run([commits.c2!])
     expect(r.status).toBe(0)
     const backups = readFileSync(join(root, 'migrate.backups'), 'utf8').split('\n').filter(Boolean)
-    expect(backups).toHaveLength(3)
+    expect(backups).toHaveLength(4) // the dump, .env, .env.production, and .env.production as it was before the audit keys
     const dump = readdirSync(join(live, 'backups')).find((f) => f.endsWith('.dump'))!
     expect(dump).toMatch(new RegExp(`^pre-${short('c2')}-\\d{8}T\\d{6}Z\\.dump$`))
     expect(readFileSync(join(live, 'backups', dump), 'utf8')).toBe('PGDMP-stub')
