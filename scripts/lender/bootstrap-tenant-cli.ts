@@ -13,6 +13,7 @@ import { parseArgs } from "node:util"
 import { operatorId } from "./operator"
 import { bootstrapTenant, TenantBootstrapRefusal } from "./bootstrap-tenant"
 import { parseTenantConfig } from "./tenant-config"
+import { loadActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 
 async function main(): Promise<number> {
   const { values } = parseArgs({
@@ -30,18 +31,20 @@ async function main(): Promise<number> {
     process.stderr.write(`Cannot read ${values.config} as JSON: ${e instanceof Error ? e.message : String(e)}\n`)
     return 2
   }
-  const parsed = parseTenantConfig(raw)
-  if (!parsed.ok) {
-    process.stderr.write(`INVALID ${values.config}:\n${parsed.errors.map((e) => `  - ${e}`).join("\n")}\n`)
-    return 2
-  }
   if (!process.env.DATABASE_URL) {
     process.stderr.write("DATABASE_URL is not set.\n")
     return 1
   }
-
+  // The file is validated under the instance's jurisdiction (Lesotho phones and
+  // registration numbers differ from South African ones).
   const db = new PrismaClient()
   try {
+    await loadActiveJurisdiction(db as never)
+    const parsed = parseTenantConfig(raw)
+    if (!parsed.ok) {
+      process.stderr.write(`INVALID ${values.config}:\n${parsed.errors.map((e) => `  - ${e}`).join("\n")}\n`)
+      return 2
+    }
     const result = await bootstrapTenant(db, parsed.config, {
       dryRun: values["dry-run"],
       operator: operatorId(),

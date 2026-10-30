@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { PERMISSIONS, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
@@ -24,6 +25,8 @@ import {
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("FIC Act compliance")
+  if (notNca) return notNca
   return withTenantContext(req, async (tenant) => {
     const totp = await ficTotpRefusal(guard.user, tenant.id)
     if (totp) return totp
@@ -61,6 +64,8 @@ async function resolveSubject(tenantId: string, body: Record<string, unknown>): 
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole(PERMISSIONS.raise_suspicious_report)
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("FIC Act compliance")
+  if (notNca) return notNca
   return withTenantContext(req, async (tenant) => {
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
     if (!body || !isStrKind(body.kind) || typeof body.grounds !== "string") {

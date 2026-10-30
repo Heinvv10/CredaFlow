@@ -1,3 +1,5 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+
 export const MICRO30_CODE = "MICRO30"
 export const MICRO30_PROTECTED_APPLICATION_STATUSES = [
   "DRAFT",
@@ -34,6 +36,8 @@ export interface Micro30ContractCandidate {
 export function micro30ContractIssues(
   candidate: Micro30ContractCandidate,
 ): string[] {
+  // The contract is the NCA-prescribed micro-loan price (Regulation 42).
+  if (!isNcaJurisdiction()) return []
   if (
     typeof candidate.code !== "string"
     || candidate.code.trim().toUpperCase() !== MICRO30_CODE

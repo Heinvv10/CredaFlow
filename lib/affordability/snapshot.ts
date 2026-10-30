@@ -1,3 +1,4 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { createHash } from "node:crypto"
 import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import { assessAffordability } from "@/lib/affordability/ndi"
@@ -428,7 +429,8 @@ export function affordabilityExpenseFingerprint(
 export function affordabilityExpenseEvidenceNeedsMleJustification(
   evidence: Pick<AffordabilityExpenseEvidence, "mle">,
 ): boolean {
-  return evidence.mle.belowMinimum && !evidence.mle.justification?.trim()
+  // Regulation 23A is South African; a lender outside the NCA is not held to it.
+  return isNcaJurisdiction() && evidence.mle.belowMinimum && !evidence.mle.justification?.trim()
 }
 
 export function createAffordabilityExpenseEvidence(

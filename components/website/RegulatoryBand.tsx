@@ -15,13 +15,15 @@ export function RegulatoryBand({ identity }: { identity: Pick<LenderIdentity, "n
       className="border-b border-white/10 bg-[#0b0d12] px-4 py-2.5 text-xs text-white/82 sm:text-[13px] sm:py-3"
     >
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-6 gap-y-1.5 sm:justify-between">
-        <span className="inline-flex items-center gap-2">
-          <BadgeCheck className="h-3.5 w-3.5 text-[#a5b4fc]" aria-hidden="true" />
-          <span>
-            NCR-registered Credit Provider ·{" "}
-            <strong className="text-white">{identity.ncrNumber}</strong>
+        {identity.ncrNumber && (
+          <span className="inline-flex items-center gap-2">
+            <BadgeCheck className="h-3.5 w-3.5 text-[#a5b4fc]" aria-hidden="true" />
+            <span>
+              NCR-registered Credit Provider ·{" "}
+              <strong className="text-white">{identity.ncrNumber}</strong>
+            </span>
           </span>
-        </span>
+        )}
         {identity.fspNumber && (
           <span className="inline-flex items-center gap-2">
             <ShieldCheck className="h-3.5 w-3.5 text-[#a5b4fc]" aria-hidden="true" />

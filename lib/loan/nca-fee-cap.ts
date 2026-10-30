@@ -1,3 +1,5 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+
 // NCA statutory ceiling on the initiation fee.
 //
 // ⚠️ THESE FIGURES ARE GAZETTED AND CHANGE. They are collected here, named, so
@@ -92,7 +94,8 @@ const FEE_CAP_EXEMPT_TYPES: ReadonlySet<string> = new Set(["PO_FUNDING"])
  *
  * `ncaRegime` is the agreement's Loan/LoanApplication.ncaRegime. Reg 42 binds
  * NCA credit agreements only, so a NON_NCA (asset finance) agreement keeps its
- * configured fee. Absent => NCA => capped, the same fail-closed default. Today
+ * configured fee, and so does every agreement of a lender outside the NCA's
+ * jurisdiction (lib/jurisdiction). Absent => NCA => capped, the same fail-closed default. Today
  * only calculateLoan calls this, and it prices consumer (NCA) credit only.
  */
 export function capInitiationFee(
@@ -101,7 +104,7 @@ export function capInitiationFee(
   productType?: string | null,
   ncaRegime: "NCA" | "NON_NCA" = "NCA",
 ): number {
-  if (ncaRegime === "NON_NCA") return configuredFeeCents
+  if (ncaRegime === "NON_NCA" || !isNcaJurisdiction()) return configuredFeeCents
   if (productType && FEE_CAP_EXEMPT_TYPES.has(productType)) return configuredFeeCents
   return Math.min(configuredFeeCents, ncaInitiationFeeCap(principalCents))
 }

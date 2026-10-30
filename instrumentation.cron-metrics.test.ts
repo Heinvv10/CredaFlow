@@ -5,6 +5,8 @@ import { cronOccurrences } from "@/lib/ops/cron-run-claim"
 /** The scheduler counts each finished run by outcome (lib/observability/metrics.ts), for /api/metrics. */
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
+// Boot reads the instance jurisdiction from the database (retries for up to 20 s); there is none here.
+vi.mock("@/lib/jurisdiction/load.server", () => ({ bootActiveJurisdiction: vi.fn(), ensureActiveJurisdiction: vi.fn() }))
 const recordCronRun = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun }))
 const callCronRoute = vi.hoisted(() => vi.fn())

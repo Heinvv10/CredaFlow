@@ -24,7 +24,7 @@ export function disbursedHtml(identity: LenderIdentity, name: string, ref: strin
 <p style="margin:0;color:#888;font-size:12px;">${t("questions")} <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;">${escapeHtml(identity.publicEmail)}</a></p>
 </td></tr>
 <tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-<p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}</p></td></tr>
+<p style="margin:0;color:#888;font-size:11px;">${identity.ncrNumber ? `NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}` : escapeHtml(identity.legalName)}</p></td></tr>
 </table></td></tr></table></body></html>`
 }
 
@@ -50,6 +50,6 @@ ${refLine}
 <p style="margin:0;color:#888;font-size:12px;">Questions? <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;">${escapeHtml(identity.publicEmail)}</a></p>
 </td></tr>
 <tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-<p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}</p></td></tr>
+<p style="margin:0;color:#888;font-size:11px;">${identity.ncrNumber ? `NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}` : escapeHtml(identity.legalName)}</p></td></tr>
 </table></td></tr></table></body></html>`
 }

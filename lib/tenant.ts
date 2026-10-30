@@ -6,6 +6,8 @@ import type { NextRequest } from "next/server"
 import type { TenantStatus } from "@prisma/client"
 import { getCurrentTenantId, runWithTenant } from "./tenant-scope"
 import { normaliseHost } from "./config/deployment-urls"
+import { isNcaJurisdiction } from "./jurisdiction/active"
+import { ensureActiveJurisdiction } from "./jurisdiction/load.server"
 
 export type TenantContext = {
   id: string
@@ -115,6 +117,7 @@ export async function getTenantBySlug(
  * Single-tenant assumption today; revisit when introducing a second tenant.
  */
 export async function getDefaultTenantId(): Promise<string> {
+  await ensureActiveJurisdiction()
   const slug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim()
   if (!slug) {
     throw new Error("Default tenant is not configured: NEXT_PUBLIC_TENANT_SLUG is unset")
@@ -179,6 +182,7 @@ export function getTenantConfig(tenantId: string) {
  * Tenant lookup. Use getDefaultTenantId() directly if you want explicit control.
  */
 export const getResolvedTenantId = cache(async (): Promise<string> => {
+  await ensureActiveJurisdiction()
   const fromAls = getCurrentTenantId()
   if (fromAls) return fromAls
 
@@ -259,6 +263,9 @@ export async function withTenantContext<T>(
   req: NextRequest | Request,
   handler: (tenant: TenantContext) => Promise<T>
 ): Promise<T | Response> {
+  // Every API route that resolves a tenant knows the lender's jurisdiction
+  // (lib/jurisdiction) before its handler runs.
+  await ensureActiveJurisdiction()
   const tenant = await getTenantFromRequest(req)
   if (!tenant) {
     const { NextResponse } = await import("next/server")
@@ -324,7 +331,9 @@ export function resolveFeatureFlags(
     featureCrm: config?.featureCrm ?? false,
     featureIms: config?.featureIms ?? false,
     featureBureauSubmission: config?.featureBureauSubmission ?? false,
-    featureAssetFinance: config?.featureAssetFinance ?? false,
+    // Asset finance is an NCA product: off for every lender outside the NCA's
+    // jurisdiction whatever the column says (lib/jurisdiction).
+    featureAssetFinance: (config?.featureAssetFinance ?? false) && isNcaJurisdiction(),
   }
 }
 

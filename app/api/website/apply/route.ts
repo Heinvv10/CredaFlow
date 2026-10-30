@@ -8,7 +8,7 @@ import { verifyTurnstile } from "@/lib/turnstile"
 import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/referrals"
 import { AuditAction } from "@/lib/audit"
 import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
-import { isValidSaIdNumber } from "@/lib/validation/client-wizard"
+import { canonicalIdNumber, idNumberCopy, isValidIdNumber } from "@/lib/validation/client-wizard"
 import { generateReference, maskEmail, maskIdNumber } from "@/lib/utils"
 import {
   ContactPromotionConflictError,
@@ -157,9 +157,12 @@ export async function POST(req: NextRequest) {
     // direct POST could otherwise persist a client + application under an
     // invalid ID (which then can't be KYC-verified). Only enforced when an ID
     // is supplied — a lead-only capture (no ID) is still allowed.
-    if (idNumber && !isValidSaIdNumber(String(idNumber).trim())) {
+    if (idNumber && !isValidIdNumber(canonicalIdNumber(String(idNumber).trim()))) {
       return NextResponse.json(
-        { success: false, error: "Please enter a valid 13-digit South African ID number." },
+        {
+          success: false,
+          error: idNumberCopy().applyRefusal,
+        },
         { status: 400 },
       )
     }
@@ -438,7 +441,7 @@ export async function POST(req: NextRequest) {
 
     if (email && idNumber && productTypeNormalised && requestedAmountCents > 0) {
       const normalisedEmail = String(email).toLowerCase().trim()
-      const normalisedIdNumber = String(idNumber).trim()
+      const normalisedIdNumber = canonicalIdNumber(String(idNumber).trim())
       // Read the two identity keys while holding the same Lead row lock used by
       // conversion. Under READ COMMITTED, two separate unlocked reads could
       // straddle a winner's commit (email missing, ID present) and manufacture

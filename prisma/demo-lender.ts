@@ -9,6 +9,7 @@
  *   npx tsx prisma/demo-lender.ts slug      # one field, for shell scripts
  */
 import type { LenderIdentityColumns } from "../lib/config/identity"
+import type { Currency, Jurisdiction } from "../lib/jurisdiction/profiles"
 import { VALID_LENDER_COLUMNS } from "../lib/config/__fixtures__/lender-identity"
 
 export interface DemoLender {
@@ -29,6 +30,18 @@ export interface DemoLender {
    * member, so it runs either way. A real lender keeps the default (on).
    */
   requireSegregationOfDuties: boolean
+  /**
+   * Where the lender operates (lib/jurisdiction). Absent = ZA / ZAR, so the
+   * South African entries need not say it. An LS lender has no NCR or FSP
+   * number, +266 phones and no asset finance (an NCA product).
+   */
+  jurisdiction?: Jurisdiction
+  currency?: Currency
+}
+
+/** The jurisdiction and currency a seed writes to TenantConfig for this lender. */
+export function lenderJurisdiction(lender: DemoLender): { jurisdiction: Jurisdiction; currency: Currency } {
+  return { jurisdiction: lender.jurisdiction ?? "ZA", currency: lender.currency ?? "ZAR" }
 }
 
 export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
@@ -85,6 +98,34 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
     staffDomain: "tsela-lending.example",
     clientDomain: "tsela-lending.invalid",
     bureau: { supplierNumber: "TSELA1", tradingName: "TSELA LENDING" },
+    requireSegregationOfDuties: false,
+  },
+  basotho: {
+    slug: "basotho",
+    jurisdiction: "LS",
+    currency: "LSL",
+    // A clearly fictional Lesotho demo lender: a 2099 registration, a Demo
+    // Road office in Maseru, 000 phone exchanges. It holds no NCR or FSP number
+    // because the NCA does not apply to it.
+    identity: {
+      ...VALID_LENDER_COLUMNS,
+      legalName: "Demo Basotho Lending (Pty) Ltd",
+      brandName: "Demo Basotho Lending",
+      ncrNumber: null,
+      fscaNumber: null,
+      companyRegNumber: "2099/000001",
+      registeredOffice: "1 Demo Road\nMaseru\n100",
+      publicEmail: "hello@basotho-lending.example",
+      publicPhone: "+266 2200 0000",
+      collectionsEmail: "collections@basotho-lending.example",
+      collectionsPhone: "+266 2200 0001",
+      brandTagline: "Demo lender: Lesotho jurisdiction",
+      headOfficeCity: "Maseru",
+    },
+    colours: { primaryColor: "#1F4E79", secondaryColor: "#245E92", darkColor: "#0F1115" },
+    staffDomain: "basotho-lending.example",
+    clientDomain: "basotho-lending.invalid",
+    bureau: { supplierNumber: "BASO01", tradingName: "BASOTHO LENDING" },
     requireSegregationOfDuties: false,
   },
 }

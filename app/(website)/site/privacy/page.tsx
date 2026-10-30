@@ -154,7 +154,7 @@ export default async function PrivacyPage() {
           <div className="mt-6 space-y-3 text-sm">
             {[
               ["Responsible party", identity.legalName],
-              ["NCR registration", identity.ncrNumber],
+              ...(identity.ncrNumber ? [["NCR registration", identity.ncrNumber]] : []),
               ["Last reviewed", "May 2026"],
               ["Primary contact", identity.publicEmail],
             ].map(([label, value]) => (

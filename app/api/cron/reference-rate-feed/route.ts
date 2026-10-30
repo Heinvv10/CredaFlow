@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyCronSkip } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { runReferenceRateFeed } from "@/lib/asset-finance/rate-feed-sync"
@@ -14,6 +15,12 @@ import { runReferenceRateFeed } from "@/lib/asset-finance/rate-feed-sync"
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
   if (denied) return denied
+
+  // The SARB repo rate feeds the NCA interest cap and asset finance: a lender
+  // outside the NCA's jurisdiction has no use for it. A 200, so the cron
+  // heartbeat does not read the skip as a failure.
+  const skipped = await ncaOnlyCronSkip()
+  if (skipped) return skipped
 
   const run = await runReferenceRateFeed(prisma)
   return NextResponse.json(run, { status: run.ok ? 200 : 503 })

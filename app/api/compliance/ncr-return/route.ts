@@ -10,6 +10,7 @@ import {
   listSelectableQuarters,
   parseQuarterParam,
 } from "@/lib/compliance/quarters"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import {
   getNcrReturnData,
   ncrSubmissionKey,
@@ -33,6 +34,8 @@ import {
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("The NCR quarterly return")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     try {
@@ -50,6 +53,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("The NCR quarterly return")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     const body = (await req.json().catch(() => ({}))) as { quarter?: string }

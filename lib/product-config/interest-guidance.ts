@@ -1,4 +1,5 @@
 import { checkNcaInterestRate, ncaCreditType, NCA_CREDIT_TYPE_LABELS } from "@/lib/loan/nca-interest-cap"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { repoRateIsPlausible } from "@/lib/asset-finance/reference-rate-input"
 
 export interface InterestGuidanceBasis {
@@ -8,6 +9,7 @@ export interface InterestGuidanceBasis {
 
 /** An illustrative transaction, using approval's classification and rate check. Never a product-wide certification. */
 export function interestGuidance(input: { productType: string; amountRand: number; termDays: number; ratePercentPm: number; interestModel: string }, basis?: InterestGuidanceBasis) {
+  if (!isNcaJurisdiction()) return { warning: false, message: "No statutory interest-rate cap applies to this lender.", classification: null }
   if (input.productType === "ASSET_FINANCE") return { warning: false, message: "Rate checked per asset-finance deal and its recorded regime.", classification: null }
   if (!Number.isFinite(input.amountRand) || input.amountRand <= 0 || !Number.isFinite(input.termDays) || input.termDays <= 0) {
     return { warning: true, message: "Enter a preview amount and term to check the transaction's interest rate.", classification: null }

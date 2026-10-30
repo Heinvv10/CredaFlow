@@ -92,38 +92,40 @@ export default async function RegulatoryInformationPage() {
 
       <section className="border-y border-white/10 bg-[#11141b] px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-5xl gap-10 lg:grid-cols-2">
-          <article>
-            <div className="flex items-center gap-3">
-              <BadgeCheck className="h-6 w-6 text-[#a5b4fc]" aria-hidden="true" />
-              <h2 className="text-2xl font-semibold tracking-tight text-white">
-                NCR registration
-              </h2>
-            </div>
-            <p className="mt-4 text-base leading-7 text-white/68">
-              {identity.legalName} is registered with the National Credit Regulator as
-              a credit provider under registration number{" "}
-              <strong className="text-white">{identity.ncrNumber}</strong>.
-              {identity.ncrRegistrationDate && (
-                <>
-                  {" "}Final registration was confirmed on{" "}
-                  <strong className="text-white">{formatIdentityDate(identity.ncrRegistrationDate)}</strong>.
-                </>
-              )}
-            </p>
-            <p className="mt-3 text-base leading-7 text-white/60">
-              All credit applications are subject to affordability assessment
-              under the National Credit Act. The NCR public register at{" "}
-              <a
-                href="https://www.ncr.org.za"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-[#a5b4fc] underline-offset-2 hover:underline"
-              >
-                ncr.org.za
-              </a>{" "}
-              is the authoritative source for this listing.
-            </p>
-          </article>
+          {identity.ncrNumber && (
+            <article>
+              <div className="flex items-center gap-3">
+                <BadgeCheck className="h-6 w-6 text-[#a5b4fc]" aria-hidden="true" />
+                <h2 className="text-2xl font-semibold tracking-tight text-white">
+                  NCR registration
+                </h2>
+              </div>
+              <p className="mt-4 text-base leading-7 text-white/68">
+                {identity.legalName} is registered with the National Credit Regulator as
+                a credit provider under registration number{" "}
+                <strong className="text-white">{identity.ncrNumber}</strong>.
+                {identity.ncrRegistrationDate && (
+                  <>
+                    {" "}Final registration was confirmed on{" "}
+                    <strong className="text-white">{formatIdentityDate(identity.ncrRegistrationDate)}</strong>.
+                  </>
+                )}
+              </p>
+              <p className="mt-3 text-base leading-7 text-white/60">
+                All credit applications are subject to affordability assessment
+                under the National Credit Act. The NCR public register at{" "}
+                <a
+                  href="https://www.ncr.org.za"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-[#a5b4fc] underline-offset-2 hover:underline"
+                >
+                  ncr.org.za
+                </a>{" "}
+                is the authoritative source for this listing.
+              </p>
+            </article>
+          )}
           {/* No FSP number, no FSCA claim. */}
           {identity.fspNumber && (
             <article>

@@ -2,6 +2,8 @@ import { FieldGroup } from "@/components/wizard/FieldGroup"
 import { INP } from "./constants"
 import type { ClientWizardData, WizardMode } from "./types"
 import type { ClientWizardErrors } from "@/lib/validation/client-wizard"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import { profileFor } from "@/lib/jurisdiction/profiles"
 
 interface StepProps {
   data: ClientWizardData
@@ -10,19 +12,9 @@ interface StepProps {
   mode: WizardMode
 }
 
-const PROVINCES: { code: string; label: string }[] = [
-  { code: "EC", label: "Eastern Cape" },
-  { code: "FS", label: "Free State" },
-  { code: "GP", label: "Gauteng" },
-  { code: "KZN", label: "KwaZulu-Natal" },
-  { code: "LP", label: "Limpopo" },
-  { code: "MP", label: "Mpumalanga" },
-  { code: "NC", label: "Northern Cape" },
-  { code: "NW", label: "North West" },
-  { code: "WC", label: "Western Cape" },
-]
-
 export function Step2Address({ data, patch, errors }: StepProps) {
+  const rules = profileFor(activeJurisdiction()).capture
+  const regions = rules.regions
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-[var(--cf-text)]">Residential address</h2>
@@ -54,14 +46,14 @@ export function Step2Address({ data, patch, errors }: StepProps) {
             autoComplete="address-level2"
           />
         </FieldGroup>
-        <FieldGroup label="Province" required error={errors.province}>
+        <FieldGroup label={rules.regionLabel} required error={errors.province}>
           <select
             className={INP}
             value={data.province}
             onChange={(e) => patch({ province: e.target.value })}
           >
             <option value="">Select…</option>
-            {PROVINCES.map((p) => (
+            {regions.map((p) => (
               <option key={p.code} value={p.code}>{p.label}</option>
             ))}
           </select>
@@ -72,7 +64,7 @@ export function Step2Address({ data, patch, errors }: StepProps) {
         <input
           className={INP}
           value={data.postalCode}
-          onChange={(e) => patch({ postalCode: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+          onChange={(e) => patch({ postalCode: e.target.value.replace(/\D/g, "").slice(0, rules.postalDigits) })}
           inputMode="numeric"
           autoComplete="postal-code"
         />

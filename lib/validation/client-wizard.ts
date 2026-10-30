@@ -11,6 +11,9 @@ import {
   normaliseDebtAccountType,
 } from "@/lib/credit/debt-account-types"
 import { sastParts } from "@/lib/date/sast"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import { profileFor, type CaptureProfile } from "@/lib/jurisdiction/profiles"
+import { canonicalLesothoNationalId, isValidLesothoNationalId } from "@/lib/jurisdiction/national-id"
 
 export type ValidationErrors<T> = Partial<Record<keyof T, string>>
 
@@ -93,6 +96,30 @@ export function isValidSaIdNumber(id: string): boolean {
   return luhnCheck(id)
 }
 
+/**
+ * The national ID check for the lender's jurisdiction: the SA ID (13 digits,
+ * Luhn) for ZA, the Lesotho shape check for LS. Capture goes through this; the
+ * SA-only integrations (Experian, insurance quotes) keep isValidSaIdNumber.
+ */
+export function isValidIdNumber(id: string): boolean {
+  return capture().idScheme === "LS_ID" ? isValidLesothoNationalId(id) : isValidSaIdNumber(id)
+}
+
+/** The capture facts of the lender's jurisdiction (lib/jurisdiction/profiles.ts). */
+function capture(): CaptureProfile {
+  return profileFor(activeJurisdiction()).capture
+}
+
+/**
+ * The form of an ID number every sink stores and every lookup compares: for a
+ * Lesotho lender trimmed and upper case (so "ab123456" and " AB123456 " are one
+ * person for the duplicate-identity check); a South African ID is left as typed
+ * (digits only, validated as is).
+ */
+export function canonicalIdNumber(id: string): string {
+  return capture().idScheme === "LS_ID" ? canonicalLesothoNationalId(id) : id
+}
+
 export function deriveDobFromSaId(id: string): string {
   if (!isValidSaIdNumber(id)) return ""
   const yy = Number(id.slice(0, 2))
@@ -135,6 +162,29 @@ export function isValidSaPhone(p: string): boolean {
   return false
 }
 
+/** Field copy for the national ID, by jurisdiction. */
+export function idNumberCopy(): { label: string; hint: string; refusal: string; applyRefusal: string } {
+  const c = capture()
+  return { label: c.idLabel, hint: c.idHint, refusal: c.idRefusal, applyRefusal: c.idApplyRefusal }
+}
+
+/** The mobile check for the lender's jurisdiction (see isValidIdNumber). */
+export function isValidPhone(p: string): boolean {
+  const { mobilePatterns, mobileAllowSpaces } = capture()
+  const value = mobileAllowSpaces ? p.replace(/ /g, "") : p
+  return mobilePatterns.some((pattern) => pattern.test(value))
+}
+
+/** "a South African mobile number (e.g. …)" for an API error, by jurisdiction. */
+export function mobileExamples(): string {
+  return capture().mobileExamples
+}
+
+/** The hint under a phone field, and the error for one that fails isValidPhone. */
+export function phoneFormatMessage(): string {
+  return capture().mobileMessage
+}
+
 // --- Step 1 Identity ---
 
 export function validateStep1Identity(
@@ -147,13 +197,14 @@ export function validateStep1Identity(
 
   if (!d.idNumber.trim()) {
     errs.idNumber = "Required"
-  } else if (!isValidSaIdNumber(d.idNumber)) {
-    errs.idNumber = "Not a valid 13-digit SA ID number"
+  } else if (!isValidIdNumber(d.idNumber)) {
+    errs.idNumber = capture().idInvalid
   }
 
   if (!d.dateOfBirth) {
     errs.dateOfBirth = "Required"
-  } else if (isValidSaIdNumber(d.idNumber)) {
+  } else if (capture().idEncodesDob && isValidSaIdNumber(d.idNumber)) {
+    // Only an SA ID encodes the date of birth; a Lesotho ID is not cross-checked.
     const derived = deriveDobFromSaId(d.idNumber)
     if (derived && derived !== d.dateOfBirth) {
       errs.dateOfBirth = "Does not match the ID number"
@@ -170,21 +221,19 @@ export function validateStep1Identity(
 
   if (!d.phone.trim()) {
     errs.phone = "Required"
-  } else if (!isValidSaPhone(d.phone)) {
-    errs.phone = "Use +27… or 0… mobile format"
+  } else if (!isValidPhone(d.phone)) {
+    errs.phone = phoneFormatMessage()
   }
 
   // whatsapp optional — validate format only if provided
-  if (d.whatsapp.trim() && !isValidSaPhone(d.whatsapp)) {
-    errs.whatsapp = "Use +27… or 0… mobile format"
+  if (d.whatsapp.trim() && !isValidPhone(d.whatsapp)) {
+    errs.whatsapp = phoneFormatMessage()
   }
 
   return errs
 }
 
 // --- Step 2 Address ---
-
-const SA_PROVINCES = ["EC", "FS", "GP", "KZN", "LP", "MP", "NC", "NW", "WC"] as const
 
 export function validateStep2Address(
   d: ClientWizardData,
@@ -196,14 +245,14 @@ export function validateStep2Address(
 
   if (!d.province) {
     errs.province = "Required"
-  } else if (!SA_PROVINCES.includes(d.province as (typeof SA_PROVINCES)[number])) {
-    errs.province = "Use a SA province code (EC, FS, GP, KZN, LP, MP, NC, NW, WC)"
+  } else if (!capture().regions.some((r) => r.code === d.province)) {
+    errs.province = capture().regionMessage
   }
 
   if (!d.postalCode.trim()) {
     errs.postalCode = "Required"
-  } else if (!/^\d{4}$/.test(d.postalCode)) {
-    errs.postalCode = "Use a 4-digit SA postal code"
+  } else if (!new RegExp(`^\\d{${capture().postalDigits}}$`).test(d.postalCode)) {
+    errs.postalCode = capture().postalMessage
   }
 
   return errs
@@ -418,8 +467,8 @@ export function validateStep3Employment(d: ClientWizardData): ClientWizardErrors
   if (!d.nextOfKinName.trim()) errs.nextOfKinName = "Required"
   if (!d.nextOfKinPhone.trim()) {
     errs.nextOfKinPhone = "Required"
-  } else if (!isValidSaPhone(d.nextOfKinPhone)) {
-    errs.nextOfKinPhone = "Use +27… or 0… mobile format"
+  } else if (!isValidPhone(d.nextOfKinPhone)) {
+    errs.nextOfKinPhone = phoneFormatMessage()
   }
   if (!d.nextOfKinRelationship.trim()) errs.nextOfKinRelationship = "Required"
 

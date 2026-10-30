@@ -224,10 +224,27 @@ enum TenantStatus {
   PROVISIONING
 }
 
+enum Jurisdiction {
+  ZA
+  LS
+}
+
+enum LenderCurrency {
+  ZAR
+  LSL
+}
+
 model TenantConfig {
   id       String @id @default(cuid())
   tenantId String @unique
   tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  // Where the lender operates (lib/jurisdiction). ZA is the NCA regime; LS runs
+  // without the NCA-only steps (rate cap, Section 129, NCR returns) and with
+  // Lesotho ID rules, holidays and the loti. currency is what every amount is
+  // shown in; one deployment serves one lender, so it is a per-instance setting.
+  jurisdiction Jurisdiction @default(ZA)
+  currency     LenderCurrency @default(ZAR)
 
   primaryColor   String  @default("#4F46E5")
   secondaryColor String  @default("#4338CA")

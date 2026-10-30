@@ -1,7 +1,9 @@
 /**
  * Builds collection instructions from a loan's instalment schedule. Pure: the
  * caller loads the rows and what has already been presented, and writes the
- * drafts. Dates are SAST calendar dates (YYYY-MM-DD).
+ * drafts. Dates are SAST calendar dates (YYYY-MM-DD); a Lesotho lender's CAT
+ * calendar has the same offset. Business days follow the lender's jurisdiction
+ * (lib/jurisdiction/business-days.ts).
  *
  * An instalment is never collected before it is due, never before the
  * mandate's first collection date, and never sooner than the provider's
@@ -10,7 +12,7 @@
  */
 import type { ScheduleStatus } from "@prisma/client"
 import { addDays, dayInMonth } from "@/lib/credit-checks/dates"
-import { addSouthAfricanBusinessDays, isSouthAfricanBusinessDate } from "@/lib/compliance/sa-business-days"
+import { addBusinessDays, isBusinessDate } from "@/lib/jurisdiction/business-days"
 import {
   PLANNING_HORIZON_DAYS,
   SUBMISSION_LEAD_BUSINESS_DAYS,
@@ -25,7 +27,7 @@ const shiftMonth = (month: string, by: number) => addDays(`${month}-15`, by * 30
 /** The debit day of a month (clamped to its last day), rolled forward to a business day. */
 function rolledDebitDate(month: string, debitDay: number): string {
   let date = dayInMonth(month, debitDay)
-  while (!isSouthAfricanBusinessDate(date)) date = addDays(date, 1)
+  while (!isBusinessDate(date)) date = addDays(date, 1)
   return date
 }
 
@@ -46,13 +48,13 @@ export function debitDateOnOrAfter(notBefore: string, debitDay: number): string 
 
 /** The earliest action date a batch submitted on `today` can carry. */
 export function earliestActionDate(today: string): string {
-  return addSouthAfricanBusinessDays(today, SUBMISSION_LEAD_BUSINESS_DAYS)
+  return addBusinessDays(today, SUBMISSION_LEAD_BUSINESS_DAYS)
 }
 
 /** The action dates a run on `today` submits: [earliest, earliest + window business days]. */
 export function submissionWindow(today: string): { from: string; to: string } {
   const from = earliestActionDate(today)
-  return { from, to: addSouthAfricanBusinessDays(from, SUBMISSION_WINDOW_BUSINESS_DAYS) }
+  return { from, to: addBusinessDays(from, SUBMISSION_WINDOW_BUSINESS_DAYS) }
 }
 
 export interface PlanRow {

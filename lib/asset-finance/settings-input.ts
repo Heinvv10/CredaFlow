@@ -9,6 +9,7 @@
  * it is a Confirmation Gate set by CredaFlow once the lender's legal team has
  * approved the agreement wording. A body that names it is refused.
  */
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { MAX_INT, asRecord } from "./input-fields"
 
 export interface AssetFinanceSettingsInput {
@@ -37,8 +38,15 @@ export function parseAssetFinanceSettings(body: unknown): Parsed<AssetFinanceSet
     errors[LEGAL_WORDING_FIELD] = "is set by CredaFlow once the lender's legal team approves the agreement wording"
   }
   if ("featureAssetFinance" in record) {
-    if (typeof record.featureAssetFinance === "boolean") data.featureAssetFinance = record.featureAssetFinance
-    else errors.featureAssetFinance = "must be true or false"
+    if (typeof record.featureAssetFinance === "boolean") {
+      // Asset finance is built on NCA regimes, s127 and recovery. It can be
+      // switched off anywhere, on only inside the NCA's jurisdiction.
+      if (record.featureAssetFinance && !isNcaJurisdiction()) {
+        errors.featureAssetFinance = "asset finance is an NCA product and is not available to this lender"
+      } else {
+        data.featureAssetFinance = record.featureAssetFinance
+      }
+    } else errors.featureAssetFinance = "must be true or false"
   }
   if ("assetPayoutDualApprovalCents" in record) {
     const cents = record.assetPayoutDualApprovalCents
