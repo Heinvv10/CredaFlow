@@ -112,6 +112,7 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
         $queryRaw: queryRaw,
         loanProduct: { findUnique, update },
         loanApplication: { count },
+        productVersion: { count: async () => 0 },
         auditLog: { create: auditCreate },
       }),
     )
@@ -209,6 +210,43 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
   })
 })
 
+describe("PUT /api/products/loan/[id] a product with versions (product engine)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    findUnique.mockResolvedValue(before)
+    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...before, ...data }))
+    queryRaw.mockResolvedValue([])
+    auditCreate.mockResolvedValue({ id: "audit-1" })
+    count.mockResolvedValue(0)
+  })
+  const versioned = (versions: number) =>
+    transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
+      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, productVersion: { count: async () => versions }, auditLog: { create: auditCreate },
+    }))
+  // The minimum amount: a field a version carries that the MICRO30 contract and the NCA cap check leave alone.
+  it("refuses to edit a field a version carries, 409, and writes nothing: the change is a new version a second person approves", async () => {
+    versioned(1)
+    const response = await PUT(request({ minAmount: 400 }), context)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: "PRODUCT_VERSIONED", fields: ["minAmount"] })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("still lets a field no version carries change: the name", async () => {
+    versioned(1)
+    const response = await PUT(request({ name: "Short-term Loan" }), context)
+    expect(response.status).toBe(200)
+    expect(update).toHaveBeenCalled()
+  })
+
+  it("leaves a product with no versions exactly as it was", async () => {
+    versioned(0)
+    const response = await PUT(request({ minAmount: 400 }), context)
+    expect(response.status).not.toBe(409)
+  })
+})
+
 describe("PUT /api/products/loan/[id] product kind (Fair Score E4)", () => {
   const plant = { ...before, code: "PLANT", name: "Plant finance", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", minTermDays: 180, maxTermDays: 1_800 }
   const retype = (row: typeof plant, productType: string) => {
@@ -223,7 +261,7 @@ describe("PUT /api/products/loan/[id] product kind (Fair Score E4)", () => {
     queryRaw.mockResolvedValue([])
     auditCreate.mockResolvedValue({ id: "audit-1" })
     transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
-      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, auditLog: { create: auditCreate },
+      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, productVersion: { count: async () => 0 }, auditLog: { create: auditCreate },
     }))
   })
 
@@ -272,7 +310,7 @@ describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
     queryRaw.mockResolvedValue([])
     auditCreate.mockResolvedValue({ id: "audit-1" })
     transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
-      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, auditLog: { create: auditCreate },
+      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, productVersion: { count: async () => 0 }, auditLog: { create: auditCreate },
     }))
   })
 
@@ -331,6 +369,7 @@ describe("DELETE /api/products/loan/[id] MICRO30 guard", () => {
         $queryRaw: queryRaw,
         loanProduct: { findUnique, update },
         loanApplication: { count },
+        productVersion: { count: async () => 0 },
         auditLog: { create: auditCreate },
       }),
     )

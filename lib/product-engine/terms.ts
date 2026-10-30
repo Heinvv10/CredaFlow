@@ -6,7 +6,9 @@
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
 import { NCA_ASSET_CAPS } from "@/lib/asset-finance/nca-caps"
-import { FREQUENCIES, GRACE_KINDS, PERIOD_DAYS, PERIODS_PER_YEAR, STRUCTURES, type Frequency, type GraceKind, type RepaymentStructure, type RepaymentTerms } from "./types"
+import { FREQUENCIES, GRACE_KINDS, PERIOD_DAYS, STRUCTURES, type Frequency, type GraceKind, type RepaymentStructure, type RepaymentTerms } from "./types"
+
+export { monthlyEquivalentInstalment } from "./instalment"
 
 export interface RepaymentSpec {
   frequency: Frequency
@@ -154,17 +156,6 @@ export function parseProductConfig(raw: unknown): ProductConfig {
     initiationFeeMaxCents: raw.initiationFeeMaxCents as number, monthlyServiceFeeCents: raw.monthlyServiceFeeCents as number,
     repayment, collateral, eligibility,
   }
-}
-
-/**
- * The instalment affordability sets against MONTHLY income, as a monthly figure: the regular instalment x periods a year
- * / 12 (weekly 52/12, fortnightly 26/12). The regular instalment is the largest after the first row (which carries the
- * one-off initiation fee), so a grace period's smaller payments never understate the burden; a single payment is itself.
- */
-export function monthlyEquivalentInstalment(rows: ReadonlyArray<{ totalDue: number }>, frequency: Frequency): number {
-  if (rows.length === 0) return 0
-  const regular = rows.length === 1 ? rows[0]!.totalDue : Math.max(...rows.slice(1).map((r) => r.totalDue))
-  return frequency === "MONTHLY" ? regular : Math.round((regular * PERIODS_PER_YEAR[frequency]) / 12)
 }
 
 /**

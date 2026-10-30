@@ -1392,6 +1392,21 @@ export async function POST(
           })),
         })
 
+        // A loan priced by the product engine keeps the version it was written on, the rule that priced it and the repayment
+        // structure it was scheduled with (lib/product-engine); a later version never reaches it. Written with the loan, or not at all.
+        const writtenTerms = lockedApprovalEvidence.approval.inputs
+        if (writtenTerms.productVersion) {
+          const v = writtenTerms.productVersion
+          await tx.loanTerms.create({
+            data: {
+              loanId: newLoan.id, tenantId: tenant.id, productVersionId: v.id,
+              frequency: writtenTerms.repayment?.frequency ?? null, structure: writtenTerms.repayment?.structure ?? null, graceKind: writtenTerms.repayment?.graceKind ?? null,
+              graceInstalments: writtenTerms.repayment?.graceInstalments ?? 0, instalments: writtenTerms.repayment?.instalments ?? null,
+              baseRatePm: v.baseRatePm, interestRatePm: writtenTerms.interestRatePm, pricingRuleId: v.pricingRuleId, pricingRuleName: v.pricingRuleName, pricingInputs: v.pricingInputs,
+            },
+          })
+        }
+
         // Referral agent commission — accrue for a referred, active-agent loan.
         // No-ops unless the borrower is attributed to an active code+agent with a
         // rate > 0. Runs in-tx so a real DB error rolls back the disbursement.
@@ -1686,6 +1701,7 @@ export async function POST(
               termDays: lockedApprovalEvidence.approval.inputs.termDays,
               interestRatePm: lockedApprovalEvidence.approval.inputs.interestRatePm,
               interestModel: lockedApprovalEvidence.approval.inputs.interestModel,
+              ...(writtenTerms.productVersion ? { productVersionId: writtenTerms.productVersion.id, productVersion: writtenTerms.productVersion.version, pricingRuleId: writtenTerms.productVersion.pricingRuleId, repayment: writtenTerms.repayment ?? null } : {}),
               signedScheduleStartDate: lockedStartDate.toISOString(),
               startDate: disbursedAt.toISOString(),
               agreementScheduleOffsetMs,

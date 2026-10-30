@@ -8,7 +8,9 @@ import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bur
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { approvalTermsFor, ruledRateRefusal } from "@/lib/product-engine/approval-terms"
 import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
 import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
@@ -973,17 +975,25 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // immediately before the agreement is signed. See app/api/applications
     // /[id]/pasq/route.ts, which now runs against an APPROVED application.
     const calculationStartDate = decisionAt
+    // The terms this application is approved on: its product's own, or, for a product under the product engine, the version
+    // in effect today with the price its matching rule gives (lib/product-engine/approval-terms.ts).
+    const terms = await approvalTermsFor(prisma, tenant.id, { id: application.id, productId: application.productId, appliedTermDays: approvalTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(decisionAt))
+    const ruledRefusal = await ruledRateRefusal(tenant.id, terms, { principalCents: approvalPrincipal, termDays: approvalTermDays })
+    if (ruledRefusal) {
+      return NextResponse.json({ error: `Approval blocked: the pricing rule's rate is above the NCA ceiling for this loan. ${ruledRefusal}`, pricingRuleRefused: true }, { status: 422 })
+    }
     const loanCalc = calculateLoan({
       principal: approvalPrincipal,
       termDays: approvalTermDays,
-      interestRatePm: application.product.interestRatePm,
+      interestRatePm: terms.interestRatePm,
       productType: application.product.productType,
-      interestModel: application.product.interestModel as "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL",
-      initiationFeeModel: application.product.initiationFeeModel,
-      initiationFeePct: application.product.initiationFeePct,
-      initiationFeeMax: application.product.initiationFeeMax,
-      monthlyServiceFee: application.product.monthlyServiceFee,
+      interestModel: terms.interestModel,
+      initiationFeeModel: terms.initiationFeeModel,
+      initiationFeePct: terms.initiationFeePct,
+      initiationFeeMax: terms.initiationFeeMax,
+      monthlyServiceFee: terms.monthlyServiceFee,
       initiationFeePayment: application.initiationFeePayment,
+      ...(terms.repayment ? { repayment: terms.repayment } : {}),
     }, calculationStartDate)
     const approvalCalculatorEvidence = createAffordabilityCalculatorEvidence(
       loanCalc,
@@ -1085,13 +1095,15 @@ export async function decideApplication({ tenant, user, id, formData, automation
       principalCents: approvalPrincipal,
       termDays: approvalTermDays,
       productId: application.productId,
-      interestRatePm: application.product.interestRatePm,
+      interestRatePm: terms.interestRatePm,
       productType: application.product.productType,
-      interestModel: application.product.interestModel as "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL",
-      initiationFeeModel: application.product.initiationFeeModel,
-      initiationFeePct: application.product.initiationFeePct,
-      initiationFeeMaxCents: application.product.initiationFeeMax,
-      monthlyServiceFeeCents: application.product.monthlyServiceFee,
+      interestModel: terms.interestModel,
+      initiationFeeModel: terms.initiationFeeModel,
+      initiationFeePct: terms.initiationFeePct,
+      initiationFeeMaxCents: terms.initiationFeeMax,
+      monthlyServiceFeeCents: terms.monthlyServiceFee,
+      ...(terms.repayment ? { repayment: terms.repayment } : {}),
+      ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
       initiationFeePayment: application.initiationFeePayment,
       ndiBufferPct,
     }
@@ -1315,7 +1327,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
             approvedAt: decisionAt,
             approvedAmount: approvalPrincipal,
             approvedTermDays: approvalTermDays,
-            approvedRate: locked.application.product.interestRatePm,
+            approvedRate: terms.interestRatePm,
             decisionReason: reason || "Approved",
             // Re-approval always starts a new agreement lifecycle. Clear any
             // stale artefacts defensively even if this UNDER_REVIEW row came
@@ -1442,7 +1454,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
               reason: reason || "Approved",
               approvedAmount: approvalPrincipal,
               approvedTermDays: approvalTermDays,
-              approvedRate: locked.application.product.interestRatePm,
+              approvedRate: terms.interestRatePm,
               // The quotation is issued at the signing ceremony, so an
               // approval records the instalment it actually gated on rather
               // than a PASQ digest. PASQ_GENERATED / PASQ_ACKNOWLEDGED audit
@@ -1463,7 +1475,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
           automation,
           decidedAt: decisionAt,
           productType: application.product.productType,
-          interestRatePm: locked.application.product.interestRatePm,
+          interestRatePm: terms.interestRatePm,
           principalCents: approvalPrincipal,
           termDays: approvalTermDays,
           instalmentCents: instalment,

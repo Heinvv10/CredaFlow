@@ -1,0 +1,63 @@
+import { NextRequest, NextResponse } from "next/server"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { requireApiRole } from "@/lib/auth-guards"
+import { canDo } from "@/lib/permissions"
+import { approvalTermsFor } from "@/lib/product-engine/approval-terms"
+import { prisma } from "@/lib/prisma"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { withTenantContext } from "@/lib/tenant"
+
+type Ctx = { params: Promise<{ id: string }> }
+
+// What the pricing rules are matched on for this application (segment, channel, campaign), and the price they give today.
+// Staff set the inputs while the application is still open; approval then prices on them (lib/product-engine/approval-terms.ts).
+const OPEN = ["DRAFT", "SUBMITTED", "UNDER_REVIEW"] as const
+const label = (v: unknown): v is string | null => v === null || (typeof v === "string" && v.length >= 1 && v.length <= 60 && v === v.trim())
+
+export async function GET(req: NextRequest, ctx: Ctx) {
+  const guard = await requireApiRole("CREDIT_OFFICER")
+  if (guard.error) return guard.error
+  return withTenantContext(req, async (tenant) => {
+    const { id } = await ctx.params
+    const application = await prisma.loanApplication.findFirst({ where: { id, tenantId: tenant.id }, include: { product: true, pricingInput: true } })
+    if (!application) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    const terms = await approvalTermsFor(prisma, tenant.id, { id, productId: application.productId, appliedTermDays: application.appliedTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(new Date()))
+    return NextResponse.json({
+      inputs: { segment: application.pricingInput?.segment ?? null, channel: application.pricingInput?.channel ?? null, campaignCode: application.pricingInput?.campaignCode ?? null },
+      riskGradeRank: application.riskGradeRank,
+      price: { interestRatePm: terms.interestRatePm, baseRatePm: terms.versioned?.baseRatePm ?? application.product.interestRatePm, productVersion: terms.versioned?.version ?? null, rule: terms.versioned?.pricingRuleName ?? null, repayment: terms.repayment },
+    })
+  })
+}
+
+export async function PUT(req: NextRequest, ctx: Ctx) {
+  const guard = await requireApiRole("CREDIT_OFFICER")
+  if (guard.error) return guard.error
+  if (!canDo(guard.user.role, "set_application_pricing_inputs")) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  return withTenantContext(req, async (tenant) => {
+    const { id } = await ctx.params
+    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
+    const segment = body?.segment ?? null
+    const channel = body?.channel ?? null
+    const campaignCode = body?.campaignCode ?? null
+    if (!body || !label(segment) || !label(channel) || !(campaignCode === null || (typeof campaignCode === "string" && /^[A-Z][A-Z0-9_]{1,39}$/.test(campaignCode)))) {
+      return NextResponse.json({ error: "segment and channel are 1 to 60 characters or null; campaignCode is UPPER_SNAKE or null." }, { status: 422 })
+    }
+    const application = await prisma.loanApplication.findFirst({ where: { id, tenantId: tenant.id }, select: { id: true, status: true } })
+    if (!application) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    if (!(OPEN as readonly string[]).includes(application.status)) return NextResponse.json({ error: `The application is ${application.status}: its price is already decided.` }, { status: 409 })
+    await prisma.$transaction(async (tx) => {
+      const before = await tx.applicationPricingInput.findFirst({ where: { tenantId: tenant.id, applicationId: id } })
+      await tx.applicationPricingInput.upsert({
+        where: { applicationId: id },
+        create: { applicationId: id, tenantId: tenant.id, segment, channel, campaignCode, updatedById: guard.user.id },
+        update: { segment, channel, campaignCode, updatedById: guard.user.id },
+      })
+      await logAuditStrict({
+        tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email, action: AuditAction.APPLICATION_PRICING_INPUT_SET, entity: "LoanApplication", entityId: id,
+        oldValue: before ? { segment: before.segment, channel: before.channel, campaignCode: before.campaignCode } : undefined, newValue: { segment, channel, campaignCode },
+      }, tx)
+    })
+    return NextResponse.json({ ok: true })
+  })
+}

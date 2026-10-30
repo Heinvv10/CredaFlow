@@ -10,6 +10,4 @@ export default defineAuditActions({
   PRODUCT_PRICING_RULE_RETIRED: "PRODUCT_PRICING_RULE_RETIRED",
   // Staff set the segment / channel / campaign an application is priced on.
   APPLICATION_PRICING_INPUT_SET: "APPLICATION_PRICING_INPUT_SET",
-  // The terms a loan was written on were recorded with the loan.
-  LOAN_TERMS_RECORDED: "LOAN_TERMS_RECORDED",
 })

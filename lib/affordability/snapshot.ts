@@ -3,6 +3,8 @@ import { createHash } from "node:crypto"
 import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import { assessAffordability } from "@/lib/affordability/ndi"
 import { calculateLoan, type LoanCalcResult } from "@/lib/loan-calculator"
+import { assertValidTerms } from "@/lib/product-engine/schedule"
+import { FREQUENCIES, GRACE_KINDS, STRUCTURES, type RepaymentTerms } from "@/lib/product-engine/types"
 import { minimumLivingExpense, MLE_FORMULA_VERSION } from "@/lib/affordability/mle"
 import {
   calculateCreditLifePremiumPeriodsForSchedule,
@@ -173,6 +175,14 @@ export interface AffordabilityDecisionInputs {
   productType?: string | null
   initiationFeePayment: "DEFERRED" | "UPFRONT"
   ndiBufferPct: number
+  /**
+   * The repayment structure the product engine scheduled this loan on (lib/product-engine). Optional: absent for every
+   * product with none, whose schedule is the single-payment / monthly one it has always been. Present, it is part of the
+   * fingerprint, and the loan is booked on it.
+   */
+  repayment?: RepaymentTerms
+  /** The product version the terms came from, and the rule that priced them (lib/product-engine/approval-terms.ts). */
+  productVersion?: { id: string; version: number; baseRatePm: number; pricingRuleId: string | null; pricingRuleName: string | null; pricingInputs: { segment: string | null; channel: string | null; campaignCode: string | null; riskRank: number | null } }
 }
 
 export interface AffordabilityDecisionOutcome {
@@ -665,6 +675,13 @@ export function affordabilityInputFingerprint(inputs: AffordabilityDecisionInput
   if (inputs.creditLifePremiumCents !== undefined) {
     canonical.push(inputs.creditLifePremiumCents)
   }
+  // Appended only when there is one, so every existing fingerprint is unchanged.
+  if (inputs.repayment !== undefined) {
+    canonical.push(`repayment:${JSON.stringify([inputs.repayment.frequency, inputs.repayment.structure, inputs.repayment.graceKind, inputs.repayment.graceInstalments, inputs.repayment.instalments])}`)
+  }
+  if (inputs.productVersion !== undefined) {
+    canonical.push(`version:${JSON.stringify([inputs.productVersion.id, inputs.productVersion.version, inputs.productVersion.baseRatePm, inputs.productVersion.pricingRuleId])}`)
+  }
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex")
 }
 
@@ -1043,7 +1060,24 @@ function affordabilityInputsAreValid(value: unknown): value is AffordabilityDeci
       value.initiationFeeModel === "NCA_REG42") &&
     Number.isFinite(value.initiationFeePct) && Number(value.initiationFeePct) >= 0 &&
     (value.initiationFeePayment === "DEFERRED" || value.initiationFeePayment === "UPFRONT") &&
-    Number.isFinite(value.ndiBufferPct) && Number(value.ndiBufferPct) >= 0
+    Number.isFinite(value.ndiBufferPct) && Number(value.ndiBufferPct) >= 0 &&
+    (value.repayment === undefined || repaymentTermsAreValid(value.repayment)) &&
+    (value.productVersion === undefined || productVersionRefIsValid(value.productVersion))
+}
+
+function repaymentTermsAreValid(value: unknown): value is RepaymentTerms {
+  if (!isRecord(value)) return false
+  try {
+    assertValidTerms(value as unknown as RepaymentTerms)
+  } catch {
+    return false
+  }
+  return (FREQUENCIES as readonly unknown[]).includes(value.frequency) && (STRUCTURES as readonly unknown[]).includes(value.structure) && (GRACE_KINDS as readonly unknown[]).includes(value.graceKind)
+}
+
+function productVersionRefIsValid(value: unknown): boolean {
+  return isRecord(value) && typeof value.id === "string" && value.id.length > 0 && Number.isInteger(value.version) && Number.isFinite(value.baseRatePm)
+    && (value.pricingRuleId === null || typeof value.pricingRuleId === "string") && (value.pricingRuleName === null || typeof value.pricingRuleName === "string") && isRecord(value.pricingInputs)
 }
 
 export function calculateLoanFromDecisionInputs(
@@ -1061,6 +1095,7 @@ export function calculateLoanFromDecisionInputs(
     monthlyServiceFee: inputs.monthlyServiceFeeCents,
     productType: inputs.productType ?? null,
     initiationFeePayment: inputs.initiationFeePayment,
+    ...(inputs.repayment ? { repayment: inputs.repayment } : {}),
   }, startDate)
 }
 

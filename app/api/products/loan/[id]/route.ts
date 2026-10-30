@@ -14,6 +14,11 @@ import {
 import { nonNcaArrearsAudit, parseNonNcaArrearsTerms } from "@/lib/product-config/non-nca-arrears"
 
 // Codes the client-facing apply pages hardcode; see PRODUCT_KEY_TO_CODE.
+/** The LoanProduct columns a product version carries; once a product has a version they change only through one. */
+const VERSIONED_PRODUCT_FIELDS = [
+  "minAmount", "maxAmount", "minTermDays", "maxTermDays", "interestRatePm", "interestModel", "initiationFeeModel", "initiationFeePct", "initiationFeeMax", "monthlyServiceFee",
+] as const
+
 const PORTAL_STABLE_PRODUCT_CODES = new Set(["MICRO30", "PERSONAL", "POFUND"])
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -138,6 +143,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           return { kind: "in_flight" as const, inFlight }
         }
       }
+      // A product under the product engine changes through a version a second person approves (lib/product-engine): its
+      // limits, price and fees are no longer edited here. Name, activation and the other fields still are.
+      if (await tx.productVersion.count({ where: { tenantId: tenant.id, productId: id } }) > 0) {
+        const versioned = VERSIONED_PRODUCT_FIELDS.filter((field) => before[field] !== data[field])
+        if (versioned.length > 0) return { kind: "versioned" as const, fields: versioned }
+      }
       const product = await tx.loanProduct.update({
         where: { id, tenantId: tenant.id },
         data,
@@ -189,6 +200,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json(
         { error: `The product cannot move into or out of Asset finance: ${result.reason}. Create a new product instead.` },
         { status: 422 },
+      )
+    }
+    if (result.kind === "versioned") {
+      return NextResponse.json(
+        { error: "This product has versions: its limits, price and fees change by proposing a new version, which a second person approves (Settings, Product versions).", code: "PRODUCT_VERSIONED", fields: result.fields },
+        { status: 409 },
       )
     }
     if (result.kind === "in_flight") {

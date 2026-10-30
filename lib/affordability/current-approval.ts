@@ -1,5 +1,7 @@
 import type { LoanCalcResult } from "@/lib/loan-calculator"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { approvalTermsFor, ruledRateRefusal } from "@/lib/product-engine/approval-terms"
 import { Prisma } from "@prisma/client"
 import {
   lockAffordabilityApplicationEvidence,
@@ -474,19 +476,25 @@ export async function verifyLockedApprovalCandidate(
     return { ok: false, reason: "expense_evidence_invalid" }
   }
 
+  // The same terms decide-application approved on (lib/product-engine/approval-terms.ts): the product's own, or the version
+  // in effect that day with the price its rule gives. A rule's rate above the NCA ceiling is refused, never re-priced.
+  let terms: Awaited<ReturnType<typeof approvalTermsFor>>
   let calculation: LoanCalcResult
   try {
+    terms = await approvalTermsFor(tx, args.tenantId, { id: application.id, productId: application.productId, appliedTermDays: application.appliedTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(args.calculationStartDate))
+    if (await ruledRateRefusal(args.tenantId, terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays })) return { ok: false, reason: "changed" }
     calculation = calculateLoan({
       principal: application.appliedAmount,
       termDays: application.appliedTermDays,
-      interestRatePm: application.product.interestRatePm,
+      interestRatePm: terms.interestRatePm,
       productType: application.product.productType,
-      interestModel: application.product.interestModel,
-      initiationFeeModel: application.product.initiationFeeModel,
-      initiationFeePct: application.product.initiationFeePct,
-      initiationFeeMax: application.product.initiationFeeMax,
-      monthlyServiceFee: application.product.monthlyServiceFee,
+      interestModel: terms.interestModel,
+      initiationFeeModel: terms.initiationFeeModel,
+      initiationFeePct: terms.initiationFeePct,
+      initiationFeeMax: terms.initiationFeeMax,
+      monthlyServiceFee: terms.monthlyServiceFee,
       initiationFeePayment: application.initiationFeePayment,
+      ...(terms.repayment ? { repayment: terms.repayment } : {}),
     }, args.calculationStartDate)
   } catch {
     return { ok: false, reason: "changed" }
@@ -570,15 +578,17 @@ export async function verifyLockedApprovalCandidate(
     principalCents: application.appliedAmount,
     termDays: application.appliedTermDays,
     productId: application.productId,
-    interestRatePm: application.product.interestRatePm,
-    interestModel: application.product.interestModel,
-    initiationFeeModel: application.product.initiationFeeModel,
-    initiationFeePct: application.product.initiationFeePct,
-    initiationFeeMaxCents: application.product.initiationFeeMax,
-    monthlyServiceFeeCents: application.product.monthlyServiceFee,
+    interestRatePm: terms.interestRatePm,
+    interestModel: terms.interestModel,
+    initiationFeeModel: terms.initiationFeeModel,
+    initiationFeePct: terms.initiationFeePct,
+    initiationFeeMaxCents: terms.initiationFeeMax,
+    monthlyServiceFeeCents: terms.monthlyServiceFee,
     productType: application.product.productType,
     initiationFeePayment: application.initiationFeePayment,
     ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+    ...(terms.repayment ? { repayment: terms.repayment } : {}),
+    ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
   }
   const affordability = evaluateAffordabilityGate(inputs)
   if (affordability.blocked) return { ok: false, reason: "affordability_failed" }
@@ -766,6 +776,8 @@ export function verifyCurrentAffordabilityApproval(args: {
       monthlyServiceFeeCents: frozen.monthlyServiceFeeCents,
       initiationFeePayment: frozen.initiationFeePayment,
       ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+      ...(frozen.repayment ? { repayment: frozen.repayment } : {}),
+      ...(frozen.productVersion ? { productVersion: frozen.productVersion } : {}),
     },
     applicationDebts,
     clientDebts,
