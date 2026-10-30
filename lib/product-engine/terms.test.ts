@@ -71,23 +71,48 @@ describe("instalmentsFor and repaymentTermsFor", () => {
 
 describe("the monthly equivalent of an instalment (what affordability compares with monthly income)", () => {
   const start = new Date("2027-02-10T12:00:00+02:00")
-  const run = (terms: { frequency: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY"; graceKind?: "NONE" | "PRINCIPAL_ONLY" | "FULL"; graceInstalments?: number; instalments: number }, interestRatePm = 0.03) =>
-    generateSchedule({ principalCents: 1_000_000, interestRatePm, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 0, startDate: start, terms: { structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, ...terms } }).schedule
+  type T = { frequency: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY"; structure?: "AMORTISING" | "INTEREST_ONLY" | "BULLET"; graceKind?: "NONE" | "PRINCIPAL_ONLY" | "FULL"; graceInstalments?: number; instalments: number }
+  const full = (t: T) => ({ structure: "AMORTISING" as const, graceKind: "NONE" as const, graceInstalments: 0, ...t })
+  const run = (t: T, interestRatePm = 0.03, principalCents = 1_000_000, fee = 0) =>
+    generateSchedule({ principalCents, interestRatePm, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: fee, startDate: start, terms: full(t) }).schedule
 
-  it("weekly x 52 / 12, fortnightly x 26 / 12, monthly as it is", () => {
+  it("weekly x 52 / 12 and fortnightly x 26 / 12 of the second row; monthly is the second row, as the existing monthly loans do", () => {
     const weekly = run({ frequency: "WEEKLY", instalments: 12 })
-    expect(monthlyEquivalentInstalment(weekly, "WEEKLY")).toBe(Math.round((Math.max(...weekly.slice(1).map((r) => r.totalDue)) * 52) / 12))
+    expect(monthlyEquivalentInstalment(weekly, full({ frequency: "WEEKLY", instalments: 12 }))).toBe(Math.round((weekly[1]!.totalDue * 52) / 12))
+    const fortnightly = run({ frequency: "FORTNIGHTLY", instalments: 6 })
+    expect(monthlyEquivalentInstalment(fortnightly, full({ frequency: "FORTNIGHTLY", instalments: 6 }))).toBe(Math.round((fortnightly[1]!.totalDue * 26) / 12))
     const monthly = run({ frequency: "MONTHLY", instalments: 6 })
-    expect(monthlyEquivalentInstalment(monthly, "MONTHLY")).toBe(Math.max(...monthly.slice(1).map((r) => r.totalDue)))
+    expect(monthlyEquivalentInstalment(monthly, full({ frequency: "MONTHLY", instalments: 6 }))).toBe(monthly[1]!.totalDue)
   })
 
-  it("after a grace, the instalment that repays principal: the larger one, not the interest-only ones", () => {
-    const rows = run({ frequency: "MONTHLY", instalments: 6, graceKind: "PRINCIPAL_ONLY", graceInstalments: 2 }, 0.02)
-    expect(monthlyEquivalentInstalment(rows, "MONTHLY")).toBe(262_624)
+  it("a monthly amortising loan gives the instalment the legacy calculator gives: R43 658.55 over 84 months at 5%, R69 fee (228 877 on main)", () => {
+    const rows = run({ frequency: "MONTHLY", instalments: 84 }, 0.05, 4_365_855, 6_900)
+    expect(monthlyEquivalentInstalment(rows, full({ frequency: "MONTHLY", instalments: 84 }))).toBe(228_877)
+  })
+
+  it("after a principal-only grace, the first instalment that repays principal: the larger one, not the interest-only ones", () => {
+    const t: T = { frequency: "MONTHLY", instalments: 6, graceKind: "PRINCIPAL_ONLY", graceInstalments: 2 }
+    expect(monthlyEquivalentInstalment(run(t, 0.02), full(t))).toBe(262_624)
+  })
+
+  it("interest-only is the interest every period, not the principal that closes the last row: 4% a month on R10 000 is R400, weekly scaled by 52 / 12", () => {
+    const monthly: T = { frequency: "MONTHLY", structure: "INTEREST_ONLY", instalments: 12 }
+    expect(monthlyEquivalentInstalment(run(monthly, 0.04), full(monthly))).toBe(40_000)
+    const weekly: T = { frequency: "WEEKLY", structure: "INTEREST_ONLY", instalments: 8 }
+    const rows = run(weekly, 0.04)
+    expect(monthlyEquivalentInstalment(rows, full(weekly))).toBe(Math.round((rows[1]!.totalDue * 52) / 12))
+    expect(rows[1]!.totalDue).toBeLessThan(10_000)
+  })
+
+  it("a bullet is its one payment, not a recurring amount: it is not scaled to a month", () => {
+    const t: T = { frequency: "WEEKLY", structure: "BULLET", instalments: 8 }
+    const rows = run(t, 0.04)
+    expect(rows).toHaveLength(1)
+    expect(monthlyEquivalentInstalment(rows, full(t))).toBe(rows[0]!.totalDue)
   })
 
   it("a single payment is that payment", () => {
-    expect(monthlyEquivalentInstalment([{ totalDue: 1_120_000 } as never], "MONTHLY")).toBe(1_120_000)
+    expect(monthlyEquivalentInstalment([{ totalDue: 1_120_000 }], full({ frequency: "MONTHLY", instalments: 1 }))).toBe(1_120_000)
   })
 })
 

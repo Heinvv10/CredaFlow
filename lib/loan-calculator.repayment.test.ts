@@ -40,7 +40,7 @@ describe("calculateLoan with a repayment structure", () => {
 
   it("the monthly figure affordability reads is the weekly instalment x 52 / 12", () => {
     const r = calculateLoan(base({ repayment: weekly, monthlyServiceFee: 0 }), START)
-    const regular = Math.max(...r.schedule.slice(1).map((x) => x.totalDue))
+    const regular = r.schedule[1]!.totalDue
     expect(r.monthlyInstalment).toBe(Math.round((regular * 52) / 12))
     expect(r.monthlyInstalment).toBeGreaterThan(regular)
   })
@@ -73,5 +73,21 @@ describe("calculateLoan with a repayment structure", () => {
     expect(r.schedule).toHaveLength(1)
     expect(r.totalInterest).toBe(15_000)
     expect(r.serviceFees).toBe(6_900)
+  })
+})
+
+describe("the figure affordability reads for structures that are not an annuity (PR #266 review)", () => {
+  const plain = { principal: 1_000_000, termDays: 56, interestRatePm: 0.04, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 0, productType: "PERSONAL", initiationFeePayment: "UPFRONT" as const }
+  const terms = (t: Partial<RepaymentTerms> & { instalments: number }): RepaymentTerms => ({ frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, ...t })
+
+  it("a weekly bullet is the one payment (R10 738), not that payment x 52 / 12", () => {
+    const r = calculateLoan({ ...plain, repayment: terms({ frequency: "WEEKLY", structure: "BULLET", instalments: 8 }) }, START)
+    expect(r.schedule).toHaveLength(1)
+    expect(r.monthlyInstalment).toBe(r.schedule[0]!.totalDue)
+  })
+
+  it("a monthly interest-only loan is its interest, R400 on R10 000 at 4%, not the balloon R10 400", () => {
+    const r = calculateLoan({ ...plain, termDays: 360, repayment: terms({ structure: "INTEREST_ONLY", instalments: 12 }) }, START)
+    expect(r.monthlyInstalment).toBe(40_000)
   })
 })
