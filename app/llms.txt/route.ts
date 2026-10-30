@@ -36,8 +36,7 @@ ${identity.fspNumber ? `- Insurance: ${base}/site/products/insurance\n` : ""}- L
 
 - Brand: ${identity.tradingName}
 - Legal name: ${identity.legalName}
-- NCR registration: ${identity.ncrNumber}
-${identity.fspNumber ? `- FSP number: ${identity.fspNumber}\n` : ""}- Country: South Africa
+${identity.ncrNumber ? `- NCR registration: ${identity.ncrNumber}\n` : ""}${identity.fspNumber ? `- FSP number: ${identity.fspNumber}\n` : ""}- Country: South Africa
 ${identity.headOfficeCity ? `- Head office: ${identity.headOfficeCity}\n` : ""}${products.length > 0 ? `- Credit products: ${products.map((p) => p.label).join(", ")}\n` : ""}- Contact: ${identity.publicEmail}
 `
 

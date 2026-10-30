@@ -3,7 +3,7 @@ import { arrearsWithCharges } from "@/lib/loan/charge-labels"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { CASH_RECEIPTS } from "@/lib/payments/waiver"
 import { BOOK_DEFINITIONS, getBookArrears, overdueWhere } from "@/lib/reports/book-arrears"
-import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
+import { activeCurrencySymbol, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { auth } from "@/lib/auth"
 import { requireLoanBookPage } from "@/lib/auth-guards"
 import { getStaffTenantId } from "@/lib/session-tenant"
@@ -126,8 +126,8 @@ async function getDashboardData(tenantId: string) {
 
 function fmt(cents: number) {
   const v = cents / 100
-  if (v >= 1_000_000) return `R ${(v / 1_000_000).toFixed(2)}m`
-  if (v >= 1_000) return `R ${(v / 1_000).toFixed(0)}k`
+  if (v >= 1_000_000) return `${activeCurrencySymbol()} ${(v / 1_000_000).toFixed(2)}m`
+  if (v >= 1_000) return `${activeCurrencySymbol()} ${(v / 1_000).toFixed(0)}k`
   return formatZAR(cents)
 }
 

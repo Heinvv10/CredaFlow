@@ -32,7 +32,7 @@ export function homeFaqs(
   return [
     // The answer claims FSP authorisation, so it is asked only when the lender
     // holds an FSP number (a no-FSP variant would need every catalogue re-reviewed).
-    ...(identity.fspNumber ? [{
+    ...(identity.fspNumber && identity.ncrNumber ? [{
       question: t("faqWhatQ", { brand }),
       answer: t("faqWhatA", { brand, legalName: identity.legalName, ncr: identity.ncrNumber, fsp: identity.fspNumber }),
     }] : []),

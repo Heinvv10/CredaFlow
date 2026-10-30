@@ -5,16 +5,11 @@ name: ci
 # agent-doc and date checks into quality avoids two runner startups and two
 # duplicate npm installs on every revision.
 #
-# Self-hosted runners. The heavy jobs (checks, unit, quality, integration
-# shards) run on the two velo runners (user gha-credaflow: no sudo, no docker).
-# They execute whatever the PR's workflow and package scripts say, so they must
-# never run code from a fork. This repo is private and fork-PR workflows are
-# disabled (run_workflows_from_fork_pull_requests=false): that setting is the
-# real control. Every self-hosted job also starts with a step that fails unless
-# the PR head repo is this repo (fails closed if the fork was deleted); it is a
-# backstop only.
-# The runners have poppler-utils and qpdf preinstalled; the steps below check
-# for them rather than apt-installing.
+# GitHub-hosted runners, pinned to ubuntu-24.04: ubuntu-latest is 26.04, which has
+# no postgresql-16, and a floating label would move the poppler and qpdf versions
+# the PDF tests run against. PostgreSQL 16 (scripts/ci/pg-cluster.sh, PG_BIN
+# default /usr/lib/postgresql/16/bin), poppler-utils and qpdf come from the image
+# or apt.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
@@ -55,7 +50,7 @@ jobs:
     # emits ready_for_review and runs the complete gate. Scheduled runs need
     # only the real-DB integration job below.
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: ubuntu-24.04
     # Unit + build took 29.5 min on 2026-10-21 (run 39611551763), and 30
     # cancelled the next run (39633530189) with no failure.
     timeout-minutes: 45
@@ -65,13 +60,6 @@ jobs:
       PUPPETEER_SKIP_DOWNLOAD: 1
 
     steps:
-      # Fail closed if a fork PR ever reaches this runner (see the header).
-      - name: Refuse fork pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
-        run: |
-          echo "::error::fork pull requests must not run on the self-hosted runner"
-          exit 1
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -104,8 +92,15 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      - name: Runner memory
+        run: free -m
+
+      # Type-aware rules (eslint.config.mjs) build a TypeScript program: about
+      # 6 GB resident, past Node's default heap.
       - name: Lint
         run: npm run lint
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
       # These checks take seconds once dependencies are installed. They used
       # to pay for two separate runners and npm installs.
@@ -154,7 +149,7 @@ jobs:
   unit:
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       # Report every shard's failures, as the single run did.
@@ -167,13 +162,6 @@ jobs:
       PUPPETEER_SKIP_DOWNLOAD: 1
 
     steps:
-      # Fail closed if a fork PR ever reaches this runner (see the header).
-      - name: Refuse fork pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
-        run: |
-          echo "::error::fork pull requests must not run on the self-hosted runner"
-          exit 1
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -189,13 +177,9 @@ jobs:
       - name: Generate registries
         run: npm run gen:registries
 
-      # The unit suites shell out to pdftoppm/pdfinfo and qpdf. The runner user
-      # has no sudo, so these must be installed on the host.
-      - name: Require PDF tools
-        run: |
-          for t in pdftoppm pdfinfo qpdf; do
-            command -v "$t" > /dev/null || { echo "::error::$t missing on this runner (apt install poppler-utils qpdf on the host)"; exit 1; }
-          done
+      # The unit suites shell out to pdftoppm/pdfinfo and qpdf.
+      - name: Install PDF tools
+        run: sudo apt-get -o DPkg::Lock::Timeout=300 update -qq && sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq poppler-utils qpdf
 
       - name: Unit tests
         run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }} --maxWorkers=2
@@ -207,16 +191,9 @@ jobs:
   quality:
     needs: [checks, unit]
     if: always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      # Fail closed if a fork PR ever reaches this runner (see the header).
-      - name: Refuse fork pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
-        run: |
-          echo "::error::fork pull requests must not run on the self-hosted runner"
-          exit 1
-
       - name: Checks and every unit shard succeeded
         env:
           CHECKS: ${{ needs.checks.result }}
@@ -229,7 +206,7 @@ jobs:
     # Main is tested as a candidate merge by the PR event and again nightly.
     # Avoid paying for the same integration suite immediately after each merge.
     if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: ubuntu-24.04
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
     # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
     # (440 gated) it was still running, with no failure, when 45 cancelled it
@@ -250,24 +227,31 @@ jobs:
       IT_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
 
     steps:
-      # Fail closed if a fork PR ever reaches this runner (see the header).
-      - name: Refuse fork pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
-        run: |
-          echo "::error::fork pull requests must not run on the self-hosted runner"
-          exit 1
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The baseline ratchet needs the merge base with the target branch.
           fetch-depth: 0
 
-      # A throwaway PostgreSQL 16 cluster of this job's own (the runner has no
-      # docker): own directory, OS-assigned loopback port, never shared with the
+      # A throwaway PostgreSQL 16 cluster of this job's own, (apt-installed, no
+      # docker service): own directory, OS-assigned loopback port, never shared with the
       # other shard on this machine. These suites create and delete real rows.
       # scripts/ci/pg-cluster.sh exports DATABASE_URL and CI_PG_DIR.
+      # pdftotext (poppler-utils) and qpdf, as on the old hosts. The server comes
+      # from the image when it ships PostgreSQL 16 at PG_BIN, else from apt.
+      - name: Install PostgreSQL 16 and PDF tools
+        run: |
+          pkgs="poppler-utils qpdf"
+          [ -x /usr/lib/postgresql/16/bin/initdb ] || pkgs="$pkgs postgresql-16"
+          # shellcheck disable=SC2086
+          sudo apt-get -o DPkg::Lock::Timeout=300 update -qq && sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq $pkgs
+
       - name: Start PostgreSQL
         run: bash scripts/ci/pg-cluster.sh start
+
+      # Log the semantics the suites rely on: C collation, UTC, superuser.
+      - name: Show database settings
+        run: |
+          /usr/lib/postgresql/16/bin/psql "$DATABASE_URL" -Atc "SELECT datcollate, current_setting('TimeZone'), (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) FROM pg_database WHERE datname = current_database();"
 
       # The integration baseline is a debt register and may only shrink.
       # Once per run: the check reads only git, so shard 1 carries it.
@@ -322,10 +306,6 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      # No sudo on the runner user: pdftotext must be installed on the host.
-      - name: Require pdftotext
-        run: command -v pdftotext > /dev/null || { echo "::error::pdftotext missing on this runner (apt install poppler-utils on the host)"; exit 1; }
-
       - name: Integration gate
         run: bash scripts/run-integration-tests.sh
 
@@ -339,20 +319,12 @@ jobs:
   # job and let the PR through. Drafts and the conditions on the shards
   # still skip it, exactly as they skip the shards.
   integration:
-    # Seconds of work and no checkout. Self-hosted while GitHub-hosted runners
-    # are unavailable (account payment failure); it is a required check.
+    # Seconds of work and no checkout; it is a required check.
     needs: integration-shard
     if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      # Fail closed if a fork PR ever reaches this runner (see the header).
-      - name: Refuse fork pull requests
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
-        run: |
-          echo "::error::fork pull requests must not run on the self-hosted runner"
-          exit 1
-
       - name: Every shard passed
         env:
           RESULT: ${{ needs.integration-shard.result }}

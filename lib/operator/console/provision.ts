@@ -13,6 +13,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { parseTenantConfig } from "@/scripts/lender/tenant-config"
+import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 import { bootstrapTenant, TenantBootstrapRefusal } from "@/scripts/lender/bootstrap-tenant"
 import type { OperatorPrincipal } from "../console-auth"
 import { emailInUse, INVITE_LINK_HOURS, issueAccountToken, lenderPasswordUrl, sendAccountLink, UNUSABLE_EMAIL, unusablePasswordHash } from "./account-links"
@@ -33,6 +34,8 @@ export async function provisionLender(principal: OperatorPrincipal, body: unknow
   // Tenant.domain is stored normalised (lib/config/tenant-domain.ts).
   const domain = normaliseTenantDomain(file.domain)
   if (domain.ok) file.domain = domain.domain
+  // Validate under the instance's jurisdiction (a Lesotho lender's phones and registration differ).
+  await ensureActiveJurisdiction()
   const parsed = parseTenantConfig(file)
   const adminParsed = adminSchema.safeParse(
     admin && typeof admin === "object" ? { ...admin, email: String((admin as { email?: unknown }).email ?? "").trim().toLowerCase() } : admin,

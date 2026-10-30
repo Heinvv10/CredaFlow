@@ -25,9 +25,10 @@ import { calculateLoan } from "../lib/loan-calculator"
 import { seedDefaultMessageTemplates } from "../lib/messaging/default-templates"
 import { provisionContactForClient } from "../lib/contact/provision"
 import { generateTotpSecret, generateTotpUri } from "../lib/totp"
-import { demoLender } from "./demo-lender"
+import { demoLender, lenderJurisdiction } from "./demo-lender"
 import { catalogueHash } from "../lib/i18n/catalogue-hash"
 import { seedEnvPassword } from "./seed/env-password"
+import { CLIENTS_LS } from "./seed/lesotho-clients"
 
 // Demo data with known passwords must never reach a production database.
 // Checked before any client exists; ./seed-document-templates is imported
@@ -49,6 +50,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS)
 
 const LENDER = demoLender()
+const { jurisdiction: JURISDICTION, currency: CURRENCY } = lenderJurisdiction(LENDER)
 const BRAND = LENDER.identity.brandName
 const STAFF_DOMAIN = LENDER.staffDomain
 // Demo passwords are never in source. SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD,
@@ -118,6 +120,21 @@ const PRODUCTS = [
 async function main() {
   console.log(`Seeding ${BRAND} demo data...`)
 
+  // The instance's jurisdiction (InstanceJurisdiction) comes first: every lender must equal it.
+  // A seed sets it only on an instance with no other lender. Otherwise it refuses a lender of
+  // another jurisdiction itself: the database would give the new config the instance's values
+  // (a TenantConfig insert takes them), silently turning the demo lender into someone else's.
+  const others = await prisma.tenant.count({ where: { slug: { not: LENDER.slug } } })
+  // Imported here, not at the top: these reach lib/prisma (see seed-document-templates below).
+  if (others === 0) {
+    const { setInstanceJurisdiction } = await import("../lib/jurisdiction/instance-write")
+    const set = await setInstanceJurisdiction(prisma, { jurisdiction: JURISDICTION, currency: CURRENCY, actor: "demo-seed", reason: `Demo lender ${LENDER.slug}` })
+    if (!set.ok) throw new Error(`Seed refused: ${set.error}`)
+  } else {
+    const { instanceJurisdictionConflict } = await import("../lib/jurisdiction/instance.server")
+    const conflict = await instanceJurisdictionConflict(prisma, { jurisdiction: JURISDICTION, currency: CURRENCY })
+    if (conflict) throw new Error(`Seed refused: ${conflict.message}`)
+  }
   const tenant = await prisma.tenant.upsert({
     where: { slug: LENDER.slug },
     update: {},
@@ -129,7 +146,10 @@ async function main() {
     featureLms: true,
     featurePortal: true,
     featureReports: true,
-    featureAssetFinance: true,
+    // Asset finance is an NCA product (regimes, s127, recovery): South African lenders only.
+    featureAssetFinance: JURISDICTION === "ZA",
+    jurisdiction: JURISDICTION,
+    currency: CURRENCY,
     requireSegregationOfDuties: LENDER.requireSegregationOfDuties,
     // This seed only ever creates a synthetic demo lender. The marker lets a
     // DEMO_MODE stack simulate a Section 129 email to its undeliverable
@@ -184,7 +204,7 @@ async function main() {
   const portalHash = await bcrypt.hash(portalPassword, 12)
   let portalPasswordUsed = false
   const clients: { id: string; income: number; expenses: number }[] = []
-  for (const [i, c] of CLIENTS.entries()) {
+  for (const [i, c] of (JURISDICTION === "LS" ? CLIENTS_LS : CLIENTS).entries()) {
     const email = `${c.firstName}.${c.lastName}@${LENDER.clientDomain}`.toLowerCase()
     const row = await prisma.client.upsert({
       // idNumber is the stable identifier across seed revisions. It is unique
@@ -243,10 +263,12 @@ async function main() {
 
   await seedLoan(tenant.id, clients[3].id, products.PERSONAL.id)
 
-  // Imported here, not at the top: it imports lib/prisma (see seed-document-templates above).
-  const { seedAssetFinance } = await import("./seed/asset-finance")
-  const actor = (s: { user: { id: string; email: string } }) => ({ id: s.user.id, email: s.user.email })
-  await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
+  if (JURISDICTION === "ZA") {
+    // Imported here, not at the top: it imports lib/prisma (see seed-document-templates above).
+    const { seedAssetFinance } = await import("./seed/asset-finance")
+    const actor = (s: { user: { id: string; email: string } }) => ({ id: s.user.id, email: s.user.email })
+    await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
+  }
 
   console.log(`\nSeed complete: tenant "${LENDER.slug}" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {

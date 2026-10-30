@@ -13,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
     identity,
     title: identity?.fspNumber ? "Regulatory Information — NCR & FSCA Details" : "Regulatory Information — NCR Details",
     description: identity
-      ? `${identity.legalName} regulatory information. NCR registration ${identity.ncrNumber}, ` +
+      ? `${identity.legalName} regulatory information. ${identity.ncrNumber ? `NCR registration ${identity.ncrNumber}, ` : ""}` +
         (identity.fspNumber ? `FSP number ${identity.fspNumber}, ` : "") +
         `company registration ${identity.companyRegNumber} and public contact details.`
       : "",

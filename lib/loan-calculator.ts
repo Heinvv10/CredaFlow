@@ -1,4 +1,5 @@
 import { capInitiationFee, ncaInitiationFeeCap } from "./loan/nca-fee-cap"
+import { isNcaJurisdiction } from "./jurisdiction/active"
 
 // All amounts in CENTS (integers)
 
@@ -102,7 +103,7 @@ export function calculateLoan(
   // principal. It is still passed through capInitiationFee: that is what applies
   // the PO_FUNDING exemption, and it keeps one ceiling for every path.
   let initiationFee =
-    initiationFeeModel === "NCA_REG42"
+    initiationFeeModel === "NCA_REG42" && isNcaJurisdiction()
       ? ncaInitiationFeeCap(principal)
       : Math.round(principal * initiationFeePct)
   if (initiationFeeMax > 0) initiationFee = Math.min(initiationFee, initiationFeeMax)

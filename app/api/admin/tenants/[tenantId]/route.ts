@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { activationConflict, instanceJurisdictionMessage, isInstanceJurisdictionError } from "@/lib/jurisdiction/instance.server"
 import { revalidateTag } from "next/cache"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
@@ -132,6 +133,11 @@ export async function PATCH(
     tenantUpdate.domain = parsed.domain
   }
   if (status !== undefined) tenantUpdate.status = status
+  // One jurisdiction per instance: a lender cannot become ACTIVE beside ones that differ.
+  if (status === "ACTIVE") {
+    const conflict = await activationConflict(prisma, tenantId)
+    if (conflict) return NextResponse.json({ error: conflict.message }, { status: 409 })
+  }
 
   const configUpdate: Record<string, unknown> = {}
   if (primaryColor !== undefined) configUpdate.primaryColor = primaryColor
@@ -208,8 +214,14 @@ export async function PATCH(
     }),
   }
   if (bureauKeys.length === 0 && colourKeys.length === 0 && credentialKeys.length === 0 && !languagesRequested) {
-    const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
-    return NextResponse.json(redactTenantCredentials(updated))
+    try {
+      const updated = await prisma.tenant.update({ where: { id: tenantId }, data: tenantData, include: { config: true } })
+      return NextResponse.json(redactTenantCredentials(updated))
+    } catch (e) {
+      // The trigger backs the pre-check above against a concurrent activation.
+      if (isInstanceJurisdictionError(e)) return NextResponse.json({ error: instanceJurisdictionMessage(e) }, { status: 409 })
+      throw e
+    }
   }
 
   // The change and its audit rows commit together, or neither does.
@@ -277,8 +289,12 @@ export async function PATCH(
   }).catch((e: unknown) => {
     // Thrown before anything is written, so the transaction rolls back clean.
     if (e instanceof TenantColoursInvalid || e instanceof LanguagesInvalid) return e
+    if (isInstanceJurisdictionError(e)) return e
     throw e
   })
+  if (updated instanceof Error && isInstanceJurisdictionError(updated)) {
+    return NextResponse.json({ error: instanceJurisdictionMessage(updated) }, { status: 409 })
+  }
   if (updated instanceof LanguagesInvalid) {
     return NextResponse.json({ error: updated.message }, { status: 400 })
   }

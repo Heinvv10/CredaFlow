@@ -12,6 +12,7 @@
 // disclosure (wording/commission-disclosure.ts) has a "dealer" and a "broker" shape, so that
 // paragraph is fingerprinted; the other shapes are dealer-less.
 import type { LenderIdentity } from "@/lib/config/identity"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { createCreditLifeNoOfferDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
 import { leaseScheduleView } from "../../lease-view"
@@ -85,7 +86,7 @@ function ncaBase(lender: PreviewLender, contractType: "INSTALMENT_SALE" | "FINAN
   const c = evidence.calculator
   return {
     legalWordingApproved: false, reference: "PREVIEW-NCA-0001", documentDate: new Date("2026-12-31T08:00:00.000Z"), contractType,
-    lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
+    lender: { legalName: lender.legalName, ncrNumber: requireNcrNumber(lender), registeredOfficeLines: lender.registeredOfficeLines },
     borrower: { name: "SAMPLE Consumer (synthetic)", identityNumber: "0000000000000", addressLines: ["1 Sample Street", "Sampletown", "0000"] },
     asset: { description: "2026 SAMPLE Loader (synthetic)", serialNumber: "SAMPLESERIAL0001" },
     pricing: {

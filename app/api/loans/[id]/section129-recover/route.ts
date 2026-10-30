@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { recoverStaleSection129Issuance } from "@/lib/collections/section129-artifact"
@@ -13,6 +14,8 @@ type RouteCtx = { params: Promise<{ id: string }> }
 export async function POST(req: NextRequest, { params }: RouteCtx) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("Section 129 notices")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     const { id: loanId } = await params

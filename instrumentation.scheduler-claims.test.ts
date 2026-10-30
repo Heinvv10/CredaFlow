@@ -10,6 +10,11 @@ import { cronOccurrences } from "@/lib/ops/cron-run-claim"
  */
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
+const ensureActiveJurisdiction = vi.hoisted(() => vi.fn(async () => ({ jurisdiction: "ZA", currency: "ZAR" })))
+vi.mock("@/lib/jurisdiction/load.server", () => ({
+  bootActiveJurisdiction: vi.fn(async () => ({ jurisdiction: "ZA", currency: "ZAR" })),
+  ensureActiveJurisdiction,
+}))
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
 
 type Call = { status: number; body: unknown; failedTenants: number | null }
@@ -65,6 +70,15 @@ describe("the scheduler's single-run claims", () => {
 
   // The public origin goes through a TLS proxy (nginx 60 s, Cloudflare 100 s): a 504 would mark a run
   // that is still going FAILED. The call goes to this server on loopback with the public Host header.
+  it("learns the lender's jurisdiction before it calls any route (a cron has no request to have loaded it)", async () => {
+    ensureActiveJurisdiction.mockClear()
+    const order: string[] = []
+    ensureActiveJurisdiction.mockImplementationOnce(async () => { order.push("jurisdiction"); return { jurisdiction: "ZA", currency: "ZAR" } })
+    callCronRoute.mockImplementationOnce(async () => { order.push("route"); return { status: 200, body: null, failedTenants: 0 } })
+    await fire(occurrences[0].job.route, occurrences[0].attempt)
+    expect(order.slice(0, 2)).toEqual(["jurisdiction", "route"])
+  })
+
   it("calls the route on loopback, with the public host as Host, not through the public origin", async () => {
     await fire("reminders")
     expect(callCronRoute).toHaveBeenCalledWith("http://127.0.0.1:3300/api/cron/reminders", "GET", "test-secret", { host: "staff.cron.test" })

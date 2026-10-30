@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { deleteFile, readFile, saveFile } from "@/lib/storage"
@@ -87,7 +88,7 @@ export async function issueAssetNcaQuote(
   }
   const bytes = await renderNcaAssetQuote({
     legalWordingApproved: approved, reference: deal.application.reference, documentDate: generatedAt, contractType: deal.contractType,
-    lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
+    lender: { legalName: lender.legalName, ncrNumber: requireNcrNumber(lender), registeredOfficeLines: lender.registeredOfficeLines },
     borrower: deal.client ? {
       name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber,
       addressLines: [deal.client.addressLine1, deal.client.city, deal.client.province, deal.client.postalCode].filter((v): v is string => !!v),
