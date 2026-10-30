@@ -19,6 +19,21 @@ describe("secret-box", () => {
     const bad = [...parts.slice(0, -1), Buffer.from("garbage").toString("base64")].join(":")
     expect(() => openSecret(bad, key)).toThrow(SecretBoxError)
   })
+  // GCM verifies a tag of any length Node accepts (4, 8, 12-16 bytes) against the same
+  // prefix, so a shortened copy of the genuine tag opens the value unless the length is pinned.
+  it.each([4, 8, 12, 15])("rejects the genuine tag cut to %i bytes", (length) => {
+    const [prefix, version, iv, tag, ct] = sealSecret("x", key).split(":")
+    const cut = Buffer.from(tag, "base64").subarray(0, length).toString("base64")
+    expect(() => openSecret([prefix, version, iv, cut, ct].join(":"), key)).toThrow(SecretBoxError)
+  })
+  it("rejects a tag longer than 16 bytes", () => {
+    const [prefix, version, iv, tag, ct] = sealSecret("x", key).split(":")
+    const long = Buffer.concat([Buffer.from(tag, "base64"), Buffer.from("extra")]).toString("base64")
+    expect(() => openSecret([prefix, version, iv, long, ct].join(":"), key)).toThrow(SecretBoxError)
+  })
+  it("still opens a value with the genuine 16-byte tag", () => {
+    expect(openSecret(sealSecret("EAAB-token", key), key)).toBe("EAAB-token")
+  })
   it("rejects a wrong key", () => {
     const other = randomBytes(32).toString("base64")
     expect(() => openSecret(sealSecret("x", key), other)).toThrow(SecretBoxError)

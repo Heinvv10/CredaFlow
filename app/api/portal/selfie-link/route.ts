@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if ((session.user.role as string) !== "CLIENT") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  const gate = checkRateLimit(`portal-selfie-handoff:${session.user.id}`, HANDOFF_RATE_LIMIT)
+  const gate = await checkRateLimit(`portal-selfie-handoff:${session.user.id}`, HANDOFF_RATE_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

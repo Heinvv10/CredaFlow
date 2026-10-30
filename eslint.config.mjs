@@ -20,6 +20,20 @@ const eslintConfig = defineConfig([
     ".claude/**",
     ".codegraph/**",
   ]),
+  // Type-aware: a promise that is dropped or read as its result is a bug the type checker misses when the result
+  // is only tested for truth. Introduced with the async rate limiter (lib/rate-limit.ts), where a missed `await`
+  // turned a login limit into `Promise.allowed` (undefined, i.e. refuse or allow by accident).
+  {
+    files: ["app/api/**/*.ts", "app/**/route.ts", "lib/**/*.ts", "proxy.ts"],
+    ignores: ["**/*.test.{ts,tsx}", "**/*.integration.test.ts", "**/*.test-helpers.ts", "**/*-fixture.ts"],
+    languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      // Conditionals (`if (promise)`) are the risk here; passing async handlers to callbacks and JSX attributes is
+      // idiomatic and has too many existing sites to gate in this change.
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: false }],
+    },
+  },
   {
     rules: {
       "@typescript-eslint/no-unused-vars": ["warn", {

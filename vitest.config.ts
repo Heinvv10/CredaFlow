@@ -12,7 +12,7 @@ export default defineConfig({
     // missing `timeZone: SAST_TIME_ZONE` actually fails.
     // DEMO_LENDER unset, whatever the shell exports: the demo suites pin the
     // default lender (prisma/demo-lender.ts).
-    env: { TZ: "UTC", DEMO_LENDER: "" },
+    env: { TZ: "UTC", DEMO_LENDER: "", RATE_LIMIT_STORE: "memory" },
     // Resets BULKSMS_DRY_RUN="false" before each test (the SMS channel is off
     // unless explicitly enabled; see vitest.setup.ts).
     setupFiles: ["./vitest.setup.ts"],

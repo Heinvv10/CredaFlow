@@ -89,7 +89,7 @@ export async function authorizeSso(input: {
   let totpVerified = false
   if (enrolled) {
     const hasCode = typeof input.code === "string" && input.code.trim() !== ""
-    if (hasCode && !checkRateLimit(`sso:code:${user.id}`, CODE_ATTEMPTS).allowed) {
+    if (hasCode && !(await checkRateLimit(`sso:code:${user.id}`, CODE_ATTEMPTS)).allowed) {
       await input.recordFailure("rate_limited", user.email)
       return { ok: false, error: "rate_limited" }
     }

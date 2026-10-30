@@ -34,7 +34,7 @@ export function useLivePricing(): { pricing: LivePricingByCode; loading: boolean
 
   useEffect(() => {
     let cancelled = false
-    fetchLivePricing()
+    void fetchLivePricing()
       .then((next) => {
         if (!cancelled) setPricing(next)
       })

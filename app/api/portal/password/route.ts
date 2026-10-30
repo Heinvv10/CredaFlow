@@ -7,6 +7,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { keepClientSessionAfterPasswordChange } from "@/lib/client-session-cookie"
 import { passwordPolicyError } from "@/lib/security/password-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 const PASSWORD_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 
@@ -30,8 +31,8 @@ export async function POST(req: NextRequest) {
   // brute-forcing the current password even when many clients share an egress
   // IP (e.g. behind the Docker/NGINX gateway, where per-IP collapses).
   const ip = callerIp(req)
-  const ipGate = checkRateLimit(`portal-password-ip:${ip}`, PASSWORD_RATE_LIMIT)
-  const acctGate = checkRateLimit(`portal-password-acct:${session.user.email.toLowerCase()}`, PASSWORD_RATE_LIMIT)
+  const ipGate = await checkRateLimit(`portal-password-ip:${limiterAddress(ip)}`, PASSWORD_RATE_LIMIT)
+  const acctGate = await checkRateLimit(`portal-password-acct:${session.user.email.toLowerCase()}`, PASSWORD_RATE_LIMIT)
   if (!ipGate.allowed || !acctGate.allowed) {
     const retryAfter = Math.max(ipGate.retryAfterSeconds ?? 0, acctGate.retryAfterSeconds ?? 0)
     return NextResponse.json(

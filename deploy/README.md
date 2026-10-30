@@ -151,13 +151,82 @@ Too low: the proxy's own address is used (everyone shares a bucket). Too high: t
 sending its own `X-Forwarded-For`. The pods must not be reachable except through the proxies; the default
 NetworkPolicy enforces that for the web pods.
 
-### Rate limits are per pod
+### Rate limits are shared across pods
 
-`lib/rate-limit.ts` keeps its counters in memory ("single-replica deployments only" in its header). With N web
-replicas the effective limit on a login, OTP or API key is up to N times the configured one, and a restart resets it.
-That is a known limit of this release, not a feature of the chart; a Postgres-backed limiter is a separate work item.
-Until then, enforce an edge limit at the ingress for the login and portal OTP paths
-(`nginx.ingress.kubernetes.io/limit-rps`).
+**Apply the migration before the code.** `RateLimitHit` and `RateLimitSealedGroup` must exist before pods that use them run: with the tables
+missing every shared-store call errors, and the authentication limits fail closed (every sign-in refused) until the breaker
+clears. The chart's pre-upgrade migration Job does this in order; a manual rollout must run `prisma migrate deploy` first.
+
+`lib/rate-limit.ts` keeps each limit's window in Postgres (table `RateLimitHit`, one row per limited key), so a
+limit on a login, OTP or API key holds across every web replica and survives a restart. One atomic
+`INSERT ... ON CONFLICT DO UPDATE` per check, stamped with the database clock, so replicas with skewed clocks agree;
+a refused attempt writes nothing. Keys are stored as a SHA-256 hash (they name emails and addresses). Expired rows
+are purged every 10 minutes by `/api/cron/rate-limit-cleanup`. The table is deliberately not tenant-scoped: a limit
+key already carries the scope it needs (an address, an account, a key id) and the check runs before a tenant is known.
+
+`RATE_LIMIT_STORE` chooses the store:
+
+| Value | Behaviour |
+|---|---|
+| unset | `postgres` when `DATABASE_URL` is set, otherwise `memory`. The safe default for a replicated deployment. |
+| `postgres` | Shared, as above. |
+| `memory` | Per pod (and reset on restart): up to N times the configured limit with N replicas. For tests, local development and a database-less run only. |
+
+Any other value stops the boot (`instrumentation.ts`).
+
+**Failure mode.** The store has its own connection pools, not the application's, and two of them: one of 5 connections for
+the authentication limits and one of 3 for every other limit, so a flood on the ordinary limits cannot take the
+connections sign-in needs. A connection is waited for 1 s (`pool_timeout`, unless `DATABASE_URL` sets it). The server
+gives up on a wait for a locked row after 0.8 s and on any statement after 1 s (`-c lock_timeout=800 -c
+statement_timeout=1000`, sent as the connection's `options`; behind PgBouncer add `ignore_startup_parameters = options`),
+both under the limiter's own 1.5 s timeout. A busy application, or a transaction that calls a limiter, cannot starve it.
+
+- **Authentication limits** (sign-in, second-factor codes in settings and at sign-in, SSO start and code, OAuth token
+  client and failed-auth, forgot/reset password, portal password and registration, signing OTP) are decided by the
+  store or **refused (429, `Retry-After` 30)**: never by the in-memory fallback, which would give every pod a fresh
+  budget exactly when the database struggles. That holds for any problem with the call: a database error, a timeout, a
+  lock wait, or the authentication pool being full. Three database errors in a row open a breaker that refuses the whole
+  group for 30 s. **Accepted trade-off: security over availability for authentication.** A sustained sign-in flood that
+  fills the authentication pool, or a database outage, can make sign-ins refuse; ordinary traffic cannot, because it
+  has its own pool.
+- **One store call in flight per key, per pod.** Callers for the same key run one after the other (each still makes its own
+  call, so every hit is counted); a caller that has waited out the 1.5 s limiter timeout is refused (authentication) or
+  decided in memory (other) and skips its turn instead of running late. A hot or stalled key therefore holds at most one
+  connection of the pool per pod, so contention on one key cannot saturate the pool that sign-in needs.
+- **Every other limit**, on any problem with the call (error, timeout, lock wait, full pool), is decided by the in-memory
+  limiter (per pod, up to N times looser, never absent). The breaker for a group of these opens after the same 3 errors
+  in a row and also falls back to memory. A timeout or a full pool never counts towards the breaker. One line is logged
+  per outage.
+- Single-key site-wide counters (`website:chat:start:all` and the unattributed-address failed-auth counters of the lender
+  API and OAuth token endpoint) stay per pod on purpose: in the shared store every caller would queue on one row
+  lock. The per-address and per-identity limits beside them are the ones that hold across pods.
+- Cost: one database round trip per rate-limited call. The unattributed ApiRequestLog sample stays per pod too.
+
+**Keys and table care.** An IPv4 address is a key as it is; an IPv6 address is keyed by its /64 (one subscriber holds a
+whole /64, and keying the full address would give an attacker a fresh budget and a fresh row per address;
+`lib/limiter-address.ts`). Audit and login records keep the full address. Every hit rewrites its row (and moves
+`expiresAt` in an index, so no update is HOT): `RateLimitHit` is pure churn. The migration sets aggressive per-table
+autovacuum (`autovacuum_vacuum_scale_factor = 0.01`); on a busy lender watch `pg_stat_user_tables.n_dead_tup` for it.
+The cleanup job treats two kinds of group differently. **Ordinary groups** are bounded at 200 000 rows by deleting the
+least recently used rows that are not lockouts (a lockout is a key whose hits have reached its limit with its window
+open); above 5 times that it deletes the rows expiring soonest even if they are lockouts, with an `ALERT` log per group.
+**Authentication groups are never evicted** (sign-in and the other authentication limits, and `portal:apply:`, the paid bureau pulls behind a portal application, which is authentication-grade: never evicted, fail-closed): every row in one with a hit inside its window is an active counter or a
+lockout, and deleting it would lift it. Keys the caller chooses (an email typed into a form: `login:email:`,
+`login:combined:`, `forgot:acct:`, `reset-otp:acct:`, `register:identity:`) are groups of their own, apart from the address
+keys (`login:ip:`, `forgot:ip:`, ...), so a flood of one kind cannot crowd or seal the other. Ordinary limits are grouped by feature (`website:`, `portal:`, `statement-ai-ask:`, `dealer-capture:`, ...), and the two whose keys a caller chooses (selfie-link tokens, chat phone numbers) are groups of their own, so a flood of made-up tokens is capped in its own group and cannot evict another feature's counters. Routes charge the address bucket first and stop on refusal, so an address already over its limit writes no row for a key it made up. Only the keys the caller chooses are ever sealed, per
+kind (`login:email:`, `login:combined:`, `forgot:acct:`, `reset-otp:acct:`, `register:identity:`); the address-gate groups
+are never sealed, so a flood of made-up emails cannot stop the per-address gate from creating its rows. A group that
+reaches 1 000 000 rows (`RATE_LIMIT_SEAL_CEILING` to change it) is **sealed** (`RateLimitSealedGroup`): a call whose key has no
+row is refused (`Retry-After` 300) unless its address has budget for creating a key: **6 new keys per address (IPv6 /64)
+per window**, 1/5 of the 30 sign-ins an address may make in it, spent on a row in the `sealed-new:` group. Keys that have
+a row keep counting, and a lockout stays locked out. A refusal also re-checks, at most once a minute per group per pod,
+whether the group's live rows are back under the ceiling and lifts the seal itself, instead of waiting for the cleanup
+job (every 10 minutes). The job logs an `ALERT` line on every
+run a group is sealed, and unseals it when it is back under the ceiling (rows expire by themselves). The address-first
+gate order and the IPv6 /64 keys are what keep a flood from getting there in practice.
+
+Still worth an edge limit at the ingress for the login and portal OTP paths
+(`nginx.ingress.kubernetes.io/limit-rps`): it absorbs a flood before it reaches the database.
 
 ### Releases and migrations
 

@@ -7,6 +7,9 @@ export class SecretBoxError extends Error {
   }
 }
 
+/** GCM tag length in bytes, pinned on both sides: Node accepts shorter tags (4, 8, 12-15) and checks only their prefix. */
+const TAG_BYTES = 16
+
 /** Unambiguous versioned marker for a sealed value. Content-based heuristics
  * (e.g. "has 3 colon-separated segments") misclassify free-form plaintext
  * secrets that happen to contain colons — this prefix can't collide with a
@@ -29,7 +32,7 @@ function loadKey(keyB64: string): Buffer {
 export function sealSecret(plaintext: string, keyB64: string): string {
   const key = loadKey(keyB64)
   const iv = randomBytes(12)
-  const cipher = createCipheriv("aes-256-gcm", key, iv)
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_BYTES })
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()])
   const tag = cipher.getAuthTag()
   return SEALED_PREFIX + [iv.toString("base64"), tag.toString("base64"), ct.toString("base64")].join(":")
@@ -43,8 +46,10 @@ export function openSecret(sealed: string, keyB64: string): string {
   if (parts.length !== 3) throw new SecretBoxError("malformed sealed value")
   const [ivB64, tagB64, ctB64] = parts
   try {
-    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"))
-    decipher.setAuthTag(Buffer.from(tagB64, "base64"))
+    const tag = Buffer.from(tagB64, "base64")
+    if (tag.length !== TAG_BYTES) throw new SecretBoxError("malformed authentication tag")
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"), { authTagLength: TAG_BYTES })
+    decipher.setAuthTag(tag)
     return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64")), decipher.final()]).toString("utf8")
   } catch {
     throw new SecretBoxError("decryption failed (tampered ciphertext or wrong key)")

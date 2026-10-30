@@ -7,6 +7,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { passwordPolicyError } from "@/lib/security/password-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 // Per-EMAIL brute-force bound on the OTP (the load-bearing gate below).
 const OTP_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
@@ -19,7 +20,7 @@ const OTP_IP_CALL_CAP = { limit: 30, windowMs: 15 * 60 * 1000 } as const
 
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)
-  const gate = checkRateLimit(`reset-otp:${ip}`, OTP_IP_CALL_CAP)
+  const gate = await checkRateLimit(`reset-otp:${limiterAddress(ip)}`, OTP_IP_CALL_CAP)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
   // (~5.7 years to exhaust the 10^6 code space). Load-bearing: this route is
   // directly callable without a prior forgot-password request, so it cannot
   // rely on the Turnstile gate that fronts the forgot endpoint.
-  const acctGate = checkRateLimit(`reset-otp:acct:${normalised}`, OTP_RATE_LIMIT)
+  const acctGate = await checkRateLimit(`reset-otp:acct:${normalised}`, OTP_RATE_LIMIT, { newKeyAddress: limiterAddress(ip) })
   if (!acctGate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

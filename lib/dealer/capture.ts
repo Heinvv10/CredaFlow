@@ -41,8 +41,8 @@ export const DEALER_CAPTURE_RATE_LIMIT = { limit: 30, windowMs: 15 * 60 * 1000 }
 
 type Captured = "entity" | "person" | "asset"
 
-function overCaptureLimit(actor: DealerActor): DealerRefusal | null {
-  const gate = checkRateLimit(`dealer-capture:${actor.tenantId}:${actor.dealerUserId}`, DEALER_CAPTURE_RATE_LIMIT)
+async function overCaptureLimit(actor: DealerActor): Promise<DealerRefusal | null> {
+  const gate = await checkRateLimit(`dealer-capture:${actor.tenantId}:${actor.dealerUserId}`, DEALER_CAPTURE_RATE_LIMIT)
   return gate.allowed ? null : dealerRefused(429, "Too many captures in a short time: try again in a few minutes")
 }
 
@@ -111,7 +111,7 @@ const addressOf = (body: unknown) => {
 }
 
 export async function captureDealerEntity(actor: DealerActor, body: unknown): Promise<CaptureResult> {
-  const limited = overCaptureLimit(actor)
+  const limited = await overCaptureLimit(actor)
   if (limited) return limited
   const input = parseBusinessEntityInput(body)
   if ("errors" in input) return { kind: "invalid", fields: { ...missingAddress(addressOf(body)), ...input.errors } }
@@ -122,7 +122,7 @@ export async function captureDealerEntity(actor: DealerActor, body: unknown): Pr
 }
 
 export async function captureDealerAsset(actor: DealerActor, body: unknown): Promise<CaptureResult> {
-  const limited = overCaptureLimit(actor)
+  const limited = await overCaptureLimit(actor)
   if (limited) return limited
   const parsed = parseAssetCreate(body)
   if ("errors" in parsed) return { kind: "invalid", fields: parsed.errors }
@@ -165,7 +165,7 @@ async function linkPerson(
  * receive that deal's messages (EntityRelationship_dealer_contact_link).
  */
 export async function captureDealerPerson(actor: DealerActor, body: unknown, entityId: string | null = null): Promise<CaptureResult> {
-  const limited = overCaptureLimit(actor)
+  const limited = await overCaptureLimit(actor)
   if (limited) return limited
   const person = parseDealerPerson(body, entityId === null)
   const entity = entityId === null ? null : await prisma.businessEntity.findFirst({

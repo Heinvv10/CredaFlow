@@ -10,6 +10,7 @@ import {
   type SelfieLinkRejection,
 } from "@/lib/kyc/selfie-link-token.server"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 export const dynamic = "force-dynamic"
 
@@ -26,6 +27,14 @@ export const dynamic = "force-dynamic"
  * not become a place where live credentials sit in memory in plaintext.
  */
 const PER_TOKEN_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 }
+
+/**
+ * The address gate, charged FIRST and only when a trusted proxy supplies a real address (never the shared "unknown"
+ * bucket, which would let one caller refuse everyone). A refusal stops here: the per-token bucket below is keyed by a
+ * token the caller chooses, so an address already over this limit must not write a new limiter row for each token it
+ * makes up. Generous: one real address may host a few applicants at once.
+ */
+const PER_ADDRESS_LIMIT = { limit: 120, windowMs: 10 * 60 * 1000 }
 
 /**
  * Backstop against a flood of tokens that do not resolve.
@@ -97,11 +106,15 @@ export async function POST(
     { error: "Too many requests. Please wait a moment and try again." },
     { status: 429 },
   )
+  const ip = callerIp(req as NextRequest)
+  if (ip !== "unknown" && !(await checkRateLimit(`selfie-link:capture:ip:${limiterAddress(ip)}`, PER_ADDRESS_LIMIT)).allowed) {
+    return tooMany
+  }
   // Only well-formed secrets get a per-token bucket; a malformed one would
   // otherwise let a scanner mint unlimited fresh keys and never be limited.
   if (isSelfieLinkSecret(token)) {
     const bucket = hashSelfieLinkSecret(token).slice(0, 32)
-    if (!checkRateLimit(`selfie-link:capture:tok:${bucket}`, PER_TOKEN_LIMIT).allowed) {
+    if (!(await checkRateLimit(`selfie-link:capture:tok:${bucket}`, PER_TOKEN_LIMIT)).allowed) {
       return tooMany
     }
   }
@@ -110,8 +123,7 @@ export async function POST(
     // Charged here and nowhere else: a request that resolved to a real link has
     // already passed its own per-token bucket and must never be refused by a
     // bucket an attacker can fill.
-    const ip = callerIp(req as NextRequest)
-    if (!checkRateLimit(`selfie-link:capture:unresolved:${ip}`, UNRESOLVED_LIMIT).allowed) {
+    if (!(await checkRateLimit(`selfie-link:capture:unresolved:${limiterAddress(ip)}`, UNRESOLVED_LIMIT)).allowed) {
       return tooMany
     }
     return NextResponse.json(
