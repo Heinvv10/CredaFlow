@@ -67,13 +67,12 @@ export async function auditSetupWarnings(db: Queryable = prisma, env: Partial<Re
 
 /**
  * Why a production process may run although its database role could undo the audit protections, or null
- * when nothing allows it: AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 (a demo or a legacy stack, never a real lender)
- * or DEMO_MODE=true (the demo stacks, which the demo scripts already require to carry it).
+ * when nothing allows it: AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1, set on purpose on a demo or legacy stack, never a
+ * real lender. DEMO_MODE does NOT stand in for it: one variable must not switch off both the demo gates (2FA,
+ * credit checks) and the audit role guard on a lender that is misconfigured.
  */
 export function privilegedRoleAllowance(env: Partial<Record<string, string>> = process.env): string | null {
-  if (env.AUDIT_ALLOW_PRIVILEGED_DB_ROLE === "1") return "AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1"
-  if (env.DEMO_MODE === "true") return "DEMO_MODE=true"
-  return null
+  return env.AUDIT_ALLOW_PRIVILEGED_DB_ROLE === "1" ? "AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1" : null
 }
 
 /**
@@ -97,7 +96,7 @@ const MESSAGE: Record<AuditSetupWarning, string> = {
     "This web process's database login can call the audit chainer and outbox functions. Give the web login audit_grant_web and the worker its own login with audit_grant_worker (docs/ARCHITECTURE.md); a single login for both is the weaker single-process shape.",
   audit_chain_key_missing: "AUDIT_CHAIN_KEY is not set (32+ characters) on the process that runs the crons: the audit hash chain cannot be written or verified.",
   audit_privileged_role_allowed:
-    "This process is allowed to run with a database role that could undo the audit protections (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 or DEMO_MODE=true). That is for demo and legacy stacks only, never a real lender: the audit trail on this stack is not tamper-evident against whoever holds its database login.",
+    "This process is allowed to run with a database role that could undo the audit protections (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1). That is for demo and legacy stacks only, never a real lender: the audit trail on this stack is not tamper-evident against whoever holds its database login.",
   audit_chain_key_on_web: "AUDIT_CHAIN_KEY is set on a process that does not run the crons. Only the worker needs it; leaving it on the web process lets a compromised web server forge the chain.",
 }
 

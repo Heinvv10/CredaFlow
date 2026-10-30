@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 const DEMO = __dirname
 const SECRET_VALUE = 'sentinel-secret-value-9f3a'
-const FULL_ENV = `PATH=/usr/bin\nDEMO_MODE=true\nUNSUB_TOKEN_SECRET=${SECRET_VALUE}\nNODE_ENV=production`
+const FULL_ENV = `PATH=/usr/bin\nDEMO_MODE=true\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\nUNSUB_TOKEN_SECRET=${SECRET_VALUE}\nNODE_ENV=production`
 const SECRETS = [
   'DEBIT_MANDATE_CREDITOR_BANK_NAME=Synthetic Bank',
   'DEBIT_MANDATE_CREDITOR_ACCOUNT_NUMBER=0000000000',
@@ -90,10 +90,11 @@ describe('bake.sh sim env preflight', { timeout: 30_000 }, () => {
   })
 
   it.each([
-    ['DEMO_MODE is absent', 'PATH=/usr/bin\nUNSUB_TOKEN_SECRET=' + SECRET_VALUE, 'DEMO_MODE=true'],
-    ['DEMO_MODE is not true', 'DEMO_MODE=false\nUNSUB_TOKEN_SECRET=' + SECRET_VALUE, 'DEMO_MODE=true'],
-    ['UNSUB_TOKEN_SECRET is absent', 'DEMO_MODE=true\nPATH=/usr/bin', 'UNSUB_TOKEN_SECRET'],
-    ['UNSUB_TOKEN_SECRET is empty', 'DEMO_MODE=true\nUNSUB_TOKEN_SECRET=', 'UNSUB_TOKEN_SECRET'],
+    ['DEMO_MODE is absent', 'PATH=/usr/bin\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\nUNSUB_TOKEN_SECRET=' + SECRET_VALUE, 'DEMO_MODE=true'],
+    ['the audit allowance is absent', 'DEMO_MODE=true\nUNSUB_TOKEN_SECRET=' + SECRET_VALUE, 'AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1'],
+    ['DEMO_MODE is not true', 'DEMO_MODE=false\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\nUNSUB_TOKEN_SECRET=' + SECRET_VALUE, 'DEMO_MODE=true'],
+    ['UNSUB_TOKEN_SECRET is absent', 'DEMO_MODE=true\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\nPATH=/usr/bin', 'UNSUB_TOKEN_SECRET'],
+    ['UNSUB_TOKEN_SECRET is empty', 'DEMO_MODE=true\nAUDIT_ALLOW_PRIVILEGED_DB_ROLE=1\nUNSUB_TOKEN_SECRET=', 'UNSUB_TOKEN_SECRET'],
   ])('refuses within seconds, before simulate.ts, naming the key, when %s on the sim app', (_what, env, key) => {
     const r = bake({ STUB_SIM_ENV: env })
     expect(r.status).not.toBe(0)

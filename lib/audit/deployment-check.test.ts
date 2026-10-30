@@ -46,16 +46,19 @@ describe("auditSetupRefusal", () => {
 })
 
 describe("the privileged-role allowance", () => {
-  it("comes from AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 or a demo stack, nothing else", () => {
+  it("comes from AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 alone: DEMO_MODE never stands in for it", () => {
     expect(privilegedRoleAllowance({ AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1" })).toBe("AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1")
-    expect(privilegedRoleAllowance({ DEMO_MODE: "true" })).toBe("DEMO_MODE=true")
-    for (const env of [{}, { AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "true" }, { DEMO_MODE: "false" }, { AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "0" }]) expect(privilegedRoleAllowance(env)).toBeNull()
+    expect(privilegedRoleAllowance({ DEMO_MODE: "true", AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1" })).toBe("AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1")
+    for (const env of [{}, { DEMO_MODE: "true" }, { AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "true" }, { DEMO_MODE: "false" }, { AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "0" }]) expect(privilegedRoleAllowance(env)).toBeNull()
   })
 
-  it("lets a demo stack run in production, and the warning list says it is allowed", async () => {
-    expect(auditSetupRefusal(["audit_runtime_role_superuser"], { NODE_ENV: "production", DEMO_MODE: "true" })).toBeNull()
-    expect(await auditSetupWarnings(db({ su: true }), { ...WORKER, DEMO_MODE: "true" })).toEqual(["audit_runtime_role_superuser", "audit_privileged_role_allowed"])
-    expect(await auditSetupWarnings(db({}), { ...WORKER, DEMO_MODE: "true" })).toEqual([]) // nothing to allow, nothing said
+  it("lets a stack that sets the flag run in production, and the warning list says it is allowed; DEMO_MODE alone does not", async () => {
+    const allow = { AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1" }
+    expect(auditSetupRefusal(["audit_runtime_role_superuser"], { NODE_ENV: "production", ...allow })).toBeNull()
+    expect(auditSetupRefusal(["audit_runtime_role_superuser"], { NODE_ENV: "production", DEMO_MODE: "true" })).toEqual(["audit_runtime_role_superuser"])
+    expect(await auditSetupWarnings(db({ su: true }), { ...WORKER, ...allow })).toEqual(["audit_runtime_role_superuser", "audit_privileged_role_allowed"])
+    expect(await auditSetupWarnings(db({ su: true }), { ...WORKER, DEMO_MODE: "true" })).toEqual(["audit_runtime_role_superuser"])
+    expect(await auditSetupWarnings(db({}), { ...WORKER, ...allow })).toEqual([]) // nothing to allow, nothing said
   })
 })
 
@@ -98,7 +101,9 @@ describe("enforceAuditSetupAtBoot", () => {
     expect(exit).not.toHaveBeenCalled()
     expect(h.error).toHaveBeenCalledWith(expect.stringContaining("PRIVILEGED DATABASE ROLE ALLOWED"), expect.anything())
     h.error.mockClear()
+    // A demo-mode process without the flag is refused like any other.
+    exit.mockClear()
     await run({ ...PROD, DEMO_MODE: "true" })
-    expect(h.error).toHaveBeenCalledWith(expect.stringContaining("DEMO_MODE=true"), expect.anything())
+    expect(exit).toHaveBeenCalledWith(1)
   })
 })

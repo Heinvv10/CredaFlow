@@ -206,7 +206,7 @@ worktree_tag() {
 
 # sim_env_preflight — die within seconds, naming each missing key, when the sim
 # stack cannot finish a bake: secrets.env without UNSUB_TOKEN_SECRET, or a sim
-# app container started without DEMO_MODE=true or UNSUB_TOKEN_SECRET (the signing
+# app container started without DEMO_MODE=true, AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 or UNSUB_TOKEN_SECRET (the signing
 # OTP then 502s for every persona, which simulate.ts found 70 minutes in).
 # Prints key names only; the container env is held in a variable and only tested.
 # The container's UNSUB_TOKEN_SECRET is checked non-empty, not equal to
@@ -217,6 +217,9 @@ sim_env_preflight() {
   env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SIM_APP" 2>/dev/null)" \
     || die "$SIM_APP not found; the sim stack is not up"
   grep -x 'DEMO_MODE=true' <<< "$env" >/dev/null || missing+=" $SIM_APP: DEMO_MODE=true;"
+  # The demo stacks run as the database owner/superuser; a production process refuses that unless told, on purpose,
+  # that this stack accepts it (lib/audit/deployment-check.ts). DEMO_MODE does not stand in for it.
+  grep -x 'AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1' <<< "$env" >/dev/null || missing+=" $SIM_APP: AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1;"
   grep -E '^UNSUB_TOKEN_SECRET=.' <<< "$env" >/dev/null || missing+=" $SIM_APP: UNSUB_TOKEN_SECRET;"
   [ -z "$missing" ] || die "sim env incomplete, missing:$missing nothing was simulated (fix secrets.env / docker-compose.demo-sim.yml and re-run)"
 }

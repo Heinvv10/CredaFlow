@@ -166,16 +166,19 @@ for you except where stated, and no agent edits these files.
 5. Check: `curl -s localhost:<port>/api/health` with the cron secret header lists no `audit_runtime_role_*` or
    `audit_chain_key_missing` warning, and `docker compose exec app printenv POSTGRES_PASSWORD` prints an empty line.
 6. The live demo stacks (Tsela, Fair Score; `scripts/demo/upgrade-stack.sh`, `restore.sh`, `bake.sh`) and the
-   demo-sim stack (`docker-compose.demo-sim.yml`) run as the database owner or superuser. They carry
-   `DEMO_MODE=true`, and a production process with `DEMO_MODE=true` is allowed to do that: it logs
-   `PRIVILEGED DATABASE ROLE ALLOWED (DEMO_MODE=true)` at every boot and `/api/health` lists
-   `audit_privileged_role_allowed`. Nothing to edit in their env files for the upgrade; their `DATABASE_URL` stays
-   as it is. They are not a pattern for a real lender.
+   demo-sim stack (`docker-compose.demo-sim.yml`) run as the database owner or superuser. **Operator action, after
+   hours, before the deploy that brings this version:** add `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` to each live demo
+   stack's env file (the one that already carries `DEMO_MODE=true`), next to `DEMO_MODE`; their `DATABASE_URL` stays
+   as it is. `DEMO_MODE` does not stand in for it (one variable must not switch off both the demo gates and the
+   audit role guard on a misconfigured real lender): a demo stack without the flag exits at boot. With it, the app
+   logs `PRIVILEGED DATABASE ROLE ALLOWED (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1)` at every boot and `/api/health` lists
+   `audit_privileged_role_allowed`. The demo-sim stack sets it in its compose file and `sim_env_preflight` refuses
+   to bake without it. They are not a pattern for a real lender.
 
 **`AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1`: demo/legacy only, never a real lender.** A production process whose database
 role owns an audit table, is a superuser, can create roles or databases, or holds CREATE on `public` exits at boot,
-and so does one whose own setup check cannot run (it is retried four times). `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (or
-`DEMO_MODE=true`) lets it start anyway: every boot logs the allowance at error level, `/api/health` lists
+and so does one whose own setup check cannot run (it is retried four times). `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (and
+only that) lets it start anyway: every boot logs the allowance at error level, `/api/health` lists
 `audit_privileged_role_allowed` as a warning, and on that stack the audit trail is NOT tamper-evident against whoever
 holds the database login. A compose stack with no `APP_DB_USER`/`APP_DB_PASSWORD` gets a `DATABASE_URL` with no user
 (it cannot connect) unless this variable is set, in which case it falls back to the owner login. The restore drill

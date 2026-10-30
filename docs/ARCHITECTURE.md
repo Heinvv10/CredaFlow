@@ -288,7 +288,7 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   after every migration: compose `db-roles`, `scripts/lender` `ensure_app_role`, the chart's
   `app-role` Job). In production a process whose role owns a table, is a superuser or can
   create roles refuses to start (as does one whose setup check cannot run), unless
-  `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` or `DEMO_MODE=true` (demo/legacy stacks; logged loudly at every boot and
+  `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (demo/legacy stacks; `DEMO_MODE` does not stand in; logged loudly at every boot and
   shown in `/api/health`). The Helm chart renders only with two logins unless `audit.singleLogin=true`. The owner login never
   reaches the app containers (compose blanks it; the chart keeps it in a Secret no pod
   mounts). A restore with `--no-owner --no-acl` loses ownership and ACLs: the restore scripts
@@ -304,7 +304,11 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   it writes the policy, the `AuditPolicyRevision` (trigger), stamps the queued backlog with the
   destination being left, writes the `AUDIT_POLICY_UPDATED` row itself (URL as origin only) and
   queues it, and an anchor, for the right destinations. A late-chained row made before a change
-  is stamped too.
+  is stamped too. The tenant binding in `audit_policy_save` and `audit_chain_status` (the session's
+  `app.tenant_id` must match the lender; the actor must be one of its users) stops cross-tenant mistakes and
+  buggy routes. It does NOT stop a compromised web process, which sets that setting itself: the backstop
+  there is the `AUDIT_POLICY_UPDATED` row the function writes, which is queued for the OLD destination, so the
+  bank's SOC sees every redirect of its own trail.
 - **Outbox functions trust nothing.** `audit_outbox_mark` takes the tenant, accepts only
   delivery-attempt transitions on entries whose backoff has elapsed (a retry in the future, a
   give-up only after three attempts or when the audit row is gone), stamps `sentAt` with the

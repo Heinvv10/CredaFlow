@@ -67,3 +67,29 @@ describe('TENANT_DEMO_LENDER_SQL', () => {
     expect(slugs.sort()).toEqual(Object.values(DEMO_LENDERS).map((l) => l.slug).sort())
   })
 })
+
+describe('sim_env_preflight', () => {
+  // docker is a stub that prints the container env it is told to.
+  const preflight = (containerEnv: string[], withSecret = true) => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-preflight-'))
+    writeFileSync(join(dir, 'docker'), `#!/bin/sh\nprintf '%s\\n' ${containerEnv.map((e) => `'${e}'`).join(' ')}\n`, { mode: 0o755 })
+    const secrets = join(dir, 'secrets.env')
+    writeFileSync(secrets, withSecret ? 'UNSUB_TOKEN_SECRET=synthetic-secret\n' : '')
+    const r = spawnSync('bash', ['-c', '. "$0"; SHARED_SECRETS="$1"; SIM_APP=sim-app; sim_env_preflight', LIB, secrets], {
+      encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ''}` },
+    })
+    return { status: r.status, out: `${r.stdout}${r.stderr}` }
+  }
+  const full = ['DEMO_MODE=true', 'AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1', 'UNSUB_TOKEN_SECRET=synthetic-secret']
+
+  it('passes a sim app that carries DEMO_MODE, the audit allowance and the signing secret', () => {
+    expect(preflight(full).status).toBe(0)
+  })
+
+  it('names the audit allowance when the sim app lacks it: DEMO_MODE alone does not allow a privileged database role', () => {
+    const r = preflight(['DEMO_MODE=true', 'UNSUB_TOKEN_SECRET=synthetic-secret'])
+    expect(r.status).not.toBe(0)
+    expect(r.out).toContain('AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1')
+    expect(preflight(['DEMO_MODE=true', 'AUDIT_ALLOW_PRIVILEGED_DB_ROLE=0', 'UNSUB_TOKEN_SECRET=synthetic-secret']).status).not.toBe(0)
+  })
+})
