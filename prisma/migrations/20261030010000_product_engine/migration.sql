@@ -160,7 +160,7 @@ ALTER TABLE "LoanTerms" ADD CONSTRAINT "LoanTerms_tenantId_productVersionId_fkey
 ALTER TABLE "ApplicationPricingInput" ADD CONSTRAINT "ApplicationPricingInput_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ApplicationPricingInput" ADD CONSTRAINT "ApplicationPricingInput_tenantId_applicationId_fkey" FOREIGN KEY ("tenantId", "applicationId") REFERENCES "LoanApplication"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE "ApplicationPricingInput" ADD CONSTRAINT "ApplicationPricingInput_tenantId_applicationId_fkey" FOREIGN KEY ("tenantId", "applicationId") REFERENCES "LoanApplication"("tenantId", "id") ON DELETE CASCADE ON UPDATE RESTRICT;
 
 -- ProductVersion ----------------------------------------------------------------
 

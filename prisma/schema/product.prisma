@@ -141,7 +141,7 @@ model ApplicationPricingInput {
   applicationId String   @id
   tenantId      String
   tenant        Tenant   @relation(fields: [tenantId], references: [id])
-  application   LoanApplication @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  application   LoanApplication @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Cascade, onUpdate: Restrict)
   segment       String?
   channel       String?
   campaignCode  String?
