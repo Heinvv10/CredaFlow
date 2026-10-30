@@ -27,7 +27,7 @@ const click = (r: ReturnType<typeof create>, label: string) => act(async () => {
 const product = { id: "p1", code: "PERS", name: "Personal", productType: "PERSONAL" as const, active: true, minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0.05, initiationFeeMax: 100_000, monthlyServiceFee: 6_900 }
 const config = { minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0.05, initiationFeeMaxCents: 100_000, monthlyServiceFeeCents: 6_900, repayment: null, collateral: [], eligibility: { minAge: null, maxAge: null, minMonthlyIncomeCents: null, minEmploymentMonths: null } }
 const overview = (over: Partial<EngineOverview> = {}): EngineOverview => ({
-  today: "2027-03-01", nca: false, products: [product], rules: [], requests: [], canManage: true, canApprove: false,
+  today: "2027-03-01", nca: false, currency: "ZAR" as const, products: [product], rules: [], requests: [], canManage: true, canApprove: false,
   versions: [
     { id: "v2", productId: "p1", version: 2, effectiveFrom: "2027-04-01", status: "SCHEDULED", reason: "Spring pricing", config: { ...config, interestRatePm: 0.025, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "PRINCIPAL_ONLY", graceInstalments: 2 } }, createdAt: "2027-03-01T08:00:00Z" },
     { id: "v1", productId: "p1", version: 1, effectiveFrom: "2027-01-01", status: "IN_EFFECT", reason: "Launch", config, createdAt: "2027-01-01T08:00:00Z" },
@@ -125,6 +125,11 @@ describe("ProductVersionsWorkspace", () => {
     const row = (id: string, status: "DRAFT" | "SUBMITTED", mine: boolean) => ({ id, kind: "PRODUCT_VERSION", title: id, status, mine, payload: {} }) as unknown as EngineOverview["requests"][number]
     const requests = [row("a", "SUBMITTED", false), row("b", "DRAFT", true), row("c", "DRAFT", false)]
     expect(text(await mount(<ProductVersionsWorkspace overview={overview({ requests })} />))).toContain("\" (2)\"")
+  })
+
+  it("shows amounts in the lender's currency: the loti for a Lesotho lender", async () => {
+    expect(text(await mount(<ProductVersionsWorkspace overview={overview({ currency: "LSL" })} />))).toContain("M 1,000.00")
+    expect(text(await mount(<ProductVersionsWorkspace overview={overview()} />))).toContain("R 1,000.00")
   })
 
   it("says so for a product that has no versions", async () => {

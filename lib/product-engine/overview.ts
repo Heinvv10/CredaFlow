@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { activeCurrency, isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { presentChangeRequest } from "@/lib/maker-checker/http"
 import { listChangeRequests } from "@/lib/maker-checker/service"
 import { PRODUCT_VERSION_KIND } from "./change-handlers"
@@ -33,6 +33,7 @@ export async function loadProductEngineOverview(tenantId: string, viewer: { id: 
   return {
     today,
     nca: isNcaJurisdiction(),
+    currency: activeCurrency(),
     products,
     versions,
     rules: rules.map((r) => ({

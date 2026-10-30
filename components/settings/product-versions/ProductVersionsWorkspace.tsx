@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChangeRequestsPanel } from "@/components/settings/decision-rules/ChangeRequestsPanel"
-import { describeRepayment, pct, rand } from "./labels"
+import { describeRepayment, money, pct } from "./labels"
 import { PricingRuleForm } from "./PricingRuleForm"
 import { VersionForm } from "./VersionForm"
 import { api, type EngineOverview, type ProductRow, type RuleRow } from "./types"
@@ -60,7 +60,7 @@ export function ProductVersionsWorkspace({ overview }: { overview: EngineOvervie
               <CardHeader>
                 <CardTitle>{product.name} <span className="text-sm font-normal text-[var(--cf-text-muted)]">({product.code})</span></CardTitle>
                 <CardDescription>
-                  Now: {pct(product.interestRatePm)} a month, {rand(product.minAmount)} to {rand(product.maxAmount)}, {product.minTermDays} to {product.maxTermDays} days
+                  Now: {pct(product.interestRatePm)} a month, {money(product.minAmount, overview.currency)} to {money(product.maxAmount, overview.currency)}, {product.minTermDays} to {product.maxTermDays} days
                   {versions.length === 0 ? ". No versions yet: the product runs as configured, and a loan keeps no version." : `. ${versions.length} version${versions.length === 1 ? "" : "s"}.`}
                 </CardDescription>
               </CardHeader>

@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { currencySymbol } from "@/lib/jurisdiction/money"
 import { Label } from "@/components/ui/label"
 import { FREQUENCIES, GRACE_KINDS, STRUCTURES, type Frequency, type GraceKind, type RepaymentStructure } from "@/lib/product-engine/types"
 import { FREQUENCY_LABEL, GRACE_LABEL, STRUCTURE_LABEL } from "./labels"
@@ -86,6 +87,7 @@ export function VersionForm({ overview, product, onDone, onCancel }: { overview:
   const [busy, setBusy] = useState(false)
   const [problems, setProblems] = useState<string[]>([])
   const [done, setDone] = useState<string | null>(null)
+  const symbol = currencySymbol(overview.currency)
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setS((cur) => ({ ...cur, [key]: value }))
   const text = (key: keyof FormState, id: string, label: string, props: { type?: string } = {}) => (
     <Field id={id} label={label}><Input id={id} type={props.type} value={String(s[key])} onChange={(e) => set(key, e.target.value as never)} /></Field>
@@ -129,7 +131,7 @@ export function VersionForm({ overview, product, onDone, onCancel }: { overview:
         </div>
         <fieldset className="space-y-3" aria-label="Limits"><legend className="font-semibold">Limits</legend>
           <div className="grid gap-3 md:grid-cols-4">
-            {text("minAmount", "pv-minamt", "Minimum amount (R)")}{text("maxAmount", "pv-maxamt", "Maximum amount (R)")}
+            {text("minAmount", "pv-minamt", `Minimum amount (${symbol})`)}{text("maxAmount", "pv-maxamt", `Maximum amount (${symbol})`)}
             {text("minTermDays", "pv-minterm", "Shortest term (days)")}{text("maxTermDays", "pv-maxterm", "Longest term (days)")}
           </div>
         </fieldset>
@@ -141,8 +143,8 @@ export function VersionForm({ overview, product, onDone, onCancel }: { overview:
                 <option value="REDUCING_BALANCE">Reducing balance</option><option value="FLAT">Flat</option><option value="DAILY_ACCRUAL">Daily accrual (single payment)</option>
               </select>
             </Field>
-            {text("feePct", "pv-fee", "Initiation fee (% of principal)")}{text("feeMax", "pv-feemax", "Initiation fee cap (R, 0 = none)")}
-            {text("serviceFee", "pv-svc", "Monthly service fee (R)")}
+            {text("feePct", "pv-fee", "Initiation fee (% of principal)")}{text("feeMax", "pv-feemax", `Initiation fee cap (${symbol}, 0 = none)`)}
+            {text("serviceFee", "pv-svc", `Monthly service fee (${symbol})`)}
           </div>
         </fieldset>
         <fieldset className="space-y-3" aria-label="Repayment"><legend className="font-semibold">Repayment</legend>
@@ -170,7 +172,7 @@ export function VersionForm({ overview, product, onDone, onCancel }: { overview:
             <textarea id="pv-coll" rows={3} className={`${controlClass} h-auto w-full py-2`} value={s.collateral} onChange={(e) => set("collateral", e.target.value)} />
           </Field>
           <div className="grid gap-3 md:grid-cols-4">
-            {text("minAge", "pv-minage", "Minimum age")}{text("maxAge", "pv-maxage", "Maximum age")}{text("minIncome", "pv-income", "Minimum monthly income (R)")}{text("minEmploymentMonths", "pv-emp", "Minimum months employed")}
+            {text("minAge", "pv-minage", "Minimum age")}{text("maxAge", "pv-maxage", "Maximum age")}{text("minIncome", "pv-income", `Minimum monthly income (${symbol})`)}{text("minEmploymentMonths", "pv-emp", "Minimum months employed")}
           </div>
         </fieldset>
         {problems.length > 0 && <ul role="alert" className="list-disc space-y-1 pl-5 text-sm text-[var(--cf-danger)]">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
