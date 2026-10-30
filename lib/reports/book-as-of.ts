@@ -42,7 +42,7 @@ export interface AsOfLoan extends SettlementLoanLike {
 }
 
 /** Receipts on the schedule at `asOf`: received before it, not yet reversed, less the default-charge splits. */
-function scheduleShareAsOf(receipts: AsOfReceipt[], asOf: Date): number {
+export function scheduleShareAsOf(receipts: AsOfReceipt[], asOf: Date): number {
   return receipts
     .filter((r) =>
       r.allocationStatus === "ALLOCATED"
@@ -51,18 +51,19 @@ function scheduleShareAsOf(receipts: AsOfReceipt[], asOf: Date): number {
     .reduce((sum, r) => sum + r.amount - r.defaultInterestAllocated - r.chargeFeesAllocated, 0)
 }
 
-export function outstandingPrincipalAsOf(loan: AsOfLoan, asOf: Date): number {
+/** The schedule as it stood at `asOf`: contractual rows, and each row's paid amount from the receipts live then. */
+export function scheduleAsOf(loan: AsOfLoan, asOf: Date): Array<ScheduleRowLike & { id: string }> {
   const schedule = [...loan.repaymentSchedule].sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
   // An early settlement re-prices the schedule to what it earned; before the
   // loan closed, the contractual rows are what the receipts were paid against.
   const settled = loan.closedAt !== null && loan.closedAt <= asOf
   const rows = settled ? schedule : restoreContractualSchedule({ loan, schedule, contractualRows: loan.contractualRows ?? null })
   const paid = allocateReceipts(rows, scheduleShareAsOf(loan.payments, asOf))
-  return recomputeLoanBalances(
-    loan.principal,
-    rows.map((row, i) => ({ ...row, totalPaid: paid[i] })),
-    asOf,
-  ).outstandingPrincipal
+  return rows.map((row, i) => ({ ...row, totalPaid: paid[i] }))
+}
+
+export function outstandingPrincipalAsOf(loan: AsOfLoan, asOf: Date): number {
+  return recomputeLoanBalances(loan.principal, scheduleAsOf(loan, asOf), asOf).outstandingPrincipal
 }
 
 /**
@@ -73,11 +74,11 @@ export function outstandingPrincipalAsOf(loan: AsOfLoan, asOf: Date): number {
  * known; leaving the book is dated, which is why the population is built from
  * the exits rather than from a status filter.
  */
-export async function loadBookAsOf(
+export async function loadAsOfLoans(
   db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction">,
   tenantId: string,
   asOf: Date,
-): Promise<number> {
+): Promise<AsOfLoan[]> {
   const loans = await db.loan.findMany({
     where: {
       tenantId,
@@ -112,5 +113,14 @@ export async function loadBookAsOf(
   const repriced = loans.filter((loan) => isRepricedInstalmentLoan(loan, loan.repaymentSchedule))
   const evidence = await loadSettlementEvidence(db, tenantId, repriced.map((loan) => loan.id))
   for (const loan of repriced) if (!evidence.has(loan.id)) throw new ContractualScheduleMissingError(loan.id)
-  return loans.reduce((sum, loan) => sum + outstandingPrincipalAsOf({ ...loan, contractualRows: evidence.get(loan.id)?.rows ?? null }, asOf), 0)
+  return loans.map((loan) => ({ ...loan, contractualRows: evidence.get(loan.id)?.rows ?? null }))
+}
+
+export async function loadBookAsOf(
+  db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction">,
+  tenantId: string,
+  asOf: Date,
+): Promise<number> {
+  const loans = await loadAsOfLoans(db, tenantId, asOf)
+  return loans.reduce((sum, loan) => sum + outstandingPrincipalAsOf(loan, asOf), 0)
 }
