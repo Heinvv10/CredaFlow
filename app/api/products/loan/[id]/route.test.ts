@@ -233,6 +233,25 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     expect(update).not.toHaveBeenCalled()
   })
 
+  it("locks the product type once a product has versions: a PO_FUNDING type lifts the Regulation 42 fee ceiling", async () => {
+    versioned(1)
+    findUnique.mockResolvedValue({ ...before, code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", interestRatePm: 0.02 })
+    const response = await PUT(request({ code: "PERSONAL", productType: "PO_FUNDING", interestModel: "REDUCING_BALANCE", interestRatePm: 2 }), context)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: "PRODUCT_VERSIONED", fields: ["productType"] })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("locks a rename into the MICRO30 contract product once it has versions: the product's identity decides which rules bind it", async () => {
+    versioned(1)
+    // (a rename out of a stable code, MICRO30 included, is already refused: PORTAL_STABLE_PRODUCT_CODES)
+    const stored = { code: "ABC", productType: "MICRO", interestModel: "DAILY_ACCRUAL" }
+    findUnique.mockResolvedValue({ ...before, ...stored })
+    const response = await PUT(request({ ...stored, code: " micro30 " }), context)
+    expect({ status: response.status, body: await response.json() }).toMatchObject({ status: 409, body: { code: "PRODUCT_VERSIONED", fields: ["code"] } })
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it("still lets a field no version carries change: the name", async () => {
     versioned(1)
     const response = await PUT(request({ name: "Short-term Loan" }), context)

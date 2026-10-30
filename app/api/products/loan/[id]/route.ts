@@ -11,6 +11,7 @@ import {
   micro30DecisionTermsChanged,
   MICRO30_PROTECTED_APPLICATION_STATUSES,
 } from "@/lib/product-config/micro30"
+import { isMicro30Code } from "@/lib/product-config/micro30"
 import { nonNcaArrearsAudit, parseNonNcaArrearsTerms } from "@/lib/product-config/non-nca-arrears"
 
 // Codes the client-facing apply pages hardcode; see PRODUCT_KEY_TO_CODE.
@@ -149,7 +150,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       // A product under the product engine changes through a version a second person approves (lib/product-engine): its
       // limits, price and fees are no longer edited here. Name, activation and the other fields still are.
       if (await tx.productVersion.count({ where: { tenantId: tenant.id, productId: id } }) > 0) {
-        const versioned = VERSIONED_PRODUCT_FIELDS.filter((field) => !sameValue(before[field], data[field]))
+        const versioned: string[] = VERSIONED_PRODUCT_FIELDS.filter((field) => !sameValue(before[field], data[field]))
+        // The product's identity decides which rules bind it: its type (PO_FUNDING lifts the Regulation 42 fee ceiling) and whether it
+        // is the MICRO30 contract product (no pricing rule prices it), so neither moves under a version without a second person.
+        if (before.productType !== data.productType) versioned.push("productType")
+        if (isMicro30Code(before.code) !== isMicro30Code(data.code)) versioned.push("code")
         if (versioned.length > 0) return { kind: "versioned" as const, fields: versioned }
         // What is within the comparison's width is not a change, so it is not written either: the stored value stays exactly as the
         // version made it, and a rate nudged by less than the tolerance cannot be moved without a second person's approval.
