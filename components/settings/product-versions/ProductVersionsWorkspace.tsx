@@ -30,7 +30,7 @@ export function ProductVersionsWorkspace({ overview }: { overview: EngineOvervie
   const [newRule, setNewRule] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const refresh = () => router.refresh()
-  const waiting = overview.requests.filter((r) => r.status === "SUBMITTED" || r.status === "DRAFT").length
+  const waiting = overview.requests.filter((r) => r.status === "SUBMITTED" || (r.status === "DRAFT" && r.mine)).length
 
   async function retire(rule: RuleRow) {
     setError(null)

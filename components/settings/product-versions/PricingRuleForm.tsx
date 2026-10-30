@@ -43,6 +43,8 @@ export function PricingRuleForm({ overview, onDone, onCancel }: { overview: Engi
     const submitted = await api(`/api/maker-checker/${created.data.request.id}/submit`, "POST", {})
     setBusy(false)
     if (!submitted.ok) {
+      // A draft the submit refused is withdrawn, so a refused proposal leaves nothing behind to resubmit by mistake.
+      await api(`/api/maker-checker/${created.data.request.id}/withdraw`, "POST", {})
       setProblems(submitted.problems.length > 0 ? submitted.problems : [submitted.error ?? "Could not submit."])
       return
     }

@@ -68,6 +68,19 @@ describe("VersionForm", () => {
     expect(JSON.stringify(r.toJSON())).toContain("above the ceiling")
   })
 
+  it("withdraws a draft whose submit the server refused, so nothing is left to resubmit", async () => {
+    const urls: string[] = []
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      urls.push(url)
+      if (url.endsWith("/submit")) return { ok: false, status: 422, json: async () => ({ error: "Refused", problems: ["payload.config.repayment.frequency: needs legal sign-off"] }) }
+      return { ok: true, status: 200, json: async () => ({ request: { id: "cr1" } }) }
+    }))
+    const r = await mount(<VersionForm overview={overview()} product={product} onDone={() => undefined} onCancel={() => undefined} />)
+    await click(r, "Submit for approval")
+    expect(urls).toEqual(["/api/maker-checker", "/api/maker-checker/cr1/submit", "/api/maker-checker/cr1/withdraw"])
+    expect(JSON.stringify(r.toJSON())).toContain("needs legal sign-off")
+  })
+
   it("explains the NCA limit on structures to a lender that is under the Act", async () => {
     const r = await mount(<VersionForm overview={overview({ nca: true })} product={product} onDone={() => undefined} onCancel={() => undefined} />)
     expect(JSON.stringify(r.toJSON())).toContain("legal team")
@@ -106,6 +119,12 @@ describe("ProductVersionsWorkspace", () => {
   it("offers Propose a new version to someone who may, and not to someone who may only read", async () => {
     expect(text(await mount(<ProductVersionsWorkspace overview={overview()} />))).toContain("Propose a new version")
     expect(text(await mount(<ProductVersionsWorkspace overview={overview({ canManage: false })} />))).not.toContain("Propose a new version")
+  })
+
+  it("counts under Approvals what is submitted, and only my own drafts: another person's draft is not waiting on me", async () => {
+    const row = (id: string, status: "DRAFT" | "SUBMITTED", mine: boolean) => ({ id, kind: "PRODUCT_VERSION", title: id, status, mine, payload: {} }) as unknown as EngineOverview["requests"][number]
+    const requests = [row("a", "SUBMITTED", false), row("b", "DRAFT", true), row("c", "DRAFT", false)]
+    expect(text(await mount(<ProductVersionsWorkspace overview={overview({ requests })} />))).toContain("\" (2)\"")
   })
 
   it("says so for a product that has no versions", async () => {
