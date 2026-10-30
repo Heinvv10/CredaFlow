@@ -34,18 +34,12 @@ jobs:
         with:
           persist-credentials: false
       # --severity ERROR: the findings the rule authors rate high-confidence.
-      # --exclude-rule gcm-no-tag-length: three known findings, accepted until the
-      # fix lands. lib/storage-crypto.ts slices fixed-width tags (a false
-      # positive); lib/crypto/secret-box.ts openSecret() takes the tag length from
-      # the stored value (real, low severity: needs write access to the database).
-      # Fix with `{ authTagLength: 16 }`, then delete this exclusion.
       - name: Semgrep
         run: |
           docker run --rm -v "$PWD:/src:ro" \
             semgrep/semgrep@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3 \
             semgrep scan --metrics=off --error --severity ERROR \
               --config p/typescript --config p/nextjs --config p/security-audit \
-              --exclude-rule javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length \
               --exclude node_modules --exclude '*.test.ts' --exclude '*.test.tsx' \
               --exclude .claude --exclude docs /src
 

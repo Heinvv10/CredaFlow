@@ -73,11 +73,11 @@ describe("website chat start", () => {
     expect(mocks.startChat).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-1", brand: "Acme Lending" }))
   })
 
-  it("charges the per-phone+IP, per-IP and site-wide buckets only after Turnstile and validation pass", async () => {
+  it("charges the per-IP, per-phone+IP and site-wide buckets, in that order, only after Turnstile and validation pass", async () => {
     await call()
     expect(mocks.checkRateLimit.mock.calls).toEqual([
-      ["website:chat:start:phone:27712345678:203.0.113.9", { limit: 3, windowMs: 15 * 60 * 1000 }],
       ["website:chat:start:ip:203.0.113.9", { limit: 10, windowMs: 15 * 60 * 1000 }],
+      ["website:chat:start:phone:27712345678:203.0.113.9", { limit: 3, windowMs: 15 * 60 * 1000 }],
       ["website:chat:start:all", { limit: 200, windowMs: 15 * 60 * 1000 }],
     ])
   })
@@ -95,6 +95,8 @@ describe("website chat start", () => {
     expect(res.status).toBe(429)
     expect(res.headers.get("Retry-After")).toBe("90")
     expect(mocks.startChat).not.toHaveBeenCalled()
+    // an address that is already blocked writes no row for the phone number it made up
+    expect(mocks.checkRateLimit.mock.calls.map((c) => c[0])).toEqual(["website:chat:start:ip:203.0.113.9"])
   })
 
   it("never charges a bucket for junk that fails Turnstile, validation or the enabled check", async () => {

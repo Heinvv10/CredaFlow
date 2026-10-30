@@ -21,6 +21,7 @@ import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/s
 import { isPortalEnabled } from "@/lib/portal/portal-policy"
 import { authorizeSsoCredentials } from "@/lib/sso/provider"
 import { PASSWORD_POLICY_SELECT, auditBreakGlassSignIn, passwordBlockedBySso, passwordLoginOff } from "@/lib/sso/password-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 export { claimTotpCounter }
 
@@ -114,17 +115,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             .catch((err: unknown) => { console.error("[auth] failedLoginAttempt insert failed:", err) })
 
         // Three-bucket rate gate — any one tripping blocks the attempt.
-        // All three are evaluated so each records the attempt in its own bucket;
-        // this ensures that a later identical request counts against all limits.
+        // The per-address bucket is checked FIRST and a refusal stops here: the other two buckets are keyed by an
+        // email the caller chooses, so counting them for an address that is already blocked would let it write a
+        // new row per made-up email into the shared store for as long as the block lasts.
+        // Past it, the per-email and combined buckets are both evaluated so each records the attempt; a later
+        // identical request counts against all limits.
         // Buckets are intentionally NOT scoped by loginType: a client probing
         // the staff form (or vice versa) burns the same budget as a legitimate
         // attempt at their real surface. This is deliberate — cross-audience
         // probing should be rate-limited as aggressively as same-audience
         // brute-force.
-        const emailGate    = checkRateLimit(`login:email:${email}`, PER_EMAIL_LIMIT)
-        const ipGate       = checkRateLimit(`login:ip:${ip}`,       PER_IP_LIMIT)
-        const combinedGate = checkRateLimit(`login:${email}:${ip}`, COMBINED_LIMIT)
-        if (!emailGate.allowed || !ipGate.allowed || !combinedGate.allowed) {
+        const ipGate = await checkRateLimit(`login:ip:${limiterAddress(ip)}`, PER_IP_LIMIT)
+        const emailGate = ipGate.allowed ? await checkRateLimit(`login:email:${email}`, PER_EMAIL_LIMIT, { newKeyAddress: limiterAddress(ip) }) : null
+        const combinedGate = ipGate.allowed ? await checkRateLimit(`login:combined:${email}:${limiterAddress(ip)}`, COMBINED_LIMIT, { newKeyAddress: limiterAddress(ip) }) : null
+        if (!ipGate.allowed || !emailGate?.allowed || !combinedGate?.allowed) {
           await recordFailure("rate_limited")
           throw new RateLimitedError()
         }

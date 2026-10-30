@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   // Up-front request throttle (separate from the create cap below). Keeps
   // pre-create failure paths — including the blacklist branch's audit write —
   // from being looped without limit.
-  const reqGate = checkRateLimit(`portal:apply:req:${sessionClientId}`, REQUEST_RATE_LIMIT)
+  const reqGate = await checkRateLimit(`portal:apply:req:${sessionClientId}`, REQUEST_RATE_LIMIT)
   if (!reqGate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down and try again shortly." },
@@ -658,7 +658,7 @@ export async function POST(req: NextRequest) {
 
         // Consume the create budget only after the locked revalidation proves
         // this request is genuinely ready to create.
-        const gate = checkRateLimit(`portal:apply:${sessionClientId}`, SUBMIT_RATE_LIMIT)
+        const gate = await checkRateLimit(`portal:apply:${sessionClientId}`, SUBMIT_RATE_LIMIT)
         if (!gate.allowed) {
           return {
             ok: false as const,

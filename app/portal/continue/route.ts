@@ -5,6 +5,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { safePortalPath } from "@/lib/portal-urls"
 import { isPortalEnabled } from "@/lib/portal/portal-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 export const dynamic = "force-dynamic"
 
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
   // itself needs email + ID number and is rate-limited, so this endpoint never
   // becomes a bulk "does this email have an account" oracle: without a valid
   // (email, reference) pair, the answer is always the same (→ register).
-  const gate = checkRateLimit(`portal:continue:${callerIp(req)}`, { limit: 30, windowMs: 10 * 60 * 1000 })
+  const gate = await checkRateLimit(`portal:continue:${limiterAddress(callerIp(req))}`, { limit: 30, windowMs: 10 * 60 * 1000 })
   if (!email || !reference || !gate.allowed) return seeOther(registerPath(email, reference, next))
 
   const tenant = await getTenantFromRequest(req)

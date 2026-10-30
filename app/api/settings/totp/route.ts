@@ -16,7 +16,7 @@ import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 
 // Guesses at the current code, whether to turn 2FA off or to replace the secret.
 const CODE_ATTEMPTS = { limit: 5, windowMs: 15 * 60 * 1000 } as const
-const withinAttempts = (userId: string) => checkRateLimit(`totp-current-code:${userId}`, CODE_ATTEMPTS).allowed
+const withinAttempts = async (userId: string) => (await checkRateLimit(`totp-current-code:${userId}`, CODE_ATTEMPTS)).allowed
 // A refused attempt at the two changes that must not be done by a stolen
 // session is recorded: who tried, what, and why. Never the code or a secret.
 const refuse = (
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       if (typeof currentCode !== "string" || !currentCode || !user.totpSecret) {
         return NextResponse.json({ error: "Two-factor authentication is already on for this account" }, { status: 409 })
       }
-      if (!withinAttempts(staff.id)) return tooManyAttempts()
+      if (!(await withinAttempts(staff.id))) return tooManyAttempts()
       const matched = verifyTotpCode(currentCode.trim(), user.totpSecret)
       if (matched === null) return refuse(staff, tenant.id, "replace", "wrong_code", 422, "Invalid verification code")
       if (!(await claimTotpCounter(staff.id, matched))) return refuse(staff, tenant.id, "replace", "replayed_code", 422, "Invalid verification code")
@@ -143,7 +143,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "code is required" }, { status: 400 })
     }
 
-    if (!withinAttempts(staff.id)) return tooManyAttempts()
+    if (!(await withinAttempts(staff.id))) return tooManyAttempts()
 
     const user = await prisma.user.findFirst({
       where: { id: staff.id, tenantId: tenant.id },

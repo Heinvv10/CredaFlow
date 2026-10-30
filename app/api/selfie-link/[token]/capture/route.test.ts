@@ -15,9 +15,10 @@ vi.mock("@/lib/kyc/selfie-link-token.server", async (importOriginal) => ({
 }))
 vi.mock("@/lib/kyc/selfie-capture.server", () => ({ captureSelfie }))
 vi.mock("@/lib/prisma", () => ({ prisma: { selfieCaptureToken: { update, updateMany } } }))
+const caller = vi.hoisted(() => ({ ip: "203.0.113.9" }))
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit,
-  callerIp: () => "203.0.113.9",
+  callerIp: () => caller.ip,
 }))
 
 const portal = vi.hoisted(() => ({ enabled: true }))
@@ -53,6 +54,7 @@ beforeEach(() => {
   // KEEPS implementations, so a mockRejectedValue set in one test leaks into
   // every later one and makes the suite order-dependent.
   vi.clearAllMocks()
+  caller.ip = "203.0.113.9"
   checkRateLimit.mockReset()
   update.mockReset()
   updateMany.mockReset()
@@ -150,6 +152,35 @@ describe("POST /api/selfie-link/[token]/capture", () => {
     const keys = checkRateLimit.mock.calls.map((c) => String(c[0]))
     expect(keys.some((k) => k.startsWith("selfie-link:capture:tok:"))).toBe(true)
     expect(keys.join("|")).not.toContain(secret)
+  })
+
+  // PR #259: the address gate first, so a caller-chosen token key is never written for an address already over its limit.
+  it("charges the address bucket before any token key, and stops there when the address is over its limit", async () => {
+    checkRateLimit.mockImplementation((key: string) => (String(key).startsWith("selfie-link:capture:ip:") ? { allowed: false } : { allowed: true }))
+    const res = await POST(request(), { params: Promise.resolve({ token: "s".repeat(43) }) })
+    expect(res.status).toBe(429)
+    expect(checkRateLimit.mock.calls.map((c) => String(c[0]))).toEqual(["selfie-link:capture:ip:203.0.113.9"])
+    expect(resolveSelfieLinkToken).not.toHaveBeenCalled()
+  })
+
+  it("charges the address bucket first for an address that passes, then the token's", async () => {
+    resolveSelfieLinkToken.mockResolvedValue(LIVE_LINK)
+    captureSelfie.mockResolvedValue({ ok: true, documentId: "doc1", document: {} })
+    await POST(request(), { params: Promise.resolve({ token: "s".repeat(43) }) })
+    const keys = checkRateLimit.mock.calls.map((c) => String(c[0]))
+    expect(keys[0]).toBe("selfie-link:capture:ip:203.0.113.9")
+    expect(keys[1]).toMatch(/^selfie-link:capture:tok:/)
+  })
+
+  it("buckets an IPv6 address by its /64 and skips the address bucket when no trusted proxy supplies one", async () => {
+    caller.ip = "2001:db8:1:2:aaaa:bbbb:cccc:dddd"
+    resolveSelfieLinkToken.mockResolvedValue({ ok: false, reason: "malformed" })
+    await POST(request(), { params: Promise.resolve({ token: "not-a-secret" }) })
+    expect(checkRateLimit.mock.calls[0]![0]).toBe("selfie-link:capture:ip:2001:db8:1:2::/64")
+    checkRateLimit.mockClear()
+    caller.ip = "unknown" // one shared bucket for everyone: never charged on every request
+    await POST(request(), { params: Promise.resolve({ token: "s".repeat(43) }) })
+    expect(checkRateLimit.mock.calls.map((c) => String(c[0])).some((k) => k.startsWith("selfie-link:capture:ip:"))).toBe(false)
   })
 
   it("charges the shared unresolved bucket for a malformed token", async () => {

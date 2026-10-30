@@ -6,58 +6,58 @@ beforeEach(() => {
 })
 
 describe("checkRateLimit", () => {
-  it("allows requests under the limit", () => {
+  it("allows requests under the limit", async () => {
     const opts = { limit: 3, windowMs: 60_000 }
-    expect(checkRateLimit("k", opts).allowed).toBe(true)
-    expect(checkRateLimit("k", opts).allowed).toBe(true)
-    expect(checkRateLimit("k", opts).allowed).toBe(true)
+    expect((await checkRateLimit("k", opts)).allowed).toBe(true)
+    expect((await checkRateLimit("k", opts)).allowed).toBe(true)
+    expect((await checkRateLimit("k", opts)).allowed).toBe(true)
   })
 
-  it("blocks on the limit+1 request", () => {
+  it("blocks on the limit+1 request", async () => {
     const opts = { limit: 2, windowMs: 60_000 }
-    checkRateLimit("k", opts)
-    checkRateLimit("k", opts)
-    const result = checkRateLimit("k", opts)
+    await checkRateLimit("k", opts)
+    await checkRateLimit("k", opts)
+    const result = await checkRateLimit("k", opts)
     expect(result.allowed).toBe(false)
     expect(result.remaining).toBe(0)
     expect(result.retryAfterSeconds).toBeGreaterThanOrEqual(1)
   })
 
-  it("retryAfterSeconds is always at least 1 (Math.max floor)", () => {
+  it("retryAfterSeconds is always at least 1 (Math.max floor)", async () => {
     const opts = { limit: 1, windowMs: 1 }
     const t0 = Date.now()
     vi.spyOn(Date, "now").mockReturnValue(t0)
-    checkRateLimit("k", opts)
-    const result = checkRateLimit("k", opts)
+    await checkRateLimit("k", opts)
+    const result = await checkRateLimit("k", opts)
     expect(result.allowed).toBe(false)
     expect(result.retryAfterSeconds).toBeGreaterThanOrEqual(1)
   })
 
-  it("counts different keys independently", () => {
+  it("counts different keys independently", async () => {
     const opts = { limit: 1, windowMs: 60_000 }
-    checkRateLimit("a", opts)
-    expect(checkRateLimit("b", opts).allowed).toBe(true)
+    await checkRateLimit("a", opts)
+    expect((await checkRateLimit("b", opts)).allowed).toBe(true)
   })
 
-  it("resets after the window expires", () => {
+  it("resets after the window expires", async () => {
     const opts = { limit: 1, windowMs: 100 }
     const t0 = Date.now()
 
     // Fill the bucket at t0
     vi.spyOn(Date, "now").mockReturnValue(t0)
-    checkRateLimit("k", opts)
-    expect(checkRateLimit("k", opts).allowed).toBe(false)
+    await checkRateLimit("k", opts)
+    expect((await checkRateLimit("k", opts)).allowed).toBe(false)
 
     // Advance past the window — the t0 entry should be GC'd
     vi.spyOn(Date, "now").mockReturnValue(t0 + 200)
-    expect(checkRateLimit("k", opts).allowed).toBe(true)
+    expect((await checkRateLimit("k", opts)).allowed).toBe(true)
   })
 
-  it("reports remaining correctly", () => {
+  it("reports remaining correctly", async () => {
     const opts = { limit: 5, windowMs: 60_000 }
-    const r1 = checkRateLimit("k", opts)
+    const r1 = await checkRateLimit("k", opts)
     expect(r1.remaining).toBe(4)
-    const r2 = checkRateLimit("k", opts)
+    const r2 = await checkRateLimit("k", opts)
     expect(r2.remaining).toBe(3)
   })
 })

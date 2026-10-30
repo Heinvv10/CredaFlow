@@ -23,7 +23,7 @@ import { signingOtpChallengeIdFrom, signingOtpRefusal } from "@/lib/signing-otp/
 export async function POST(req: NextRequest, { params }: { params: Promise<{ signerId: string }> }) {
   const { signerId } = await params
   return withPortalEntity(req, null, async ({ tenantId, client }) => {
-    const gate = checkRateLimit(`portal:af-sign:${tenantId}:${client.clientId}`, PORTAL_SIGN_RATE_LIMIT)
+    const gate = await checkRateLimit(`portal:af-sign:${tenantId}:${client.clientId}`, PORTAL_SIGN_RATE_LIMIT)
     if (!gate.allowed) {
       return NextResponse.json(
         { error: "Too many signing attempts. Please wait a few minutes and try again." },

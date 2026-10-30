@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
   return withPortalEntity(req, id, async ({ tenantId, client }) => {
-    const gate = checkRateLimit(`portal:af-upload:${tenantId}:${client.clientId}`, PORTAL_ENTITY_UPLOAD_RATE_LIMIT)
+    const gate = await checkRateLimit(`portal:af-upload:${tenantId}:${client.clientId}`, PORTAL_ENTITY_UPLOAD_RATE_LIMIT)
     if (!gate.allowed) {
       return NextResponse.json(
         { error: "Too many uploads. Please wait a few minutes and try again." },

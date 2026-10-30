@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
-import { createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
+import { createLocalRateLimiter, createRateLimiter, recordedCallerIp } from "@/lib/rate-limit"
 import { apiKeyMatches, apiKeyPrefix, apiKeyState, bearerToken, keyIssuerStillAuthorised } from "@/lib/lender-api/keys"
 import { hasScope, type ApiScope } from "@/lib/lender-api/scopes"
 import { apiError } from "@/lib/lender-api/api-error"
 import { sourceAddressAllowed } from "@/lib/lender-api/ip-restriction"
 import { authenticateAccessToken, looksLikeAccessToken } from "@/lib/lender-api/oauth/authenticate"
+import { limiterAddress } from "@/lib/limiter-address"
 
 /**
  * The one entry point for /api/v1 routes. Every call:
@@ -51,10 +52,13 @@ export const UNATTRIBUTED_LOG_SAMPLE = { limit: 10, windowMs: 60_000 }
 
 // Key buckets are bounded by the ApiKey rows that exist (a bucket is made only
 // for a real key), so their store is sized well past that and never shared.
-const keyLimiter = createRateLimiter(200_000)
-const failedAuthByAddress = createRateLimiter(10_000)
-const failedAuthGlobal = createRateLimiter(1)
-const logSampler = createRateLimiter(1)
+// Namespaces are in the shared store's keys (lib/rate-limit.ts): never rename one.
+const keyLimiter = createRateLimiter(200_000, "lender-api:key")
+const failedAuthByAddress = createRateLimiter(10_000, "lender-api:failed-auth:address")
+// Per pod: one key, so in the shared store every failed request would queue on a single row lock.
+const failedAuthGlobal = createLocalRateLimiter(1)
+// Per process: it only decides how many log rows to write.
+const logSampler = createLocalRateLimiter(1)
 const LAST_USED_RESOLUTION_MS = 60_000
 
 export { apiError }
@@ -169,12 +173,12 @@ export async function withApiKey(
     keyId = auth.ok ? auth.caller.keyId : auth.keyId
     kind = auth.ok ? auth.caller.kind : auth.kind
     // Per credential (key or OAuth client), for every request that names a real one (refused ones too).
-    const keyLimit = keyId ? keyLimiter(kind === "oauth_client" ? `oauth:${keyId}` : keyId, API_KEY_RATE_LIMIT) : null
+    const keyLimit = keyId ? await keyLimiter(kind === "oauth_client" ? `oauth:${keyId}` : keyId, API_KEY_RATE_LIMIT) : null
     if (keyLimit && !keyLimit.allowed) {
       response = tooMany(keyLimit.retryAfterSeconds, kind === "oauth_client" ? "Too many requests for this OAuth client." : "Too many requests for this API key.")
     } else if (!auth.ok) {
       const ip = recordedCallerIp(req)
-      const failLimit = ip ? failedAuthByAddress(ip, API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
+      const failLimit = ip ? await failedAuthByAddress(limiterAddress(ip), API_FAILED_AUTH_IP_LIMIT) : failedAuthGlobal("unknown-address", API_FAILED_AUTH_GLOBAL_LIMIT)
       response = failLimit.allowed ? auth.response : tooMany(failLimit.retryAfterSeconds, "Too many failed requests.")
     } else if (!sourceAddressAllowed(req, auth.ipAllowlist)) {
       // The key (or client) is real and valid but not from here: its allowlist, on the TRUSTED_PROXY-aware caller address.

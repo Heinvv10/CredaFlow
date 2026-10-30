@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json({ error: `A question is 3 to ${QUESTION_MAX} characters.` }, { status: 400 })
     }
     for (const [key, opts] of [[`statement-ai-ask:user:${guard.user.id}`, ASK_LIMIT_PER_USER], [`statement-ai-ask:tenant:${tenant.id}`, ASK_LIMIT_PER_TENANT]] as const) {
-      const rl = checkRateLimit(key, opts)
+      const rl = await checkRateLimit(key, opts)
       if (!rl.allowed) return NextResponse.json({ error: "Too many questions. Try again shortly." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } })
     }
     const planned = await planOutputs(tenant.id, id)

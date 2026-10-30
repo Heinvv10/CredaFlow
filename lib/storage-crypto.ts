@@ -106,14 +106,14 @@ export function encryptFile(plaintext: Buffer, master: Buffer, name: string): Bu
   const prefix = Buffer.concat([MAGIC, Buffer.from([VERSION]), keyId(master)])
 
   const wrapIv = randomBytes(IV_LEN)
-  const wrap = createCipheriv("aes-256-gcm", master, wrapIv)
+  const wrap = createCipheriv("aes-256-gcm", master, wrapIv, { authTagLength: TAG_LEN })
   wrap.setAAD(prefix)
   const wrappedDek = Buffer.concat([wrap.update(dek), wrap.final()])
   const wrapTag = wrap.getAuthTag()
 
   const dataIv = randomBytes(IV_LEN)
   const header = Buffer.concat([prefix, wrapIv, wrapTag, wrappedDek, dataIv])
-  const cipher = createCipheriv("aes-256-gcm", dek, dataIv)
+  const cipher = createCipheriv("aes-256-gcm", dek, dataIv, { authTagLength: TAG_LEN })
   cipher.setAAD(dataAad(header, name))
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
   return Buffer.concat([header, cipher.getAuthTag(), ciphertext])
@@ -136,12 +136,12 @@ export function decryptFile(sealed: Buffer, master: Buffer, name: string): Buffe
   const dataIv = sealed.subarray(o, (o += IV_LEN))
   const dataTag = sealed.subarray(o, (o += TAG_LEN))
   try {
-    const unwrap = createDecipheriv("aes-256-gcm", master, wrapIv)
+    const unwrap = createDecipheriv("aes-256-gcm", master, wrapIv, { authTagLength: TAG_LEN })
     unwrap.setAAD(prefix)
     unwrap.setAuthTag(wrapTag)
     const dek = Buffer.concat([unwrap.update(wrappedDek), unwrap.final()])
 
-    const decipher = createDecipheriv("aes-256-gcm", dek, dataIv)
+    const decipher = createDecipheriv("aes-256-gcm", dek, dataIv, { authTagLength: TAG_LEN })
     decipher.setAAD(dataAad(sealed.subarray(0, WRAPPED_END + IV_LEN), name))
     decipher.setAuthTag(dataTag)
     return Buffer.concat([decipher.update(sealed.subarray(ENCRYPTED_HEADER_LEN)), decipher.final()])
