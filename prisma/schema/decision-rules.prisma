@@ -1,0 +1,162 @@
+// ── Business-configurable decisioning (lib/decisioning/) ─────────────────────
+// Rule sets and scorecards are versioned, effective-dated and created only by
+// an approved maker-checker change request (lib/maker-checker/): a version row
+// cannot be inserted unless its ChangeRequest is APPROVED, and a version never
+// changes. The engine config (mode, channels, products, challenger) is one row
+// per lender, changed only through the same four-eyes route. Every automatic
+// run is an append-only AutoDecisionRun (migration
+// 20261029100100_decision_rules). Module rules: lib/decisioning/.claude.md.
+
+/// OFF: the engine never runs (the default). SHADOW: it evaluates and records
+/// a run but acts on nothing. LIVE: it also executes the verdict.
+enum DecisionEngineMode {
+  OFF
+  SHADOW
+  LIVE
+}
+
+enum AutoDecisionVerdict {
+  APPROVE
+  DECLINE
+  REFER
+}
+
+enum AutoDecisionRole {
+  CHAMPION
+  CHALLENGER
+}
+
+/// What happened to the verdict. NOT_ACTED: shadow mode. REFERRED: the
+/// application stays UNDER_REVIEW for staff (a REFER verdict, or an APPROVE
+/// that a hard gate of the staff approval path refused).
+enum AutoDecisionExecution {
+  APPROVED
+  DECLINED
+  REFERRED
+  NOT_ACTED
+}
+
+model DecisionRuleSetVersion {
+  id              String       @id @default(cuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id])
+  /// The product id this version governs, or "ALL" (a product's own set wins).
+  scopeKey        String
+  productId       String?
+  product         LoanProduct? @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  version         Int
+  name            String
+  /// RuleDef[] (lib/decisioning/types.ts), validated before approval.
+  rules           Json
+  /// Scorecard (lib/decisioning/types.ts), or null: the set then grades nothing.
+  scorecard       Json?
+  /// First SAST calendar day the version runs as champion.
+  effectiveFrom   DateTime     @db.Date
+  /// Never champion: it runs only as the lender's challenger.
+  challengerOnly  Boolean      @default(false)
+  /// The approved ChangeRequest that created it. No relation, so a consumer of
+  /// lib/maker-checker/ adds nothing to ChangeRequest; the insert trigger
+  /// (guardDecisionRuleSetVersion) requires it to exist, APPROVED, of this kind.
+  changeRequestId String
+  createdAt       DateTime     @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  autoDecisionRuns         AutoDecisionRun[]
+  engineConfigsChallenging DecisionEngineConfig[] @relation("DecisionEngineChallenger")
+  gradedApplications       LoanApplication[]      @relation("ApplicationRiskGradeVersion")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scopeKey, version])
+  @@unique([tenantId, changeRequestId])
+  @@index([tenantId, scopeKey, effectiveFrom])
+}
+
+model DecisionEngineConfig {
+  id                  String                  @id @default(cuid())
+  tenantId            String                  @unique
+  tenant              Tenant                  @relation(fields: [tenantId], references: [id])
+  mode                DecisionEngineMode      @default(OFF)
+  /// PORTAL, STAFF (lib/decisioning/facts.ts CHANNELS). Empty: no channel.
+  channels            String[]
+  /// Product ids the engine may decide. Empty: no product.
+  productIds          String[]
+  repaymentMethod     LoanRepaymentMethod     @default(EFT)
+  challengerVersionId String?
+  challengerVersion   DecisionRuleSetVersion? @relation("DecisionEngineChallenger", fields: [tenantId, challengerVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// 0..50: the share of applications the challenger decides.
+  challengerPercent   Int                     @default(0)
+  /// The lender's legal sign-off of automated decline decisions (POPIA s71), set
+  /// by an approved engine-settings change. Until it is set a LIVE engine never
+  /// declines: a decline verdict is referred to staff.
+  s71SignedOffAt      DateTime?
+  s71SignedOffById    String?
+  /// The paragraph added to the client's decline message for an automated
+  /// decision, as approved by the lender's legal team (lib/decisioning/notice.ts).
+  automatedDeclineNotice String?
+  /// The approved ChangeRequest that wrote this row (trigger guardDecisionEngineConfig).
+  changeRequestId     String
+  updatedAt           DateTime                @updatedAt
+  createdAt           DateTime                @default(now())
+
+  @@unique([tenantId, id])
+}
+
+model AutoDecisionRun {
+  id               String                  @id @default(cuid())
+  tenantId         String
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id])
+  applicationId    String
+  ruleSetVersionId String
+  ruleSetVersion   DecisionRuleSetVersion @relation(fields: [tenantId, ruleSetVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  role             AutoDecisionRole
+  mode             DecisionEngineMode
+  /// What started the run (lib/decisioning/auto-decision.ts TRIGGERS).
+  trigger          String
+  verdict          AutoDecisionVerdict
+  /// string[]: every reason code behind the verdict (rule codes, gate codes).
+  reasonCodes      Json
+  riskGrade        String?
+  score            Int?
+  execution        AutoDecisionExecution
+  /// Staff-only context: the staff-path gate message that turned an APPROVE into a referral.
+  executionNote    String?
+  latencyMs        Int
+  /// From the client's submission to this run, when the application was submitted by the client.
+  submissionLatencyMs Int?
+  /// The client notice wording in force when the engine declined (the lender's approved text then);
+  /// the decline message uses this, never a later edit. Null unless a DECLINED run.
+  noticeText       String?
+  createdAt        DateTime                @default(now())
+
+  @@unique([tenantId, id])
+  @@index([tenantId, applicationId])
+  @@index([tenantId, createdAt])
+}
+
+/// A digitally submitted application whose automatic review is due (lib/decisioning/digital-due.ts).
+/// Written before the after-response task is scheduled and completed when it finishes, so a task lost
+/// to a restart is found and run by the sweep (/api/cron/digital-decisions) instead of vanishing.
+model AutoDecisionDue {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  applicationId String
+  clientId      String
+  /// The submitting caller's address, for the per-address daily limit on automatic bureau pulls.
+  ip            String?
+  createdAt     DateTime  @default(now())
+  /// Taken by a sweep (or the task itself); a claim older than the stale window is retaken.
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  /// Set when the review was admitted against the daily limits (before its paid pull); the limits count these.
+  chargedAt     DateTime?
+  /// How it ended: REVIEWED, a skip reason, RATE_LIMITED or GAVE_UP.
+  outcome       String?
+  attempts      Int       @default(0)
+
+  @@unique([tenantId, applicationId])
+  @@unique([tenantId, id])
+  @@index([tenantId, completedAt, createdAt])
+  @@index([tenantId, clientId, chargedAt])
+  @@index([tenantId, ip, chargedAt])
+}

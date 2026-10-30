@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { redactTenantCredentials } from "@/lib/integrations/tenant-credentials"
 import { DEFAULT_TENANT_COLOURS, tenantColourErrors } from "@/lib/theme/tenant-colours"
+import { instanceJurisdictionMessage, isInstanceJurisdictionError } from "@/lib/jurisdiction/instance.server"
 import { normaliseTenantDomain, tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
 import type { Session } from "next-auth"
 
@@ -81,6 +82,8 @@ export async function POST(req: NextRequest) {
   }
 
   // The tenant and its audit row commit together, or neither does.
+  // A new lender's config takes the instance's jurisdiction (database trigger); a refusal
+  // (a legacy mismatch) is a 409, not a 500.
   const tenant = await prisma.$transaction(async (tx) => {
     const created = await tx.tenant.create({
       data: {
@@ -102,7 +105,8 @@ export async function POST(req: NextRequest) {
       newValue: { slug: created.slug, name: created.name, domain: created.domain, status: created.status, ...colours },
     }, tx)
     return created
-  })
+  }).catch((e: unknown) => (isInstanceJurisdictionError(e) ? e : Promise.reject(e)))
+  if (tenant instanceof Error) return NextResponse.json({ error: instanceJurisdictionMessage(tenant) }, { status: 409 })
 
   return NextResponse.json(redactTenantCredentials(tenant), { status: 201 })
 }

@@ -68,7 +68,7 @@ describe("ControlsList", () => {
     expect(html).toContain("rec-9")
     expect(html).toContain("contract records")
     expect(html).toContain("R 43,501.00")
-    expect(html).toContain("R -180.01")
+    expect(html).toContain("-R 180.01")
   })
 
   it("caps the list and says how many more", () => {

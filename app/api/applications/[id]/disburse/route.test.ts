@@ -1117,6 +1117,22 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     }))
   })
 
+  // The decision engine approved it: no person approved, so the staff member whose attestation the approval
+  // rested on takes the approver's place (lib/security/segregation-of-duties.ts).
+  it("refuses, before any write, a disbursement by the staff member whose attestation an engine approval rested on", async () => {
+    findUniqueApplication.mockResolvedValue({
+      id: "app-1", tenantId: "tenant-1", status: "APPROVED", agreementSignedAt: new Date("2026-05-10T01:00:00.000Z"),
+      appliedAmount: 500000, appliedTermDays: 30, clientId: "client-1", productId: "prod-1",
+      approvedById: "sys-1", approvedBy: { isSystem: true }, recklessLendingAssessedById: "user-1",
+      client: { monthlyIncome: 1_500_000, monthlyExpenses: 800_000, debtObligations: [] },
+      product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+    })
+    const response = await POST(makeRequest(), ctx)
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties", error: expect.stringContaining("decision engine approved") })
+    expect(prismaTransaction).not.toHaveBeenCalled()
+  })
+
   it("still returns 500 for a genuine failure that is not a guard refusal", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",

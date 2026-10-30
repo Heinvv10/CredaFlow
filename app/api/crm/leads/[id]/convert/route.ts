@@ -1,4 +1,6 @@
+import { withInputStaff } from "@/lib/applications/input-staff"
 import { NextRequest, NextResponse } from "next/server"
+import { canonicalIdNumber } from "@/lib/validation/client-wizard"
 import { PO_FUNDING_NEEDS_ORDER, requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -27,6 +29,8 @@ interface LockedLead {
   convertedToClientId: string | null
   convertedToApplicationId: string | null
   conversionRecoveryRequired: boolean
+  /** Staff who entered decision-input figures on the lead (Lead.inputStaffIds). */
+  inputStaffIds: string[]
 }
 
 interface RecoveryApplicationCandidate {
@@ -80,6 +84,7 @@ export async function POST(
     try {
       const { id: leadId } = await params
       const data = await req.json()
+      if (typeof data.idNumber === "string") data.idNumber = canonicalIdNumber(data.idNumber)
 
       const recoveryApplicationId = typeof data.recoveryApplicationId === "string"
         ? data.recoveryApplicationId.trim()
@@ -129,7 +134,7 @@ export async function POST(
         // double-submit waits here, then returns the first conversion instead
         // of creating a second client/application or surfacing a P2002 error.
         const [lockedLead] = await tx.$queryRaw<LockedLead[]>(Prisma.sql`
-          SELECT "id", "status"::text AS "status", "convertedToClientId", "convertedToApplicationId", "conversionRecoveryRequired"
+          SELECT "id", "status"::text AS "status", "convertedToClientId", "convertedToApplicationId", "conversionRecoveryRequired", "inputStaffIds"
           FROM "Lead"
           WHERE "id" = ${leadId} AND "tenantId" = ${tenant.id}
           FOR UPDATE
@@ -509,6 +514,8 @@ export async function POST(
             data: {
               tenantId: tenant.id,
               reference: generateReference("CLT"),
+              // The staff who entered figures on the lead, and the person converting it (lib/applications/input-staff.ts).
+              inputStaffIds: guard.user.id ? withInputStaff(lockedLead.inputStaffIds, guard.user.id) : [...(lockedLead.inputStaffIds ?? [])],
               idNumber: data.idNumber,
               firstName: data.firstName,
               lastName: data.lastName,
@@ -649,6 +656,7 @@ export async function POST(
             recklessLendingAssessed: true,
             recklessLendingAssessedAt: now,
             recklessLendingAssessedById: guard.user.id ?? "admin",
+            inputStaffIds: guard.user.id ? [guard.user.id] : [],
           },
         })
 

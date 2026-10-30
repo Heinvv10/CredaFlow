@@ -35,7 +35,7 @@ function baseLayout(identity: PortalEmailIdentity, header: string, body: string)
 
       <!-- Footer -->
       <tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-        <p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)} &middot; <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;text-decoration:none;">${escapeHtml(identity.publicEmail)}</a></p>
+        <p style="margin:0;color:#888;font-size:11px;">${identity.ncrNumber ? `NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)} &middot; ` : ""}<a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;text-decoration:none;">${escapeHtml(identity.publicEmail)}</a></p>
       </td></tr>
 
     </table>
@@ -187,7 +187,9 @@ export function applicationDeclinedEmail(
   identity: PortalEmailIdentity,
   clientName: string,
   reference: string,
-  reason: string
+  reason: string,
+  /** The lender's approved paragraph for an automated decision (lib/decisioning/notice.ts); absent for a decision a person took. */
+  automatedNotice?: string | null,
 ): string {
   const body = `
     <p style="margin:0 0 16px;font-size:16px;font-weight:bold;color:#1B1D24;">Regarding your loan application</p>
@@ -201,7 +203,8 @@ export function applicationDeclinedEmail(
         <p style="margin:0;color:#7F1D1D;line-height:1.6;">${reason}</p>
       </td></tr>
     </table>
-    ` : ""}
+    ` : ""}${automatedNotice ? `
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">${escapeHtml(automatedNotice)}</p>` : ""}
 
     <p style="margin:0 0 16px;color:#444;line-height:1.6;">This decision was made in accordance with the National Credit Act (NCA) affordability requirements. You have the right to:</p>
     <ul style="margin:0 0 16px;padding-left:20px;color:#444;line-height:1.8;">

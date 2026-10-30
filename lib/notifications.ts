@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "@/lib/prisma"
+import { automatedDeclineNoticeFor } from "@/lib/decisioning/notice"
 import { dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { sendEmail } from "@/lib/email/service"
 import { sendSms } from "@/lib/integrations/bulksms"
@@ -13,7 +14,7 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { sendWhatsAppForTenant } from "@/lib/whatsapp/send-for-tenant"
 import { getLenderIdentity, type LenderIdentity } from "@/lib/config/identity"
 import { requireAppBaseUrl } from "@/lib/config/deployment-urls"
-import { escapeHtml } from "@/lib/utils"
+import { activeCurrencySymbol, escapeHtml } from "@/lib/utils"
 import { portalContinueUrl } from "@/lib/portal-urls"
 import {
   applicationSubmittedEmail,
@@ -173,6 +174,8 @@ interface WaVars {
   outstanding: number
   dueDate: string
   days: number
+  /** The lender's approved notice for an automated decline (application_declined only); empty otherwise. */
+  notice: string
 }
 
 const EMPTY_WA_VARS: WaVars = {
@@ -181,6 +184,7 @@ const EMPTY_WA_VARS: WaVars = {
   outstanding: 0,
   dueDate: "",
   days: 0,
+  notice: "",
 }
 
 // ── Inline HTML builders for events without dedicated portal templates ─────────
@@ -200,7 +204,7 @@ function section129Html(identity: LenderIdentity, name: string): string {
 <p style="margin:0;color:#888;font-size:12px;">Questions? <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;">${escapeHtml(identity.publicEmail)}</a></p>
 </td></tr>
 <tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-<p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}</p></td></tr>
+<p style="margin:0;color:#888;font-size:11px;">${identity.ncrNumber ? `NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}` : escapeHtml(identity.legalName)}</p></td></tr>
 </table></td></tr></table></body></html>`
 }
 
@@ -263,13 +267,15 @@ async function buildTemplate(
       }
     }
 
-    // application_declined
+    // application_declined. An automated decision also carries the lender's
+    // approved notice (lib/decisioning/notice.ts); a person's decline is unchanged.
     const reason = String(app?.decisionReason ?? d.reason ?? "")
+    const automatedNotice = app ? await automatedDeclineNoticeFor(opts.tenantId, app.id) : null
     return {
       subject: "Update on Your Loan Application",
-      html: applicationDeclinedEmail(identity, fullName, reference, reason),
-      text: `Dear ${fullName}, we regret that your application (${reference}) was unsuccessful. ${reason}`,
-      waVars: { ...EMPTY_WA_VARS, reference },
+      html: applicationDeclinedEmail(identity, fullName, reference, reason, automatedNotice),
+      text: `Dear ${fullName}, we regret that your application (${reference}) was unsuccessful. ${reason}${automatedNotice ? ` ${automatedNotice}` : ""}`,
+      waVars: { ...EMPTY_WA_VARS, reference, notice: automatedNotice ?? "" },
     }
   }
 
@@ -294,7 +300,7 @@ async function buildTemplate(
       return {
         subject: t("subjReceived"),
         html: paymentReceivedEmail(identity, fullName, amount, reference, outstanding, locale),
-        text: t("textReceived", { name: fullName, balance: `R${(outstanding / 100).toFixed(2)}` }),
+        text: t("textReceived", { name: fullName, balance: `${activeCurrencySymbol()}${(outstanding / 100).toFixed(2)}` }),
         waVars: { ...EMPTY_WA_VARS, reference, amount, outstanding },
       }
     }
@@ -346,7 +352,7 @@ async function buildTemplate(
 // see lib/pdf/.claude.md). This preserves the WA_TEMPLATES formatting that
 // was already live before this fix (e.g. application_submitted).
 function formatRand(cents: number): string {
-  return `R${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
+  return `${activeCurrencySymbol()}${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
 }
 
 interface WaBuildResult {
@@ -381,11 +387,16 @@ function ok(message: string, templateVars: Record<string, string> = {}): WaBuild
 
 /**
  * The WABA template event an event's WhatsApp leg sends. Identity for every
- * event but `loan_overdue`, whose free text branches 1-day notice vs 7-day
+ * event but `loan_overdue` and an automated `application_declined`, whose free text branches 1-day notice vs 7-day
  * "URGENT" escalation on days overdue — a Meta template is ONE fixed body, so
  * each branch has its own row. The threshold is the one buildWaMessage uses.
  */
-function waTemplateEventFor(event: NotificationEvent, days: number): string {
+/** The WABA template event of an automated decline (lib/whatsapp/template-vars.ts). Not a delivery status. */
+const AUTOMATED_DECLINE_WA_EVENT = "application_declined_automated"
+
+function waTemplateEventFor(event: NotificationEvent, days: number, notice = ""): string {
+  // An automated decline has its own body, which carries the lender's approved notice.
+  if (event === "application_declined" && notice) return AUTOMATED_DECLINE_WA_EVENT
   if (event !== "loan_overdue") return event
   return days >= 7 ? "loan_overdue_7d" : "loan_overdue_1d"
 }
@@ -400,7 +411,7 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
   const phone = identity.collectionsPhone
   // Derived from the same locals the free-text wording interpolates, so a
   // template send and an in-window send can never quote different figures.
-  const tv = waTemplateVarsFor(waTemplateEventFor(event, vars.days), {
+  const tv = waTemplateVarsFor(waTemplateEventFor(event, vars.days, vars.notice), {
     firstName,
     reference: ref,
     amount,
@@ -408,6 +419,7 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
     dueDate,
     supportPhone: phone,
     daysOverdue: vars.days ? String(vars.days) : "",
+    notice: vars.notice,
   })
 
   switch (event) {
@@ -423,6 +435,8 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
     }
     case "application_declined": {
       if (!ref) return skipMissingVars(event, { reference: ref })
+      // An automated decision carries the lender's approved notice here too (English, like the rest of the decline).
+      if (vars.notice) return ok(WA_TEMPLATES.application_declined_automated(firstName, ref, vars.notice), tv)
       return ok(WA_TEMPLATES.application_declined(firstName, ref), tv)
     }
     case "loan_disbursed": {
@@ -955,7 +969,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<No
       template,
       waMessage,
       waBuild.templateVars,
-      waTemplateEventFor(opts.event, template.waVars.days),
+      waTemplateEventFor(opts.event, template.waVars.days, template.waVars.notice),
       locale,
       log,
     )

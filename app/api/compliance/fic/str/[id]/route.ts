@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { PERMISSIONS, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
@@ -19,6 +20,8 @@ import { getScreeningConfig } from "@/lib/screening/policy"
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("FIC Act compliance")
+  if (notNca) return notNca
   return withTenantContext(req, async (tenant) => {
     const totp = await ficTotpRefusal(guard.user, tenant.id)
     if (totp) return totp
@@ -33,6 +36,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole(PERMISSIONS.manage_fic_compliance)
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("FIC Act compliance")
+  if (notNca) return notNca
   return withTenantContext(req, async (tenant) => {
     const totp = await ficTotpRefusal(guard.user, tenant.id)
     if (totp) return totp

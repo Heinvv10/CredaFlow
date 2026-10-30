@@ -1,3 +1,4 @@
+import { ncaOnlyPage } from "@/lib/jurisdiction/nca-only"
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { PERMISSIONS, requireMinRole } from "@/lib/auth-guards"
@@ -30,6 +31,7 @@ const strRow = (c: StrCaseRow) => ({
  */
 export default async function FicPage() {
   const user = await requireMinRole(PERMISSIONS.manage_fic_compliance)
+  await ncaOnlyPage()
   const tenantId = await getResolvedTenantId()
   if (user.tenantId !== tenantId) notFound()
   const breadcrumbs = <Breadcrumbs className="mb-4" items={[{ label: "Compliance", href: "/compliance" }, { label: "FIC Act" }]} />

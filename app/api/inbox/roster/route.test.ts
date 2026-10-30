@@ -108,7 +108,7 @@ it("PATCH answers 404 for a member outside the caller's tenant and toggles nothi
   userFindFirstMock.mockResolvedValue(null)
   const res = await toggle()
   expect(res.status).toBe(404)
-  expect(userFindFirstMock).toHaveBeenCalledWith({ where: { id: "u2", tenantId: "t1" }, select: { role: true } })
+  expect(userFindFirstMock).toHaveBeenCalledWith({ where: { id: "u2", tenantId: "t1" }, select: { role: true, isSystem: true } })
   expect(setAgentMock).not.toHaveBeenCalled()
 })
 

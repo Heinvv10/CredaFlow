@@ -102,7 +102,7 @@ export default async function CalculatorsPage() {
           <p>
             All calculations are estimates for illustration purposes only. Final loan terms, interest rates, fees, and
             monthly instalments are subject to a full credit and affordability assessment. {identity.legalName} is a
-            registered credit provider in terms of the National Credit Act (NCR Reg: {identity.ncrNumber}).
+            registered credit provider{identity.ncrNumber ? <> in terms of the National Credit Act (NCR Reg: {identity.ncrNumber})</> : null}.
           </p>
         </div>
       </section>

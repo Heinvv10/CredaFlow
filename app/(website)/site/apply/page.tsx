@@ -31,6 +31,7 @@ import { useT } from "@/lib/i18n/client"
 import { richText } from "@/lib/i18n/rich"
 import { applyFaqs } from "./faqs"
 import { buildApplyMaterialPayload } from "./payload"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 type Step1 = {
   firstName: string
@@ -94,7 +95,8 @@ const productOptions = [
 ] as const
 
 function formatRandRange(min: number, max: number): string {
-  return `R${min.toLocaleString()} - R${max.toLocaleString()}`
+  const symbol = activeCurrencySymbol()
+  return `${symbol}${min.toLocaleString()} - ${symbol}${max.toLocaleString()}`
 }
 
 const blankStep1: Step1 = { firstName: "", lastName: "", idNumber: "", phone: "", email: "" }
@@ -668,7 +670,7 @@ export default function ApplyPage() {
             ))}
           </div>
           <div className="mt-6 border border-white/8 bg-black/18 p-4 text-xs leading-relaxed text-white/46">
-            POPIA consent, affordability assessment and credit checks are required before final approval. {identity.legalName} is a registered credit provider (NCR Reg: {identity.ncrNumber}).
+            POPIA consent, affordability assessment and credit checks are required before final approval. {identity.legalName} is a registered credit provider{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null}.
           </div>
         </aside>
 
@@ -824,7 +826,7 @@ export default function ApplyPage() {
                   className="mt-0.5 h-4 w-4 shrink-0 accent-[#a5b4fc]"
                 />
                 <span className="text-xs leading-relaxed text-white/62">
-                  I consent to {identity.legalName} (NCR Reg: {identity.ncrNumber}) processing my personal information in terms of POPIA and conducting a credit bureau enquiry to assess this application.
+                  I consent to {identity.legalName}{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null} processing my personal information in terms of POPIA and conducting a credit bureau enquiry to assess this application.
                 </span>
               </label>
               {errors.consent && <p className="-mt-1 text-xs text-red-300">{errors.consent}</p>}

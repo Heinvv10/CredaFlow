@@ -15,6 +15,8 @@ export const PLATFORM_MODELS = new Set([
   "Operator", "Tenant", "TenantConfig", "User", "TenantSupportGrant",
   // Lender configuration the provisioning path seeds (templates, no borrower rows).
   "DocumentTemplate", "DocumentTemplateVersion", "MessageTemplate",
+  // The instance's jurisdiction (one row, no personal data) that provisioning copies onto the new lender.
+  "InstanceJurisdiction",
 ])
 
 /** Operations that hand back no row: counts and sums, and writes the census reasons about separately. */
@@ -59,6 +61,7 @@ function answer(model: string, op: string, f: Fixture, args: unknown): unknown {
     case "Tenant": return many ? [tenantRow()] : tenantRow()
     case "Operator": return { id: OP, name: "Census Operator" }
     case "TenantSupportGrant": return many ? [] : f.grant
+    case "InstanceJurisdiction": return { id: 1, jurisdiction: "ZA", currency: "ZAR" }
     case "User":
       return many ? [] : { id: ME, email: "me@operator.invalid", name: "Me", active: true, role: f.operatorRole, operatorId: OP, tenantId: null }
     default: return many ? [] : null

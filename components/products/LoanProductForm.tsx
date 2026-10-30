@@ -6,8 +6,10 @@ import Link from "next/link"
 import { interestGuidance, type InterestGuidanceBasis } from "@/lib/product-config/interest-guidance"
 import { annualisedInterestRate } from "@/lib/loan/annualised-rate"
 import { ncaInitiationFeeCap } from "@/lib/loan/nca-fee-cap"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { NonNcaArrearsFields } from "./NonNcaArrearsFields"
 import { nonNcaArrearsBody, type NonNcaArrearsValues } from "@/lib/product-config/non-nca-arrears-form"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 type InterestModel = "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL"
 type ProductType = "MICRO" | "PERSONAL" | "PO_FUNDING" | "ASSET_FINANCE"
@@ -104,7 +106,7 @@ function calcDaily(principal: number, ratePm: number, termDays: number): CalcRes
 }
 
 function formatR(n: number) {
-  return "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `${activeCurrencySymbol()} ` + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -148,8 +150,9 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
       : calcDaily(p, r, t)
     // This form counts in RANDS; nca-fee-cap counts in CENTS. Convert at the
     // call. NCA_REG42 prices ON the schedule, so the percentage is not used.
-    const statutoryCeiling = ncaInitiationFeeCap(Math.round(p * 100)) / 100
-    const priced = form.initiationFeeModel === "NCA_REG42"
+    const nca = isNcaJurisdiction()
+    const statutoryCeiling = nca ? ncaInitiationFeeCap(Math.round(p * 100)) / 100 : Infinity
+    const priced = form.initiationFeeModel === "NCA_REG42" && nca
       ? statutoryCeiling
       : p * (form.initiationFeePct / 100)
     const commercial = form.initiationFeeMax > 0 ? Math.min(priced, form.initiationFeeMax) : priced

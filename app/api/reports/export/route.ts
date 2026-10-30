@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withStrAuditVisibility } from "@/lib/fic/audit-visibility"
 import { prisma } from "@/lib/prisma"
@@ -17,7 +18,9 @@ import { ncrPositionBasis } from "@/lib/compliance/ncr-position-basis"
 import { readSnapshotArrearsRegister } from "@/lib/reports/arrears-snapshot"
 import { overdueWhere } from "@/lib/reports/book-arrears"
 import { collectionsQueueWhere } from "@/lib/collections/queue"
-import { logAuditStrict } from "@/lib/audit"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { buildEclExport } from "@/lib/ifrs9/export"
+import { runWithTenant } from "@/lib/tenant-scope"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { section129LogRow } from "@/lib/collections/section129-reporting"
 import { arrearsBucket } from "@/lib/reports/arrears-buckets"
@@ -270,6 +273,8 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: "Affordability Register", rows }])
   } else if (type === "ncr-quarterly") {
+    const notNca = await ncaOnlyRefusal("The NCR quarterly return")
+    if (notNca) return notNca
     // Two sheets of this workbook carry client ID numbers and full names, so a
     // generic READONLY export permission is too broad — same reasoning as the
     // section129-register and audit-log branches. The audit row below was added
@@ -456,6 +461,8 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: "Credit Agreements Register", rows }])
   } else if (type === "section129-log") {
+    const notNca = await ncaOnlyRefusal("The Section 129 log")
+    if (notNca) return notNca
     // The legal register contains ID numbers, addresses, recipient details and
     // financial snapshots. A generic READONLY export permission is too broad.
     const upgraded = await requireApiRole("LOAN_ADMIN")
@@ -483,6 +490,8 @@ export async function GET(req: NextRequest) {
       newValue: { rowCount: records.length },
     })
   } else if (type === "reckless-lending") {
+    const notNca = await ncaOnlyRefusal("The reckless-lending audit")
+    if (notNca) return notNca
     // The reckless-lending audit (NCA s80-81) covers natural-person consumers;
     // an entity (asset finance) application is not on it.
     const applications = await prisma.loanApplication.findMany({
@@ -606,6 +615,8 @@ export async function GET(req: NextRequest) {
     const month = now.toLocaleString("en-ZA", { month: "long", year: "numeric", timeZone: SAST_TIME_ZONE })
     wb = createWorkbook([{ name: `Reconciliation ${month}`, rows }])
   } else if (type === "fsca-annual") {
+    const notNca = await ncaOnlyRefusal("The FSCA return")
+    if (notNca) return notNca
     // SAST year. The FSCA annual return is filed for a South African year.
     const year = sastParts(now).year
 
@@ -657,6 +668,8 @@ export async function GET(req: NextRequest) {
     ])
     return workbookResponse(fscaWb, `fsca-annual-return-${year}.xlsx`)
   } else if (type === "fsca-quarterly") {
+    const notNca = await ncaOnlyRefusal("The FSCA return")
+    if (notNca) return notNca
     const quarter = parseQuarterParam(req.nextUrl.searchParams.get("quarter") ?? undefined, now)
     const { start, end } = quarterBounds(quarter)
     const data = await getFscaReturnData(tenant.id, quarter)
@@ -749,6 +762,18 @@ export async function GET(req: NextRequest) {
       { name: "Complaints", rows: complaintRows },
     ])
     return workbookResponse(wbQ, `fsca-quarterly-return-${quarter}.xlsx`)
+  } else if (type === "ifrs9-ecl") {
+    // Loan-level ECL, the stage summary and the transition matrix of an IFRS 9 run (lib/ifrs9): LOAN_ADMIN+, and the export is audited.
+    const upgraded = await requireApiRole("LOAN_ADMIN")
+    if (upgraded.error) return upgraded.error
+    const built = await runWithTenant(tenant.id, () =>
+      buildEclExport(prisma, tenant.id, req.nextUrl.searchParams.get("runId") ?? undefined, req.nextUrl.searchParams.get("compareTo") ?? undefined))
+    if (!built) return NextResponse.json({ error: "No IFRS 9 run to export" }, { status: 404 })
+    await logAuditStrict({
+      tenantId: tenant.id, userId: upgraded.user.id, userEmail: upgraded.user.email, action: AuditAction.IFRS9_REPORT_EXPORTED,
+      entity: "Ifrs9Run", entityId: built.report.run.id, newValue: { runDate: built.report.run.runDate, loanCount: built.report.run.loanCount },
+    })
+    wb = createWorkbook(built.sheets)
   } else if (type === "audit-log") {
     // Audit log access is LOAN_ADMIN+ (mirrors /api/audit and /settings/audit-log).
     // The route-level READONLY guard isn't sufficient here.

@@ -135,7 +135,8 @@ export async function createDraftApplication(caller: ApiCaller, input: CreateApp
       }
 
       const created = await tx.loanApplication.create({
-        data: { tenantId, reference: generateReference("APP"), ...prepared.fields },
+        // The API key's creator stands in for the capturer: the SoD rule for an engine approval names them (lib/applications/input-staff.ts).
+        data: { tenantId, reference: generateReference("APP"), ...prepared.fields, inputStaffIds: [caller.createdById] },
         select: applicationSelect,
       })
       await logAuditStrict({

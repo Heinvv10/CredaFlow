@@ -116,6 +116,7 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (key: string, conf: unknown) => checkRateLimitMock(key, conf),
   callerIp: () => "127.0.0.1",
+  recordedCallerIp: () => null,
 }))
 vi.mock("@/lib/referral-agents/referrals", () => ({
   resolveReferralCode: (...args: unknown[]) => resolveReferralCodeMock(...args),

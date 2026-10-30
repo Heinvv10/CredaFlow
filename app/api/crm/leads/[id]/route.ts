@@ -1,3 +1,4 @@
+import { withInputStaff } from "@/lib/applications/input-staff"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -51,7 +52,7 @@ export async function PATCH(
         // — "did this person actually ask us for credit?"). Whoever sets it
         // creates that basis, so who set it, when, and from what has to be on
         // the record.
-        select: { status: true, assignedToId: true, requestedAmount: true, declaredIncome: true },
+        select: { status: true, assignedToId: true, requestedAmount: true, declaredIncome: true, employmentType: true, inputStaffIds: true },
       })
       if (!existing) {
         return NextResponse.json({ error: "Lead not found" }, { status: 404 })
@@ -122,6 +123,11 @@ export async function PATCH(
           ...(data.notes !== undefined && { notes: data.notes }),
           ...(data.tags !== undefined && { tags: data.tags }),
           ...(data.employmentType !== undefined && { employmentType: data.employmentType }),
+          // A figure a decision fact reads (income, employment), entered or changed on the lead: whoever did cannot later
+          // disburse an engine approval of the client's application (lib/applications/input-staff.ts).
+          ...(((data.declaredIncome !== undefined && data.declaredIncome !== existing.declaredIncome)
+            || (data.employmentType !== undefined && data.employmentType !== existing.employmentType))
+            && { inputStaffIds: withInputStaff(existing.inputStaffIds, guard.user.id) }),
           ...(data.declaredIncome !== undefined && { declaredIncome: data.declaredIncome }),
           ...(data.requestedAmount !== undefined && { requestedAmount: data.requestedAmount }),
           ...(data.referredBy !== undefined && { referredBy: data.referredBy }),

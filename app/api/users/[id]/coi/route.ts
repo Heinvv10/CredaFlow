@@ -65,7 +65,7 @@ export async function POST(
     // 1 January must land in the new year, not the one that just ended.
   const year = body.year ?? sastParts(new Date()).year
 
-    const user = await prisma.user.findFirst({ where: { id, tenantId: tenant.id }, select: { id: true } })
+    const user = await prisma.user.findFirst({ where: { id, tenantId: tenant.id, isSystem: false }, select: { id: true } })
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
     const declaration = await prisma.coiDeclaration.upsert({

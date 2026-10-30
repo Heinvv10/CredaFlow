@@ -26,7 +26,14 @@ routes, each with its own session secret (`docker-compose.yml`).
 - **Origination** — `applications/`, `affordability/`, `credit/`, `decision/`,
   `kyc/`, `ocr/` (document extraction), `qualify.ts`, `loan-calculator.ts`,
   `pdf/` (the NCA documents), `disbursement/`.
-- **Servicing** — `loan/` (schedules, balances, default charges), `payments/`,
+- **Decisioning** — `decisioning/` (lender-configured rules, scorecards, risk
+  grades, automatic approve/decline/refer, simulation, champion/challenger) and
+  `maker-checker/` (generic four-eyes change requests it and later
+  configuration modules use). An automatic approval or decline runs through the
+  staff decision path's gates as the lender's system user; the engine is off
+  until a lender's settings, approved by a second person, turn it on.
+- **Servicing** — `loan/` (schedules, balances, default charges), `ifrs9/` (staging, ECL,
+  interest suspension; `docs/ifrs9/DESIGN.md`), `payments/`,
   `bank-sync/` (statement import and reconciliation), `collections/`
   (escalation, arrangements, Section 129).
 - **Customer contact** — `messaging/` (the one send pipeline), `email/`,
@@ -176,6 +183,57 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   palette.
 - **Feature flags.** `TenantConfig.feature*` switch modules (CRM, insurance,
   bureau submission, portal, …) per tenant (`resolveFeatureFlags`).
+
+## Jurisdiction
+
+One instance and one database serve one jurisdiction. The `InstanceJurisdiction`
+table holds it: a single row (id = 1, CHECK) with jurisdiction (ZA or LS) and
+currency. It is the one source of truth.
+
+- **Written once, then by an operator only.** The migration backfills it (ZA /
+  ZAR on every existing database). After that only
+  `lib/jurisdiction/instance-write.ts` writes it, through
+  `npm run lender:set-jurisdiction` (and the demo seed): audited, never
+  reachable from a request, refused once any loan application or loan has ever
+  existed (`frozenAt`, stamped by the first insert and never cleared, so deleting
+  every application does not thaw it; a trigger refuses it too). It moves the lenders' configs with it. Run it
+  before onboarding lenders.
+- **Every lender equals it.** A `TenantConfig` INSERT takes the instance's
+  values whatever it carried (the column defaults are ZA / ZAR and an upsert
+  inserts first, so refusing would break every settings writer on an LS
+  instance); a trigger refuses a change of either column or of `tenantId` that
+  would differ, and a tenant becoming ACTIVE or PROVISIONING whose config
+  differs; a change of the row commits only if every lender then equals it. Each
+  guard calls `lockInstanceJurisdiction()` first: it takes
+  `pg_advisory_xact_lock(hashtext('credaflow.instance_jurisdiction'))`, so a
+  lender created while the row is being changed waits and then sees the new
+  value, and it refuses to run outside READ COMMITTED (waiting for a lock does
+  not refresh a REPEATABLE READ / SERIALIZABLE snapshot, so the reads after it
+  would be stale). A LoanApplication or Loan INSERT holds the same lock shared
+  until it commits, so a change of the row waits for inserts in flight and then
+  counts them. A CHECK ties currency to jurisdiction (ZA is rand only).
+- **The app reads the row, not the tenants.** `lib/jurisdiction/active.ts`
+  holds it process-wide (synchronous formatters and gates need no tenant
+  argument). `instrumentation.ts` loads it at boot (retries with backoff,
+  bounded wait; a database that is not migrated boots as ZA, NCA gates on), and
+  `ensureActiveJurisdiction()` (cron runner, tenant resolution, root layout)
+  re-reads it every 60 s. If the database value ever differs from the one in
+  use, or any lender's `TenantConfig` differs from the row (the triggers were
+  bypassed: `JurisdictionMismatchError`), the process refuses to serve
+  (`JurisdictionChangedError`) and logs, until it matches again or is restarted. A re-read that merely fails keeps serving.
+- **Provisioning** takes the instance's jurisdiction: the operator console and
+  `lender:bootstrap-tenant` validate the lender file under it and write it to the
+  new config; a process that validated under another one is refused (409 /
+  `JURISDICTION_CONFLICT`). Admin PATCH to ACTIVE and operator reactivation
+  pre-check and answer 409; admin tenant creation maps the trigger's refusal to
+  409; the triggers are the backstop.
+- **Lenders are retired, never deleted.** A `TenantConfig` cannot be deleted once
+  the lender has a loan application or loan; set its status to SUSPENDED.
+- **NCA-only steps** are gated at their entry points by `ncaOnlyRefusal()` /
+  `ncaOnlyPage()` / `ncaOnlyCronSkip()` and listed in `lib/registry/nca-only/`;
+  the census and behaviour tests fail when an NCA-looking route is neither gated
+  nor declared, or does not refuse under an LS lender.
+- Details and rules: `lib/jurisdiction/.claude.md`.
 
 ## Lender-owned asset-finance templates
 
@@ -377,6 +435,7 @@ change that domain's entries.
 | Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST; `singleRun: true` claims the SAST day in `CronRunClaim` first, so one replica runs it, and fires it again +30 and +60 minutes later to run it over a FAILED or dead run only; `after: "<route>"` holds it until that single-run job is DONE or its final scheduled firing has passed with nothing running; the call is on loopback, `CRON_BASE_URL` overrides it); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
 | Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
 | Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })` — a minimum role on the ladder (`ROLE_HIERARCHY`), a Prisma `UserRole`; or `key: ["ROLE", …]`, the exact roles that hold it, when a minimum would also grant a role that must not have it (a specialist role ranked above the roles it is kept from, e.g. `capture_payment` without INSURANCE_OFFICER). Prefer the minimum: a role added to the ladder inherits it, while a list names everyone by hand | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
+| Change handlers | `lib/registry/change-handlers/` | `defineChangeHandlers([{ kind, module, export }])`; data only (the generator writes the import) | `handlerFor` (`lib/maker-checker/handlers.ts`) |
 | Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |
 
 ### The Prisma schema

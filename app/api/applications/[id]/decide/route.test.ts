@@ -157,6 +157,7 @@ import {
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
 import { POST } from "./route"
+import { decideApplication, type DecideAutomation } from "./decide-application"
 
 const ctx = { params: Promise.resolve({ id: "app-1" }) }
 
@@ -2275,5 +2276,69 @@ describe("the decision log (lib/learning-loop)", () => {
       expect.objectContaining({ decision: "RETURN_TO_DRAFT", inputsSnapshot: { priorStatus: "UNDER_REVIEW" } }),
       expect.objectContaining({ decision: "RETURN_TO_REVIEW", inputsSnapshot: { priorStatus: "APPROVED" } }),
     ])
+  })
+})
+
+// The decision engine (lib/decisioning/) decides through this same function, as the lender's system user.
+describe("decideApplication with the decision engine's automation", () => {
+  const systemUser = { id: "sys-1", email: "automated-decisioning@system.invalid", role: "LOAN_ADMIN" as const }
+  const automation = (over: Partial<DecideAutomation> = {}): DecideAutomation => ({
+    ruleVersion: "ALL:v2", ruleSetVersionId: "ver-2", reasonCodes: ["BUREAU_SCORE_LOW"], riskGrade: "C", bureauCheckId: "b1",
+    exactInputs: { requestedAmountCents: 500_000 }, expectedUpdatedAt: underReviewApplication.updatedAt, inTransaction: vi.fn(async () => undefined), ...over,
+  })
+  const decline = (a: DecideAutomation) => {
+    const form = new FormData()
+    form.set("action", "decline")
+    form.set("declineCategory", "BUREAU_SCORE")
+    form.set("reason", "")
+    form.set("internalNote", "Automatic decision (ALL:v2): BUREAU_SCORE_LOW")
+    return decideApplication({ tenant: { id: "t1" }, user: systemUser, id: "app-1", formData: form, automation: a })
+  }
+
+  it("declines as a SYSTEM decision flagged for the s71 review, with the category's own client wording", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await decline(automation())
+    expect(res.status).toBe(200)
+    expect(txUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: "UNDER_REVIEW", updatedAt: underReviewApplication.updatedAt }),
+      data: expect.objectContaining({ status: "DECLINED", approvedById: "sys-1", decisionReason: expect.stringContaining("credit record") }),
+    }))
+    const record = txDecisionRecordCreateMock.mock.calls[0][0].data
+    expect(record).toMatchObject({ decision: "DECLINE", actorType: "SYSTEM", actorUserId: null, s71ReviewRequired: true, recommendation: "BLOCK" })
+    expect(triggerNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ event: "application_declined" }))
+  })
+
+  it("runs the engine's in-transaction hook after the decision record and before the deferred constraints", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const a = automation()
+    await decline(a)
+    const hook = vi.mocked(a.inTransaction)
+    expect(hook).toHaveBeenCalledTimes(1)
+    expect(hook.mock.invocationCallOrder[0]).toBeGreaterThan(txDecisionRecordCreateMock.mock.invocationCallOrder[0])
+    expect(hook.mock.invocationCallOrder[0]).toBeLessThan(txExecuteRawUnsafeMock.mock.invocationCallOrder[0])
+  })
+
+  it("a failing hook fails the whole decision: nothing is notified, the caller sees the error", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    await expect(decline(automation({ inTransaction: vi.fn(async () => { throw new Error("run insert failed") }) }))).rejects.toThrow("run insert failed")
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it("409s, writing nothing, when the application changed after the engine read it", async () => {
+    findUniqueMock.mockResolvedValue({ ...underReviewApplication, updatedAt: new Date("2026-10-29T09:30:00Z") })
+    const res = await decline(automation())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ applicationChanged: true })
+    expect(txUpdateManyMock).not.toHaveBeenCalled()
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it("a person's decline is untouched: STAFF actor, no s71 flag, no hook", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "decline", reason: "Failed affordability", declineCategory: "AFFORDABILITY" }), ctx)
+    expect(res.status).toBe(200)
+    const record = txDecisionRecordCreateMock.mock.calls[0][0].data
+    expect(record).toMatchObject({ actorType: "STAFF" })
+    expect(record.s71ReviewRequired).toBeFalsy()
   })
 })

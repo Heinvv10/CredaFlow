@@ -41,6 +41,8 @@ export type WaTemplateVarSource = {
   daysOverdue?: string
   /** Only the `entity_*` bodies read this: the borrowing entity's legal name. */
   entityName?: string
+  /** Only `application_declined_automated` reads this: the lender's approved notice for an automated decision. */
+  notice?: string
 }
 
 /**
@@ -89,6 +91,12 @@ export const WABA_BODY_TEMPLATES: Record<string, string> = {
 
   application_declined:
     "Hi {{firstName}},\n\nUnfortunately your application *{{reference}}* was unsuccessful at this time.\n\nPlease contact us if you have any questions or would like to discuss alternative options.",
+
+  // The decline of an application the decision engine decided without a person: carries the lender's own
+  // approved s71 notice as a variable (lib/decisioning/notice.ts). Its own row, as loan_overdue's variants are:
+  // a Meta template is one fixed body. The lender registers it with Meta like the others.
+  application_declined_automated:
+    "Hi {{firstName}},\n\nUnfortunately your application *{{reference}}* was unsuccessful at this time.\n\n{{notice}}\n\nPlease contact us if you have any questions or would like to discuss alternative options.",
 
   loan_disbursed:
     "Hi {{firstName}} ✅\n\nYour loan of *{{amount}}* has been paid to your account.\n\nYour first payment is due on *{{dueDate}}*. You can view your repayment schedule on the client portal.",
@@ -194,6 +202,8 @@ export function waTemplateVarsFor(
       return { firstName: src.firstName, amount: src.amount, reference: src.reference }
     case "application_declined":
       return { firstName: src.firstName, reference: src.reference }
+    case "application_declined_automated":
+      return { firstName: src.firstName, reference: src.reference, notice: src.notice ?? "" }
     case "loan_disbursed":
       return { firstName: src.firstName, amount: src.amount, dueDate: src.dueDate }
     case "payment_received":

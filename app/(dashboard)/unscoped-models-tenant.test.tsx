@@ -82,7 +82,7 @@ const policy = (id: string, tenantId: string): Row => ({
 })
 const claim = (id: string, tenantId: string): Row => ({ id, tenantId, status: "SUBMITTED", claimAmount: 50, approvedAmount: null })
 const user = (id: string, tenantId: string, email: string): Row => ({
-  id, tenantId, email, name: email, role: "LOAN_ADMIN", active: true, createdAt: new Date("2026-07-01T00:00:00Z"),
+  id, tenantId, email, name: email, role: "LOAN_ADMIN", active: true, isSystem: false, createdAt: new Date("2026-07-01T00:00:00Z"),
 })
 
 beforeEach(() => {

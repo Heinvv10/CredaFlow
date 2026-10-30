@@ -553,3 +553,31 @@ suite("staging seed itemised budgets", () => {
     await assertBudgets()
   }, 180_000)
 })
+
+suite("Lesotho demo seed (DEMO_LENDER=basotho) on a fresh migrated database", () => {
+  const admin = RUN ? new PrismaClient() : null
+  const created: string[] = []
+  let fresh: ThrowawayDb | undefined
+
+  beforeAll(async () => {
+    if (!admin) throw new Error("RUN_SEED_DB_IT=1 is required")
+    fresh = await createThrowawayDb(admin, created)
+    runSeed(fresh.url, { DEMO_LENDER: "basotho" })
+  }, 180_000)
+
+  afterAll(async () => {
+    await dropThrowawayDbs(admin, created, [fresh])
+  })
+
+  it("seeds a Lesotho lender: LS / LSL, no NCR number, +266 phones, no asset finance", async () => {
+    const prisma = fresh!.prisma
+    const config = await prisma.tenantConfig.findFirstOrThrow({ where: { tenant: { slug: "basotho" } } })
+    expect(config).toMatchObject({ jurisdiction: "LS", currency: "LSL", ncrNumber: null, featureAssetFinance: false, publicPhone: "+266 2200 0000" })
+    expect(await prisma.client.count({ where: { tenant: { slug: "basotho" } } })).toBe(5)
+    expect(await prisma.assetFinanceDeal.count()).toBe(0)
+  })
+
+  it("refuses to seed a South African lender into the same database (one jurisdiction per instance)", () => {
+    expect(failedRunStderr(() => runSeed(fresh!.url, { DEMO_LENDER: "acme" }))).toMatch(/One instance serves one jurisdiction/)
+  })
+})

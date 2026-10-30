@@ -3,13 +3,13 @@
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
 import type { FscaReturnData } from "@/lib/fsca-return"
-import { SAST_TIME_ZONE } from "@/lib/utils"
+import { SAST_TIME_ZONE, activeCurrencySymbol } from "@/lib/utils"
 
 // InsurancePolicy / InsuranceClaim amounts are stored as Decimal(12, 2)
 // rands (not cents-as-integers like Loan.principal), so we format the value
 // directly without dividing. Shared formatZAR is for cents-scaled fields.
 const formatZAR = (rands: number) =>
-  `R ${rands.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
+  `${activeCurrencySymbol()} ${rands.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 
 const COUNT = (n: number) => new Intl.NumberFormat("en-ZA").format(n)
 

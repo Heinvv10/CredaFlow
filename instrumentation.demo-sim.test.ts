@@ -4,6 +4,11 @@ import { CRON_JOBS } from "@/lib/registry/generated/cron-jobs"
 
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
+const ensureActiveJurisdiction = vi.hoisted(() => vi.fn(async () => ({ jurisdiction: "ZA", currency: "ZAR" })))
+vi.mock("@/lib/jurisdiction/load.server", () => ({
+  bootActiveJurisdiction: vi.fn(async () => ({ jurisdiction: "ZA", currency: "ZAR" })),
+  ensureActiveJurisdiction,
+}))
 
 describe("demo simulator cron ownership", () => {
   beforeEach(() => {
