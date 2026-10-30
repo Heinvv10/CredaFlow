@@ -1,3 +1,4 @@
+import { ApprovalChainChangedError, gateApproval } from "@/lib/approval/chain"
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -731,6 +732,10 @@ export async function decideApplication({ tenant, user, id, formData, automation
         { status: 400 },
       )
     }
+    // The lender's approval matrix, where one is in force: another level may still have to approve, the decision engine may not approve
+    // what needs staff, and the maker never approves. No matrix: `none`, and nothing below changes (lib/approval/).
+    const matrixGate = await gateApproval({ tenantId: tenant.id, application, user, automated: automation !== undefined, note: reason })
+    if (matrixGate.kind === "respond") return NextResponse.json(matrixGate.body, { status: matrixGate.status })
     const rateCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, application) // NCA Regulation 42
     if (rateCapRefusal) return rateCapRefusal
     // An OTHER account cannot carry a debit order: the Netcash AVS wire has
@@ -1301,6 +1306,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
         if (!expensesNow || declaredExpenses(expensesNow) !== (checks.declaredExpensesCents ?? null)) {
           return { ok: false as const, reason: "checks_stale_expenses" as const }
         }
+        // The approval matrix's last step commits with the approval (the database refuses APPROVED before the chain is complete).
+        if (matrixGate.kind === "final") await matrixGate.recordFinalStep(tx)
         const approved = await tx.loanApplication.updateMany({
           where: {
             id,
@@ -1494,6 +1501,9 @@ export async function decideApplication({ tenant, user, id, formData, automation
           { error: "This application already has a loan booked against it, so it cannot be approved." },
           { status: 409 }
         )
+      }
+      if (error instanceof ApprovalChainChangedError) {
+        return NextResponse.json({ error: "Another approver acted on this application at the same time; refresh and try again.", approvalMatrix: "CHAIN_CHANGED" }, { status: 409 })
       }
       // The screening trigger: a run that landed after the re-read above.
       if (isScreeningRefusal(error)) return await screeningChangedRefusal("screening_trigger")

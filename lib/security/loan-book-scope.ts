@@ -24,6 +24,8 @@ export const LOAN_BOOK_APIS = [
   "payment-notifications",
   // IFRS 9 staging and ECL (lib/ifrs9): every loan's exposure.
   "ifrs9",
+  // Approval matrix, delegations and committee packs (lib/approval): decisions on the lender's applications.
+  "approval",
 ] as const
 
 /**

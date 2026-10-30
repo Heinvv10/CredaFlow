@@ -78,6 +78,11 @@ vi.mock("@/lib/tenant", () => ({
   withTenantContext: (req: unknown, cb: (t: { id: string; name: string }) => Promise<unknown>) =>
     cb({ id: "t1", name: "Acme Lending" }),
 }))
+// No approval matrix in force for these tests (the matrix's own gate is tested in lib/approval/).
+vi.mock("@/lib/approval/chain", () => ({
+  gateApproval: vi.fn(async () => ({ kind: "none" })),
+  ApprovalChainChangedError: class extends Error {},
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: {
