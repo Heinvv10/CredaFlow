@@ -83,4 +83,38 @@ suite("approval matrix: credit committee (real Postgres)", () => {
     const theCase = await caseOf(A("ap-toctou"))
     expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','${A("ap-toctou")}',3,'${ids.ad2}','ROLE')`))).toContain("latest credit committee decision")
   })
+  it("the final step waits for a decision being recorded at that moment, then sees it", async () => {
+    await underReview(A("ap-lock"), { amount: 800_000 })
+    expect((await approveAs("la1", A("ap-lock"))).status).toBe(200)
+    expect((await approveAs("bm", A("ap-lock"))).status).toBe(200)
+    await inTenant(() => recordCommitteeDecision({ tenantId: ids.tenant, actor: as.ad, applicationId: A("ap-lock"), decision: { decision: "APPROVED", meetingDate: TODAY, attendees: ["A. Dlamini", "B. Mokoena"], conditions: [], rationale: "Committee approved this application" } }))
+    const row = await db.loanApplication.findUniqueOrThrow({ where: { id: A("ap-lock") } })
+    const gate = await inTenant(() => gateApproval({ tenantId: ids.tenant, automated: false, user: { id: ids.ad2, email: "ad2@x.invalid", role: "ADMIN" }, application: { id: row.id, appliedAmount: row.appliedAmount, productId: row.productId, branchId: row.branchId, riskGradeRank: row.riskGradeRank, inputStaffIds: row.inputStaffIds } }))
+    if (gate.kind !== "final") throw new Error(`expected the gate to plan the final step, got ${gate.kind}`)
+    const theCase = await caseOf(A("ap-lock"))
+    // Another member is recording a decline: it holds the case and has not committed.
+    let release!: () => void
+    let held!: () => void
+    const mayCommit = new Promise<void>((resolve) => { release = resolve })
+    const isHeld = new Promise<void>((resolve) => { held = resolve })
+    const declining = db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "ApprovalCase" WHERE "id" = ${theCase.id} FOR UPDATE`
+      await tx.$executeRawUnsafe(`INSERT INTO "CreditCommitteeDecision" ("id","tenantId","caseId","applicationId","level","decision","meetingDate","conditions","rationale","recordedById") VALUES ('cd-${randomUUID()}','${ids.tenant}','${theCase.id}','${A("ap-lock")}',3,'DECLINED',now(),'[]'::jsonb,'a proper rationale here','${ids.checker}')`)
+      held()
+      await mayCommit
+    }, { timeout: 30_000 })
+    await isHeld
+    let settled = false
+    const approving = inTenant(() => app().$transaction(async (tx) => {
+      await gate.recordFinalStep(tx)
+      await tx.loanApplication.update({ where: { id: A("ap-lock") }, data: { status: "APPROVED", approvedById: ids.ad2, approvedAt: new Date(), approvedAmount: 800_000, approvedTermDays: 180, repaymentMethod: "EFT" } })
+    }))
+    approving.then(() => { settled = true }, () => { settled = true })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(settled).toBe(false)
+    release()
+    await declining
+    await expect(approving).rejects.toBeInstanceOf(ApprovalChainChangedError)
+    expect(await statusOf(A("ap-lock"))).toBe("UNDER_REVIEW")
+  })
 })
