@@ -369,6 +369,9 @@ BEGIN
     IF dg."delegatorId" = ANY (maker_ids) OR EXISTS (SELECT 1 FROM "ApprovalStep" s WHERE s."caseId" = NEW."caseId" AND s."approverId" = dg."delegatorId") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: a delegator who captured the application or already approved it cannot also approve through a delegate';
     END IF;
+    IF EXISTS (SELECT 1 FROM "ApprovalStep" s JOIN "ApprovalDelegation" d ON d."id" = s."delegationId" WHERE s."caseId" = NEW."caseId" AND d."delegatorId" = dg."delegatorId") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: one delegator''s authority is used once per application, not through a second delegate';
+    END IF;
   END IF;
   IF EXISTS (
     SELECT 1 FROM "ApprovalStep" s JOIN "ApprovalDelegation" d ON d."id" = s."delegationId"

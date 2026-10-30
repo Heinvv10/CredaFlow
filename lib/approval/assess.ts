@@ -56,7 +56,8 @@ export async function assessApproval(db: Db, input: {
     : []
   const usedDelegations = steps.flatMap((s) => (s.delegationId ? [s.delegationId] : []))
   const delegatorsOfSteps = usedDelegations.length === 0 ? [] : (await db.approvalDelegation.findMany({ where: { tenantId, id: { in: usedDelegations } }, select: { delegatorId: true } })).map((d) => d.delegatorId)
-  const acted = new Set([...steps.map((s) => s.approverId), ...input.inputStaffIds])
+  // A delegator whose authority a delegate already used has acted too: it is not used a second time through another delegate.
+  const acted = new Set([...steps.map((s) => s.approverId), ...delegatorsOfSteps, ...input.inputStaffIds])
   const delegations = await loadDelegationsFor(db, tenantId, user.id, input.now)
   const caps = await delegatorLevels(db, tenantId, delegations, levels)
   const authorityFor = (list: typeof delegations) => authorityLevel({ role: user.role as UserRole, levels, delegations: list, amountCents: facts.amountCents, now: input.now, delegatorLevels: caps })

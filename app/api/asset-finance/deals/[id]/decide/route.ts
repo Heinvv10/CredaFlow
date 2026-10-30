@@ -6,7 +6,7 @@ import { AuditAction } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { ApprovalChainChangedError, gateApproval } from "@/lib/approval/chain"
+import { ApprovalChainChangedError, ApprovalFactsChangedError, assertGateFactsUnchanged, gateApproval } from "@/lib/approval/chain"
 import { decideDeal, parseDecideInput, type DecideDealOptions, type DecideDealResult } from "@/lib/asset-finance/deal-decision"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
 import { borrowerScreeningGate, isScreeningRefusal } from "@/lib/screening/gate"
@@ -124,11 +124,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (deal) {
           const gate = await gateApproval({ tenantId: tenant.id, application: deal.application, user: guard.user, automated: false, note: input.reasons.join("; ") })
           if (gate.kind === "respond") return NextResponse.json(gate.body, { status: gate.status })
-          if (gate.kind === "final") beforeApprove = gate.recordFinalStep
+          if (gate.kind === "final") {
+            // The gate read the application before this transaction: its facts are read again under the deal's lock, then the step is recorded.
+            const { recordFinalStep } = gate
+            beforeApprove = async (tx) => {
+              await assertGateFactsUnchanged(tx, tenant.id, deal.application)
+              await recordFinalStep(tx)
+            }
+          }
         }
       }
       return await respond(await run(beforeApprove ? { beforeApprove } : {}))
     } catch (error) {
+      if (error instanceof ApprovalFactsChangedError) {
+        return NextResponse.json({ error: "The deal's application changed while it was being approved; refresh and try again.", applicationChanged: true }, { status: 409 })
+      }
       if (error instanceof ApprovalChainChangedError) {
         return NextResponse.json({ error: "Another approver acted on this deal at the same time; refresh and try again.", approvalMatrix: "CHAIN_CHANGED" }, { status: 409 })
       }

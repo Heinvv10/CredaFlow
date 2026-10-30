@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   gate: vi.fn(),
   decideDeal: vi.fn(),
   matrix: vi.fn(),
+  facts: vi.fn(),
   dealFindFirst: vi.fn(),
   transaction: vi.fn(),
   auditRefusal: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("@/lib/asset-finance/deal-decision", async (importOriginal) => ({
 vi.mock("@/lib/approval/chain", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/approval/chain")>()),
   gateApproval: (a: unknown) => h.matrix(a),
+  assertGateFactsUnchanged: (...a: unknown[]) => h.facts(...a),
 }))
 vi.mock("@/lib/screening/gate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/screening/gate")>()),
@@ -55,6 +57,7 @@ beforeEach(() => {
       : { applicationId: "app-1", application: { clientId: "client-1", entityId: null } }
   ))
   h.matrix.mockResolvedValue({ kind: "none" })
+  h.facts.mockReset().mockResolvedValue(undefined)
   h.gate.mockResolvedValue({ allowed: true, state: { state: "CLEAR" }, message: "Screening is clear.", subjects: [], providerError: null })
   h.transaction.mockImplementation((cb: (tx: unknown) => Promise<unknown>) => cb({}))
   // The route preflights an approval (every gate, nothing written) before the matrix's say, then decides.
@@ -116,12 +119,32 @@ describe("POST /api/asset-finance/deals/[id]/decide — the approval matrix", ()
     expect(decisions()).toHaveLength(0)
   })
 
-  it("the approval that completes the chain records its step inside the decision's transaction", async () => {
+  it("the approval that completes the chain, in the decision's transaction, first re-checks the facts the gate decided on, then records its step", async () => {
     const recordFinalStep = vi.fn()
     h.matrix.mockResolvedValue({ kind: "final", recordFinalStep })
     expect((await POST(req("APPROVE"), ctx)).status).toBe(200)
     expect(decisions()).toHaveLength(1)
-    expect(decisions()[0][4]).toEqual({ beforeApprove: recordFinalStep })
+    const tx = {}
+    await decisions()[0][4].beforeApprove(tx)
+    expect(h.facts).toHaveBeenCalledWith(tx, "t1", expect.objectContaining({ id: "app-1", appliedAmount: 900_000 }))
+    expect(recordFinalStep).toHaveBeenCalledWith(tx)
+    expect(h.facts.mock.invocationCallOrder[0]).toBeLessThan(recordFinalStep.mock.invocationCallOrder[0])
+  })
+
+  it("an application that changed between the gate and the decision is a 409, and no step is recorded", async () => {
+    const { ApprovalFactsChangedError } = await vi.importActual<typeof import("@/lib/approval/chain")>("@/lib/approval/chain")
+    const recordFinalStep = vi.fn()
+    h.matrix.mockResolvedValue({ kind: "final", recordFinalStep })
+    h.facts.mockRejectedValue(new ApprovalFactsChangedError())
+    h.decideDeal.mockImplementation(async (tx, _a, _id, _input, options?: { preflight?: boolean; beforeApprove?: (tx: unknown) => Promise<void> }) => {
+      if (options?.preflight) return { kind: "ready" }
+      await options?.beforeApprove?.(tx)
+      return { kind: "decided", status: "APPROVED" }
+    })
+    const res = await POST(req("APPROVE"), ctx)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ applicationChanged: true })
+    expect(recordFinalStep).not.toHaveBeenCalled()
   })
 
   it("a gate on approving that refuses stops the matrix: no level is recorded for a deal that could not be approved", async () => {

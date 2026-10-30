@@ -24,6 +24,14 @@ export class ApprovalWriteLostError extends Error {
   }
 }
 
+/** The facts the gate decided on no longer hold: the application changed between the gate and the approval's transaction. */
+export class ApprovalFactsChangedError extends Error {
+  constructor() {
+    super("The application changed after the approval matrix was consulted")
+    this.name = "ApprovalFactsChangedError"
+  }
+}
+
 export interface GateApplication {
   id: string
   appliedAmount: number
@@ -166,4 +174,18 @@ export async function gateApproval(input: GateInput): Promise<Gate> {
   if (outcome.kind === "none") return { kind: "none" }
   if (outcome.kind === "final") return { kind: "final", recordFinalStep: outcome.closure }
   return { kind: "respond", status: outcome.status, body: outcome.body }
+}
+
+/**
+ * Re-reads, in the approval's own transaction, the facts the gate decided on (amount, product, branch, grade, who made it). A caller whose
+ * approval is not pinned to the application's `updatedAt` calls this before recording the final step: a change in between refuses it.
+ */
+export async function assertGateFactsUnchanged(tx: Tx, tenantId: string, seen: GateApplication): Promise<void> {
+  const now = await tx.loanApplication.findFirst({
+    where: { id: seen.id, tenantId },
+    select: { appliedAmount: true, productId: true, branchId: true, riskGradeRank: true, inputStaffIds: true },
+  })
+  const same = now !== null && now.appliedAmount === seen.appliedAmount && now.productId === seen.productId && now.branchId === seen.branchId
+    && now.riskGradeRank === seen.riskGradeRank && [...now.inputStaffIds].sort().join("|") === [...seen.inputStaffIds].sort().join("|")
+  if (!same) throw new ApprovalFactsChangedError()
 }

@@ -12,7 +12,7 @@ vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOrig
 
 import { decideApplication } from "@/app/api/applications/[id]/decide/decide-application"
 import { approve, createDraft, submit } from "@/lib/maker-checker/service"
-import { gateApproval } from "./chain"
+import { ApprovalFactsChangedError, assertGateFactsUnchanged, gateApproval } from "./chain"
 import { recordCommitteeDecision } from "./committee"
 import { grantDelegation, revokeDelegation } from "./delegations"
 import { MATRIX_KIND } from "./types"
@@ -115,6 +115,33 @@ suite("approval matrix: bypass attempts (real Postgres)", () => {
     const theCase = await caseOf("bp-reverse")
     expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-reverse',3,'${ids.bm}','ROLE')`))).toContain("delegate already approved")
     await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id }))
+  })
+
+  it("one delegator cannot act twice through two delegates, at two levels", async () => {
+    const grant = (delegateId: string) => inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.bm, delegation: { delegateId, level: 2, maxAmountCents: 2_000_000_000, ...window(), reason: "Covering for my leave" } }))
+    const toA = await grant(ids.la2)
+    const toB = await grant(ids.la1)
+    await underReview("bp-twice", { amount: 500_000 })
+    expect((await approveAs("la2", "bp-twice")).status).toBe(200)
+    expect((await stepsOf("bp-twice"))[0]).toMatchObject({ level: 1, approverId: ids.la2, via: "DELEGATION", delegationId: toA.id })
+    expect(await approveAs("la1", "bp-twice")).toMatchObject({ status: 403, body: { approvalMatrix: "DELEGATOR_ALREADY_ACTED" } })
+    expect(await statusOf("bp-twice")).toBe("UNDER_REVIEW")
+    const theCase = await caseOf("bp-twice")
+    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-twice',2,'${ids.la1}','DELEGATION','${toB.id}')`))).toContain("once per application")
+    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: toA.id }))
+    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: toB.id }))
+  })
+
+  it("the facts the gate decided on are read again in the approval's own transaction, and a change refuses it", async () => {
+    await underReview("bp-facts", { amount: 300_000 })
+    const row = await db.loanApplication.findUniqueOrThrow({ where: { id: "bp-facts" } })
+    const seen = { id: row.id, appliedAmount: row.appliedAmount, productId: row.productId, branchId: row.branchId, riskGradeRank: row.riskGradeRank, inputStaffIds: row.inputStaffIds }
+    const check = () => inTenant(() => app().$transaction((tx) => assertGateFactsUnchanged(tx, ids.tenant, seen)))
+    await expect(check()).resolves.toBeUndefined()
+    await db.loanApplication.update({ where: { id: "bp-facts" }, data: { appliedAmount: 900_000 } })
+    await expect(check()).rejects.toBeInstanceOf(ApprovalFactsChangedError)
+    await db.loanApplication.update({ where: { id: "bp-facts" }, data: { appliedAmount: 300_000, inputStaffIds: [ids.bm] } })
+    await expect(check()).rejects.toBeInstanceOf(ApprovalFactsChangedError)
   })
 
   it("the requirement follows the facts: an engine attempt before the grade is written freezes nothing, and a later grade raises it, never lowers it", async () => {
