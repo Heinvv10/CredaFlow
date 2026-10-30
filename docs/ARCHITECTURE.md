@@ -235,6 +235,27 @@ currency. It is the one source of truth.
   nor declared, or does not refuse under an LS lender.
 - Details and rules: `lib/jurisdiction/.claude.md`.
 
+## Non-NCA documents
+
+An application on a non-ZA instance (Lesotho) has no PASQ. `LoanApplication.disclosureRegime`
+(`NCA_PASQ` | `KEY_FACTS`) is stamped by a trigger from `InstanceJurisdiction` and is fixed;
+ZA and every existing row are `NCA_PASQ`. A `KEY_FACTS` application is governed by a key facts
+statement and a loan agreement rendered from the lender's own CUSTOM templates (the generic
+`DocumentTemplate` system, dual-approved versions) with the approved terms from the frozen
+approval (`quote.*` tokens). Each issued document is a `LoanDocumentIssuance` row pinned to
+the template version and the SHA-256 of its wording.
+
+- **Gate (DB):** `guardLoanApplicationKeyFactsDocuments` refuses the borrower's signature
+  unless both documents stand from the template's current approved version, the statement was
+  acknowledged on its exact bytes, the agreement is the issued one and the terms are unchanged;
+  it refuses DISBURSED unless the agreement is signed and the wording is unchanged. A template
+  edited or republished after issue is caught.
+- **ZA unchanged:** the four PASQ guards, the credit-life commit invariant and the approved-status
+  CHECK each got one `KEY_FACTS` step-aside (static test diffs them against the previous text).
+- **Not built:** booking the payout of a key-facts loan (the disburse route answers with the
+  gate's reason); approving a Lesotho application through `decide` still needs NCA evidence.
+- Details and rules: `lib/non-nca-documents/.claude.md`.
+
 ## Lender-owned asset-finance templates
 
 Each lender owns the wording of its asset-finance agreements, suretyships and

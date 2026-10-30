@@ -2,6 +2,7 @@ import type { Client, Loan, LoanApplication, LoanProduct, Tenant, User } from "@
 import { differenceInCalendarDays } from "date-fns"
 import { formatDate, formatTermDays, formatZAR } from "@/lib/utils"
 import type { LenderIdentity } from "@/lib/config/identity"
+import type { QuoteFigures } from "@/lib/non-nca-documents/quote"
 
 /**
  * Merge context for token resolution. `tenant`/`client` are always present
@@ -14,6 +15,8 @@ import type { LenderIdentity } from "@/lib/config/identity"
  * app/api/applications/**).
  */
 export interface TokenContext {
+  /** The approved terms of a key-facts application (lib/non-nca-documents/quote.ts); absent everywhere else, which leaves the quote.* tokens missing. */
+  quote?: QuoteFigures | null
   tenant: Tenant
   /** The tenant's validated identity (lib/config/identity.ts); null when not
    * configured, which leaves every `tenant.*` identity token missing. */
@@ -139,6 +142,81 @@ export const TOKEN_REGISTRY: TokenDef[] = [
     label: "Application amount requested",
     group: "Application",
     resolve: (ctx) => (ctx.application ? formatZAR(ctx.application.appliedAmount) : null),
+  },
+
+  // Quote — the approved terms of a key-facts application (Lesotho and other non-NCA
+  // lenders, lib/non-nca-documents). Resolves only when such a document is rendered.
+  {
+    token: "quote.principal",
+    label: "Approved loan amount",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.principalCents) : null),
+  },
+  {
+    token: "quote.term",
+    label: "Approved term",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatTermDays(ctx.quote.termDays) : null),
+  },
+  {
+    token: "quote.interestRate",
+    label: "Interest rate per month",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? `${(ctx.quote.interestRatePm * 100).toFixed(2)}% per month` : null),
+  },
+  {
+    token: "quote.initiationFee",
+    label: "Initiation fee",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.initiationFeeCents) : null),
+  },
+  {
+    token: "quote.serviceFees",
+    label: "Service fees over the term",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.serviceFeesCents) : null),
+  },
+  {
+    token: "quote.instalment",
+    label: "Instalment",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.monthlyInstalmentCents) : null),
+  },
+  {
+    token: "quote.instalments",
+    label: "Number of instalments",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? String(ctx.quote.instalments) : null),
+  },
+  {
+    token: "quote.firstDueDate",
+    label: "First instalment due",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatDate(ctx.quote.firstDueDate) : null),
+  },
+  {
+    token: "quote.lastDueDate",
+    label: "Last instalment due",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatDate(ctx.quote.lastDueDate) : null),
+  },
+  {
+    token: "quote.totalInterest",
+    label: "Total interest",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.totalInterestCents) : null),
+  },
+  {
+    token: "quote.totalRepayable",
+    label: "Total cost of credit repayable",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.totalRepayableCents) : null),
+  },
+  {
+    token: "quote.repaymentMethod",
+    label: "Repayment method",
+    group: "Approved terms",
+    resolve: (ctx) => (ctx.quote?.repaymentMethod ? (ctx.quote.repaymentMethod === "EFT" ? "EFT" : ctx.quote.repaymentMethod.replaceAll("_", " ").toLowerCase()) : null),
   },
 
   // Tenant — identity comes only from the tenant's validated TenantConfig

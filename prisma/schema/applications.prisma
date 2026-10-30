@@ -37,6 +37,12 @@ model LoanApplication {
   ncaClassificationEvidenceIds            String[]             @default([])
   ncaClassifiedAt                         DateTime?
   ncaClassifiedById                       String?
+  // Which pre-agreement disclosure and agreement this application is governed by:
+  // NCA_PASQ (the PASQ, South African) or KEY_FACTS (a key facts statement and a
+  // loan agreement from the lender's own versioned templates; a non-NCA
+  // jurisdiction). Set from InstanceJurisdiction by a trigger at insert, never
+  // changed (docs/ARCHITECTURE.md, "Non-NCA documents").
+  disclosureRegime                        DisclosureRegime     @default(NCA_PASQ)
   productId                               String
   branchId                                String?
   branch                                  Branch?              @relation(fields: [branchId], references: [id])
@@ -213,6 +219,7 @@ model LoanApplication {
   conversations             Conversation[]
   convertedLead             Lead?                      @relation("LeadConvertedApplication")
   loan                      Loan?
+  loanDocumentIssuances     LoanDocumentIssuance[]
   ncaRegimeOverrides        NcaRegimeOverride[]
   pasqAcknowledgementTokens PasqAcknowledgementToken[]
   selfieCaptureTokens       SelfieCaptureToken[]

@@ -307,6 +307,7 @@ model ClientDocument {
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   kycOverrideRequests   KycOverrideRequest[]
+  loanDocumentIssuances LoanDocumentIssuance[]
   loanNotes             LoanNote[]
   paymentNotifications  PaymentNotification[]
   poFundingApplications LoanApplication[]     @relation("ApplicationPoDocument")

@@ -29,6 +29,17 @@ describe("shared client API audience matcher", () => {
     }
   })
 
+  // A key-facts application's loan documents: the borrower acknowledges and signs (POST), and reads the state (GET);
+  // issuing them (POST on the base path) is staff-only.
+  it.each(["/api/applications/app-1/non-nca-documents/acknowledge", "/api/applications/app-1/non-nca-documents/sign"])("allows %s for POST only", (pathname) => {
+    for (const method of METHODS) expect(isSharedClientApiPath(pathname, method), method).toBe(method === "POST")
+  })
+
+  it("allows the loan documents state for GET only; issuing them stays staff-only", () => {
+    const pathname = "/api/applications/app-1/non-nca-documents"
+    for (const method of METHODS) expect(isSharedClientApiPath(pathname, method), method).toBe(method === "GET")
+  })
+
   // The signing one-time code: the borrower requests and verifies it on the
   // portal host; both endpoints are POST-only.
   it.each(["/api/signing-otp", "/api/signing-otp/otp-1/verify"])("allows %s for POST only", (pathname) => {

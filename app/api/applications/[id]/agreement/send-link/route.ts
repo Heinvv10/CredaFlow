@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { NextResponse, type NextRequest } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
@@ -72,6 +73,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused1) return keyFactsRefused1
     // The signing link goes to a consumer; an entity borrower is refused.
     if (!hasClientBorrower(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })

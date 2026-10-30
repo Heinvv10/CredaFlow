@@ -48,6 +48,7 @@ model DocumentTemplate {
   assetFamily      String?
   assetVariant     String?
   issuances        AssetDocumentIssuance[]
+  loanIssuances    LoanDocumentIssuance[]
   versions         DocumentTemplateVersion[]
 
   @@unique([tenantId, key])
@@ -83,6 +84,7 @@ model DocumentTemplateVersion {
   approvedSystemSha256  String?
   legalSignOffReference String?
   issuances             AssetDocumentIssuance[]
+  loanIssuances         LoanDocumentIssuance[]
 
   @@unique([templateId, version])
   @@index([templateId])

@@ -186,6 +186,11 @@ async function main() {
   // Two loan admins: asset-finance four-eyes steps need a second approver.
   const loanAdminOne = await upsertStaff(tenant.id, `loan.admin.one@${STAFF_DOMAIN}`, "Demo Loan Admin One", "LOAN_ADMIN", "SEED_LOAN_ADMIN_ONE_PASSWORD")
   const loanAdminTwo = await upsertStaff(tenant.id, `loan.admin.two@${STAFF_DOMAIN}`, "Demo Loan Admin Two", "LOAN_ADMIN", "SEED_LOAN_ADMIN_TWO_PASSWORD")
+  // A lender outside the NCA signs a key facts statement and a loan agreement from its own templates (lib/non-nca-documents).
+  if (JURISDICTION !== "ZA") {
+    const { seedNonNcaTemplates } = await import("./seed/non-nca-templates")
+    await seedNonNcaTemplates(prisma, tenant.id, loanAdminOne.user.id)
+  }
 
   const products: Record<string, { id: string }> = {}
   for (const p of PRODUCTS) {

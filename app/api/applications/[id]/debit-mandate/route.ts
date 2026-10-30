@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { debitMandateBranchCodeError } from "@/lib/loan/debit-mandate-bank-validation"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
@@ -422,6 +423,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
       }
+      const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id)
+      if (keyFactsRefused1) return keyFactsRefused1
       // A debit mandate is a consumer document; an entity borrower is refused.
       if (!hasClientBorrower(application)) {
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
