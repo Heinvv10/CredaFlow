@@ -18,6 +18,7 @@
  * deceased person or unverified dealer-typed contacts.
  */
 import { createHash } from "node:crypto"
+import { requireNcrNumber } from "@/lib/config/identity-schema"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { normaliseEmail } from "@/lib/contact/identity"
@@ -153,7 +154,7 @@ async function storeLetter(tenantId: string, closureId: string, loanId: string, 
   const bytes = await renderTrackingStoppedLetter({
     // Only an approved lender's closures get this far (processTrackerClosures).
     ...facts, documentDate: new Date(), legalWordingApproved: true,
-    lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
+    lender: { legalName: lender.legalName, ncrNumber: requireNcrNumber(lender), registeredOfficeLines: lender.registeredOfficeLines },
     recipient: { name: borrower, addressLines: recipient?.addressLines ?? [] },
   })
   const { storagePath } = await saveFile(bytes, "application/pdf")

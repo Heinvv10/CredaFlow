@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyCronSkip } from "@/lib/jurisdiction/nca-only"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
@@ -14,6 +15,9 @@ import { processTrackerClosures } from "@/lib/asset-finance/tracker-closure"
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
   if (denied) return denied
+  // Asset finance is an NCA product: nothing to do for a lender outside the NCA's jurisdiction.
+  const skipped = await ncaOnlyCronSkip()
+  if (skipped) return skipped
   // Each lender with an unfinished closure, whatever its asset-finance flag says now (a closure opened while it was on
   // still owes the borrower the notice). Tenant is not tenant-scoped; the closures are then read under each tenant.
   const tenants = await prisma.tenant.findMany({

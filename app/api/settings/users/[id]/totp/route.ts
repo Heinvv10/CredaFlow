@@ -25,11 +25,11 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const target = await prisma.user.findFirst({
       where: { id, tenantId: tenant.id },
-      select: { role: true, totpEnabled: true },
+      select: { role: true, totpEnabled: true, isSystem: true },
     })
     if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
-    const refused = await refuseStaffUserWrite(actor, { tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined })
+    const refused = await refuseStaffUserWrite(actor, { tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined, targetIsSystem: target.isSystem })
     if (refused) return refused
 
     const result = await prisma.$transaction(async (tx) => {

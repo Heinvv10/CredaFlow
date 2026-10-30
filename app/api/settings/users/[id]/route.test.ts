@@ -12,6 +12,7 @@ const h = vi.hoisted(() => {
     userDelete: vi.fn(),
     auditLogCreate: vi.fn(),
     branchFindFirst: vi.fn(),
+    applicationCount: vi.fn(),
     logAudit: vi.fn(),
     logAuditStrict: vi.fn(),
     /** The caller's and target's rows as the write's transaction locks them. */
@@ -42,6 +43,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     auditLog: { create: (args: unknown) => h.auditLogCreate(args) },
     branch: { findFirst: (args: unknown) => h.branchFindFirst(args) },
+    loanApplication: { count: (args: unknown) => h.applicationCount(args) },
     $transaction: (fn: (tx: unknown) => unknown) => fn(h.tx),
   },
 }))
@@ -104,6 +106,7 @@ beforeEach(() => {
   locked = {}
   h.lockedRows.mockImplementation(async () => [locked.caller, locked.target].filter(Boolean))
   h.userFindUnique.mockResolvedValue(null)
+  h.applicationCount.mockResolvedValue(0)
   h.userUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "target-1", role: "CREDIT_OFFICER", ...data }))
 })
 
@@ -116,6 +119,23 @@ describe("PATCH /api/settings/users/[id] — password policy", () => {
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/at least 10 characters|too common/)
     expect(h.userUpdate).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/settings/users/[id] — the audit row says a password was set (never the password)", () => {
+  it("records passwordChanged: true on a password change, and not on a rename", async () => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER")
+    const res = await patch({ password: "a-long-synthetic-password-1" })
+    expect(res.status).toBe(200)
+    const logged = h.logAuditStrict.mock.calls.at(-1)![0] as { action: string; newValue: Record<string, unknown> }
+    expect(logged).toMatchObject({ action: "USER_UPDATED", newValue: { passwordChanged: true } })
+    expect(JSON.stringify(logged)).not.toContain("a-long-synthetic-password-1")
+    expect(JSON.stringify(logged)).not.toContain("hashed:")
+
+    h.logAuditStrict.mockClear()
+    await patch({ name: "Renamed" })
+    expect((h.logAuditStrict.mock.calls.at(-1)![0] as { newValue: Record<string, unknown> }).newValue).not.toHaveProperty("passwordChanged")
   })
 })
 
@@ -547,6 +567,18 @@ describe("DELETE /api/settings/users/[id]", () => {
     expect(h.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "USER_DEACTIVATED", entityId: "target-1" }), h.tx)
   })
 
+  it("deactivates, never deletes, a user recorded as input staff on an application (no foreign key would have kept them)", async () => {
+    signedIn("SUPER_ADMIN")
+    target("ADMIN")
+    h.applicationCount.mockResolvedValue(2)
+    const res = await del()
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ mode: "deactivated" })
+    expect(h.applicationCount).toHaveBeenCalledWith({ where: { tenantId: "tenant-a", inputStaffIds: { has: "target-1" } } })
+    expect(h.userDelete).not.toHaveBeenCalled()
+  })
+
   it.each(["BRANCH_MANAGER", "ADMIN"])("refuses a %s", async (role) => {
     signedIn(role)
     target("READONLY")
@@ -588,5 +620,32 @@ describe("DELETE /api/settings/users/[id]", () => {
     expect(h.auditLogCreate).toHaveBeenCalledWith({
       data: { tenantId: "tenant-a", userId: "caller-1", action: "USER_DELETED", entity: "User", entityId: "target-1" },
     })
+  })
+})
+
+describe("the automated decisioning account (isSystem)", () => {
+  it("a SUPER_ADMIN cannot edit it (PATCH 403), and nothing is written", async () => {
+    signedIn("SUPER_ADMIN")
+    target("LOAN_ADMIN", { isSystem: true })
+    const res = await patch({ password: "a-new-long-password-1", active: true })
+    expect(res.status).toBe(403)
+    expect(h.userUpdate).not.toHaveBeenCalled()
+  })
+
+  it("nor remove it (DELETE 403)", async () => {
+    signedIn("SUPER_ADMIN")
+    target("LOAN_ADMIN", { isSystem: true })
+    const res = await del()
+    expect(res.status).toBe(403)
+    expect(h.userDelete).not.toHaveBeenCalled()
+  })
+
+  it("the locked re-check refuses it even if the first read missed the flag", async () => {
+    signedIn("SUPER_ADMIN")
+    target("LOAN_ADMIN", { isSystem: false })
+    locked.target = { id: "target-1", role: "LOAN_ADMIN", active: false, isSystem: true } as never
+    const res = await patch({ name: "Renamed" })
+    expect(res.status).toBe(403)
+    expect(h.userUpdate).not.toHaveBeenCalled()
   })
 })

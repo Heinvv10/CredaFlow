@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { OperatorPrincipal } from "../console-auth"
+import { activationConflict, instanceJurisdictionMessage, isInstanceJurisdictionError } from "@/lib/jurisdiction/instance.server"
 
 export type LenderActionResult<T = object> = ({ ok: true } & T) | { ok: false; status: 400 | 404 | 409; error: string }
 
@@ -31,8 +32,30 @@ export async function setLenderStatus(input: {
   const reason = typeof input.reason === "string" ? input.reason.trim() : ""
   if (!reason || reason.length > MAX_REASON) return { ok: false, status: 400, error: "A reason (up to 500 characters) is required" }
 
+  try {
+    return await setStatusInTransaction({ principal, tenantId, next, reason, ipAddress })
+  } catch (error) {
+    // The database trigger is the backstop for a race the pre-check cannot see.
+    if (isInstanceJurisdictionError(error)) return { ok: false, status: 409, error: instanceJurisdictionMessage(error) }
+    throw error
+  }
+}
+
+async function setStatusInTransaction(input: {
+  principal: OperatorPrincipal
+  tenantId: string
+  next: "ACTIVE" | "SUSPENDED"
+  reason: string
+  ipAddress?: string
+}): Promise<LenderActionResult<{ status: "ACTIVE" | "SUSPENDED" }>> {
+  const { principal, tenantId, next, reason, ipAddress } = input
   return prisma.$transaction(async (tx) => {
     const from = next === "SUSPENDED" ? "ACTIVE" : "SUSPENDED"
+    // One jurisdiction per instance: a lender cannot be reactivated beside ones that differ.
+    if (next === "ACTIVE") {
+      const conflict = await activationConflict(tx, tenantId)
+      if (conflict) return { ok: false as const, status: 409 as const, error: conflict.message }
+    }
     const { count } = await tx.tenant.updateMany({
       where: { id: tenantId, operatorId: principal.operatorId, status: from },
       data: { status: next },

@@ -181,6 +181,8 @@ suite("lender API (real database)", () => {
       expect(res.status, JSON.stringify(res.body)).toBe(201)
       expect(res.body.status).toBe("DRAFT")
       expect(await db.auditLog.count({ where: { tenantId: A.tenantId, action: "APPLICATION_CREATED_VIA_API", entityId: res.body.id } })).toBe(1)
+      // The key's creator stands in for the capturer: they cannot later disburse an engine approval of it.
+      expect((await db.loanApplication.findUniqueOrThrow({ where: { id: res.body.id } })).inputStaffIds).toEqual([A.userId])
       expect((await call(createApplication, keyA, "/api/v1/applications", { init: { method: "POST", body: JSON.stringify(body) } })).status).toBe(409)
       const foreign = await call(createApplication, keyA, "/api/v1/applications", { init: { method: "POST", body: JSON.stringify({ ...body, clientId: B.spareClientId, productId: B.productId }) } })
       expect(foreign.status).toBe(404)

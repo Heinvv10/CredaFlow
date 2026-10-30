@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import { validateLenderIdentityColumns } from "@/lib/config/identity-schema"
 import { tenantColourErrors } from "@/lib/theme/tenant-colours"
-import { DEMO_LENDERS, demoLender } from "./demo-lender"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "../lib/jurisdiction/active"
+import { DEMO_LENDERS, demoLender, lenderJurisdiction } from "./demo-lender"
 
 describe("demoLender", () => {
   it("defaults to Acme exactly as the seed hardcoded it before DEMO_LENDER existed", () => {
@@ -83,7 +84,7 @@ describe("demoLender", () => {
   })
 
   it.each(["nope", "toString", "__proto__", "ACME"])("refuses DEMO_LENDER=%s", (name) => {
-    expect(() => demoLender({ DEMO_LENDER: name })).toThrow(/is not one of: acme, fairscore, tsela/)
+    expect(() => demoLender({ DEMO_LENDER: name })).toThrow(/is not one of: acme, fairscore, tsela, basotho/)
   })
 
   describe.each(Object.entries(DEMO_LENDERS))("%s", (name, lender) => {
@@ -94,7 +95,12 @@ describe("demoLender", () => {
     })
 
     it("has an identity the audited identity API accepts and colours the tenant admin API accepts", () => {
-      expect(validateLenderIdentityColumns(lender.identity)).toMatchObject({ ok: true })
+      setActiveJurisdiction(lenderJurisdiction(lender))
+      try {
+        expect(validateLenderIdentityColumns(lender.identity)).toMatchObject({ ok: true })
+      } finally {
+        resetActiveJurisdiction()
+      }
       expect(tenantColourErrors(lender.colours)).toEqual({})
     })
 
@@ -105,6 +111,14 @@ describe("demoLender", () => {
     it("is keyed by its slug", () => {
       expect(lender.slug).toBe(name)
     })
+  })
+
+  it("selects the Lesotho profile: LS, loti, no NCR or FSP number, +266 phones", () => {
+    const basotho = demoLender({ DEMO_LENDER: "basotho" })
+    expect(lenderJurisdiction(basotho)).toEqual({ jurisdiction: "LS", currency: "LSL" })
+    expect(basotho.identity).toMatchObject({ ncrNumber: null, fscaNumber: null, publicPhone: "+266 2200 0000" })
+    expect(JSON.stringify(basotho).toLowerCase()).not.toContain("acme")
+    expect(lenderJurisdiction(demoLender({}))).toEqual({ jurisdiction: "ZA", currency: "ZAR" })
   })
 
   it("prints one field for the shell scripts", () => {

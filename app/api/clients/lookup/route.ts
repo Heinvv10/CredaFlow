@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { isValidSaIdNumber } from "@/lib/validation/client-wizard"
+import { canonicalIdNumber, idNumberCopy, isValidIdNumber } from "@/lib/validation/client-wizard"
 import { checkRateLimit } from "@/lib/rate-limit"
 
 /**
@@ -46,13 +46,13 @@ export async function GET(req: NextRequest) {
   }
 
   return await withTenantContext(req, async (tenant) => {
-    const idNumber = req.nextUrl.searchParams.get("idNumber")?.trim() ?? ""
+    const idNumber = canonicalIdNumber(req.nextUrl.searchParams.get("idNumber") ?? "")
 
-    // Refuse to probe on anything that is not a well-formed SA ID. This keeps
+    // Refuse to probe on anything that is not a well-formed national ID. This keeps
     // the endpoint from being walked with partial numbers to enumerate who is
     // on the book.
-    if (!isValidSaIdNumber(idNumber)) {
-      return NextResponse.json({ error: "A valid 13-digit SA ID number is required" }, { status: 422 })
+    if (!isValidIdNumber(idNumber)) {
+      return NextResponse.json({ error: idNumberCopy().refusal }, { status: 422 })
     }
 
     const existing = await prisma.client.findFirst({

@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
     identity,
     title: "Credit and insurance — South Africa",
     description: identity
-      ? `${identity.tradingName} offers responsible credit and insurance enquiries for South Africans. NCR-registered (${identity.ncrNumber}) with POPIA-aware processes.`
+      ? `${identity.tradingName} offers responsible credit and insurance enquiries for South Africans. ${identity.ncrNumber ? `NCR-registered (${identity.ncrNumber}) ` : ""}with POPIA-aware processes.`
       : "",
     path: "/",
   })

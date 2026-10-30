@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { logAudit } from "@/lib/audit"
@@ -10,6 +11,8 @@ export async function GET(
 ) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("TCF reporting")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     try {
@@ -34,6 +37,8 @@ export async function PATCH(
 ) {
   const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
+  const notNca = await ncaOnlyRefusal("TCF reporting")
+  if (notNca) return notNca
 
   return withTenantContext(req, async (tenant) => {
     try {

@@ -3,6 +3,7 @@ import { createFakeDb } from "./fake-db.test-helpers"
 import { bootstrapTenant, TenantBootstrapRefusal } from "./bootstrap-tenant"
 import { parseTenantConfig, type TenantBootstrapConfig } from "./tenant-config"
 import { validFile } from "./tenant-config.test-helpers"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 function config(over: Record<string, unknown> = {}): TenantBootstrapConfig {
   const r = parseTenantConfig({ ...validFile(), ...over })
@@ -154,5 +155,43 @@ describe("bootstrapTenant", () => {
     await expect(run(f, config())).rejects.toThrow("audit down")
     expect(f.tables.tenants).toHaveLength(0)
     expect(f.tables.tenantConfigs).toHaveLength(0)
+  })
+
+  it("refuses a lender file validated as South African on a Lesotho instance, and writes nothing", async () => {
+    const f = createFakeDb({ instance: { id: 1, jurisdiction: "LS", currency: "LSL" } })
+    expect(await refusal(run(f, config()))).toBe("JURISDICTION_CONFLICT")
+    expect(f.tables.tenants).toHaveLength(0)
+  })
+
+  it("a South African instance takes a South African lender, written with the instance's jurisdiction", async () => {
+    const f = createFakeDb({ instance: { id: 1, jurisdiction: "ZA", currency: "ZAR" } })
+    expect((await run(f, config())).status).toBe("created")
+    expect(f.tables.tenantConfigs[0]).toMatchObject({ jurisdiction: "ZA", currency: "ZAR" })
+  })
+
+  it("a Lesotho instance takes a Lesotho lender: LS / LSL on its config, no NCR number", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    try {
+      const f = createFakeDb({ instance: { id: 1, jurisdiction: "LS", currency: "LSL" } })
+      const lesotho = parseTenantConfig({
+        slug: "basotho", name: "Demo Basotho Lending (Pty) Ltd",
+        identity: {
+          ...validFile().identity, legalName: "Demo Basotho Lending (Pty) Ltd", brandName: "Demo Basotho Lending",
+          ncrNumber: null, fscaNumber: null, companyRegNumber: "2099/000001", registeredOffice: "1 Demo Road\nMaseru\n100",
+          publicPhone: "+266 2200 0000", collectionsPhone: "+266 2200 0001",
+        },
+        statutoryConfirm: { ncrNumber: null, fscaNumber: null, companyRegNumber: "2099/000001" },
+      })
+      if (!lesotho.ok) throw new Error(lesotho.errors.join("; "))
+      expect((await run(f, lesotho.config)).status).toBe("created")
+      expect(f.tables.tenantConfigs[0]).toMatchObject({ jurisdiction: "LS", currency: "LSL", ncrNumber: null })
+    } finally {
+      resetActiveJurisdiction()
+    }
+  })
+
+  it("an unmigrated database (no instance row) behaves as before", async () => {
+    const f = createFakeDb()
+    expect((await run(f, config())).status).toBe("created")
   })
 })

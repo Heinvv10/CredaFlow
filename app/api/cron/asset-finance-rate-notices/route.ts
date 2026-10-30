@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ncaOnlyCronSkip } from "@/lib/jurisdiction/nca-only"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { prisma } from "@/lib/prisma"
 import { verifyCronSecret } from "@/lib/cron-auth"
@@ -9,6 +10,9 @@ import { dispatchRepriceNotices } from "@/lib/asset-finance/reprice-notice-dispa
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
   if (denied) return denied
+  // Asset finance is an NCA product: nothing to do for a lender outside the NCA's jurisdiction.
+  const skipped = await ncaOnlyCronSkip()
+  if (skipped) return skipped
   const deadlines = await scanRateNoticeDeadlines(prisma)
   const tenants = await withoutTenantScope(() =>
     prisma.assetFinanceRateNotice.findMany({

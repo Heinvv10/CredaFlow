@@ -1,3 +1,4 @@
+import { ncaOnlyPage } from "@/lib/jurisdiction/nca-only"
 import { prisma } from "@/lib/prisma"
 import { requireMinRole } from "@/lib/auth-guards"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -11,6 +12,7 @@ const currentPeriod = currentQuarter
 
 export default async function TcfPage() {
   await requireMinRole("LOAN_ADMIN")
+  await ncaOnlyPage()
   const tenantId = await getStaffTenantId()
   const outcomes = await prisma.tcfOutcome.findMany({
     where: { tenantId },

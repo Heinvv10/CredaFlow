@@ -32,6 +32,9 @@ model Lead {
   referredBy                 String? // lead.id of the referring client (or just track via activity)
   employmentType             String? // SALARIED, SELF_EMPLOYED, UNEMPLOYED, RETIRED
   declaredIncome             Int? // in cents
+  /// Staff who entered or changed decision-input figures (income, employment) on the lead. Grows only; copied onto the
+  /// Client made from the lead (lib/applications/input-staff.ts).
+  inputStaffIds              String[]         @default([])
   requestedAmount            Int? // in cents
   leadScore                  Int? // 0-100, auto-calculated
   scoreCalculatedAt          DateTime?

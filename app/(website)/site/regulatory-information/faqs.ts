@@ -31,10 +31,10 @@ export function regulatoryFaqs(identity: LenderIdentity): RegulatoryFaq[] {
       question: `What is ${brand}?`,
       answer: `${brand} is a South African financial services and credit provider brand operated by ${identity.legalName}.`,
     },
-    {
+    ...(identity.ncrNumber ? [{
       question: `Is ${brand} registered with the NCR?`,
       answer: `Yes. ${identity.legalName} is registered with the National Credit Regulator under NCR registration number ${identity.ncrNumber}.`,
-    },
+    }] : []),
     ...(identity.fspNumber ? [{
       question: `Is ${brand} authorised by the FSCA?`,
       answer: `${identity.legalName} is listed by the Financial Sector Conduct Authority as an authorised financial services provider with FSP number ${identity.fspNumber}.`,

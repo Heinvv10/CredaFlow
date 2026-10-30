@@ -15,6 +15,7 @@ const clientUpdateMock = vi.fn()
 const documentUpdateManyMock = vi.fn()
 const auditCreateMock = vi.fn()
 const applicationFindFirstMock = vi.fn()
+const applicationUpdateManyMock = vi.fn()
 
 const previousClient = {
   id: "client-1",
@@ -95,6 +96,7 @@ const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
   loanApplication: {
     findFirst: (args: unknown) => applicationFindFirstMock(args),
+    updateMany: (args: unknown) => applicationUpdateManyMock(args),
   },
   client: {
     findUnique: (args: unknown) => clientFindUniqueMock(args),
@@ -136,6 +138,7 @@ import { POST } from "./route"
 
 describe("POST /api/clients/[id]/apply-extraction", () => {
   beforeEach(() => {
+    applicationUpdateManyMock.mockReset()
     vi.resetAllMocks()
     requireApiRoleMock.mockResolvedValue({
       user: { id: "officer-1", email: "officer@example.test" },
@@ -1188,6 +1191,39 @@ describe("POST /api/clients/[id]/apply-extraction", () => {
       grossMonthlyIncome: 16000000,
       monthlyIncome: 2700000,
     })
+  })
+
+  it("records the staff member who applied income from a document as an input staff member of the client's open applications", async () => {
+    const response = await applyFlaggedPayslip(true)
+
+    expect(response.status).toBe(200)
+    expect(applicationUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ clientId: "client-1" }),
+      data: { inputStaffIds: { push: expect.any(String) } },
+    }))
+  })
+
+  it("records nobody when the extracted income equals what is already on file (nothing a fact reads changed)", async () => {
+    clientFindUniqueMock.mockResolvedValue({ ...previousClient, monthlyIncome: 2_700_000, grossMonthlyIncome: 16_000_000 })
+    const response = await applyFlaggedPayslip(true)
+
+    expect(response.status).toBe(200)
+    expect(applicationUpdateManyMock).not.toHaveBeenCalled()
+    expect(clientUpdateMock.mock.calls[0]?.[0]?.data ?? {}).not.toHaveProperty("inputStaffIds")
+  })
+
+  it("adds the editor to the client's input staff in the same write that applies the income", async () => {
+    const response = await applyFlaggedPayslip(true)
+
+    expect(response.status).toBe(200)
+    expect(clientUpdateMock.mock.calls[0]?.[0]?.data).toMatchObject({ inputStaffIds: expect.arrayContaining([expect.any(String)]) })
+  })
+
+  it("records nobody when the flagged payslip's income is not written", async () => {
+    const response = await applyFlaggedPayslip(false)
+
+    expect(response.status).toBe(200)
+    expect(applicationUpdateManyMock).not.toHaveBeenCalled()
   })
 
   it("takes the client lock before source and composite-evidence reads", async () => {

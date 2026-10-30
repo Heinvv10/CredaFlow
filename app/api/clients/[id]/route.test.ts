@@ -22,6 +22,7 @@ const debtCreateManyMock = vi.fn()
 const debtFindManyMock = vi.fn()
 const auditLogCreateMock = vi.fn()
 const approvedApplicationFindManyMock = vi.fn()
+const loanApplicationUpdateManyMock = vi.fn()
 const logAuditMock = vi.fn()
 const syncClientConsentMock = vi.fn()
 const queryRawMock = vi.fn()
@@ -64,6 +65,7 @@ vi.mock("@/lib/referral-agents/retro-attribution-apply", () => ({
   applyRetroAttribution: (...args: unknown[]) => applyRetroAttributionMock(...args),
 }))
 
+import { DECISION_INPUT_CLIENT_FIELDS } from "@/lib/decisioning/facts"
 import { GET, PATCH, PUT } from "./route"
 
 const context = { params: Promise.resolve({ id: "client-1" }) }
@@ -160,6 +162,7 @@ beforeEach(() => {
   }])
   auditLogCreateMock.mockResolvedValue({ id: "audit-1" })
   approvedApplicationFindManyMock.mockResolvedValue([])
+  loanApplicationUpdateManyMock.mockResolvedValue({ count: 1 })
   transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({
       $queryRaw: queryRawMock,
@@ -168,7 +171,7 @@ beforeEach(() => {
         update: clientUpdateMock,
       },
       // resolveReferralCodeById runs on the tx.
-      loanApplication: { findMany: approvedApplicationFindManyMock },
+      loanApplication: { findMany: approvedApplicationFindManyMock, updateMany: loanApplicationUpdateManyMock },
       referralCode: { findFirst: referralFindFirstMock },
       clientExpenseBreakdown: { upsert: expenseBreakdownUpsertMock },
       clientDocument: {
@@ -557,6 +560,74 @@ describe("PUT /api/clients/[id] approval evidence guard", () => {
 })
 
 describe("PUT /api/clients/[id] partial-update semantics", () => {
+  it("records the staff member who changed the income as an input staff member of the client's open applications", async () => {
+    const response = await PUT(putRequest({ monthlyIncome: 1_500_099 }), context)
+
+    expect(response.status).toBe(200)
+    expect(loanApplicationUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "tenant-1", clientId: "client-1", status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW"] } }),
+      data: { inputStaffIds: { push: expect.any(String) } },
+    }))
+  })
+
+  // Every client column a decision fact reads (lib/decisioning/facts.ts FACT_CLIENT_SOURCES): an edit of any of them is an edit of the
+  // inputs of the client's open applications, and the client keeps the editor's name for applications made later.
+  it.each([
+    ["dateOfBirth", { dateOfBirth: "1991-02-03" }],
+    ["employmentStatus", { employmentStatus: "SELF_EMPLOYED" }],
+    ["incomeSourceType", { incomeSourceType: "BUSINESS_INCOME" }],
+    ["employmentStartDate", { employmentStartDate: "2021-04-05" }],
+    ["grossMonthlyIncome", { grossMonthlyIncome: 1_600_000 }],
+    ["monthlyIncome", { monthlyIncome: 1_500_099 }],
+    ["monthlyExpenses", { monthlyExpenses: 810_000, expenseBreakdown: { housing: 310_000, transport: 100_000, food: 200_000, education: 0, insurance: 50_000, clothing: 25_000, entertainment: 25_000, medical: 50_000, other: 50_000 } }],
+    ["expenseBreakdown", { expenseBreakdown: { housing: 310_000, transport: 100_000, food: 200_000, education: 0, insurance: 50_000, clothing: 25_000, entertainment: 25_000, medical: 50_000, other: 50_000 } }],
+    ["debtObligations", { debtObligations: [{ id: "debt-1", creditProvider: "Bank A", accountType: "PERSONAL_LOAN", outstandingBalance: 400_000, monthlyInstalment: 26_000, notes: "Preserve this note" }] }],
+  ])("a change to %s is recorded as input staff, on the client and on its open applications", async (field, body) => {
+    expect(DECISION_INPUT_CLIENT_FIELDS).toContain(field)
+    const response = await PUT(putRequest(body), context)
+
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).toMatchObject({ inputStaffIds: expect.arrayContaining([expect.any(String)]) })
+    expect(loanApplicationUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "tenant-1", clientId: "client-1", status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW"] } }),
+      data: { inputStaffIds: { push: expect.any(String) } },
+    }))
+  })
+
+  it("records nobody when a full-form save sends every decision field unchanged (the form sends them all on every save)", async () => {
+    const same = {
+      monthlyIncome: 1_500_000, grossMonthlyIncome: 1_500_000,
+      debtObligations: [{ id: "debt-1", creditProvider: "Bank A", accountType: "PERSONAL_LOAN", outstandingBalance: 400_000, monthlyInstalment: 25_000, notes: "Preserve this note" }],
+    }
+    const response = await PUT(putRequest({ ...same, bankName: "ABSA" }), context)
+
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).not.toHaveProperty("inputStaffIds")
+    expect(loanApplicationUpdateManyMock).not.toHaveBeenCalled()
+  })
+
+  it("a removed debt counts as a change", async () => {
+    const response = await PUT(putRequest({ debtObligations: [] }), context)
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200)
+    expect(clientUpdateMock.mock.calls[0][0].data).toHaveProperty("inputStaffIds")
+  })
+
+  it("keeps the staff already recorded on the client and adds the editor once", async () => {
+    clientFindUniqueMock.mockResolvedValue(baseClient({ inputStaffIds: ["earlier-editor"] }))
+    await PUT(putRequest({ monthlyIncome: 1_500_099 }), context)
+    const staff = clientUpdateMock.mock.calls[0][0].data.inputStaffIds as string[]
+    expect(staff[0]).toBe("earlier-editor")
+    expect(new Set(staff).size).toBe(staff.length)
+    expect(staff).toHaveLength(2)
+  })
+
+  it("records nobody for an edit that touches no income or expense figure", async () => {
+    const response = await PUT(putRequest({ phone: "0820000000" }), context)
+
+    expect(response.status).toBe(200)
+    expect(loanApplicationUpdateManyMock).not.toHaveBeenCalled()
+  })
+
   it("requires the client revision before any write transaction starts", async () => {
     const response = await PUT(putRequest({
       expectedUpdatedAt: undefined,
@@ -910,7 +981,8 @@ describe("PUT /api/clients/[id] partial-update semantics", () => {
 
     expect(response.status).toBe(200)
     expect(clientUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
-      data: { monthlyExpenses: 800_000 },
+      // A justification can flip the Regulation 23A fact, so the editor is recorded.
+      data: { monthlyExpenses: 800_000, inputStaffIds: ["staff-1"] },
     }))
     expect(expenseBreakdownUpsertMock).toHaveBeenCalledWith({
       where: { clientId: "client-1" },
@@ -1021,12 +1093,12 @@ describe("PUT /api/clients/[id] partial-update semantics", () => {
       expenseBreakdown: { ...zero, belowMleJustification: "Lives with family who cover the household costs." },
     }), context)
     expect(r0.status).toBe(200)
-    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 0, monthlyExpensesDeclaredAt: expect.any(Date) })
+    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 0, monthlyExpensesDeclaredAt: expect.any(Date), inputStaffIds: ["staff-1"] })
 
     clientUpdateMock.mockClear()
     const higher = await PUT(putRequest({ expenseBreakdown: { ...zero, housing: 900_000 } }), context)
     expect(higher.status).toBe(200)
-    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 900_000, monthlyExpensesDeclaredAt: expect.any(Date) })
+    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 900_000, monthlyExpensesDeclaredAt: expect.any(Date), inputStaffIds: ["staff-1"] })
   })
 
   it("staff explicit R0 on a never-captured client records a declaration", async () => {
@@ -1040,7 +1112,7 @@ describe("PUT /api/clients/[id] partial-update semantics", () => {
       expenseBreakdown: { ...zero, belowMleJustification: "Lives with family who cover the household costs." },
     }), context)
     expect(response.status).toBe(200)
-    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 0, monthlyExpensesDeclaredAt: expect.any(Date) })
+    expect(clientUpdateMock.mock.calls[0][0].data).toEqual({ monthlyExpenses: 0, monthlyExpensesDeclaredAt: expect.any(Date), inputStaffIds: ["staff-1"] })
   })
 
   it("does not read an untouched all-zero form save as a declaration", async () => {

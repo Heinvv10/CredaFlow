@@ -3,12 +3,12 @@ import { requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
 import { dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { getTenantFromRequest } from "@/lib/tenant"
-import { checkRateLimit, callerIp } from "@/lib/rate-limit"
+import { checkRateLimit, callerIp, recordedCallerIp } from "@/lib/rate-limit"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/referrals"
 import { AuditAction } from "@/lib/audit"
 import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
-import { isValidSaIdNumber } from "@/lib/validation/client-wizard"
+import { canonicalIdNumber, idNumberCopy, isValidIdNumber } from "@/lib/validation/client-wizard"
 import { generateReference, maskEmail, maskIdNumber } from "@/lib/utils"
 import {
   ContactPromotionConflictError,
@@ -19,6 +19,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { sendEmail } from "@/lib/email/service"
 import { notifyPriorLeadDuplicatesBestEffort } from "@/lib/crm/lead-duplicate-notify"
 import { deferAfterResponse } from "@/lib/http/after-response"
+import { scheduleDigitalDecision } from "@/lib/decisioning/schedule-digital"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { applicationSubmittedEmail, identityConflictNoticeEmail } from "@/lib/email/templates/portal"
 import { getLenderIdentity } from "@/lib/config/identity"
@@ -156,9 +157,12 @@ export async function POST(req: NextRequest) {
     // direct POST could otherwise persist a client + application under an
     // invalid ID (which then can't be KYC-verified). Only enforced when an ID
     // is supplied — a lead-only capture (no ID) is still allowed.
-    if (idNumber && !isValidSaIdNumber(String(idNumber).trim())) {
+    if (idNumber && !isValidIdNumber(canonicalIdNumber(String(idNumber).trim()))) {
       return NextResponse.json(
-        { success: false, error: "Please enter a valid 13-digit South African ID number." },
+        {
+          success: false,
+          error: idNumberCopy().applyRefusal,
+        },
         { status: 400 },
       )
     }
@@ -437,7 +441,7 @@ export async function POST(req: NextRequest) {
 
     if (email && idNumber && productTypeNormalised && requestedAmountCents > 0) {
       const normalisedEmail = String(email).toLowerCase().trim()
-      const normalisedIdNumber = String(idNumber).trim()
+      const normalisedIdNumber = canonicalIdNumber(String(idNumber).trim())
       // Read the two identity keys while holding the same Lead row lock used by
       // conversion. Under READ COMMITTED, two separate unlocked reads could
       // straddle a winner's commit (email missing, ID present) and manufacture
@@ -1530,6 +1534,8 @@ export async function POST(req: NextRequest) {
     if (applicationId) {
       const submittedApplicationId = applicationId
       deferAfterResponse(() => screenOnSubmit({ tenantId: tenant.id, applicationId: submittedApplicationId, actor: null }))
+      // The lender's decision engine, when it covers the portal channel: reviewed and decided after this response.
+      await scheduleDigitalDecision({ tenantId: tenant.id, applicationId: submittedApplicationId, ip: recordedCallerIp(req) })
     }
 
     return NextResponse.json({ success: true, reference: responseReference, applicationId, portalAccountStatus })

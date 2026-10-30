@@ -1,3 +1,4 @@
+import { recordInputStaffForClient, touchesDecisionInputs, withInputStaff } from "@/lib/applications/input-staff"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { isErasedRowEdit } from "@/lib/dealer/draft-purge-messages"
@@ -19,7 +20,7 @@ import {
 import { requireApiRole } from "@/lib/auth-guards"
 import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { clientWithoutLoanBook } from "@/lib/security/client-redaction"
-import { ACCOUNT_TYPE_VALUES } from "@/lib/validation/client-wizard"
+import { ACCOUNT_TYPE_VALUES, canonicalIdNumber } from "@/lib/validation/client-wizard"
 import { withTenantContext } from "@/lib/tenant"
 import { minimumLivingExpense } from "@/lib/affordability/mle"
 import { sumExpenseBreakdown } from "@/lib/affordability/sum-expense-breakdown"
@@ -306,6 +307,7 @@ export async function PUT(
     return await withTenantContext(req, async (tenant) => {
       const { id } = await ctx.params
       const data = await req.json()
+      if (typeof data.idNumber === "string") data.idNumber = canonicalIdNumber(data.idNumber)
       const hasKey = (key: string) => Object.prototype.hasOwnProperty.call(data, key)
       const expectedUpdatedAt = typeof data.expectedUpdatedAt === "string"
         ? new Date(data.expectedUpdatedAt)
@@ -464,6 +466,10 @@ export async function PUT(
             kycVerifiedById: true,
             kycVerificationMethod: true,
             referralCodeId: true,
+            inputStaffIds: true,
+            employmentStatus: true,
+            incomeSourceType: true,
+            employmentStartDate: true,
             grossMonthlyIncome: true,
             monthlyIncome: true,
             monthlyExpenses: true,
@@ -704,6 +710,29 @@ export async function PUT(
             effectiveExpenseBreakdown,
             normalisedEffectiveJustification,
           )
+        // A client field a decision fact reads (lib/decisioning/facts.ts FACT_CLIENT_SOURCES) CHANGED. By value, not by key: the
+        // edit form sends every field on every save, so a save that changes nothing a fact reads records no one.
+        const sameInstant = (a: Date | null | undefined, b: Date | null | undefined) => (a?.getTime() ?? null) === (b?.getTime() ?? null)
+        const debtsChanged = debtsKeyPresent && (
+          incomingDebts.some((debt) => {
+            const before = debt.id === null ? undefined : previous.debtObligations.find((p) => p.id === debt.id)
+            return !before || before.creditProvider !== debt.creditProvider || before.accountType !== debt.accountType
+              || before.outstandingBalance !== debt.outstandingBalance || before.monthlyInstalment !== debt.monthlyInstalment
+              || (debt.notesPresent && (before.notes ?? null) !== debt.notes)
+          })
+          || previous.debtObligations.some((before) => !incomingDebtIds.includes(before.id))
+        )
+        const decisionInputChanged = touchesDecisionInputs([
+          ...(hasKey("dateOfBirth") && !sameInstant(effectiveBiometricSubject.dateOfBirth, previous.dateOfBirth) ? ["dateOfBirth"] : []),
+          ...(hasKey("employmentStatus") && (data.employmentStatus || null) !== (previous.employmentStatus ?? null) ? ["employmentStatus"] : []),
+          ...(hasKey("incomeSourceType") && (data.incomeSourceType || null) !== (previous.incomeSourceType ?? null) ? ["incomeSourceType"] : []),
+          ...(hasKey("employmentStartDate") && !sameInstant(data.employmentStartDate ? new Date(data.employmentStartDate) : null, previous.employmentStartDate) ? ["employmentStartDate"] : []),
+          ...(hasKey("grossMonthlyIncome") && effectiveGrossIncome !== previous.grossMonthlyIncome ? ["grossMonthlyIncome"] : []),
+          ...(hasKey("monthlyIncome") && effectiveMonthlyIncome !== previous.monthlyIncome ? ["monthlyIncome"] : []),
+          ...(effectiveMonthlyExpenses !== previous.monthlyExpenses ? ["monthlyExpenses"] : []),
+          ...(shouldWriteExpenseBreakdown ? ["expenseBreakdown"] : []),
+          ...(debtsChanged ? ["debtObligations"] : []),
+        ])
         if (financialInputChanged && effectiveGrossForMle > 0) {
           const floor = minimumLivingExpense(effectiveGrossForMle)
           if (effectiveMonthlyExpenses < floor && !effectiveJustification) {
@@ -812,6 +841,7 @@ export async function PUT(
             // partial updates (notably banking-only edits before disbursement).
             // Omitted keys must never erase unrelated identity, consent or NCA
             // affordability evidence.
+            ...(decisionInputChanged && { inputStaffIds: withInputStaff(previous.inputStaffIds, guard.user.id) }),
             ...(referralKeyPresent && { referralCodeId: referralCodeId }),
             ...(hasKey("firstName") && { firstName: data.firstName }),
             ...(hasKey("lastName") && { lastName: data.lastName }),
@@ -882,6 +912,11 @@ export async function PUT(
         })
         let updated = clientMutation.client
         const biometricIdentityRevocation = clientMutation.revocation
+        // The figures an open application is decided on changed: whoever changed them cannot later disburse an
+        // engine approval of it (lib/applications/input-staff.ts).
+        if (decisionInputChanged) {
+          await recordInputStaffForClient(tx, { tenantId: tenant.id, clientId: id, userId: guard.user.id })
+        }
 
         // Now that the column names the incoming agent, the accrual reads the
         // right payee. Writes its own audit rows for both the reversal set and

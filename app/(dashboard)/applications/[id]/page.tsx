@@ -22,6 +22,7 @@ import { AffordabilityCapture } from "@/components/applications/AffordabilityCap
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
+import { AutoDecisionCard } from "@/components/applications/AutoDecisionCard"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
 import { StatementAiCard } from "@/components/applications/StatementAiCard"
@@ -108,7 +109,7 @@ async function getApplication(id: string, tenantId: string) {
       entity: { select: { legalName: true } },
       product: true,
       assignedTo: { select: { name: true, email: true } },
-      approvedBy: { select: { name: true, email: true } },
+      approvedBy: { select: { name: true, email: true, isSystem: true } },
       loan: true,
       assetFinanceDeal: { select: { id: true } },
     },
@@ -244,7 +245,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   // The routes refuse these to this viewer while segregation of duties is on;
   // say so where the button would be.
   const viewerId = session?.user?.id ?? ""
-  const disburseConflict = segregationOfDuties ? segregationOfDutiesConflict("disburse", viewerId, application) : null
+  const disburseConflict = segregationOfDuties ? segregationOfDutiesConflict("disburse", viewerId, { ...application, approvedBySystem: application.approvedBy?.isSystem === true }) : null
   const countersignConflict = segregationOfDuties ? segregationOfDutiesConflict("countersign", viewerId, application) : null
   // The checks API (GET /api/applications/[id]/checks) needs CREDIT_OFFICER.
   const canReadChecks = hasMinRole(userRole, "CREDIT_OFFICER")
@@ -925,6 +926,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             initialOpenCount={openChecks}
           />
         )}
+
+        {/* The lender's decision engine (lib/decisioning/): renders nothing while it has never run here. */}
+        {canReadChecks && <AutoDecisionCard applicationId={application.id} canRun={hasMinRole(userRole, "LOAN_ADMIN") && application.status === "UNDER_REVIEW"} />}
 
         {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
 

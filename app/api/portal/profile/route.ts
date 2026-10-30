@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
-import { isValidSaPhone } from "@/lib/validation/client-wizard"
+import { isValidPhone, mobileExamples } from "@/lib/validation/client-wizard"
 
 // Fields a client may self-edit from /portal/profile. `email` is deliberately
 // excluded — it is the auth-session identity and changing it without a
@@ -52,15 +52,15 @@ export async function PUT(req: Request) {
     if (value === undefined) {
       return NextResponse.json({ error: `${key} must be a string.` }, { status: 400 })
     }
-    if (key === "phone" && (value === null || !isValidSaPhone(value))) {
+    if (key === "phone" && (value === null || !isValidPhone(value))) {
       return NextResponse.json(
-        { error: "phone must be a South African mobile number (e.g. 0821234567 or +27821234567)." },
+        { error: `phone must be ${mobileExamples()}.` },
         { status: 400 },
       )
     }
-    if (key === "whatsapp" && value !== null && !isValidSaPhone(value)) {
+    if (key === "whatsapp" && value !== null && !isValidPhone(value)) {
       return NextResponse.json(
-        { error: "whatsapp must be a South African mobile number (e.g. 0821234567 or +27821234567)." },
+        { error: `whatsapp must be ${mobileExamples()}.` },
         { status: 400 },
       )
     }
