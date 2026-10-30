@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
@@ -5,17 +6,12 @@ import type { ChangeHandler, Tx } from "@/lib/maker-checker/types"
 import { parseMatrixPayload } from "./matrix-payload"
 import { MATRIX_KIND, type MatrixPayload } from "./types"
 
-/** A change that lets an application be approved with no staff approval chain, or switches the matrix off. */
-export function loosensMatrix(payload: Pick<MatrixPayload, "enabled" | "rules" | "defaultRequiredLevels">): boolean {
-  return !payload.enabled || payload.defaultRequiredLevels === 0 || payload.rules.some((rule) => rule.requiredLevels === 0)
-}
-
 export const approvalMatrixHandler: ChangeHandler<MatrixPayload> = {
   kind: MATRIX_KIND,
   label: "Approval matrix",
   payloadVersion: 1,
   makePermission: "manage_approval_matrix",
-  approvePermission: (payload) => (loosensMatrix(payload) ? "approve_approval_matrix_loosening" : "approve_approval_matrix"),
+  approvePermission: "approve_approval_matrix",
   parse: parseMatrixPayload,
   async verify(tx: Tx, tenantId, payload) {
     const problems: string[] = []
@@ -48,7 +44,7 @@ export const approvalMatrixHandler: ChangeHandler<MatrixPayload> = {
       data: {
         tenantId, version, name: payload.name, enabled: payload.enabled,
         effectiveFrom: new Date(`${effectiveFrom}T00:00:00Z`),
-        levels: payload.levels as never, rules: payload.rules as never,
+        levels: payload.levels as unknown as Prisma.InputJsonValue, rules: payload.rules as unknown as Prisma.InputJsonValue,
         defaultRequiredLevels: payload.defaultRequiredLevels, changeRequestId: request.id,
       },
     })

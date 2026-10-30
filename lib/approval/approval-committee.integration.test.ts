@@ -32,9 +32,11 @@ suite("approval matrix: credit committee (real Postgres)", () => {
     expect(await approveAs("ad2", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECISION_REQUIRED" } })
     await decide("DECLINED")
     expect(await approveAs("ad2", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECLINED" } })
-    await decide("APPROVED", ["Obtain a signed employer letter before disbursement", "Insure the vehicle with the bank noted"])
+    // The administrator who recorded the decline cannot overturn it; another member of the committee, by role, can.
+    await expect(decide("APPROVED", [], as.ad)).rejects.toMatchObject({ code: "OVERTURN_NEEDS_ANOTHER_RECORDER" })
+    await decide("APPROVED", ["Obtain a signed employer letter before disbursement", "Insure the vehicle with the bank noted"], as.checker)
     // Whoever recorded the committee's decision cannot also give the committee level's approval: not the route, not the database.
-    expect(await approveAs("ad", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_RECORDER_CANNOT_APPROVE" } })
+    expect(await approveAs("checker", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_RECORDER_CANNOT_APPROVE" } })
     const bigCase = await caseOf("ap-big")
     expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${bigCase.id}','ap-big',3,'${ids.ad}','ROLE')`))).toContain("recorded the credit committee")
     // ...and someone who approved a lower level cannot record it.
@@ -45,9 +47,13 @@ suite("approval matrix: credit committee (real Postgres)", () => {
     expect(await statusOf("ap-big")).toBe("APPROVED")
     expect((await stepsOf("ap-big"))[2]).toMatchObject({ level: 3, approverId: ids.ad2, conditions: ["Obtain a signed employer letter before disbursement", "Insure the vehicle with the bank noted"] })
     expect(await db.creditCommitteeDecision.count({ where: { tenantId: ids.tenant, applicationId: "ap-big" } })).toBe(3)
-    const progress = await loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-big", viewer: { id: ids.ad2, role: "ADMIN" } })
+    const progress = await inTenant(() => loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-big", viewer: { id: ids.ad2, role: "ADMIN" } }))
     expect(progress.committeeDecisions.map((d) => d.decision)).toEqual(["DEFERRED", "DECLINED", "APPROVED"])
     expect(progress.levels[2]).toMatchObject({ committee: true, state: "APPROVED", conditions: expect.arrayContaining(["Obtain a signed employer letter before disbursement"]) })
+    // The committee's attendees, rationale and conditions are for those who may read its pack: a credit officer sees the chain, not those.
+    const officerView = await inTenant(() => loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-big", viewer: { id: ids.officer, role: "CREDIT_OFFICER" } }))
+    expect(officerView.committeeDecisions).toEqual([])
+    expect(officerView.levels[2]).toMatchObject({ state: "APPROVED", conditions: [] })
   })
 
   it("the database refuses committee decisions that carry conditions on a decline, and edits of any decision", async () => {

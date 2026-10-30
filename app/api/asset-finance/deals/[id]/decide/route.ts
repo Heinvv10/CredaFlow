@@ -6,7 +6,8 @@ import { AuditAction } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { decideDeal, parseDecideInput } from "@/lib/asset-finance/deal-decision"
+import { ApprovalChainChangedError, gateApproval } from "@/lib/approval/chain"
+import { decideDeal, parseDecideInput, type DecideDealOptions, type DecideDealResult } from "@/lib/asset-finance/deal-decision"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
 import { borrowerScreeningGate, isScreeningRefusal } from "@/lib/screening/gate"
 
@@ -71,49 +72,76 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    let result: Awaited<ReturnType<typeof decideDeal>>
+    const actor = { tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email, role: guard.user.role }
+    const run = (options: DecideDealOptions) => prisma.$transaction((tx) => decideDeal(tx, actor, id, input, options))
+    const respond = async (result: DecideDealResult): Promise<NextResponse> => {
+      switch (result.kind) {
+        case "not_found":
+          return NextResponse.json({ error: "Deal not found" }, { status: 404 })
+        case "not_decidable":
+          return NextResponse.json({ error: `A ${result.status} deal cannot be decided` }, { status: 409 })
+        case "awaiting_override":
+          return refuse("awaiting_regime_approval", 409, "The NON_NCA override awaits a second approver")
+        case "memo_required":
+          return refuse("credit_memo_required", 409, "Record the credit memo before approving")
+        case "assessment_required":
+          return refuse("s81_assessment_required", 409, "Record the NCA s81 affordability assessment before approving")
+        case "unaffordable":
+          return refuse("s81_unaffordable", 409, "The recorded NCA s81 assessment is not affordable")
+        case "credit_life_required":
+          return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
+        case "screening_blocked":
+          return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
+        case "exceptions_changed":
+          return refuse("exceptions_changed", 409, `The exceptions changed since the page was loaded; review them and decide again: ${result.exceptions.join("; ")}`)
+        case "exception_reason_without_exceptions":
+          return refuse("exception_reason_without_exceptions", 422, "The deal has no exceptions to answer: decide without an exception reason")
+        case "product_not_asset_finance":
+          return refuse("product_not_asset_finance", 409, "The deal's product is not an asset-finance product")
+        case "exceptions_unanswered":
+          return refuse("exceptions_unanswered", 409, `Approving needs a reason for these exceptions: ${result.exceptions.join("; ")}`)
+        case "refused_nca":
+          return NextResponse.json({ error: result.reason, deal: await loadDealDetail(tenant.id, id) }, { status: 409 })
+        case "ready":
+          // A preflight's answer; the route asks for one only on the way to a decision it then makes.
+          return NextResponse.json({ error: "The deal was not decided" }, { status: 500 })
+        case "decided":
+          return NextResponse.json(await loadDealDetail(tenant.id, id))
+      }
+    }
+
     try {
-      result = await prisma.$transaction((tx) =>
-        decideDeal(tx, { tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email, role: guard.user.role }, id, input),
-      )
+      let beforeApprove: DecideDealOptions["beforeApprove"]
+      if (input.decision === "APPROVE") {
+        // The lender's approval matrix, where one is in force (lib/approval/). Every gate on approving runs first, so a level is recorded
+        // only for a deal that could be approved; then another level may still have to approve, or this approval completes the chain.
+        const preflight = await run({ preflight: true })
+        if (preflight.kind !== "ready") return await respond(preflight)
+        const deal = await prisma.assetFinanceDeal.findFirst({
+          where: { id, tenantId: tenant.id },
+          select: { application: { select: { id: true, appliedAmount: true, productId: true, branchId: true, riskGradeRank: true, inputStaffIds: true } } },
+        })
+        if (deal) {
+          const gate = await gateApproval({ tenantId: tenant.id, application: deal.application, user: guard.user, automated: false, note: input.reasons.join("; ") })
+          if (gate.kind === "respond") return NextResponse.json(gate.body, { status: gate.status })
+          if (gate.kind === "final") beforeApprove = gate.recordFinalStep
+        }
+      }
+      return await respond(await run(beforeApprove ? { beforeApprove } : {}))
     } catch (error) {
+      if (error instanceof ApprovalChainChangedError) {
+        return NextResponse.json({ error: "Another approver acted on this deal at the same time; refresh and try again.", approvalMatrix: "CHAIN_CHANGED" }, { status: 409 })
+      }
       if (isScreeningRefusal(error)) {
         return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
+      }
+      if (isCheckViolation(error) && String(error).includes("Approval matrix:")) {
+        return NextResponse.json({ error: "The approval matrix has not been satisfied: every required level must approve first.", approvalMatrix: "CHAIN_INCOMPLETE" }, { status: 409 })
       }
       if (isCheckViolation(error)) {
         return NextResponse.json({ error: "The database refused the decision; the deal changed, try again" }, { status: 409 })
       }
       throw error
-    }
-    switch (result.kind) {
-      case "not_found":
-        return NextResponse.json({ error: "Deal not found" }, { status: 404 })
-      case "not_decidable":
-        return NextResponse.json({ error: `A ${result.status} deal cannot be decided` }, { status: 409 })
-      case "awaiting_override":
-        return refuse("awaiting_regime_approval", 409, "The NON_NCA override awaits a second approver")
-      case "memo_required":
-        return refuse("credit_memo_required", 409, "Record the credit memo before approving")
-      case "assessment_required":
-        return refuse("s81_assessment_required", 409, "Record the NCA s81 affordability assessment before approving")
-      case "unaffordable":
-        return refuse("s81_unaffordable", 409, "The recorded NCA s81 assessment is not affordable")
-      case "credit_life_required":
-        return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
-      case "screening_blocked":
-        return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
-      case "exceptions_changed":
-        return refuse("exceptions_changed", 409, `The exceptions changed since the page was loaded; review them and decide again: ${result.exceptions.join("; ")}`)
-      case "exception_reason_without_exceptions":
-        return refuse("exception_reason_without_exceptions", 422, "The deal has no exceptions to answer: decide without an exception reason")
-      case "product_not_asset_finance":
-        return refuse("product_not_asset_finance", 409, "The deal's product is not an asset-finance product")
-      case "exceptions_unanswered":
-        return refuse("exceptions_unanswered", 409, `Approving needs a reason for these exceptions: ${result.exceptions.join("; ")}`)
-      case "refused_nca":
-        return NextResponse.json({ error: result.reason, deal: await loadDealDetail(tenant.id, id) }, { status: 409 })
-      case "decided":
-        return NextResponse.json(await loadDealDetail(tenant.id, id))
     }
   })
 }

@@ -12,7 +12,7 @@ import { CaseFileLayout } from "@/components/app-shell/CaseFileLayout"
 import { MetricCard } from "@/components/app-shell/MetricCard"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { ApprovalProgressPanel } from "@/components/applications/ApprovalProgressPanel"
-import { loadApprovalProgress } from "@/lib/approval/progress"
+import { approvalStepApproverIds, loadApprovalProgress } from "@/lib/approval/progress"
 import { sastCalendarDate } from "@/lib/date/sast"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -251,7 +251,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   // The routes refuse these to this viewer while segregation of duties is on;
   // say so where the button would be.
   const viewerId = session?.user?.id ?? ""
-  const disburseConflict = segregationOfDuties ? segregationOfDutiesConflict("disburse", viewerId, { ...application, approvedBySystem: application.approvedBy?.isSystem === true }) : null
+  const disburseConflict = segregationOfDuties
+    ? segregationOfDutiesConflict("disburse", viewerId, { ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenantId, application.id) })
+    : null
   const countersignConflict = segregationOfDuties ? segregationOfDutiesConflict("countersign", viewerId, application) : null
   // The checks API (GET /api/applications/[id]/checks) needs CREDIT_OFFICER.
   const canReadChecks = hasMinRole(userRole, "CREDIT_OFFICER")

@@ -228,6 +228,7 @@ ALTER TABLE "ApprovalDelegation" ADD CONSTRAINT "ApprovalDelegation_shape" CHECK
   AND "validTo" > "validFrom"
   AND "validTo" - "validFrom" <= interval '90 days'
   AND "delegatorId" <> "delegateId"
+  AND "createdById" <> "delegateId"
   AND length(btrim("reason")) >= 10
   AND (("revokedAt" IS NULL) = ("revokedById" IS NULL))
 );
@@ -282,7 +283,7 @@ $function$;
 CREATE TRIGGER "ApprovalMatrixVersion_guard" BEFORE INSERT OR UPDATE OR DELETE ON "ApprovalMatrixVersion" FOR EACH ROW EXECUTE FUNCTION public."guardApprovalMatrixVersion"();
 CREATE TRIGGER "ApprovalMatrixVersion_no_truncate" BEFORE TRUNCATE ON "ApprovalMatrixVersion" FOR EACH STATEMENT EXECUTE FUNCTION public."guardApprovalMatrixVersion"();
 
--- A case: its requirement is set once, never moved, and it never goes away; it ends OPEN -> APPROVED | CLOSED.
+-- A case: its requirement is raised as the facts firm up, never lowered, and it never goes away; it ends OPEN -> APPROVED | CLOSED.
 CREATE OR REPLACE FUNCTION public."approvalChainSatisfied"(case_id TEXT)
 RETURNS BOOLEAN LANGUAGE sql STABLE AS $function$
   SELECT c."requiredLevels" IS NOT NULL
@@ -296,11 +297,15 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval case never goes away';
   END IF;
-  IF NEW."applicationId" IS DISTINCT FROM OLD."applicationId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId" OR NEW."matrixVersionId" IS DISTINCT FROM OLD."matrixVersionId" AND OLD."requiredLevels" IS NOT NULL THEN
+  IF NEW."applicationId" IS DISTINCT FROM OLD."applicationId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId"
+    OR (NEW."matrixVersionId" IS DISTINCT FROM OLD."matrixVersionId" AND OLD."requiredLevels" IS NOT NULL) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval case''s application and matrix cannot be changed';
   END IF;
-  IF OLD."requiredLevels" IS NOT NULL AND (NEW."requiredLevels" IS DISTINCT FROM OLD."requiredLevels" OR NEW."levelsSnapshot" IS DISTINCT FROM OLD."levelsSnapshot") THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The number of levels an approval case needs is set once and never moved';
+  IF OLD."requiredLevels" IS NOT NULL AND (NEW."requiredLevels" IS NULL OR NEW."requiredLevels" < OLD."requiredLevels" OR NEW."levelsSnapshot" IS DISTINCT FROM OLD."levelsSnapshot") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The number of levels an approval case needs is raised as the facts firm up, never lowered';
+  END IF;
+  IF OLD."status" <> 'OPEN' AND NEW."requiredLevels" IS DISTINCT FROM OLD."requiredLevels" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A finished approval case''s requirement cannot change';
   END IF;
   IF OLD."status" <> 'OPEN' AND NEW."status" IS DISTINCT FROM OLD."status" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A finished approval case cannot be reopened';
@@ -316,12 +321,16 @@ CREATE TRIGGER "ApprovalCase_no_truncate" BEFORE TRUNCATE ON "ApprovalCase" FOR 
 
 -- A step: on an open case, in order, by an active person who is not the system user and did not capture the application
 -- or change its inputs (the maker is never the approver). One person approves once per case, one approval per level.
+-- A delegated step names a real delegation of that approver, in its window, unrevoked, reaching the level and the amount; and
+-- one person never holds two seats: the delegator neither captured the application nor approved it, directly or through a delegate.
 CREATE OR REPLACE FUNCTION public."guardApprovalStep"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
   c RECORD;
   maker_ids TEXT[];
   done INTEGER;
+  dg RECORD;
+  amount BIGINT;
 BEGIN
   SELECT * INTO c FROM "ApprovalCase" WHERE "id" = NEW."caseId" AND "tenantId" = NEW."tenantId";
   IF NOT FOUND OR c."status" <> 'OPEN' THEN
@@ -347,15 +356,39 @@ BEGIN
   IF EXISTS (SELECT 1 FROM "CreditCommitteeDecision" d WHERE d."caseId" = NEW."caseId" AND d."level" = NEW."level" AND d."recordedById" = NEW."approverId") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: whoever recorded the credit committee''s decision cannot give the committee level''s approval';
   END IF;
+  IF NEW."via" = 'DELEGATION' THEN
+    SELECT * INTO dg FROM "ApprovalDelegation" d WHERE d."id" = NEW."delegationId" AND d."tenantId" = NEW."tenantId";
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A delegated approval names a delegation that exists';
+    END IF;
+    SELECT a."appliedAmount" INTO amount FROM "LoanApplication" a WHERE a."id" = NEW."applicationId" AND a."tenantId" = NEW."tenantId";
+    IF dg."delegateId" <> NEW."approverId" OR dg."level" < NEW."level" OR dg."validFrom" > now() OR dg."validTo" < now()
+      OR (dg."revokedAt" IS NOT NULL AND dg."revokedAt" <= now()) OR amount > dg."maxAmountCents" THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A delegated approval names a delegation to the approver that is in force and reaches this level and amount';
+    END IF;
+    IF dg."delegatorId" = ANY (maker_ids) OR EXISTS (SELECT 1 FROM "ApprovalStep" s WHERE s."caseId" = NEW."caseId" AND s."approverId" = dg."delegatorId") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: a delegator who captured the application or already approved it cannot also approve through a delegate';
+    END IF;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM "ApprovalStep" s JOIN "ApprovalDelegation" d ON d."id" = s."delegationId"
+    WHERE s."caseId" = NEW."caseId" AND d."delegatorId" = NEW."approverId"
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: a delegator whose delegate already approved this application cannot also approve it';
+  END IF;
   RETURN NEW;
 END;
 $function$;
 CREATE TRIGGER "ApprovalStep_guard" BEFORE INSERT ON "ApprovalStep" FOR EACH ROW EXECUTE FUNCTION public."guardApprovalStep"();
 
 -- A committee decision: not from someone who already approved a level of the case, and from the maker's side no more than anyone else.
+-- A decline is overturned (a later APPROVED) only by someone other than those who recorded a decline.
 CREATE OR REPLACE FUNCTION public."guardCreditCommitteeDecision"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
+  IF NEW."decision" = 'APPROVED' AND EXISTS (SELECT 1 FROM "CreditCommitteeDecision" d WHERE d."caseId" = NEW."caseId" AND d."level" = NEW."level" AND d."decision" = 'DECLINED' AND d."recordedById" = NEW."recordedById") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A committee decline is overturned only by someone other than the member who recorded it';
+  END IF;
   IF EXISTS (SELECT 1 FROM "ApprovalStep" s WHERE s."caseId" = NEW."caseId" AND s."approverId" = NEW."recordedById") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: someone who approved a level of the case cannot record its credit committee decision';
   END IF;
@@ -395,8 +428,19 @@ END;
 $function$;
 CREATE TRIGGER "ApprovalDelegation_guard" BEFORE INSERT OR UPDATE OR DELETE ON "ApprovalDelegation" FOR EACH ROW EXECUTE FUNCTION public."guardApprovalDelegation"();
 
--- The application: it becomes APPROVED only once its open case's chain is complete (a lender with no case is unaffected),
--- a case ends when the application leaves review any other way, and nobody who approved at any level disburses it.
+-- Whether the lender's approval matrix is in force: its latest version that has taken effect (by the SAST calendar) is enabled.
+CREATE OR REPLACE FUNCTION public."approvalMatrixInForce"(tenant_id TEXT)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $function$
+  SELECT COALESCE((
+    SELECT v."enabled" FROM "ApprovalMatrixVersion" v
+    WHERE v."tenantId" = tenant_id AND v."effectiveFrom" <= (now() AT TIME ZONE 'Africa/Johannesburg')::date
+    ORDER BY v."version" DESC LIMIT 1
+  ), false);
+$function$;
+
+-- The application: it becomes APPROVED only once its open case's chain is complete (and, while the lender's matrix is in force, only
+-- through such a case, whichever code wrote the status), a case ends when the application leaves review any other way, and nobody who
+-- approved at any level disburses it.
 CREATE OR REPLACE FUNCTION public."guardLoanApplicationApprovalChain"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
@@ -409,6 +453,8 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Approval matrix: every required level must approve before the application is approved';
       END IF;
       UPDATE "ApprovalCase" SET "status" = 'APPROVED', "completedAt" = now() WHERE "id" = c."id";
+    ELSIF "approvalMatrixInForce"(NEW."tenantId") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Approval matrix: with the matrix in force an application is approved only through its approval chain';
     END IF;
   ELSIF OLD."status" = 'UNDER_REVIEW'::"AppStatus" AND NEW."status" NOT IN ('UNDER_REVIEW'::"AppStatus", 'APPROVED'::"AppStatus") THEN
     UPDATE "ApprovalCase" SET "status" = 'CLOSED', "completedAt" = now() WHERE "tenantId" = NEW."tenantId" AND "applicationId" = NEW."id" AND "status" = 'OPEN';

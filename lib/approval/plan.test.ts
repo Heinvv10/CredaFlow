@@ -9,11 +9,19 @@ const levels: MatrixLevel[] = [
 ]
 const base = {
   required: 2, levels, steps: [] as Array<{ level: number; approverId: string }>, userId: "u1", inputStaffIds: ["maker"],
-  authority: { level: 2, via: "ROLE" as const, delegationId: null }, automated: false, committeeDecision: null as null | { decision: "APPROVED" | "DECLINED" | "DEFERRED" },
+  authority: { level: 2, via: "ROLE" as const, delegationId: null }, blockedAuthorityLevel: 2, delegatorActed: false, automated: false, committeeDecision: null as null | { decision: "APPROVED" | "DECLINED" | "DEFERRED" },
   committeeRecorderIds: [] as string[],
 }
 
 describe("planApproval", () => {
+  it("a delegation from someone who already acted is refused with its own reason, not as missing authority", () => {
+    const loanAdmin = { level: 1, via: "ROLE" as const, delegationId: null }
+    expect(planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: loanAdmin, blockedAuthorityLevel: 2 })).toMatchObject({ kind: "refuse", status: 403, code: "DELEGATOR_ALREADY_ACTED" })
+    expect(planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: loanAdmin, blockedAuthorityLevel: 1 })).toMatchObject({ kind: "refuse", code: "LEVEL_AUTHORITY_REQUIRED" })
+  })
+  it("a delegator whose delegate already approved cannot approve as well", () => {
+    expect(planApproval({ ...base, delegatorActed: true })).toMatchObject({ kind: "refuse", status: 403, code: "DELEGATOR_ALREADY_ACTED" })
+  })
   it("level 1 of 2 is recorded and leaves the application under review", () => {
     expect(planApproval(base)).toMatchObject({ kind: "record", level: 1, requiredLevels: 2 })
   })
@@ -38,13 +46,13 @@ describe("planApproval", () => {
     expect(planApproval({ ...base, steps: [{ level: 1, approverId: "u1" }] })).toMatchObject({ kind: "refuse", status: 409, code: "ALREADY_APPROVED" })
   })
   it("an approver without the authority for the next level is refused, naming the role it needs", () => {
-    const refused = planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: { level: 1, via: "ROLE", delegationId: null } })
+    const refused = planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: { level: 1, via: "ROLE", delegationId: null }, blockedAuthorityLevel: 1 })
     expect(refused).toMatchObject({ kind: "refuse", status: 403, code: "LEVEL_AUTHORITY_REQUIRED" })
     expect((refused as { error: string }).error).toContain("Branch manager")
     expect((refused as { error: string }).error).toContain("BRANCH_MANAGER")
   })
   it("an approver below level 1 is refused too", () => {
-    expect(planApproval({ ...base, authority: { level: 0, via: "ROLE", delegationId: null } })).toMatchObject({ kind: "refuse", code: "LEVEL_AUTHORITY_REQUIRED" })
+    expect(planApproval({ ...base, authority: { level: 0, via: "ROLE", delegationId: null }, blockedAuthorityLevel: 0 })).toMatchObject({ kind: "refuse", code: "LEVEL_AUTHORITY_REQUIRED" })
   })
   it("a delegated authority approves as the role would, and the step says it was delegated", () => {
     expect(planApproval({ ...base, authority: { level: 2, via: "DELEGATION", delegationId: "d1" } })).toMatchObject({ kind: "record", via: "DELEGATION", delegationId: "d1" })

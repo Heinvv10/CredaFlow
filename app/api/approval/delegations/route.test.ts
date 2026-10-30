@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const h = vi.hoisted(() => ({ role: "LOAN_ADMIN", grant: vi.fn(), list: vi.fn(), revoke: vi.fn() }))
+const h = vi.hoisted(() => ({ role: "LOAN_ADMIN", grant: vi.fn(), list: vi.fn(), revoke: vi.fn(), allowed: true }))
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: h.allowed })) }))
 vi.mock("@/lib/auth-guards", async () => {
   const { canDo } = await import("@/lib/permissions")
   return {
@@ -22,7 +23,7 @@ import { GET, POST } from "./route"
 const body = { delegateId: "u2", level: 2, maxAmountCents: 500_000, validFrom: "2026-11-01T00:00:00Z", validTo: "2026-11-10T00:00:00Z", reason: "On leave for a week" }
 const post = (b: unknown) => new NextRequest("http://x/api/approval/delegations", { method: "POST", body: JSON.stringify(b) })
 
-beforeEach(() => { h.role = "LOAN_ADMIN"; h.grant.mockReset().mockResolvedValue({ id: "d1" }); h.list.mockReset().mockResolvedValue([]); h.revoke.mockReset().mockResolvedValue({}) })
+beforeEach(() => { h.role = "LOAN_ADMIN"; h.allowed = true; h.grant.mockReset().mockResolvedValue({ id: "d1" }); h.list.mockReset().mockResolvedValue([]); h.revoke.mockReset().mockResolvedValue({}) })
 
 describe("POST /api/approval/delegations", () => {
   it("records the delegation as the caller and answers 201", async () => {
@@ -33,6 +34,11 @@ describe("POST /api/approval/delegations", () => {
   it("passes the delegator an administrator names, for the service to check", async () => {
     await POST(post({ ...body, delegatorId: "u9" }))
     expect(h.grant).toHaveBeenCalledWith(expect.objectContaining({ delegation: expect.objectContaining({ delegatorId: "u9" }) }))
+  })
+  it("answers 429 when the caller records too many, recording nothing", async () => {
+    h.allowed = false
+    expect((await POST(post(body))).status).toBe(429)
+    expect(h.grant).not.toHaveBeenCalled()
   })
   it.each([["no delegate", { ...body, delegateId: undefined }], ["dates that are not dates", { ...body, validFrom: "someday" }], ["no reason", { ...body, reason: undefined }]])("answers 400 for %s, recording nothing", async (_n, b) => {
     expect((await POST(post(b))).status).toBe(400)

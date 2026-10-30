@@ -25,14 +25,14 @@ export const t = randomUUID().replaceAll("-", "").slice(0, 12)
 const ROLE = `cf_ap_${t.slice(0, 10)}_it`
 export const ids = {
   tenant: `approval-${t}`, product: `ap-product-${t}`, branch: `ap-branch-${t}`,
-  la1: `ap-la1-${t}`, la2: `ap-la2-${t}`, bm: `ap-bm-${t}`, ad: `ap-ad-${t}`, ad2: `ap-ad2-${t}`, maker: `ap-maker-${t}`, checker: `ap-checker-${t}`, officer: `ap-officer-${t}`,
+  la1: `ap-la1-${t}`, la2: `ap-la2-${t}`, bm: `ap-bm-${t}`, ad: `ap-ad-${t}`, ad2: `ap-ad2-${t}`, maker: `ap-maker-${t}`, checker: `ap-checker-${t}`, checker2: `ap-checker2-${t}`, officer: `ap-officer-${t}`,
 }
 export const db = new PrismaClient()
 let appClient: ReturnType<typeof createAppPrismaClient> | undefined
 export const app = () => appClient!
 const longAgo = new Date(Date.now() - 2 * 365 * 86_400_000)
 export const user = (id: string, role: string) => ({ id, email: `${id}@test.invalid`, role: role as never, totpVerified: true })
-export const as = { la1: user(ids.la1, "LOAN_ADMIN"), la2: user(ids.la2, "LOAN_ADMIN"), bm: user(ids.bm, "BRANCH_MANAGER"), ad: user(ids.ad, "ADMIN"), ad2: user(ids.ad2, "ADMIN"), maker: user(ids.maker, "ADMIN"), checker: user(ids.checker, "SUPER_ADMIN") }
+export const as = { la1: user(ids.la1, "LOAN_ADMIN"), la2: user(ids.la2, "LOAN_ADMIN"), bm: user(ids.bm, "BRANCH_MANAGER"), ad: user(ids.ad, "ADMIN"), ad2: user(ids.ad2, "ADMIN"), maker: user(ids.maker, "ADMIN"), checker: user(ids.checker, "SUPER_ADMIN"), checker2: user(ids.checker2, "SUPER_ADMIN") }
 export const TODAY = sastCalendarDate(new Date())
 export const inTenant = <T,>(fn: () => Promise<T>) => runWithTenant(ids.tenant, async () => await fn())
 
@@ -151,7 +151,7 @@ export async function refusal(promise: Promise<unknown>): Promise<string> {
 }
 export const sql = (text: string) => db.$executeRawUnsafe(text)
 
-export async function approveMatrix(payload: object, by: "checker" = "checker") {
+export async function approveMatrix(payload: object, by: keyof typeof as = "checker") {
   const draft = await createDraft({ tenantId: ids.tenant, actor: as.maker, kind: MATRIX_KIND, title: "Matrix", payload })
   await submit({ tenantId: ids.tenant, actor: as.maker, id: draft.id })
   await approve({ tenantId: ids.tenant, actor: as[by], id: draft.id })
@@ -163,7 +163,7 @@ export function registerApprovalFixture() {
   beforeAll(async () => {
     await db.tenant.create({ data: { id: ids.tenant, slug: ids.tenant, name: "Approval IT" } })
     await db.tenantConfig.create({ data: { tenantId: ids.tenant, bureauMinScore: 580 } })
-    const roles: Array<[string, string]> = [[ids.officer, "CREDIT_OFFICER"], [ids.la1, "LOAN_ADMIN"], [ids.la2, "LOAN_ADMIN"], [ids.bm, "BRANCH_MANAGER"], [ids.ad, "ADMIN"], [ids.ad2, "ADMIN"], [ids.maker, "ADMIN"], [ids.checker, "SUPER_ADMIN"]]
+    const roles: Array<[string, string]> = [[ids.officer, "CREDIT_OFFICER"], [ids.la1, "LOAN_ADMIN"], [ids.la2, "LOAN_ADMIN"], [ids.bm, "BRANCH_MANAGER"], [ids.ad, "ADMIN"], [ids.ad2, "ADMIN"], [ids.maker, "ADMIN"], [ids.checker, "SUPER_ADMIN"], [ids.checker2, "SUPER_ADMIN"]]
     for (const [id, role] of roles) {
       await db.user.create({ data: { id, tenantId: ids.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name: id, role: role as never, createdAt: new Date(Date.now() - 90 * 86_400_000) } })
     }

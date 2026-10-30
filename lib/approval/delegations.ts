@@ -1,5 +1,7 @@
 import type { ApprovalDelegation } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { activeCurrency } from "@/lib/jurisdiction/active"
+import { formatMoney } from "@/lib/jurisdiction/money"
 import { canDo } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import type { UserRole } from "@/lib/permissions"
@@ -52,13 +54,13 @@ export async function grantDelegation(input: {
     }, tx)
     await notifyStaff(tx, {
       tenantId: input.tenantId, userIds: [delegation.delegateId], type: "APPROVAL_DELEGATED", title: "Approval authority delegated to you",
-      body: `Level ${delegation.level} up to ${(delegation.maxAmountCents / 100).toFixed(2)}, until ${delegation.validTo.toISOString().slice(0, 10)}.`,
+      body: `Level ${delegation.level} up to ${formatMoney(delegation.maxAmountCents, activeCurrency())}, until ${delegation.validTo.toISOString().slice(0, 10)}.`,
     })
     // On someone's behalf: the delegator is told what was done in their name.
     if (delegatorId !== input.actor.id) {
       await notifyStaff(tx, {
         tenantId: input.tenantId, userIds: [delegatorId], type: "APPROVAL_DELEGATED_ON_YOUR_BEHALF", title: "Your approval authority was delegated on your behalf",
-        body: `${input.actor.email} delegated your level ${delegation.level} authority, up to ${(delegation.maxAmountCents / 100).toFixed(2)}, until ${delegation.validTo.toISOString().slice(0, 10)}. Revoke it under Settings, Approval Matrix, if this is wrong.`,
+        body: `${input.actor.email} delegated your level ${delegation.level} authority, up to ${formatMoney(delegation.maxAmountCents, activeCurrency())}, until ${delegation.validTo.toISOString().slice(0, 10)}. Revoke it under Settings, Approval Matrix, if this is wrong.`,
       })
     }
     return created

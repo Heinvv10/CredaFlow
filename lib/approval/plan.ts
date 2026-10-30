@@ -17,6 +17,13 @@ export interface PlanInput {
   /** The staff who captured the application or changed its inputs: the maker. */
   inputStaffIds: readonly string[]
   authority: Authority
+  /**
+   * The level the user would hold if the delegators who already acted on this application (made it, or approved it) could still
+   * delegate: above `authority.level` only when such a delegation is being refused.
+   */
+  blockedAuthorityLevel: number
+  /** The user is the delegator of a delegate who already approved this application. */
+  delegatorActed: boolean
   /** The decision engine is asking. */
   automated: boolean
   /** The latest committee decision at the committee's level, if any. */
@@ -45,11 +52,17 @@ export function planApproval(input: PlanInput): ApprovalPlan {
   if (input.steps.some((s) => s.approverId === input.userId)) {
     return refuse(409, "ALREADY_APPROVED", "You have already approved this application at a lower level; the next level needs a different person.")
   }
+  if (input.delegatorActed) {
+    return refuse(403, "DELEGATOR_ALREADY_ACTED", "Your delegate already approved this application on your authority, so you cannot also approve it.")
+  }
   const next = input.steps.length + 1
   if (next > required) return refuse(409, "CHAIN_COMPLETE", "Every required level has already approved this application.")
   const level = input.levels.find((l) => l.level === next)
   if (!level) return refuse(409, "LEVEL_UNKNOWN", `The approval matrix has no level ${next}.`)
   if (authority.level < next) {
+    if (input.blockedAuthorityLevel >= next) {
+      return refuse(403, "DELEGATOR_ALREADY_ACTED", `Level ${next} (${level.name}) would come to you only by a delegation from someone who captured this application or already approved it; one person does not hold two seats.`)
+    }
     return refuse(403, "LEVEL_AUTHORITY_REQUIRED", `Level ${next} (${level.name}) needs the ${level.role} role or a delegation of that authority; yours reaches level ${authority.level}.`)
   }
   if (level.committee) {

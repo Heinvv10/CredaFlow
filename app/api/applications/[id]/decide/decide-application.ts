@@ -1,4 +1,4 @@
-import { ApprovalChainChangedError, gateApproval } from "@/lib/approval/chain"
+import { ApprovalChainChangedError, ApprovalWriteLostError, gateApproval, openApprovalCaseSafely } from "@/lib/approval/chain"
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -78,6 +78,8 @@ type DecideTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 export interface DecideAutomation extends AutomationFacts {
   /** The application's updatedAt when the engine read the facts: a later change refuses with 409 rather than act on stale facts. */
   expectedUpdatedAt: Date
+  /** The grade rank the engine's verdict gives (written with the decision, so not yet on the application): the approval matrix reads it. */
+  riskGradeRank: number | null
   /**
    * Runs inside the decision's transaction, after the decision-log record: the
    * engine's own run record and the risk grade commit with the decision or not
@@ -500,6 +502,9 @@ export async function decideApplication({ tenant, user, id, formData, automation
       )
     }
 
+    // A new review is a new approval chain, with its clock (the approved one is over).
+    await openApprovalCaseSafely({ tenantId: tenant.id, applicationId: id })
+
     runBureauReviewCheck({
       tenantId: tenant.id,
       applicationId: id,
@@ -732,10 +737,6 @@ export async function decideApplication({ tenant, user, id, formData, automation
         { status: 400 },
       )
     }
-    // The lender's approval matrix, where one is in force: another level may still have to approve, the decision engine may not approve
-    // what needs staff, and the maker never approves. No matrix: `none`, and nothing below changes (lib/approval/).
-    const matrixGate = await gateApproval({ tenantId: tenant.id, application, user, automated: automation !== undefined, note: reason })
-    if (matrixGate.kind === "respond") return NextResponse.json(matrixGate.body, { status: matrixGate.status })
     const rateCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, application) // NCA Regulation 42
     if (rateCapRefusal) return rateCapRefusal
     // An OTHER account cannot carry a debit order: the Netcash AVS wire has
@@ -1213,6 +1214,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
       )
     }
 
+    // The lender's approval matrix, where one is in force: another level may still have to approve, the decision engine may not approve
+    // what needs staff, and the maker never approves. No matrix: `none`, and nothing below changes (lib/approval/). It comes after every
+    // check above, so a level is recorded only for an application that could be approved on the evidence in front of the approver.
+    const matrixGate = await gateApproval({
+      tenantId: tenant.id, application: { ...application, riskGradeRank: automation ? automation.riskGradeRank : application.riskGradeRank }, user, automated: automation !== undefined, note: reason,
+    })
+    if (matrixGate.kind === "respond") return NextResponse.json(matrixGate.body, { status: matrixGate.status })
+
     // Re-read and rebuild the exact decision under coordinated database
     // locks immediately before the state write. Pinning only
     // LoanApplication.updatedAt did not detect a concurrent Client/debt or
@@ -1408,6 +1417,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
           },
         })
         if (approved.count !== 1) {
+          // The final level's step was written above: throwing rolls it back, so a lost race leaves no step behind to strand the chain.
+          if (matrixGate.kind === "final") throw new ApprovalWriteLostError()
           return { ok: false as const, reason: "application_changed" as const }
         }
 
@@ -1501,6 +1512,9 @@ export async function decideApplication({ tenant, user, id, formData, automation
           { error: "This application already has a loan booked against it, so it cannot be approved." },
           { status: 409 }
         )
+      }
+      if (error instanceof ApprovalWriteLostError) {
+        return NextResponse.json({ error: "The application changed while it was being approved; refresh and try again.", applicationChanged: true }, { status: 409 })
       }
       if (error instanceof ApprovalChainChangedError) {
         return NextResponse.json({ error: "Another approver acted on this application at the same time; refresh and try again.", approvalMatrix: "CHAIN_CHANGED" }, { status: 409 })

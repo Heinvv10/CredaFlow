@@ -4,6 +4,7 @@ import { APPROVER_ROLES, type MatrixLevel } from "./types"
 
 export const MAX_DELEGATION_DAYS = 90
 export const MIN_DELEGATION_REASON = 10
+export const MAX_DELEGATION_REASON = 2000
 const DAY_MS = 86_400_000
 
 export interface DelegationInput {
@@ -41,6 +42,6 @@ export function delegationProblems(args: {
   else if (input.validTo.getTime() <= now.getTime()) problems.push("The delegation's end is already past.")
   else if (input.validTo.getTime() - input.validFrom.getTime() > MAX_DELEGATION_DAYS * DAY_MS) problems.push(`A delegation lasts at most ${MAX_DELEGATION_DAYS} days.`)
   if (input.validFrom.getTime() < now.getTime() - DAY_MS) problems.push("The delegation's start is more than a day in the past: it cannot be backdated.")
-  if (input.reason.trim().length < MIN_DELEGATION_REASON) problems.push(`Give the reason, in at least ${MIN_DELEGATION_REASON} characters.`)
+  if (input.reason.trim().length < MIN_DELEGATION_REASON || input.reason.trim().length > MAX_DELEGATION_REASON) problems.push(`Give the reason, in ${MIN_DELEGATION_REASON} to ${MAX_DELEGATION_REASON} characters.`)
   return problems
 }

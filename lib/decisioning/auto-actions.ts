@@ -162,6 +162,7 @@ function automationFor(ctx: RunContext, execution: AutoDecisionExecution, reason
     ruleSetVersionId: ctx.version.id,
     reasonCodes,
     riskGrade: ctx.verdict.riskGrade,
+    riskGradeRank: ctx.verdict.gradeRank,
     bureauCheckId: ctx.loaded.bureauCheckId,
     exactInputs,
     expectedUpdatedAt: ctx.loaded.application.updatedAt,

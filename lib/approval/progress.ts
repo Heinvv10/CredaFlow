@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/prisma"
-import type { UserRole } from "@/lib/permissions"
-import { authorityLevel, requiredLevelsFor } from "./evaluate"
-import { delegatorLevels, loadApplicationForMatrix, loadDelegationsFor, loadEffectiveMatrix, loadMatrixVersion } from "./matrix-store"
-import { planApproval } from "./plan"
-import type { MatrixLevel } from "./types"
+import { canDo, type UserRole } from "@/lib/permissions"
+import { assessApproval } from "./assess"
+import { loadApplicationForMatrix, loadEffectiveMatrix, loadMatrixVersion } from "./matrix-store"
 
 export interface LevelProgress {
   level: number
@@ -60,22 +58,20 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
   const effective = await loadEffectiveMatrix(prisma, tenantId, now)
   const matrix = theCase?.matrixVersionId ? await loadMatrixVersion(prisma, tenantId, theCase.matrixVersionId) : effective
   if (!matrix || (!theCase && !effective)) return none()
-  const levels: MatrixLevel[] = (theCase?.levelsSnapshot as unknown as MatrixLevel[] | null) ?? matrix.payload.levels
-  const preview = requiredLevelsFor(matrix.payload, application.facts)
+  const assessed = await assessApproval(prisma, {
+    tenantId, matrix, theCase, facts: application.facts, inputStaffIds: application.inputStaffIds, user: input.viewer, automated: false, now,
+  })
+  const { required, levels } = assessed
   const frozen = theCase?.requiredLevels != null
-  const required = frozen ? (theCase!.requiredLevels as number) : preview.requiredLevels
-  const matchedIds = frozen ? theCase!.matchedRuleIds : preview.matchedRuleIds
+  const matchedIds = assessed.matchedRuleIds
   const steps = theCase?.steps ?? []
   const decisions = theCase
     ? await prisma.creditCommitteeDecision.findMany({ where: { tenantId, caseId: theCase.id }, orderBy: { createdAt: "asc" }, include: { recordedBy: { select: { name: true, email: true } } } })
     : []
-  const committee = levels.find((l) => l.committee)
-  const latestCommittee = committee ? [...decisions].reverse().find((d) => d.level === committee.level) : undefined
-  const delegations = await loadDelegationsFor(prisma, tenantId, input.viewer.id, now)
-  const authority = authorityLevel({ role: input.viewer.role, levels, delegations, amountCents: application.facts.amountCents, now, delegatorLevels: await delegatorLevels(prisma, tenantId, delegations, levels) })
-  const plan = theCase && theCase.status === "OPEN"
-    ? planApproval({ required, levels, steps, userId: input.viewer.id, inputStaffIds: application.inputStaffIds, authority, automated: false, committeeDecision: latestCommittee ? { decision: latestCommittee.decision } : null, committeeRecorderIds: decisions.filter((d) => d.level === committee?.level).map((d) => d.recordedById) })
-    : null
+  const authority = { level: assessed.authorityLevel }
+  // The committee's attendees, rationale and conditions are for those who may read its pack (view_committee_pack).
+  const mayReadCommittee = canDo(input.viewer.role, "view_committee_pack")
+  const plan = theCase && theCase.status === "OPEN" ? assessed.plan : null
   const pending = theCase?.status === "OPEN" ? steps.length + 1 : null
   return {
     applies: true,
@@ -92,7 +88,7 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
       return {
         level: l.level, name: l.name, role: l.role, slaHours: l.slaHours, committee: l.committee, state,
         approvedBy: step ? (step.approver.name || step.approver.email) : null, approvedAt: step ? step.createdAt.toISOString() : null, via: step?.via ?? null,
-        conditions: Array.isArray(step?.conditions) ? (step!.conditions as string[]) : [],
+        conditions: mayReadCommittee && Array.isArray(step?.conditions) ? (step!.conditions as string[]) : [],
       }
     }),
     pendingLevel: pending,
@@ -100,7 +96,7 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
     overdue: Boolean(theCase?.status === "OPEN" && theCase.dueAt && theCase.dueAt < now),
     escalationCount: theCase?.escalationCount ?? 0,
     escalations: (theCase?.escalations ?? []).map((e) => ({ fromLevel: e.fromLevel, toLevel: e.toLevel, at: e.createdAt.toISOString(), notified: e.notifiedUserIds.length })),
-    committeeDecisions: decisions.map((d) => ({
+    committeeDecisions: (mayReadCommittee ? decisions : []).map((d) => ({
       id: d.id, decision: d.decision, meetingDate: d.meetingDate.toISOString().slice(0, 10), attendees: d.attendees,
       conditions: Array.isArray(d.conditions) ? (d.conditions as string[]) : [], rationale: d.rationale, recordedBy: d.recordedBy.name || d.recordedBy.email, recordedAt: d.createdAt.toISOString(),
     })),
@@ -110,4 +106,10 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
       reason: plan && plan.kind === "refuse" ? plan.error : null,
     },
   }
+}
+
+/** Everyone who approved a level of the application's approval chain (any case): they cannot disburse it while segregation of duties is on. */
+export async function approvalStepApproverIds(tenantId: string, applicationId: string): Promise<string[]> {
+  const steps = await prisma.approvalStep.findMany({ where: { tenantId, applicationId }, select: { approverId: true } })
+  return [...new Set(steps.map((s) => s.approverId))]
 }

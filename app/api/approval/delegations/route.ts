@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { DelegationError, grantDelegation, listDelegations } from "@/lib/approval/delegations"
+import { checkRateLimit } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
+
+// Delegations are append-only and each notifies two people: a person makes a handful, not a flood.
+const GRANT_LIMIT = { limit: 20, windowMs: 3_600_000 } as const
 
 const date = (v: unknown): Date | null => (typeof v === "string" && !Number.isNaN(Date.parse(v)) ? new Date(v) : null)
 
@@ -28,6 +32,9 @@ export async function POST(req: NextRequest) {
   if (guard.error) return guard.error
   if (!canDo(guard.user.role, "manage_approval_delegations")) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   return withTenantContext(req, async (tenant) => {
+    if (!(await checkRateLimit(`approval-delegation:${tenant.id}:${guard.user.id}`, GRANT_LIMIT)).allowed) {
+      return NextResponse.json({ error: "Too many delegations recorded. Try again later." }, { status: 429 })
+    }
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
     const validFrom = date(body?.validFrom)
     const validTo = date(body?.validTo)

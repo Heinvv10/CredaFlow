@@ -91,7 +91,7 @@ suite("approval matrix (real Postgres, row-level security)", () => {
   })
 
   it("progress shows each level, who approved it, and whether the viewer may approve next", async () => {
-    const progress = await loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-mid", viewer: { id: ids.la2, role: "LOAN_ADMIN" } })
+    const progress = await inTenant(() => loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-mid", viewer: { id: ids.la2, role: "LOAN_ADMIN" } }))
     expect(progress).toMatchObject({ applies: true, status: "APPROVED", requiredLevels: 2, requirementFrozen: true, matchedRules: [{ id: "mid", name: "Mid-size loans" }] })
     expect(progress.levels.map((l) => [l.level, l.state])).toEqual([[1, "APPROVED"], [2, "APPROVED"], [3, "NOT_REQUIRED"]])
   })
@@ -116,9 +116,12 @@ suite("approval matrix (real Postgres, row-level security)", () => {
     expect(await refusal(step(2, `ap-sys-${t}`))).toContain("never the automated decisioning account")
   })
 
-  it("a case's requirement is set once; its steps and escalations are append-only; the case never goes away", async () => {
+  it("a case's requirement is only ever raised; its steps and escalations are append-only; the case never goes away", async () => {
     const theCase = await caseOf("ap-maker")
-    expect(await refusal(sql(`UPDATE "ApprovalCase" SET "requiredLevels" = 1 WHERE "id" = '${theCase.id}'`))).toContain("set once")
+    expect(await refusal(sql(`UPDATE "ApprovalCase" SET "requiredLevels" = 1 WHERE "id" = '${theCase.id}'`))).toContain("raised as the facts firm up")
+    // Its application and the matrix it began under cannot be moved once it holds a requirement.
+    expect(await refusal(sql(`UPDATE "ApprovalCase" SET "matrixVersionId" = NULL WHERE "id" = '${theCase.id}'`))).toContain("cannot be changed")
+    expect(await refusal(sql(`UPDATE "ApprovalCase" SET "applicationId" = 'ap-mid' WHERE "id" = '${theCase.id}'`))).toContain("cannot be changed")
     expect(await refusal(sql(`DELETE FROM "ApprovalCase" WHERE "id" = '${theCase.id}'`))).toContain("never goes away")
     expect(await refusal(sql(`UPDATE "ApprovalStep" SET "note" = 'x' WHERE "caseId" = '${theCase.id}'`))).toContain("append-only")
     expect(await refusal(sql(`DELETE FROM "ApprovalStep" WHERE "caseId" = '${theCase.id}'`))).toContain("append-only")

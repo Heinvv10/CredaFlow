@@ -8,7 +8,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/notifications")>()), triggerNotification: vi.fn(async () => undefined) }))
 
 import { grantDelegation, revokeDelegation } from "./delegations"
-import { MATRIX, approveAs, approveMatrix, as, db, ids, inTenant, refusal, registerApprovalFixture, sql, stepsOf, suite, underReview } from "./approval.integration-fixture"
+import { MATRIX, approveAs, approveMatrix, as, caseOf, db, ids, inTenant, refusal, registerApprovalFixture, sql, stepsOf, suite, underReview } from "./approval.integration-fixture"
 
 suite("approval matrix: delegated authority (real Postgres)", () => {
   registerApprovalFixture()
@@ -52,6 +52,9 @@ suite("approval matrix: delegated authority (real Postgres)", () => {
     const audit = await db.auditLog.findFirstOrThrow({ where: { tenantId: ids.tenant, action: "APPROVAL_DELEGATION_GRANTED", entityId: made.id } })
     expect(audit.newValue).toMatchObject({ onBehalfOf: ids.bm, recordedBy: ids.ad, delegatorId: ids.bm, delegateId: ids.la2 })
     expect(await db.notification.count({ where: { tenantId: ids.tenant, userId: ids.bm, type: "APPROVAL_DELEGATED_ON_YOUR_BEHALF" } })).toBe(1)
+    // The amount is told in the lender's currency, not as a bare number.
+    const told = await db.notification.findFirstOrThrow({ where: { tenantId: ids.tenant, userId: ids.bm, type: "APPROVAL_DELEGATED_ON_YOUR_BEHALF" } })
+    expect(told.body).toContain("R 6,000.00")
     await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: made.id }))
   })
 
@@ -66,5 +69,20 @@ suite("approval matrix: delegated authority (real Postgres)", () => {
     expect(await refusal(insert(ok({ reason: "'short'" })))).toContain("ApprovalDelegation_shape")
     expect(await refusal(sql(`UPDATE "ApprovalDelegation" SET "maxAmountCents" = 999999999 WHERE "id" = '${row.id}'`))).toContain("never edited")
     expect(await refusal(sql(`DELETE FROM "ApprovalDelegation" WHERE "id" = '${row.id}'`))).toContain("never goes away")
+  })
+  it("the database refuses a delegated step that names no delegation, someone else's, one that is revoked, or one that does not reach the amount", async () => {
+    const day = 86_400_000
+    const grant = (maxAmountCents: number) => inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.bm, delegation: { delegateId: ids.la2, level: 2, maxAmountCents, validFrom: new Date(), validTo: new Date(Date.now() + 7 * day), reason: "Covering the branch this week" } }))
+    const small = await grant(100_000)
+    const big = await grant(2_000_000_000)
+    await underReview("ap-dbdeleg", { amount: 500_000 })
+    expect((await approveAs("la1", "ap-dbdeleg")).status).toBe(200)
+    const theCase = await caseOf("ap-dbdeleg")
+    const step = (approver: string, delegation: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','ap-dbdeleg',2,'${approver}','DELEGATION','${delegation}')`)
+    expect(await refusal(step(ids.la2, "no-such-delegation"))).toContain("names a delegation that exists")
+    expect(await refusal(step(ids.la2, small.id))).toContain("in force and reaches this level and amount")
+    expect(await refusal(step(ids.ad2, big.id))).toContain("in force and reaches this level and amount")
+    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: big.id }))
+    expect(await refusal(step(ids.la2, big.id))).toContain("in force and reaches this level and amount")
   })
 })

@@ -1,4 +1,5 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { logger } from "@/lib/observability/logger"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
 import { loadMatrixVersion } from "./matrix-store"
@@ -58,6 +59,18 @@ async function escalateOne(caseId: string, tenantId: string, now: Date): Promise
 }
 
 /**
+ * A case whose escalation keeps failing is pushed back an hour, so the oldest failing cases cannot fill every batch and starve the rest.
+ * Only the due time moves; the level, its count and the people told are untouched.
+ */
+async function postponeFailedCase(caseId: string, tenantId: string, now: Date): Promise<void> {
+  try {
+    await runWithTenant(tenantId, () => prisma.approvalCase.updateMany({ where: { id: caseId, status: "OPEN", dueAt: { lt: now } }, data: { dueAt: new Date(now.getTime() + hours(1)) } }))
+  } catch (error) {
+    logger.error("approval: could not postpone a failing case", { caseId, error: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+/**
  * The cron's work: every open approval that is overdue at its level, across lenders, is escalated to the next level up (its approvers are
  * told, the escalation is recorded, and the next overdue time is one SLA away so it climbs again if still waiting). At the top level the
  * approvers there are reminded each SLA. Idempotent across replicas.
@@ -74,8 +87,9 @@ export async function escalateOverdueApprovals(input: { now?: Date } = {}): Prom
       if (outcome === "escalated") result.escalated += 1
       else if (outcome === "reminded") result.reminded += 1
     } catch (error) {
-      console.error("[approval] escalation failed for case", row.id, error)
+      logger.error("approval: escalation failed for case", { caseId: row.id, error: error instanceof Error ? error.message : String(error) })
       result.failed += 1
+      await postponeFailedCase(row.id, row.tenantId, now)
     }
   }
   return result

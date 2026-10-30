@@ -1,18 +1,26 @@
 import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
+import { logger } from "@/lib/observability/logger"
 import { prisma } from "@/lib/prisma"
 import type { Tx } from "@/lib/maker-checker/types"
-import { authorityLevel, requiredLevelsFor } from "./evaluate"
-import { delegatorLevels, loadDelegationsFor, loadEffectiveMatrix, loadMatrixVersion, type StoredMatrix } from "./matrix-store"
+import { assessApproval } from "./assess"
+import { loadEffectiveMatrix, loadMatrixVersion, type StoredMatrix } from "./matrix-store"
 import { approversForLevel, notifyStaff } from "./notify"
-import { planApproval } from "./plan"
-import type { MatrixLevel } from "./types"
 
 /** The chain moved between the decision reading it and committing (another approver got there first). */
 export class ApprovalChainChangedError extends Error {
   constructor() {
     super("The approval chain changed while this approval was being recorded")
     this.name = "ApprovalChainChangedError"
+  }
+}
+
+/** The approval's last step was recorded but the application could not be moved to APPROVED: the transaction must roll the step back. */
+export class ApprovalWriteLostError extends Error {
+  constructor() {
+    super("The application changed before the approval could be written")
+    this.name = "ApprovalWriteLostError"
   }
 }
 
@@ -43,6 +51,8 @@ export type Gate =
   | { kind: "final"; recordFinalStep: (tx: Tx) => Promise<void> }
 
 const hours = (n: number) => n * 3_600_000
+/** The decision reason is kept whole on the decision; the step carries a bounded copy. */
+const MAX_STEP_NOTE = 2000
 
 async function openCaseFor(tx: Tx, input: { tenantId: string; applicationId: string; matrix: StoredMatrix | null; now: Date }) {
   const existing = await tx.approvalCase.findFirst({ where: { tenantId: input.tenantId, applicationId: input.applicationId, status: "OPEN" } })
@@ -69,7 +79,7 @@ export async function openApprovalCaseSafely(input: { tenantId: string; applicat
     if (!matrix) return
     await prisma.$transaction((tx) => openCaseFor(tx, { tenantId: input.tenantId, applicationId: input.applicationId, matrix, now }))
   } catch (error) {
-    console.error("[approval] could not open the approval case; the first approval attempt will:", input.applicationId, error)
+    logger.error("approval: could not open the approval case; the first approval attempt will", { applicationId: input.applicationId, error: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -93,51 +103,47 @@ export async function gateApproval(input: GateInput): Promise<Gate> {
     theCase = await tx.approvalCase.findUniqueOrThrow({ where: { id: theCase.id } })
     const matrix = theCase.matrixVersionId ? await loadMatrixVersion(tx, tenantId, theCase.matrixVersionId) : effective
     if (!matrix) return { kind: "none" as const }
-    if (theCase.requiredLevels === null) {
-      const { requiredLevels, matchedRuleIds } = requiredLevelsFor(matrix.payload, {
-        amountCents: application.appliedAmount, productId: application.productId, branchId: application.branchId, riskGradeRank: application.riskGradeRank,
-      })
-      theCase = await tx.approvalCase.update({
-        where: { id: theCase.id },
-        data: { requiredLevels, levelsSnapshot: matrix.payload.levels as never, matchedRuleIds, matrixVersionId: matrix.id },
-      })
-    }
-    const levels = (theCase.levelsSnapshot as unknown as MatrixLevel[]) ?? matrix.payload.levels
-    const required = theCase.requiredLevels ?? 0
-    const steps = await tx.approvalStep.findMany({ where: { caseId: theCase.id }, select: { level: true, approverId: true }, orderBy: { level: "asc" } })
-    const committeeLevel = levels.find((l) => l.committee)
-    const committeeRows = committeeLevel
-      ? await tx.creditCommitteeDecision.findMany({ where: { caseId: theCase.id, level: committeeLevel.level }, orderBy: { createdAt: "desc" }, select: { decision: true, conditions: true, recordedById: true } })
-      : []
-    const committeeDecision = committeeRows[0] ?? null
-    const delegations = await loadDelegationsFor(tx, tenantId, user.id, now)
-    const authority = authorityLevel({
-      role: user.role as never, levels, delegations, amountCents: application.appliedAmount, now,
-      delegatorLevels: await delegatorLevels(tx, tenantId, delegations, levels),
+    // The requirement follows the facts: raised when they now ask for more (a grade written after an earlier look), never lowered. It is
+    // written only by an attempt that records or completes a level, so a refused attempt leaves nothing behind.
+    const facts = { amountCents: application.appliedAmount, productId: application.productId, branchId: application.branchId, riskGradeRank: application.riskGradeRank }
+    const { required, matchedRuleIds, levels, steps, committeeLevel, committeeRows, plan } = await assessApproval(tx, {
+      tenantId, matrix, theCase, facts, inputStaffIds: application.inputStaffIds, user, automated: input.automated, now,
     })
-    const plan = planApproval({ required, levels, steps, userId: user.id, inputStaffIds: application.inputStaffIds, authority, automated: input.automated, committeeDecision, committeeRecorderIds: committeeRows.map((d) => d.recordedById) })
+    const committeeDecision = committeeRows[0] ?? null
+    const stored = theCase.requiredLevels
+    const persistRequirement = async (db: Tx) => {
+      if (stored !== null && required <= stored) return
+      theCase = await db.approvalCase.update({
+        where: { id: theCase!.id },
+        data: { requiredLevels: required, matchedRuleIds, ...(stored === null ? { levelsSnapshot: matrix.payload.levels as unknown as Prisma.InputJsonValue, matrixVersionId: matrix.id } : {}) },
+      })
+      // The facts moved after the case first held a requirement (a grade written, a figure changed): say so on the record.
+      if (stored !== null) await audit(db, AuditAction.APPROVAL_REQUIREMENT_RAISED, { previousRequiredLevels: stored })
+    }
 
     const stepData = (level: number, via: "ROLE" | "DELEGATION", delegationId: string | null) => ({
       tenantId, caseId: theCase!.id, applicationId: application.id, level, approverId: user.id, via, delegationId,
-      note: input.note?.trim() || null,
+      note: input.note?.trim().slice(0, MAX_STEP_NOTE) || null,
       conditions: committeeLevel?.level === level && committeeDecision ? (committeeDecision.conditions as Prisma.InputJsonValue) : Prisma.DbNull,
     })
     const audit = (tx2: Tx, action: string, extra: Record<string, unknown>) => logAuditStrict({
       tenantId, userId: user.id, userEmail: user.email, action, entity: "LoanApplication", entityId: application.id,
-      newValue: { caseId: theCase!.id, requiredLevels: required, matchedRuleIds: theCase!.matchedRuleIds, ...extra },
+      newValue: { caseId: theCase!.id, requiredLevels: required, matchedRuleIds, ...extra },
     }, tx2)
 
     if (plan.kind === "refuse") {
       if (!input.automated) await audit(tx as Tx, AuditAction.APPROVAL_STEP_REFUSED, { code: plan.code, pendingLevel: steps.length + 1 })
       return { kind: "respond" as const, status: plan.status, body: { error: plan.error, approvalMatrix: plan.code, requiredLevels: required, approvedLevels: steps.length } }
     }
+    await persistRequirement(tx as Tx)
     if (plan.kind === "final") {
       const closure = async (tx2: Tx) => {
         if (plan.level === 0) return
         try {
           await tx2.approvalStep.create({ data: stepData(plan.level, plan.via, plan.delegationId) })
         } catch (error) {
-          if ((error as { code?: string }).code === "P2002" || String(error).includes("Approvals are recorded in order") || String(error).includes("approval case")) throw new ApprovalChainChangedError()
+          // The database refused a step the plan allowed: another approver moved the chain between the plan and this write.
+          if ((error as { code?: string }).code === "P2002" || isCheckViolation(error)) throw new ApprovalChainChangedError()
           throw error
         }
         await audit(tx2, AuditAction.APPROVAL_STEP_RECORDED, { level: plan.level, via: plan.via, delegationId: plan.delegationId, final: true })

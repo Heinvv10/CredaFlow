@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { approvePermissionFor } from "@/lib/maker-checker/types"
 import { canDo } from "@/lib/permissions"
-import { approvalMatrixHandler, loosensMatrix } from "./change-handler"
+import { approvalMatrixHandler } from "./change-handler"
 import type { MatrixPayload } from "./types"
 
 const matrix = (over: Partial<MatrixPayload> = {}): MatrixPayload => ({
@@ -12,20 +12,16 @@ const matrix = (over: Partial<MatrixPayload> = {}): MatrixPayload => ({
 
 describe("who may approve a matrix change", () => {
   it.each([
+    ["a change that keeps every application under staff approval", {}],
     ["the matrix switched off", { enabled: false }],
     ["no staff approval where no rule matches", { defaultRequiredLevels: 0 }],
     ["a rule needing no staff approval", { rules: [{ id: "auto", name: "auto", when: { amountMaxCents: 100 }, requiredLevels: 0 }] }],
-  ])("%s loosens it: only a SUPER_ADMIN approves", (_name, over) => {
-    expect(loosensMatrix(matrix(over))).toBe(true)
+    ["rules dropped", { rules: [] }],
+  ])("%s: only a SUPER_ADMIN approves (two administrators could otherwise cut every approval)", (_name, over) => {
     const permission = approvePermissionFor(approvalMatrixHandler, matrix(over))
-    expect(permission).toBe("approve_approval_matrix_loosening")
+    expect(permission).toBe("approve_approval_matrix")
     expect(canDo("ADMIN", permission)).toBe(false)
     expect(canDo("SUPER_ADMIN", permission)).toBe(true)
-  })
-
-  it("a change that keeps every application under staff approval stays with an ADMIN", () => {
-    expect(loosensMatrix(matrix())).toBe(false)
-    expect(canDo("ADMIN", approvePermissionFor(approvalMatrixHandler, matrix()))).toBe(true)
   })
 
   it("drafting needs an ADMIN, and a LOAN_ADMIN cannot", () => {

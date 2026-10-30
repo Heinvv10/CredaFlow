@@ -20,7 +20,12 @@ export async function approversForLevel(
     where: { tenantId: input.tenantId, revokedAt: null, validFrom: { lte: input.now }, validTo: { gte: input.now }, level: { gte: input.level }, maxAmountCents: { gte: input.amountCents }, delegateId: { notIn: [...input.exclude] } },
     select: { delegateId: true },
   })
-  return [...new Set([...byRole, ...delegations.map((d) => d.delegateId)])]
+  // A delegate who has since left (or is the system account) is not woken for work they can no longer do.
+  const delegateIds = [...new Set(delegations.map((d) => d.delegateId))]
+  const active = delegateIds.length === 0
+    ? []
+    : (await tx.user.findMany({ where: { tenantId: input.tenantId, id: { in: delegateIds }, active: true, isSystem: false }, select: { id: true } })).map((u) => u.id)
+  return [...new Set([...byRole, ...active])]
 }
 
 /** One in-app (bell) notification per recipient, deep-linking to the application. */
