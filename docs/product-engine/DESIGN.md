@@ -13,9 +13,10 @@ rows that sum exactly to principal + interest + fees.
 - FLAT interest = round(P x ratePm x 12 x N / periods per year), split evenly.
 - The monthly service fee is charged once per 30-day month of the term, on the first instalment due on or after each month end (or the last).
 - Monthly dates use SAST calendar months with the day clamped to month end. The legacy path keeps `setMonth`.
-- Rounding residue is absorbed in the final row; rows with a zero total are dropped and renumbered.
+- A row's principal is what the instalment leaves after its own interest, never more than the balance and never negative; the final row clears the balance. Rows with a zero total are dropped and renumbered.
+- The instalment affordability sets against monthly income is the second row (the first carries the initiation fee), the first row that repays principal after a principal-only grace, the interest-and-fee row of an interest-only loan, the one payment of a bullet; weekly and fortnightly are scaled by 52/12 and 26/12, a bullet is not.
 - Structures: AMORTISING, INTEREST_ONLY (principal at the end), BULLET (everything at the end).
-- Grace: PRINCIPAL_ONLY emits interest-only rows. FULL emits no rows; the interest accrued is deferred as simple interest (no compounding) and spread over the later instalments. BULLET with FULL grace is refused.
+- Grace: PRINCIPAL_ONLY emits interest-only rows. FULL emits no rows; the interest accrued, and the service fees of the grace months, are deferred (interest as simple interest, no compounding) and spread evenly over the later instalments, so the first payment is no heavier than the rest. BULLET with FULL grace is refused.
 
 ## Versioning
 
@@ -29,7 +30,9 @@ The direct product PUT returns 409 `PRODUCT_VERSIONED` for versioned fields once
 
 ## NCA
 
-An NCA lender may configure only MONTHLY + AMORTISING + no grace + REDUCING_BALANCE (or no structure), and a service fee of at most R69. Everything else is refused until the lender's legal team signs off the rendered documents. The rate a loan is written at (the version's, with its rule's price if one matched) is checked against the cap at approval and again at payout, whether or not a rule matched, with the NON_NCA and repeat short-term rules unchanged (`capApplicationFor`).
+An NCA lender may configure no repayment structure: its loans keep the existing monthly schedule (lib/loan-calculator.ts), which the PASQ, the credit agreement, the debit-order mandate and the NCA schedules describe to the cent, month-end dates included, so a product's first version changes none of them. Every structure, the monthly one too, needs the lender's legal team to sign off the rendered documents first. The version's service fee is held to R69. These rules are re-checked at every approval (`ApprovalTerms.ncaIssues`), because a version may have been approved while the process was another jurisdiction, and when the nightly activation would write the version through.
+
+The interest-rate cap binds the rate the loan is written at, not the product row's: at approval, `capApplicationFor` gives the cap check the version's rate (with its rule's price, if one matched) and the approved principal and term, so the general cap, the NON_NCA and jurisdiction exemptions and the repeat short-term rule all apply, rule or no rule. The same check runs at payout on the frozen rate of a versioned approval, so a repo cut between approval and payout stops it. The nightly activation does not write an over-cap version through to `LoanProduct`: it reports it as blocked and tries again the next night. No pricing rule prices MICRO30, whose contract is fixed; a rule is checked against the version in effect and every scheduled one, not the product row.
 
 ## Evidence chain
 
@@ -37,12 +40,21 @@ The structure and version reference are frozen in `AffordabilityDecisionInputs` 
 
 ## IFRS 9
 
-Engine schedules are plain `RepaymentSchedule` rows, consumed by `lib/ifrs9` unchanged. `ifrs9-cashflows.test.ts` runs weekly, fortnightly, grace and bullet schedules through the ECL functions.
+Engine schedules are plain `RepaymentSchedule` rows. The interest a full grace defers is earned in the grace though no row carries it: `LoanTerms.deferredInterest` is read by the run (`graceDeferral`) and `accruedInterestCents` accrues it through the grace, then the unraised remainder alongside the period's own interest. `ifrs9-cashflows.test.ts` runs weekly, fortnightly, grace and bullet schedules through the ECL functions.
+
+## Customer channels, collection and credit life
+
+The portal, the website and the lender API show and schedule monthly instalments only, so a product whose version in effect has a structure is hidden from them (`LoanProduct.repaymentStructured`, written by the activation; `CUSTOMER_PRODUCT_WHERE`) and originated by staff. Staff previews, the affordability assessment and the decision engine's facts use the version's terms (`previewCalcInput`). A DebiCheck mandate is monthly with one recurring amount, so a structured loan is collected by EFT: approval, disbursement and staff mandate creation refuse a debit order for it. Credit life is billed a premium per month of cover bound to schedule rows, which a weekly or fortnightly schedule has several of in a month: approval refuses an accepted election on one.
+
+## Pricing inputs
+
+Segment is one of the segments the lender's approved pricing rules name; channel is one of `PRICING_CHANNELS`, set by the code that creates the application (the portal and website DIGITAL, staff and the CRM BRANCH, the lender API API). Staff set segment and campaign on the application page; whoever set them does not approve a loan a rule priced on them. The status is read under the application's row lock.
 
 ## Limits
 
-- Credit-life premium periods and agreement/PASQ rendering for non-monthly schedules are not verified.
-- Staff previews and quotes read the base `LoanProduct`, not rule-priced terms.
+- NCA documents (PASQ, agreement) for a structured schedule are not rendered or verified: only a non-NCA lender can have one, and the agreement prints the term in days.
+- Credit life and debit orders are refused for a structured schedule until they follow it.
+- The staff loan calculator and the wizard's affordability step still read the base `LoanProduct`; the application page, the assessment and the decision facts use the version.
+- Monthly dates of a structured (non-NCA) schedule are SAST calendar months clamped to month end (31 Jan, 28 Feb), unlike the legacy `setMonth` (3 Mar); the legacy schedule, used by every NCA lender, is untouched.
 - Collateral and eligibility are stored and shown but not enforced at origination.
-- Origination routes do not set channel automatically.
 - Balloon and variable/reference-rate repricing (2.6.1) are not built.
