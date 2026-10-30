@@ -5,9 +5,9 @@ name: ci
 # agent-doc and date checks into quality avoids two runner startups and two
 # duplicate npm installs on every revision.
 #
-# GitHub-hosted runners (ubuntu-latest). The integration shards use the
-# postgresql-16 (scripts/ci/pg-cluster.sh, PG_BIN default
-# /usr/lib/postgresql/16/bin), poppler-utils and qpdf are apt-installed.
+# GitHub-hosted runners (ubuntu-latest). postgresql-16 (for
+# scripts/ci/pg-cluster.sh, PG_BIN default /usr/lib/postgresql/16/bin),
+# poppler-utils and qpdf are apt-installed.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
