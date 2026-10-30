@@ -25,10 +25,12 @@ interface Props {
   requests: ChangeRow[]
   onEdit: (row: ChangeRow) => void
   onDone: () => void
+  /** Replaces the default line under the title (used by the product versions page). */
+  description?: string
 }
 
 /** Pending and recent changes. The person who drafted a change sees "Withdraw"; anyone else with approval rights sees "Approve" and "Reject". */
-export function ChangeRequestsPanel({ requests, onEdit, onDone }: Props) {
+export function ChangeRequestsPanel({ requests, onEdit, onDone, description }: Props) {
   const [note, setNote] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -49,7 +51,7 @@ export function ChangeRequestsPanel({ requests, onEdit, onDone }: Props) {
     <Card>
       <CardHeader>
         <CardTitle>Approvals</CardTitle>
-        <CardDescription>Every change to rules, scorecards and engine settings needs a second person. You cannot approve what you drafted.</CardDescription>
+        <CardDescription>{description ?? "Every change to rules, scorecards and engine settings needs a second person. You cannot approve what you drafted."}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p role="alert" className="text-sm text-[var(--cf-danger)]">{error}</p>}
