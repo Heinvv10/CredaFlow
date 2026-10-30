@@ -31,6 +31,7 @@ describe("the seeded rows and the module cannot drift", () => {
     application_submitted: "application_submitted_whatsapp",
     loan_approved: "loan_approved_whatsapp",
     application_declined: "application_declined_whatsapp",
+    application_declined_automated: "application_declined_automated_whatsapp",
     loan_disbursed: "loan_disbursed_whatsapp",
     payment_received: "payment_received_whatsapp",
     agent_reengagement: "agent_reengagement_whatsapp",
@@ -124,6 +125,7 @@ describe("WABA body templates vs the vars the code supplies", () => {
         supportPhone: "+27 11 555 0100",
         daysOverdue: "60",
         entityName: "TEST Earthmoving (Pty) Ltd",
+        notice: "You may ask for a person to review this decision.",
       }),
     )
     const missing = placeholders.filter((p) => !supplied.includes(p))
@@ -174,6 +176,7 @@ describe("WABA body templates vs the vars the code supplies", () => {
         supportPhone: "+27 11 555 0100",
         daysOverdue: "60",
         entityName: "TEST Earthmoving (Pty) Ltd",
+        notice: "You may ask for a person to review this decision.",
       })
       const blank = Object.entries(vars).filter(([, v]) => v.trim() === "").map(([k]) => k)
       expect(blank, `${event} supplies blank var(s)`).toEqual([])

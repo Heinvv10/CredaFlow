@@ -66,6 +66,32 @@ describe("PATCH /api/crm/leads/[id] — audits the fields the outreach basis res
     )
   })
 
+  describe("staff who enter decision-input figures on the lead (declaredIncome, employmentType) are recorded as input staff", () => {
+    const existing = (over: Record<string, unknown> = {}) => ({ status: "NEW", assignedToId: null, requestedAmount: null, declaredIncome: 100, employmentType: "SALARIED", inputStaffIds: ["earlier"], ...over })
+    const written = () => (leadUpdateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data
+
+    it.each([
+      ["declaredIncome", { declaredIncome: 900 }],
+      ["employmentType", { employmentType: "SELF_EMPLOYED" }],
+    ])("a changed %s adds the editor once, keeping the staff already recorded", async (_field, body) => {
+      leadFindFirstMock.mockResolvedValue(existing())
+      await PATCH(req(body), ctx as any)
+      expect(written().inputStaffIds).toEqual(["earlier", "u1"])
+    })
+
+    it("an unchanged figure, or an edit of something else, records no one", async () => {
+      leadFindFirstMock.mockResolvedValue(existing())
+      await PATCH(req({ declaredIncome: 100, employmentType: "SALARIED", notes: "called back" }), ctx as any)
+      expect(written()).not.toHaveProperty("inputStaffIds")
+    })
+
+    it("a staff member already recorded is not added twice", async () => {
+      leadFindFirstMock.mockResolvedValue(existing({ inputStaffIds: ["u1"] }))
+      await PATCH(req({ declaredIncome: 900 }), ctx as any)
+      expect(written().inputStaffIds).toEqual(["u1"])
+    })
+  })
+
   it("records declaredIncome too — same NCA affordability shape", async () => {
     leadFindFirstMock.mockResolvedValue({ status: "NEW", assignedToId: null, requestedAmount: 1, declaredIncome: 100 })
     leadUpdateMock.mockResolvedValue({ id: "lead-1", status: "NEW", assignedToId: null, requestedAmount: 1, declaredIncome: 900 })

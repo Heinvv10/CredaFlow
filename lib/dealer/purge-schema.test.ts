@@ -49,12 +49,15 @@ const KEPT: Record<string, string[]> = {
     "kycManualRejectionResolvedById", "kycManualRejectionResolutionReason", "amlScreeningStatus", "amlScreeningAt", "kycStatus", "blacklisted",
     "blacklistReason", "deceasedAt", "deceasedReason", "riskLevel", "riskFlagNote", "riskFlaggedAt", "riskFlaggedById", "createdAt", "updatedAt",
     "referralCount", "referredFromId", "referralCodeId", "createdByDealerId", "dealerContactVerifiedAt", "dealerContactVerifiedById", "dealerPurgedAt",
+    // Staff user ids (our own people, not the client): the SoD record of who changed decision inputs, grow-only.
+    "inputStaffIds",
   ],
   BusinessEntity: ["id", "tenantId", "type", "createdById", "createdByDealerId", "dealerPurgedAt", "createdAt", "updatedAt"],
 }
 
 // Columns that name a person or business by id without a foreign key, and are not a link to keep it by.
-const NOT_LINKS = ["AuditLog.entityId", "CreditDecisionRecord.sourceEntityId", "WebhookEvent.entityId", "WebhookOutboxFailure.entityId",
+// AutoDecisionDue.clientId is a short-lived rate-limit counter, pruned after 30 days by the digital-decisions sweep.
+const NOT_LINKS = ["AutoDecisionDue.clientId", "AuditLog.entityId", "CreditDecisionRecord.sourceEntityId", "WebhookEvent.entityId", "WebhookOutboxFailure.entityId",
   // OAuth / SAML identifiers of an identity provider or API client, not a person (lib/sso, lib/lender-api/oauth).
   "OauthClient.clientId", "SsoConnection.oidcClientId", "SsoConnection.samlEntityId", "SsoConnection.samlIdpEntityId"]
 

@@ -156,6 +156,9 @@ export const WA_TEMPLATES = {
   application_declined: (name: string, ref: string) =>
     `Hi ${name},\n\nUnfortunately your application *${ref}* was unsuccessful at this time.\n\nPlease contact us if you have any questions or would like to discuss alternative options.`,
 
+  application_declined_automated: (name: string, ref: string, notice: string) =>
+    `Hi ${name},\n\nUnfortunately your application *${ref}* was unsuccessful at this time.\n\n${notice}\n\nPlease contact us if you have any questions or would like to discuss alternative options.`,
+
   loan_disbursed: (name: string, amount: string, dueDate: string) =>
     `Hi ${name} ✅\n\nYour loan of *${amount}* has been paid to your account.\n\nYour first payment is due on *${dueDate}*. You can view your repayment schedule on the client portal.`,
 

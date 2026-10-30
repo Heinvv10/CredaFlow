@@ -70,6 +70,8 @@ import { lenderHoldsFsp } from "@/lib/insurance/require-fsp"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
+    // Whether the decision engine approved it: segregation of duties then names the attesters, not an approver.
+    approvedBy: { select: { isSystem: true } },
     product: true,
     client: {
       include: {
@@ -328,7 +330,7 @@ export async function POST(
       // records disbursedById and the database refuses the same pair
       // (LoanApplication_z_guard_segregation_of_duties).
       const segregationOfDuties = await isSegregationOfDutiesRequired(tenant.id)
-      const conflict = segregationOfDutiesConflict("disburse", user.id, application)
+      const conflict = segregationOfDutiesConflict("disburse", user.id, { ...application, approvedBySystem: application.approvedBy?.isSystem === true })
       if (conflict && segregationOfDuties) {
         return NextResponse.json({
           error: SEGREGATION_OF_DUTIES_REFUSALS[conflict],

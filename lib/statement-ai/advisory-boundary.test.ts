@@ -15,6 +15,7 @@ const DECISION_ENTRY_POINTS = [
   "lib/credit-checks/recompute.ts",
   "lib/credit-checks/load-facts.ts",
   "app/api/applications/[id]/decide/route.ts",
+  "app/api/applications/[id]/decide/decide-application.ts",
 ]
 
 const IMPORT = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\sfrom\s+)?["']([^"']+)["']|import\(\s*["'`]([^"'`$]+)["'`]\s*\)|require\(\s*["'`]([^"'`$]+)["'`]\s*\)/g

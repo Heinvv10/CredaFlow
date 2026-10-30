@@ -13,6 +13,9 @@ const notificationLogCreateMock = vi.fn()
 const contactFindFirstMock = vi.fn()
 const consentFindFirstMock = vi.fn()
 
+// The automated-decision notice (lib/decisioning/notice.ts) is covered in lib/decisioning/notice.test.ts; a person's decline carries none.
+const noticeMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null))
+vi.mock("@/lib/decisioning/notice", () => ({ automatedDeclineNoticeFor: noticeMock }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenant: { findUnique: (a: unknown) => tenantFindUniqueMock(a) },
@@ -69,6 +72,8 @@ vi.mock("@/lib/whatsapp", () => ({
       `Hi ${firstName}, app ${ref} for *${amount}* received`,
     application_approved: (firstName: string, amount: string, ref: string) =>
       `Good news ${firstName}! Your loan application for *${amount}* has been *approved*. Ref: ${ref}`,
+    application_declined_automated: (firstName: string, ref: string, notice: string) =>
+      `Hi ${firstName}, your application *${ref}* was unsuccessful. ${notice}`,
     application_declined: (firstName: string, ref: string) =>
       `Hi ${firstName}, your application *${ref}* was unsuccessful.`,
     loan_disbursed: vi.fn(),
@@ -798,6 +803,36 @@ describe("buildWaMessage — template variables", () => {
     const waCall = sendMessageMock.mock.calls.find((c: any[]) => c[0].channel === "WHATSAPP")
     expect(waCall).toBeDefined()
     expect(waCall![0].vars.body).toBe("Hi Sipho, your application *APP-0055* was unsuccessful.")
+  })
+
+  it("an automated decline's WhatsApp leg carries the lender's approved notice, through its own template row and variable (s71)", async () => {
+    clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
+    loanApplicationFindUniqueMock.mockResolvedValue({ id: "app1", reference: "APP-0055", appliedAmount: 200000, product: { name: "Bridging" } })
+    process.env.MESSAGING_NEW_SEND_NOTIF_APP_DECLINED = "true"
+    messageTemplateFindManyMock.mockResolvedValue([...templatesForEvent("application_declined"), { id: "tpl-auto-wa", key: "application_declined_automated_whatsapp", channel: "WHATSAPP", statutoryOverride: false, tenantId: "tn1" }])
+    lookupContactMock.mockResolvedValue({ id: "ct-1" })
+    sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
+    noticeMock.mockResolvedValueOnce("You may ask for a person to review this decision.")
+
+    await triggerNotification({ tenantId: "tn1", event: "application_declined", loanId: "app1", clientId: "cli1" })
+
+    const waCall = sendMessageMock.mock.calls.find((c: any[]) => c[0].channel === "WHATSAPP")
+    expect(waCall![0].templateKey ?? waCall![0].template?.key ?? JSON.stringify(waCall![0])).toContain("application_declined_automated")
+    expect(waCall![0].vars.notice ?? waCall![0].vars.body).toContain("You may ask for a person to review this decision.")
+    expect(waCall![0].vars.reference ?? waCall![0].vars.body).toContain("APP-0055")
+  })
+
+  it("a person's decline does not use the automated row or carry a notice", async () => {
+    clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
+    loanApplicationFindUniqueMock.mockResolvedValue({ id: "app1", reference: "APP-0055", appliedAmount: 200000, product: { name: "Bridging" } })
+    process.env.MESSAGING_NEW_SEND_NOTIF_APP_DECLINED = "true"
+    messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("application_declined"))
+    lookupContactMock.mockResolvedValue({ id: "ct-1" })
+    sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
+    noticeMock.mockResolvedValueOnce(null)
+    await triggerNotification({ tenantId: "tn1", event: "application_declined", loanId: "app1", clientId: "cli1" })
+    const waCall = sendMessageMock.mock.calls.find((c: any[]) => c[0].channel === "WHATSAPP")
+    expect(JSON.stringify(waCall![0])).not.toContain("automated")
   })
 
   it("section129_sent WA reference flows end-to-end from data.reference", async () => {
