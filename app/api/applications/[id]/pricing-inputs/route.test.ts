@@ -34,25 +34,41 @@ beforeEach(() => {
   vi.clearAllMocks()
   requireApiRole.mockResolvedValue({ user: { id: "officer-1", email: "o@example.test", role: "CREDIT_OFFICER" } })
   canDo.mockReturnValue(true)
-  ruleFindMany.mockResolvedValue([{ segment: "SALARIED" }, { segment: "SELF_EMPLOYED" }])
+  ruleFindMany.mockResolvedValue([{ segment: "SALARIED", campaignCode: "SPRING27" }, { segment: "SELF_EMPLOYED", campaignCode: null }, { segment: null, campaignCode: "SPRING27" }])
+  inputFindFirst.mockResolvedValue({ segment: null, channel: "DIGITAL", campaignCode: null })
   queryRaw.mockResolvedValue([{ status: "UNDER_REVIEW" }])
-  inputFindFirst.mockResolvedValue(null)
   inputUpsert.mockResolvedValue({})
   applicationUpdateMany.mockResolvedValue({ count: 1 })
   logAuditStrict.mockResolvedValue(undefined)
 })
 
 describe("PUT /api/applications/[id]/pricing-inputs", () => {
-  it("saves a configured segment and a fixed channel, audited, under the application's row lock", async () => {
-    const res = await put({ segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27" })
+  it("saves a configured segment and campaign, audited, under the application's row lock; the channel the system recorded is left as it was", async () => {
+    const res = await put({ segment: "SALARIED", campaignCode: "SPRING27" })
     expect(res.status).toBe(200)
     expect((queryRaw.mock.calls[0]![0] as string[]).join("?")).toMatch(/FROM "LoanApplication" WHERE .*FOR UPDATE/)
-    expect(inputUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27", updatedById: "officer-1" } }))
-    expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "APPLICATION_PRICING_INPUT_SET", newValue: { segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27" } }), expect.anything())
+    expect(inputUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { segment: "SALARIED", campaignCode: "SPRING27", updatedById: "officer-1" } }))
+    expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "APPLICATION_PRICING_INPUT_SET", newValue: { segment: "SALARIED", campaignCode: "SPRING27" } }), expect.anything())
+  })
+
+  it("refuses to change the channel: the system sets it when the application is created (portal DIGITAL, staff BRANCH, the lender API API)", async () => {
+    const res = await put({ segment: "SALARIED", channel: "BRANCH", campaignCode: null })
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("channel") })
+    expect(inputUpsert).not.toHaveBeenCalled()
+    // sending the channel it already has is not a change
+    expect((await put({ segment: "SALARIED", channel: "DIGITAL", campaignCode: null })).status).toBe(200)
+  })
+
+  it("refuses a campaign code no approved rule names: the codes are the rules' own", async () => {
+    const res = await put({ segment: null, campaignCode: "VIPONLY" })
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("campaign") })
+    expect(inputUpsert).not.toHaveBeenCalled()
   })
 
   it("records whoever sets the inputs as input staff of the application, which only grows: the maker and segregation-of-duties rules then cover them", async () => {
-    expect((await put({ segment: "SALARIED", channel: "BRANCH", campaignCode: null })).status).toBe(200)
+    expect((await put({ segment: "SALARIED", campaignCode: null })).status).toBe(200)
     expect(applicationUpdateMany).toHaveBeenCalledWith({
       where: { id: "app-1", tenantId: "t1", NOT: { inputStaffIds: { has: "officer-1" } } },
       data: { inputStaffIds: { push: "officer-1" } },
@@ -60,21 +76,14 @@ describe("PUT /api/applications/[id]/pricing-inputs", () => {
   })
 
   it("refuses a segment the lender has not configured: the segments are the ones its approved rules name", async () => {
-    const res = await put({ segment: "VIP", channel: null, campaignCode: null })
+    const res = await put({ segment: "VIP", campaignCode: null })
     expect(res.status).toBe(422)
-    expect(inputUpsert).not.toHaveBeenCalled()
-  })
-
-  it("refuses a channel that is not one of the fixed channels", async () => {
-    const res = await put({ segment: null, channel: "MOBILE", campaignCode: null })
-    expect(res.status).toBe(422)
-    expect(await res.json()).toMatchObject({ error: expect.stringContaining("DIGITAL") })
     expect(inputUpsert).not.toHaveBeenCalled()
   })
 
   it("refuses once the application is decided: the status is read under the lock, not before it", async () => {
     queryRaw.mockResolvedValue([{ status: "APPROVED" }])
-    const res = await put({ segment: "SALARIED", channel: null, campaignCode: null })
+    const res = await put({ segment: "SALARIED", campaignCode: null })
     expect(res.status).toBe(409)
     expect(inputUpsert).not.toHaveBeenCalled()
     expect(logAuditStrict).not.toHaveBeenCalled()
@@ -82,12 +91,12 @@ describe("PUT /api/applications/[id]/pricing-inputs", () => {
 
   it("answers 404 for an application that is not this lender's", async () => {
     queryRaw.mockResolvedValue([])
-    expect((await put({ segment: null, channel: null, campaignCode: null })).status).toBe(404)
+    expect((await put({ segment: null, campaignCode: null })).status).toBe(404)
   })
 
   it("is for those who may set pricing inputs", async () => {
     canDo.mockReturnValue(false)
-    expect((await put({ segment: null, channel: null, campaignCode: null })).status).toBe(403)
+    expect((await put({ segment: null, campaignCode: null })).status).toBe(403)
   })
 })
 
@@ -101,7 +110,7 @@ describe("GET /api/applications/[id]/pricing-inputs", () => {
     const res = await GET(new NextRequest("http://localhost/api/applications/app-1/pricing-inputs"), ctx)
     expect(await res.json()).toMatchObject({
       inputs: { segment: "SALARIED", channel: "DIGITAL", campaignCode: null }, open: true,
-      options: { segments: ["SALARIED", "SELF_EMPLOYED"], channels: ["DIGITAL", "BRANCH", "API", "AGENT"] },
+      options: { segments: ["SALARIED", "SELF_EMPLOYED"], campaigns: ["SPRING27"] },
       price: { interestRatePm: 0.02, baseRatePm: 0.03, productVersion: 4, rule: "Best grades" },
     })
   })

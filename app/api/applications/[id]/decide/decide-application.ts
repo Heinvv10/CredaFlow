@@ -985,16 +985,15 @@ export async function decideApplication({ tenant, user, id, formData, automation
     }
     const limitRefusal = versionLimitRefusal(terms, { principalCents: approvalPrincipal, termDays: approvalTermDays })
     if (limitRefusal) return NextResponse.json({ error: `Approval blocked: ${limitRefusal}.`, productVersionRefused: true }, { status: 422 })
-    // The price a pricing rule gives follows the application's pricing inputs, which staff set: whoever set them does not also approve
-    // a loan priced on them (the segment or campaign they typed could otherwise earn the discount they approve).
-    if (terms.versioned?.pricingRuleId) {
-      // Everyone who ever set them, from the audit trail: the last to update is not the only one (A sets, B touches, A approves).
-      const setByApprover = await prisma.auditLog.count({
-        where: { tenantId: tenant.id, entity: "LoanApplication", entityId: id, action: AuditAction.APPLICATION_PRICING_INPUT_SET, userId: user.id },
-      })
-      if (setByApprover > 0) {
-        return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs, and a pricing rule priced it on them. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
-      }
+    // Staff set the application's pricing inputs, which a pricing rule prices on: whoever set them does not approve the loan, whether or
+    // not a rule ended up pricing it (inputs that match no rule today are still a way to steer the price). The audit trail names every
+    // setter, not only the last to update (A sets, B touches, A approves); each is also input staff of the application (inputStaffIds),
+    // which the segregation-of-duties rules of an engine approval and its disbursement cover.
+    const inputsSetByApprover = await prisma.auditLog.count({
+      where: { tenantId: tenant.id, entity: "LoanApplication", entityId: id, action: AuditAction.APPLICATION_PRICING_INPUT_SET, userId: user.id },
+    })
+    if (inputsSetByApprover > 0) {
+      return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
     }
     // Credit life is billed a premium per month of cover, bound to repayment rows (lib/insurance/credit-life-billing.ts): a weekly or
     // fortnightly schedule has several rows to a month, so the premium periods would be counted per row. Until that is right, no

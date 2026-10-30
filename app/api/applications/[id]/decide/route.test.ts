@@ -1246,6 +1246,16 @@ describe("approval on a product version with a repayment structure and a pricing
     expect(auditLogCountMock).toHaveBeenCalledWith({ where: expect.objectContaining({ tenantId: "t1", action: "APPLICATION_PRICING_INPUT_SET", entityId: "app-1", userId: "u1" }) })
   })
 
+  it("is refused for a person who set the inputs even when no rule priced the loan: inputs that match no rule still steer it", async () => {
+    approveWeekly()
+    pricingRuleFindManyMock.mockResolvedValue([])
+    auditLogCountMock.mockResolvedValue(1)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ pricingInputsSetByApprover: true })
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
   it("does not take a debit order for a structured schedule: approve for EFT", async () => {
     approveWeekly()
     const res = await POST(makeReq({ action: "approve", reason: "Looks good", repaymentMethod: "DEBIT_ORDER" }), ctx)

@@ -3,14 +3,13 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api, controlClass } from "@/components/settings/decision-rules/types"
 
 interface PricingInputs {
   inputs: { segment: string | null; channel: string | null; campaignCode: string | null }
   riskGradeRank: number | null
-  options: { segments: string[]; channels: string[] }
+  options: { segments: string[]; campaigns: string[] }
   open: boolean
   price: { interestRatePm: number; baseRatePm: number; productVersion: number | null; rule: string | null; repayment: { frequency: string; structure: string } | null }
 }
@@ -19,13 +18,12 @@ const pct = (decimal: number) => `${Math.round(decimal * 10_000) / 100}%`
 
 /**
  * What the pricing rules are matched on for this application (segment, channel, campaign) and the price they give. Shown only for a
- * product under the product engine. The segments are the lender's configured ones and the channel is one of the fixed channels
+ * product under the product engine. The segments are the lender's configured ones and the campaign one of the lender's configured codes, and the channel is shown, not chosen
  * (the system sets it when the application is created); whoever sets these does not also approve a loan priced on them.
  */
 export function PricingInputsCard({ applicationId, onChanged }: { applicationId: string; onChanged?: () => void }) {
   const [data, setData] = useState<PricingInputs | null>(null)
   const [segment, setSegment] = useState("")
-  const [channel, setChannel] = useState("")
   const [campaign, setCampaign] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null)
@@ -33,7 +31,6 @@ export function PricingInputsCard({ applicationId, onChanged }: { applicationId:
   const apply = (next: PricingInputs) => {
     setData(next)
     setSegment(next.inputs.segment ?? "")
-    setChannel(next.inputs.channel ?? "")
     setCampaign(next.inputs.campaignCode ?? "")
   }
   const path = `/api/applications/${applicationId}/pricing-inputs`
@@ -48,7 +45,7 @@ export function PricingInputsCard({ applicationId, onChanged }: { applicationId:
   async function save() {
     setBusy(true)
     setMessage(null)
-    const res = await api(path, "PUT", { segment: segment || null, channel: channel || null, campaignCode: campaign.trim() || null })
+    const res = await api(path, "PUT", { segment: segment || null, campaignCode: campaign || null })
     setBusy(false)
     if (!res.ok) {
       setMessage({ kind: "error", text: res.error ?? "Could not save." })
@@ -81,13 +78,13 @@ export function PricingInputsCard({ applicationId, onChanged }: { applicationId:
           </div>
           <div className="space-y-1">
             <Label htmlFor="pi-channel">Channel</Label>
-            <select id="pi-channel" className={`${controlClass} w-full`} value={channel} disabled={!data.open} onChange={(e) => setChannel(e.target.value)}>
-              <option value="">None</option>{data.options.channels.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <p id="pi-channel" className="flex h-9 items-center text-sm text-[var(--cf-text)]">{data.inputs.channel ?? "Not recorded"}</p>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="pi-campaign">Campaign code</Label>
-            <Input id="pi-campaign" value={campaign} disabled={!data.open} onChange={(e) => setCampaign(e.target.value.toUpperCase())} />
+            <Label htmlFor="pi-campaign">Campaign</Label>
+            <select id="pi-campaign" className={`${controlClass} w-full`} value={campaign} disabled={!data.open} onChange={(e) => setCampaign(e.target.value)}>
+              <option value="">None</option>{data.options.campaigns.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
         </div>
         {message && <p role={message.kind === "error" ? "alert" : "status"} className={`text-sm ${message.kind === "error" ? "text-[var(--cf-danger)]" : "text-[var(--cf-success)]"}`}>{message.text}</p>}
