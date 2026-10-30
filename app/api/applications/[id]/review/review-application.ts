@@ -1,3 +1,4 @@
+import { openApprovalCaseSafely } from "@/lib/approval/chain"
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
@@ -363,6 +364,9 @@ export async function startApplicationReview({ tenant, user, id, autoDecisionTri
       { status: 409 },
     )
   }
+
+  // The review has started: the approval matrix's clock starts with it (a lender with no matrix in force: nothing).
+  await openApprovalCaseSafely({ tenantId: tenant.id, applicationId: id })
 
   // The worker validates this generation before provider I/O and again
   // under the approval lock before storing evidence. Await it here so a

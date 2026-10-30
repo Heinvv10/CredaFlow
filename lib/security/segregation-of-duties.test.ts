@@ -9,6 +9,14 @@ describe("segregationOfDutiesConflict", () => {
     expect(segregationOfDutiesConflict("disburse", "witness", application)).toBeNull()
   })
 
+  it("names everyone who approved a level of the approval matrix's chain, not only the last approver", () => {
+    const chain = { ...application, approvalStepApproverIds: ["level-one", "approver"] }
+    expect(segregationOfDutiesConflict("disburse", "level-one", chain)).toBe("approve_disburse")
+    expect(segregationOfDutiesConflict("disburse", "approver", chain)).toBe("approve_disburse")
+    expect(segregationOfDutiesConflict("disburse", "witness", chain)).toBeNull()
+    expect(segregationOfDutiesConflict("disburse", "", { ...chain, approvalStepApproverIds: [""] })).toBeNull()
+  })
+
   it("names the in-branch witness as the one who may not countersign", () => {
     expect(segregationOfDutiesConflict("countersign", "witness", application)).toBe("branch_sign_countersign")
     expect(segregationOfDutiesConflict("countersign", "approver", application)).toBeNull()

@@ -149,6 +149,27 @@ suite("segregation of duties in the database", () => {
       await expect(disburse(scenario, scenario.colleagueId)).rejects.toBe(rollback)
     })
 
+    // The approval matrix (lib/approval/): a person who approved at ANY level of a multi-level chain cannot disburse it, not only the final approver.
+    it("a staff member who approved at an earlier level cannot disburse the application (approval matrix)", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      const caseId = `case_${scenario.applicationId}`
+      // The chain as it ended: level 1 by the colleague, level 2 by the officer (the approver on record). The step guard only runs on an open case.
+      await prisma.$transaction([
+        prisma.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+        prisma.$executeRawUnsafe(`INSERT INTO "ApprovalCase" ("id","tenantId","applicationId","status","requiredLevels","levelsSnapshot","pendingLevel","completedAt") VALUES ('${caseId}','${scenario.tenantId}','${scenario.applicationId}','APPROVED',2,'[]'::jsonb,3,now())`),
+        prisma.$executeRawUnsafe(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('${caseId}_1','${scenario.tenantId}','${caseId}','${scenario.applicationId}',1,'${scenario.colleagueId}','ROLE'), ('${caseId}_2','${scenario.tenantId}','${caseId}','${scenario.applicationId}',2,'${scenario.officerId}','ROLE')`),
+      ])
+      await expect(disburse(scenario, scenario.colleagueId)).rejects.toThrow(/approved at any level cannot disburse/)
+      // Off with the setting: the same chain does not stop it.
+      const off = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: false })
+      await prisma.$transaction([
+        prisma.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+        prisma.$executeRawUnsafe(`INSERT INTO "ApprovalCase" ("id","tenantId","applicationId","status","requiredLevels","levelsSnapshot","pendingLevel","completedAt") VALUES ('c2_${off.applicationId}','${off.tenantId}','${off.applicationId}','APPROVED',1,'[]'::jsonb,2,now())`),
+        prisma.$executeRawUnsafe(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('c2_${off.applicationId}_1','${off.tenantId}','c2_${off.applicationId}','${off.applicationId}',1,'${off.colleagueId}','ROLE')`),
+      ])
+      await expect(disburse(off, off.colleagueId)).rejects.toBe(rollback)
+    })
+
     it("a user cannot be turned into (or out of) the system account", async () => {
       const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
       await expect(prisma.$executeRawUnsafe(`UPDATE "User" SET "isSystem" = true WHERE "id" = '${scenario.colleagueId}'`)).rejects.toThrow(/isSystem cannot be changed/)

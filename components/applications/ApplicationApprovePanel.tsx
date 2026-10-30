@@ -23,7 +23,7 @@ interface Props {
   openChecks: number
 }
 
-type Phase = "idle" | "override" | "declining" | "refreshing"
+type Phase = "idle" | "override" | "declining" | "refreshing" | "level_recorded"
 type RepaymentMethod = "EFT" | "DEBIT_ORDER"
 
 type DecisionErrorBody = {
@@ -67,6 +67,15 @@ function parseDecisionErrorBody(value: unknown): DecisionErrorBody {
   }
 }
 
+/** The sentence for an approval that recorded one level of several, or null when the response is a completed decision. */
+function approvalRecordedNotice(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null
+  const { approvalRecorded, level, requiredLevels, nextLevel, nextLevelName } = body as Record<string, unknown>
+  if (approvalRecorded !== true || typeof level !== "number" || typeof requiredLevels !== "number") return null
+  const next = typeof nextLevel === "number" ? ` Level ${nextLevel}${typeof nextLevelName === "string" && nextLevelName ? ` (${nextLevelName})` : ""} approves next.` : ""
+  return `Your approval is recorded as level ${level} of ${requiredLevels}. The application stays under review.${next}`
+}
+
 export function ApplicationApprovePanel({ applicationId, canApprove, openChecks }: Props) {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>("idle")
@@ -78,6 +87,7 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [submissionEvidenceError, setSubmissionEvidenceError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [levelRecorded, setLevelRecorded] = useState<string | null>(null)
 
   if (!canApprove) return null
 
@@ -91,7 +101,10 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
       for (const [k, v] of Object.entries(fields)) fd.append(k, v)
       const res = await fetch(`/api/applications/${applicationId}/decide`, { method: "POST", body: fd })
       if (res.ok) {
-        setPhase("refreshing")
+        // The approval matrix (lib/approval/): this approval was one level of several, and the application is still under review.
+        const recorded = approvalRecordedNotice(await res.json().catch(() => null))
+        setLevelRecorded(recorded)
+        setPhase(recorded ? "level_recorded" : "refreshing")
         setBureauGate(null)
         setErrorMsg(null)
         setOverrideReason("")
@@ -188,6 +201,14 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
           </div>
         </div>
       </div>
+    )
+  }
+
+  if (phase === "level_recorded") {
+    return (
+      <p role="status" className="text-sm text-[var(--cf-text-secondary)]">
+        {levelRecorded}
+      </p>
     )
   }
 
