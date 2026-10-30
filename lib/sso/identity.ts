@@ -77,6 +77,8 @@ export async function resolveStaffUser(identity: IdpIdentity, conn: LoadedConnec
       : await tx.user.findUnique({ where: { email } })
     if (user) {
       if (user.tenantId !== tenantId || user.operatorId) return noAccount
+      // The lender's automated decisioning account is not a person and signs in nowhere: no identity is ever bound to it.
+      if (user.isSystem) return noAccount
       if (user.role === "SUPER_ADMIN") return { ok: false, reason: "super_admin_password_only" } as const
       if (mappingRequired && !mapped) return { ok: false, reason: "no_mapped_group" } as const
       if (!bound) {

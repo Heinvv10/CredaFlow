@@ -229,13 +229,15 @@ type StaffUserWrite = {
   self?: boolean
   /** The write is a flag, not an account edit (the inbox roster): a peer is not refused. Never a senior. */
   allowPeer?: boolean
+  /** The target is the lender's automated decisioning account (User.isSystem): it is managed by the system, never edited. */
+  targetIsSystem?: boolean
 }
 
 type StaffUserWriteRefusal = {
   status: 400 | 403
   error: string
   /** Machine-readable cause, as in lib/audit-refusals.ts. */
-  reason: "totp_required" | "target_outranks_caller" | "target_same_rank" | "invalid_role" | "role_above_caller"
+  reason: "totp_required" | "target_outranks_caller" | "target_same_rank" | "invalid_role" | "role_above_caller" | "target_is_system"
 }
 
 /**
@@ -262,6 +264,9 @@ export function staffUserWriteRefusal(
       reason: "totp_required",
       error: "Sign in with two-factor authentication to manage users. Enable it under Settings → Security, then sign out and back in.",
     }
+  }
+  if (write.targetIsSystem === true) {
+    return { status: 403, reason: "target_is_system", error: "The automated decisioning account is managed by the system and cannot be changed" }
   }
   // A role ROLE_HIERARCHY does not rank is -1: as caller it clears nothing, and
   // as target it is refused outright (fail closed, as hasMinRole).
@@ -356,8 +361,8 @@ export async function refuseLockedStaffUserWrite(
 ): Promise<{ refused: NextResponse } | { refused: null; callerRole: UserRole; targetRole: UserRole | null }> {
   await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
   const ids = write.targetId ? [caller.id, write.targetId] : [caller.id]
-  const rows = await tx.$queryRaw<Array<{ id: string; role: UserRole; active: boolean; tokenVersion: number }>>(Prisma.sql`
-    SELECT "id", "role"::text AS "role", "active", "tokenVersion"
+  const rows = await tx.$queryRaw<Array<{ id: string; role: UserRole; active: boolean; tokenVersion: number; isSystem: boolean }>>(Prisma.sql`
+    SELECT "id", "role"::text AS "role", "active", "tokenVersion", "isSystem"
     FROM "User"
     WHERE "id" IN (${Prisma.join(ids)}) AND "tenantId" = ${write.tenantId}
     ORDER BY "id"
@@ -369,14 +374,16 @@ export async function refuseLockedStaffUserWrite(
     return { refused: NextResponse.json({ error: "Your session is out of date. Sign in again." }, { status: 403 }) }
   }
   let targetRole: UserRole | null = null
+  let targetIsSystem = false
   if (write.targetId) {
     const target = rows.find(r => r.id === write.targetId)
     if (!target) return { refused: NextResponse.json({ error: "User not found" }, { status: 404 }) }
     targetRole = target.role
+    targetIsSystem = target.isSystem
   }
   const refused = await refuseStaffUserWrite(
     { ...caller, role: fresh.role },
-    { tenantId: write.tenantId, targetId: write.targetId, targetRole, assignedRole: write.assignedRole, allowPeer: write.allowPeer },
+    { tenantId: write.tenantId, targetId: write.targetId, targetRole, assignedRole: write.assignedRole, allowPeer: write.allowPeer, targetIsSystem },
     tx,
   )
   return refused ? { refused } : { refused: null, callerRole: fresh.role, targetRole }

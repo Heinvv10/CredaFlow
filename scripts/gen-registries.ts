@@ -203,6 +203,36 @@ function permissions(root: string, entries: Entry<unknown>[]): Record<string, st
   return Object.fromEntries(items.map((i) => [i.key, i.value as string | string[]]))
 }
 
+type ChangeHandlerRef = { kind: string; module: string; export: string }
+
+/** Where each maker-checker change handler lives: data only, so the generator can import it without the app. */
+function changeHandlers(entries: Entry<unknown>[]): ChangeHandlerRef[] {
+  const items = merge(
+    "change-handlers",
+    entries.flatMap(({ file, value }) => {
+      if (!Array.isArray(value)) fail(`${file}: expected an array of change handlers`)
+      return (value as ChangeHandlerRef[]).map((ref) => {
+        if (typeof ref?.kind !== "string" || !/^[A-Z][A-Z0-9_]{2,59}$/.test(ref.kind)) fail(`${file}: kind "${String(ref?.kind)}" is not UPPER_SNAKE_CASE, 3 to 60 characters`)
+        if (typeof ref.module !== "string" || !/^@\/lib\/[A-Za-z0-9_./-]+$/.test(ref.module)) fail(`${file}: ${ref.kind} module "${String(ref.module)}" must be an "@/lib/..." path`)
+        if (typeof ref.export !== "string" || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(ref.export)) fail(`${file}: ${ref.kind} export "${String(ref.export)}" is not an identifier`)
+        return { file, key: ref.kind, value: ref }
+      })
+    }),
+  )
+  return items.map((i) => i.value)
+}
+
+function changeHandlersModule(refs: ChangeHandlerRef[]): string {
+  return [
+    `import type { ChangeHandler } from "@/lib/maker-checker/types"`,
+    ...refs.map((r, i) => `import { ${r.export} as handler${i} } from "${r.module}"`),
+    ``,
+    `export const CHANGE_HANDLERS: Readonly<Record<string, ChangeHandler<never>>> = {`,
+    ...refs.map((r, i) => `  ${JSON.stringify(r.kind)}: handler${i} as unknown as ChangeHandler<never>,`),
+    `}`,
+  ].join("\n")
+}
+
 function moduleRules(root: string): string {
   const docs: string[] = []
   const walk = (dir: string) => {
@@ -250,6 +280,7 @@ export async function buildRegistries(root: string = ROOT): Promise<Record<strin
   const cron = cronJobs(await loadKind(root, "cron-jobs"))
   const simulated = simulatedIntegrations(await loadKind(root, "simulated-integrations"))
   const perms = permissions(root, await loadKind(root, "permissions"))
+  const handlers = changeHandlers(await loadKind(root, "change-handlers"))
   const gen = (f: string) => `lib/registry/generated/${f}`
   return {
     [gen("audit-actions.ts")]: tsModule("audit-actions", `export const AUDIT_ACTIONS = ${lit(audit)} as const`),
@@ -257,6 +288,7 @@ export async function buildRegistries(root: string = ROOT): Promise<Record<strin
     [gen("cron-jobs.ts")]: tsModule("cron-jobs", `export const CRON_JOBS = ${lit(cron)} as const`),
     [gen("simulated-integrations.ts")]: tsModule("simulated-integrations", `export const SIMULATED_INTEGRATIONS = ${lit(simulated)} as const`),
     [gen("permissions.ts")]: tsModule("permissions", `export const PERMISSIONS = ${lit(perms)} as const`),
+    [gen("change-handlers.ts")]: tsModule("change-handlers", changeHandlersModule(handlers)),
     "docs/module-rules.md": moduleRules(root),
   }
 }

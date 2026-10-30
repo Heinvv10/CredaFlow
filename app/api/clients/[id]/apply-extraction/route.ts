@@ -1,3 +1,4 @@
+import { recordInputStaffForClient, touchesDecisionInputs, withInputStaff } from "@/lib/applications/input-staff"
 import { NextResponse } from "next/server"
 import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import type { NextRequest } from "next/server"
@@ -486,6 +487,8 @@ export async function POST(
             }
           }
         }
+        // Anything a decision fact reads (income, employment, date of birth ...) changes the inputs of the client's open applications.
+        const decisionInputApplied = touchesDecisionInputs(Object.keys(updates).filter((key) => updates[key as keyof ExtractionUpdates] !== undefined && !sameStoredValue(updates[key as keyof ExtractionUpdates], previous[key as keyof typeof previous])))
         const {
           client: updated,
           revocation: biometricIdentityRevocation,
@@ -495,13 +498,16 @@ export async function POST(
           previous,
           nextSubject: nextBiometricSubject,
           where: { id: clientId, tenantId: tenant.id },
-          data: updates,
+          data: { ...updates, ...(decisionInputApplied && { inputStaffIds: withInputStaff(previous.inputStaffIds, guard.user.id) }) },
           actor: { userId: guard.user.id, userEmail: guard.user.email },
           source: "document_extraction",
           // Distinguishes a revocation the operator was warned about and chose,
           // from one that simply happened. Both otherwise look identical here.
           acknowledged: acknowledgeIdentityRevocation,
         })
+        if (decisionInputApplied) {
+          await recordInputStaffForClient(tx, { tenantId: tenant.id, clientId, userId: guard.user.id })
+        }
 
         const previousBank = bankTuple(previous)
         const updatedBank = bankTuple(updated)

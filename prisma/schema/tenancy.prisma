@@ -72,6 +72,8 @@ model Tenant {
   attorneyFirms              AttorneyFirm[]
   auditLogs                  AuditLog[]
   auditPolicy                AuditPolicy?
+  autoDecisionDues           AutoDecisionDue[]
+  autoDecisionRuns           AutoDecisionRun[]
   automationLogs             AutomationLog[]
   automationPauses           AutomationPause[]
   automationRules            AutomationRule[]
@@ -86,6 +88,7 @@ model Tenant {
   businessEntities           BusinessEntity[]
   cannedReplies              CannedReply[]
   cashThresholdReports       CashThresholdReport[]
+  changeRequests             ChangeRequest[]
   clientDocuments            ClientDocument[]
   clients                    Client[]
   coiDeclarations            CoiDeclaration[]
@@ -114,7 +117,9 @@ model Tenant {
   dealerPurgePendingFiles    DealerPurgePendingFile[]
   dealers                    Dealer[]
   debitMandates              DebitMandate[]
+  decisionEngineConfig       DecisionEngineConfig?
   decisionOutcomes           DecisionOutcome[]
+  decisionRuleSetVersions    DecisionRuleSetVersion[]
   disbursementPayouts        DisbursementPayout[]
   documentTemplates          DocumentTemplate[]
   emailConfig                EmailConfig?

@@ -350,3 +350,30 @@ describe("staffUserWriteConflict", () => {
     expect(staffUserWriteConflict(err)).toBeNull()
   })
 })
+
+describe("the automated decisioning account (isSystem)", () => {
+  it("nobody edits it, whatever their role, their own session's TOTP state aside", () => {
+    for (const role of allRoles) {
+      expect(staffUserWriteRefusal(caller(role), { targetRole: "LOAN_ADMIN", assignedRole: undefined, targetIsSystem: true }), role)
+        .toMatchObject({ status: 403, reason: "target_is_system" })
+    }
+  })
+
+  it("a target that is not the system account is judged by the usual ceilings", () => {
+    expect(staffUserWriteRefusal(caller("SUPER_ADMIN"), { targetRole: "LOAN_ADMIN", assignedRole: undefined, targetIsSystem: false })).toBeNull()
+  })
+
+  it("the locked re-check refuses it on the row as it is now", async () => {
+    const tx = {
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn(async () => [
+        { id: "admin-1", role: "SUPER_ADMIN", active: true, tokenVersion: 0, isSystem: false },
+        { id: "sys-1", role: "LOAN_ADMIN", active: false, tokenVersion: 0, isSystem: true },
+      ]),
+      auditLog: { create: vi.fn() },
+    }
+    const user = { id: "admin-1", email: "a@x.invalid", role: "SUPER_ADMIN", tenantId: "t", totpVerified: true, tokenVersion: 0 } as StaffUser
+    const result = await refuseLockedStaffUserWrite(tx as never, user, { tenantId: "t", targetId: "sys-1", assignedRole: undefined })
+    expect(result.refused?.status).toBe(403)
+  })
+})

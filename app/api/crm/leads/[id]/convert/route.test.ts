@@ -221,6 +221,7 @@ beforeEach(() => {
       id: "lead-1",
       status: "QUALIFIED",
       convertedToClientId: null,
+      inputStaffIds: ["lead-editor"],
     }])
     .mockResolvedValue([{ id: "locked" }])
   transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
@@ -293,7 +294,11 @@ describe("POST /api/crm/leads/[id]/convert affordability evidence", () => {
     expect(queryRawMock.mock.invocationCallOrder[3]).toBeLessThan(
       productFindUniqueMock.mock.invocationCallOrder[1],
     )
+    // The staff who entered figures on the lead are input staff of the client made from it, with the converter.
+    expect(txClientCreateMock.mock.calls[0][0].data.inputStaffIds).toEqual(["lead-editor", "officer-1"])
+    expect(leadLock.strings.join(" ")).toContain('"inputStaffIds"')
     const data = applicationCreateMock.mock.calls[0][0].data
+    expect(data.inputStaffIds).toEqual(["officer-1"])
     expect(data.affordabilityResult).toEqual(expect.objectContaining({
       schemaVersion: 3,
       submission: expect.objectContaining({

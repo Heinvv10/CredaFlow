@@ -94,3 +94,14 @@ export type PermissionRule = UserRole | readonly UserRole[]
 export function definePermissions<T extends Readonly<Record<string, PermissionRule>>>(permissions: T): T {
   return permissions
 }
+
+/**
+ * Where a maker-checker change handler lives (lib/maker-checker/types.ts
+ * ChangeHandler). Data only: the generator writes the import, so entry files
+ * never import application code. `kind` must equal the handler's own `kind`.
+ */
+export type ChangeHandlerRef = { kind: string; module: string; export: string }
+
+export function defineChangeHandlers<T extends readonly ChangeHandlerRef[]>(refs: T): T {
+  return refs
+}

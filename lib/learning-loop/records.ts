@@ -15,6 +15,7 @@ import {
   instalmentBand,
   ndiCoverBand,
   type DecisionRecordInput,
+  type Plain,
 } from "./decision-log"
 
 export interface DecisionThresholds {
@@ -29,6 +30,23 @@ export interface StaffActor {
   role: string | null
 }
 
+/** The rules engine acting alone (lib/decisioning/): recorded as a SYSTEM decision, never as a staff one. */
+export interface SystemActor {
+  system: true
+}
+
+/** What the rules engine decided on, kept in the record next to the gates' verdicts. */
+export interface AutomationFacts {
+  /** The rule set version's label, "<scope>:v<N>". */
+  ruleVersion: string
+  ruleSetVersionId: string
+  reasonCodes: readonly string[]
+  riskGrade: string | null
+  bureauCheckId: string | null
+  /** The exact facts the rules read: hashed into the record, never stored (lib/decisioning/facts.ts holds no identifiers). */
+  exactInputs: { [key: string]: Plain }
+}
+
 /** The credit-check rules carry no version id of their own yet (DESIGN.md, "Rule versions"). */
 export const CREDIT_CHECK_POLICY_VERSION = "credit-checks-unversioned"
 
@@ -37,7 +55,7 @@ interface ApplicationSubject {
   applicationId: string
   /** Null for a business-entity borrower, or where the caller does not hold it (the application id is the subject). */
   clientId: string | null
-  actor: StaffActor
+  actor: StaffActor | SystemActor
   decidedAt: Date
 }
 
@@ -59,9 +77,12 @@ export interface ConsumerApprovalFacts extends ApplicationSubject {
   screeningState: string
   creditCheckFlags: readonly { id: string; check: string; code: string; status: string }[]
   affordabilitySnapshot: { policyVersion: string; inputFingerprint: string; decisionFingerprint: string }
+  /** Set when the rules engine approved (lib/decisioning/): the actor is then a SystemActor. */
+  automation?: AutomationFacts
 }
 
-const staff = (actor: StaffActor) => ({ type: "STAFF" as const, userId: actor.userId, role: actor.role })
+const staff = (actor: StaffActor | SystemActor) =>
+  "system" in actor ? { type: "SYSTEM" as const } : { type: "STAFF" as const, userId: actor.userId, role: actor.role }
 
 export const thresholdPolicy = (t: DecisionThresholds) => ({
   bureauMinScore: t.bureauMinScore,
@@ -89,7 +110,7 @@ export function consumerApprovalRecords(f: ConsumerApprovalFacts): DecisionRecor
   const overridden = blockCode !== null
   const cleared = f.creditCheckFlags.filter((flag) => flag.status === "CLEARED")
   const policy = thresholdPolicy(f.thresholds)
-  const ruleVersion = `${DECISION_LOG_VERSION}+${f.affordabilitySnapshot.policyVersion}`
+  const ruleVersion = `${DECISION_LOG_VERSION}+${f.affordabilitySnapshot.policyVersion}${f.automation ? `+${f.automation.ruleVersion}` : ""}`
   const evidenceRefs = {
     bureauCheckId: f.bureau?.id ?? null,
     affordabilityPolicyVersion: f.affordabilitySnapshot.policyVersion,
@@ -146,6 +167,7 @@ export function consumerApprovalRecords(f: ConsumerApprovalFacts): DecisionRecor
       creditChecks: { cleared: cleared.length, clearedCodes: cleared.map((flag) => `${flag.check}:${flag.code}`).sort() },
       screening: f.screeningState,
       thresholds: policy,
+      ...(f.automation ? { automated: { ruleVersion: f.automation.ruleVersion, reasonCodes: [...f.automation.reasonCodes], riskGrade: f.automation.riskGrade } } : {}),
     },
     evidenceRefs,
     exactInputs,
@@ -170,23 +192,46 @@ export function consumerApprovalRecords(f: ConsumerApprovalFacts): DecisionRecor
   return [decision, offer]
 }
 
-export function consumerDeclineRecord(f: ApplicationSubject & { declineCategory: string }): DecisionRecordInput {
+export function consumerDeclineRecord(f: ApplicationSubject & { declineCategory: string; automation?: AutomationFacts }): DecisionRecordInput {
+  const ruleVersion = `${DECISION_LOG_VERSION}+${APPROVAL_AFFORDABILITY_POLICY_VERSION}`
+  if (!f.automation) {
+    return {
+      tenantId: f.tenantId,
+      kind: "CREDIT_DECISION",
+      decision: "DECLINE",
+      // The decline path evaluates no gate (docs/learning-loop/DESIGN.md, deferred).
+      recommendation: "NONE",
+      overrideReason: null,
+      actor: staff(f.actor),
+      subject: subjectOf(f),
+      source: applicationSource(f),
+      ruleVersion,
+      policy: {},
+      snapshot: { declineCategory: f.declineCategory },
+      evidenceRefs: {},
+      exactInputs: { declineCategory: f.declineCategory },
+      decidedAt: f.decidedAt,
+    }
+  }
+  const a = f.automation
   return {
     tenantId: f.tenantId,
     kind: "CREDIT_DECISION",
     decision: "DECLINE",
-    // The decline path evaluates no gate (docs/learning-loop/DESIGN.md, deferred).
-    recommendation: "NONE",
+    // The engine's rules are the gate that said no.
+    recommendation: "BLOCK",
     overrideReason: null,
     actor: staff(f.actor),
     subject: subjectOf(f),
     source: applicationSource(f),
-    ruleVersion: `${DECISION_LOG_VERSION}+${APPROVAL_AFFORDABILITY_POLICY_VERSION}`,
-    policy: {},
-    snapshot: { declineCategory: f.declineCategory },
-    evidenceRefs: {},
-    exactInputs: { declineCategory: f.declineCategory },
+    ruleVersion: `${ruleVersion}+${a.ruleVersion}`,
+    policy: { ruleSetVersionId: a.ruleSetVersionId },
+    snapshot: { declineCategory: f.declineCategory, automated: { ruleVersion: a.ruleVersion, reasonCodes: [...a.reasonCodes], riskGrade: a.riskGrade } },
+    evidenceRefs: { ruleSetVersionId: a.ruleSetVersionId, bureauCheckId: a.bureauCheckId },
+    exactInputs: { ...a.exactInputs, declineCategory: f.declineCategory },
     decidedAt: f.decidedAt,
+    // A decision taken without a person is reviewable under POPIA s71 (DB CHECK: only SYSTEM rows).
+    s71ReviewRequired: true,
   }
 }
 

@@ -172,6 +172,8 @@ export async function POST(req: NextRequest) {
           data: {
             tenantId: tenant.id,
             reference: generateReference("CLI"),
+            // Staff who capture the client's income, employment and debts are input staff for what is decided on them.
+            inputStaffIds: [guard.user.id],
             firstName: data.firstName,
             lastName: data.lastName,
             idNumber: data.idNumber,

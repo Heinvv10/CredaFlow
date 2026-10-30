@@ -6,6 +6,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { assessAffordability } from "@/lib/affordability/ndi"
 import type { Prisma } from "@prisma/client"
+import { withInputStaff } from "@/lib/applications/input-staff"
 import { lockExistingApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import {
   AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
@@ -101,6 +102,7 @@ export async function PATCH(
           select: {
             id: true,
             clientId: true,
+            inputStaffIds: true,
             status: true,
             productId: true,
             appliedAmount: true,
@@ -310,6 +312,8 @@ export async function PATCH(
             updatedAt: app.updatedAt,
           },
           data: {
+            // The staff member who changes the debt figures it is decided on is an input staff member.
+            inputStaffIds: withInputStaff(app.inputStaffIds, guard.user.id),
             existingDebtObligations: debtSnapshot,
             totalExistingDebt: declaredDebtCents,
             netDisposableIncome: assessment.netDisposableIncome,

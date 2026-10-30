@@ -48,7 +48,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // through audit logs and URLs).
     const existing = await prisma.user.findFirst({
       where: { id, tenantId: tenant.id },
-      select: { role: true, active: true, name: true, email: true },
+      select: { role: true, active: true, name: true, email: true, isSystem: true },
     })
     if (!existing) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
@@ -57,7 +57,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // unauthorised caller can't use the 409 to learn whether an email is
     // already registered.
     const refused = await refuseStaffUserWrite(guard.user, {
-      tenantId: tenant.id, targetId: id, targetRole: existing.role, assignedRole: role,
+      tenantId: tenant.id, targetId: id, targetRole: existing.role, assignedRole: role, targetIsSystem: existing.isSystem,
     })
     if (refused) return refused
 
@@ -162,6 +162,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
             : undefined,
           newValue: {
             changed: Object.keys(data).filter(k => k !== "password" && k !== "tokenVersion"),
+            // The hash is never logged, but that a password was set is: the maker-checker rule reads it (lib/maker-checker/service.ts).
+            ...("password" in data ? { passwordChanged: true } : {}),
             ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
             ...(roleChanged ? { role: user.role } : {}),
           },
@@ -217,6 +219,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       select: {
         id: true,
         role: true,
+        isSystem: true,
         // FAIS Fit & Proper (RE exam, licence, CPD hours) is itself a
         // regulatory record — its mere presence is operator-identity history,
         // so a user who has one is deactivated, never hard-deleted (which would
@@ -247,12 +250,16 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
     const refused = await refuseStaffUserWrite(guard.user, {
-      tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined,
+      tenantId: tenant.id, targetId: id, targetRole: target.role, assignedRole: undefined, targetIsSystem: target.isSystem,
     })
     if (refused) return refused
 
+    // Staff who captured an application or changed the figures it was decided on are recorded as a list of ids with
+    // no foreign key (LoanApplication.inputStaffIds), so the relation counts above cannot see them.
+    const inputStaffOn = await prisma.loanApplication.count({ where: { tenantId: tenant.id, inputStaffIds: { has: id } } })
     const hasHistory =
       target.fitAndProper !== null ||
+      inputStaffOn > 0 ||
       Object.values(target._count).some((n) => n > 0)
 
     // Both removals re-check on the locked rows first (see PATCH): the caller

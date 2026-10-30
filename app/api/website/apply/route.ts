@@ -3,7 +3,7 @@ import { requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
 import { dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { getTenantFromRequest } from "@/lib/tenant"
-import { checkRateLimit, callerIp } from "@/lib/rate-limit"
+import { checkRateLimit, callerIp, recordedCallerIp } from "@/lib/rate-limit"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/referrals"
 import { AuditAction } from "@/lib/audit"
@@ -19,6 +19,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { sendEmail } from "@/lib/email/service"
 import { notifyPriorLeadDuplicatesBestEffort } from "@/lib/crm/lead-duplicate-notify"
 import { deferAfterResponse } from "@/lib/http/after-response"
+import { scheduleDigitalDecision } from "@/lib/decisioning/schedule-digital"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { applicationSubmittedEmail, identityConflictNoticeEmail } from "@/lib/email/templates/portal"
 import { getLenderIdentity } from "@/lib/config/identity"
@@ -1530,6 +1531,8 @@ export async function POST(req: NextRequest) {
     if (applicationId) {
       const submittedApplicationId = applicationId
       deferAfterResponse(() => screenOnSubmit({ tenantId: tenant.id, applicationId: submittedApplicationId, actor: null }))
+      // The lender's decision engine, when it covers the portal channel: reviewed and decided after this response.
+      await scheduleDigitalDecision({ tenantId: tenant.id, applicationId: submittedApplicationId, ip: recordedCallerIp(req) })
     }
 
     return NextResponse.json({ success: true, reference: responseReference, applicationId, portalAccountStatus })

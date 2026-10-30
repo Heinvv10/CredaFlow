@@ -6,6 +6,7 @@ import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { triggerNotification } from "@/lib/notifications"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
+import { withInputStaff } from "@/lib/applications/input-staff"
 import { prepareApplicationFields, type PrepareApplicationInput } from "@/lib/applications/prepare-application"
 import { lockExistingApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { Prisma } from "@prisma/client"
@@ -73,7 +74,7 @@ export async function PATCH(
 
           const application = await tx.loanApplication.findUnique({
             where: { id, tenantId: tenant.id },
-            select: { id: true, status: true, updatedAt: true, affordabilityResult: true },
+            select: { id: true, status: true, updatedAt: true, affordabilityResult: true, inputStaffIds: true },
           })
           if (!application) return { kind: "not_found" as const }
           if (application.status !== "DRAFT") return { kind: "not_draft" as const }
@@ -114,7 +115,8 @@ export async function PATCH(
 
           const updated = await tx.loanApplication.updateMany({
             where: { id, tenantId: tenant.id, status: "DRAFT", updatedAt: application.updatedAt },
-            data: fields,
+            // Whoever captures or submits the figures is recorded: they cannot disburse an engine approval of it.
+            data: { ...fields, inputStaffIds: withInputStaff(application.inputStaffIds, guard.user.id) },
           })
           if (updated.count === 0) return { kind: "changed" as const }
           await tx.auditLog.create({
@@ -256,7 +258,7 @@ export async function PATCH(
       const application = await tx.loanApplication.findUnique({
         where: { id, tenantId: tenant.id },
         select: {
-          id: true, clientId: true,
+          id: true, clientId: true, inputStaffIds: true,
           status: true,
           appliedAmount: true,
           appliedTermDays: true,
@@ -382,6 +384,8 @@ export async function PATCH(
         data: {
           status: "SUBMITTED",
           submittedAt,
+          // The staff member who submits the snapshot of the client's current figures is an input staff member.
+          inputStaffIds: withInputStaff(application.inputStaffIds, guard.user.id),
           bureauReviewGeneration: null,
           existingDebtObligations: debtSnapshot,
           totalExistingDebt,
