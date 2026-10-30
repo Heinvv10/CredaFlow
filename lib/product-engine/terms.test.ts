@@ -104,6 +104,18 @@ describe("the monthly equivalent of an instalment (what affordability compares w
     expect(rows[1]!.totalDue).toBeLessThan(10_000)
   })
 
+  it("the monthly service fee is counted once a month, however many instalments a month has: weekly 52/12 scales the principal and interest, not the fee", () => {
+    const fee = 6_900
+    const t: T = { frequency: "WEEKLY", instalments: 12 }
+    const rows = run(t, 0.03, 1_000_000, fee)
+    const row = rows[1]!
+    // a weekly row carries a fee only in the week a month ends; the fee must neither vanish from the figure nor be multiplied by 52/12
+    expect(monthlyEquivalentInstalment(rows, full(t), fee)).toBe(Math.round(((row.totalDue - row.feesDue) * 52) / 12) + fee)
+    const feeless = rows.find((r) => r.feesDue === 0)!
+    const feed = rows.find((r) => r.feesDue > 0 && r !== rows[0])!
+    expect(monthlyEquivalentInstalment([rows[0]!, feeless], full(t), fee)).toBe(monthlyEquivalentInstalment([rows[0]!, feed], full(t), fee))
+  })
+
   it("an interest-only loan of two instalments is its first one, the interest, not the closing payment that carries the principal", () => {
     const t: T = { frequency: "MONTHLY", structure: "INTEREST_ONLY", instalments: 2 }
     const rows = run(t, 0.04)

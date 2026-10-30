@@ -244,7 +244,7 @@ export function calculateLoan(
   // With a repayment structure it is the monthly equivalent of the regular instalment (weekly x 52 / 12, ...), which is what
   // affordability sets against monthly income.
   const monthlyInstalment = repayment
-    ? monthlyEquivalentInstalment(schedule, repayment)
+    ? monthlyEquivalentInstalment(schedule, repayment, monthlyServiceFee)
     : schedule.length > 1
       ? (schedule[1]?.totalDue ?? schedule[0]?.totalDue ?? 0)
       : (schedule[0]?.totalDue ?? 0)
