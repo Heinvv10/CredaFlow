@@ -170,7 +170,8 @@ for you except where stated, and no agent edits these files.
    `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (without it a production process exits at boot; `DEMO_MODE` does not stand in
    for it, so that one variable cannot switch off both the demo gates and the audit role guard on a misconfigured real
    lender) and an `AUDIT_CHAIN_KEY` (without it the audit crons answer 503 and tamper-evidence cannot be shown).
-   **No operator action is needed for either:** `scripts/demo/upgrade-stack.sh` (Fair Score) and `scripts/demo/restore.sh`
+   **No operator action is needed for either (adding the two lines by hand to `.env.production` is only the fallback
+   for an image brought up some other way):** `scripts/demo/upgrade-stack.sh` (Fair Score) and `scripts/demo/restore.sh`
    (Acme, by bake + restore) call `ensure_demo_audit_env`, which, only when `$LIVE_DIR/.env.production` says
    `DEMO_MODE=true`, adds whichever of the two is missing: the allowance as `1`, and a key of 48 random bytes in base64.
    It first copies the file as it was to `$LIVE_DIR/backups/.env.production.pre-audit-<UTC>` (0600), logs which keys it

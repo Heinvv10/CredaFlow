@@ -50,11 +50,14 @@ suite("the database functions trust nothing they are given", () => {
     await owner.$executeRaw`INSERT INTO "AuditChainLink" ("chainKey", "seq", "auditLogId", "tenantId", "prevHash", "rowHash") VALUES (${tenantId}, (SELECT COALESCE(max("seq"), 0) + 1 FROM "AuditChainLink" WHERE "chainKey" = ${tenantId}), ${r.id}, ${tenantId}, ${"0".repeat(64)}, ${"1".repeat(64)})`
     return owner.auditSiemOutbox.create({ data: { tenantId, kind: "EVENT", auditLogId: r.id } })
   }
+  /** The web login saves a policy the way the application does: in a transaction, which binds the lender first. */
+  const saveTx = (t: string, data: Record<string, unknown>, who: { id: string; email?: string | null }, ip?: string) =>
+    web.$transaction((tx) => savePolicy(tx as unknown as PrismaClient, t, data, who, ip))
   const HOLDER = "it-holder"
   /** The deliverer holds the lender's lease (as deliverTenant does) before it marks anything. */
   const lease = (t = tenantId, holder = HOLDER, seconds = 600) => worker.$queryRaw`SELECT audit_outbox_lease(${t}, ${holder}, ${seconds}::int)`
-  const mark = (t: string, ids: number[], state: string, error: string | null = null, at = new Date(Date.now() + 120_000), destination = "https://x.invalid", ack: string | null = "ack-1", holder = HOLDER) =>
-    worker.$queryRaw`SELECT audit_outbox_mark(${t}, ${holder}, ${ids}::int[], ${state}, ${error}, ${at.toISOString()}::timestamp, ${destination}, ${ack})`
+  const mark = (t: string, ids: number[], state: string, error: string | null = null, at = new Date(Date.now() + 120_000), ack: string | null = "ack-1", holder = HOLDER) =>
+    worker.$queryRaw`SELECT audit_outbox_mark(${t}, ${holder}, ${ids}::int[], ${state}, ${error}, ${at.toISOString()}::timestamp, ${ack})`
   const clear = () => owner.$executeRawUnsafe(`DELETE FROM "AuditSiemOutbox" WHERE "tenantId" = '${tenantId}'`)
   /** The backoff of a row has elapsed (the database enforces it against its own clock). */
   const elapse = (id: number) => owner.$executeRawUnsafe(`UPDATE "AuditSiemOutbox" SET "nextAttemptAt" = now() - interval '1 second' WHERE id = ${id}`)
@@ -72,7 +75,7 @@ suite("the database functions trust nothing they are given", () => {
     }
     worker = login(workerRole)
     web = login(webRole)
-    await savePolicy(web, tenantId, policy(), { id: actor })
+    await saveTx(tenantId, policy(), { id: actor })
     await lease()
     await lease(other)
   })
@@ -103,21 +106,25 @@ suite("the database functions trust nothing they are given", () => {
     it("is for the lease holder only: no lease, an expired lease or another holder is refused", async () => {
       await clear()
       const row = await queued()
-      await expect(mark(tenantId, [row.id], "sent", null, undefined, "https://x.invalid", "a", "someone-else")).rejects.toThrow(/does not hold/)
+      await expect(mark(tenantId, [row.id], "sent", null, undefined, "a", "someone-else")).rejects.toThrow(/does not hold/)
       await owner.$executeRawUnsafe(`UPDATE "AuditSiemLease" SET "expiresAt" = now() - interval '1 second' WHERE "tenantId" = '${tenantId}'`)
       await expect(mark(tenantId, [row.id], "sent")).rejects.toThrow(/does not hold/)
       await lease()
       await mark(tenantId, [row.id], "sent")
     })
 
-    it("wants the SIEM's ack id on an HTTPS delivery, and takes none from syslog, which has none", async () => {
+    it("wants the SIEM's ack id when the entry's own destination is HTTPS, and none when it is syslog, whatever the caller says", async () => {
       await clear()
       const [a, b] = [await queued(), await queued()]
-      await expect(mark(tenantId, [a.id], "sent", null, undefined, "https://siem.example.invalid", null)).rejects.toThrow(/acknowledgement id/)
-      await expect(mark(tenantId, [a.id], "sent", null, undefined, "https://siem.example.invalid", "  ")).rejects.toThrow(/acknowledgement id/)
-      await mark(tenantId, [a.id], "sent", null, undefined, "syslog+tls://siem.example.invalid:6514", null)
-      await mark(tenantId, [b.id], "sent", null, undefined, "https://siem.example.invalid", "200@Thu, 29 Oct 2026 22:00:00 GMT")
-      expect((await owner.auditSiemDelivery.findMany({ where: { outboxId: { in: [a.id, b.id] } }, orderBy: { outboxId: "asc" } })).map((d) => d.ackId)).toEqual([null, "200@Thu, 29 Oct 2026 22:00:00 GMT"])
+      await expect(mark(tenantId, [a.id], "sent", null, undefined, null)).rejects.toThrow(/acknowledgement id/)
+      await expect(mark(tenantId, [a.id], "sent", null, undefined, "  ")).rejects.toThrow(/acknowledgement id/)
+      // b was queued for a syslog destination (its stamped snapshot says so): no ack needed, and the caller cannot make it HTTPS or syslog by saying so.
+      await owner.auditSiemOutbox.update({ where: { id: b.id }, data: { targetSnapshot: { siemTransport: "SYSLOG_TLS", siemHost: "syslog.example.invalid", siemPort: 6514, siemUrl: null } } })
+      await mark(tenantId, [b.id], "sent", null, undefined, null)
+      await mark(tenantId, [a.id], "sent", null, undefined, "200@Thu, 29 Oct 2026 22:00:00 GMT")
+      expect((await owner.auditSiemDelivery.findMany({ where: { outboxId: { in: [a.id, b.id] } }, orderBy: { outboxId: "asc" } })).map((d) => [d.destination, d.ackId])).toEqual([
+        ["https://siem.example.invalid", "200@Thu, 29 Oct 2026 22:00:00 GMT"], ["syslog+tls://syslog.example.invalid:6514", null],
+      ])
     })
 
     it("will not mark an entry whose backoff has not elapsed, and only schedules a retry at least a minute ahead (within two hours)", async () => {
@@ -163,16 +170,18 @@ suite("the database functions trust nothing they are given", () => {
       expect((await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })).deadAt).not.toBeNull()
     })
 
-    it("stamps sent with the database clock and leaves a receipt naming the destination and the SIEM's ack; an entry cannot be marked sent twice", async () => {
+    it("stamps sent with the database clock and leaves a receipt naming the entry's OWN destination (an origin, from the policy or the snapshot it carries) and the SIEM's ack; an entry cannot be marked sent twice", async () => {
       await clear()
+      await saveTx(tenantId, policy({ siemUrl: "https://siem.example.invalid/ingest/KEY123?token=abc" }), { id: actor })
       const row = await queued()
-      await expect(mark(tenantId, [row.id], "sent", null, new Date(), " ")).rejects.toThrow(/names its destination/)
-      await mark(tenantId, [row.id], "sent", null, new Date("2001-01-01T00:00:00Z"), "https://siem.example.invalid", "req-123")
+      await mark(tenantId, [row.id], "sent", null, new Date("2001-01-01T00:00:00Z"), "req-123")
       const sent = await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: row.id } })
       expect(sent.sentAt!.getUTCFullYear()).toBeGreaterThan(2020) // the caller's time was ignored
       expect(await owner.auditSiemDelivery.findMany({ where: { outboxId: row.id } })).toEqual([
-        expect.objectContaining({ tenantId, kind: "EVENT", destination: "https://siem.example.invalid", ackId: "req-123" }),
+        expect.objectContaining({ tenantId, kind: "EVENT", destination: "https://siem.example.invalid", ackId: "req-123" }), // no path, no query
       ])
+      // The function has no destination argument any more.
+      await expect(worker.$queryRaw`SELECT audit_outbox_mark(${tenantId}, ${HOLDER}, ARRAY[1]::int[], 'sent', NULL, now()::timestamp, 'https://evil.invalid', 'x')`).rejects.toThrow(/does not exist/)
       await expect(mark(tenantId, [row.id], "sent")).rejects.toThrow(/not all rows are this lender/)
       await expect(owner.$executeRawUnsafe(`DELETE FROM "AuditSiemDelivery"`)).rejects.toThrow(/append-only/)
     })
@@ -193,7 +202,7 @@ suite("the database functions trust nothing they are given", () => {
         await tx.$executeRawUnsafe(`DELETE FROM "AuditPolicy" WHERE "tenantId" = '${tenantId}'`)
       })
       await expect(worker.$queryRaw`SELECT audit_outbox_prune_unsent(${tenantId})`).rejects.toThrow(/history says forwarding was on/)
-      await savePolicy(web, tenantId, policy(), { id: actor }) // restore for the rest
+      await saveTx(tenantId, policy(), { id: actor }) // restore for the rest
     })
 
     it("purge takes no cutoff and keeps sent entries for seven days", async () => {
@@ -223,7 +232,7 @@ suite("the database functions trust nothing they are given", () => {
 
   describe("audit_policy_save", () => {
     it("is the only way a policy changes: it writes the audit row itself, with the URL as an origin and no secret", async () => {
-      await savePolicy(web, tenantId, policy({ siemUrl: "https://siem.example.invalid/ingest/KEY123?token=abc", siemSealedToken: "enc:v1:abc" }), { id: actor, email: "a@it.invalid" }, "10.0.0.5")
+      await saveTx(tenantId, policy({ siemUrl: "https://siem.example.invalid/ingest/KEY123?token=abc", siemSealedToken: "enc:v1:abc" }), { id: actor, email: "a@it.invalid" }, "10.0.0.5")
       const [row] = await owner.auditLog.findMany({ where: { tenantId, action: "AUDIT_POLICY_UPDATED" }, orderBy: { createdAt: "desc" }, take: 1 })
       expect(row).toMatchObject({ userId: actor, userEmail: "a@it.invalid", ipAddress: "10.0.0.5", entity: "AuditPolicy" })
       expect(JSON.stringify(row.newValue)).not.toContain("KEY123")
@@ -232,29 +241,36 @@ suite("the database functions trust nothing they are given", () => {
       await expect(web.$executeRawUnsafe(`UPDATE "AuditPolicy" SET "siemUrl" = 'https://evil.example.invalid' WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(/permission denied/)
     })
 
-    it("refuses an actor who is not a user of the lender, and a session bound to another lender", async () => {
-      await expect(savePolicy(web, tenantId, policy(), { id: `nobody-${token}` })).rejects.toThrow(/actor must be a user of this lender/)
+    it("refuses an actor who is not a user of the lender", async () => {
+      await expect(saveTx(tenantId, policy(), { id: `nobody-${token}` })).rejects.toThrow(/actor must be a user of this lender/)
       const stranger = await owner.user.create({ data: { id: `of-s-${token}`, email: `of-s-${token}@it.invalid`, password: "x", tenantId: other, role: "SUPER_ADMIN" } })
-      await expect(savePolicy(web, tenantId, policy(), { id: stranger.id })).rejects.toThrow(/actor must be a user of this lender/)
-      // A session the application bound to lender `other` (app.tenant_id, as inside a tenant frame) cannot save, or read the status of, lender `tenantId`.
-      for (const call of [
-        (tx: PrismaClient) => savePolicy(tx, tenantId, policy(), { id: actor }),
-        (tx: PrismaClient) => tx.$queryRaw`SELECT * FROM audit_chain_status(${tenantId})`,
-      ]) {
-        await expect(web.$transaction(async (tx) => {
-          await tx.$executeRaw`SELECT set_config('app.tenant_id', ${other}, true)`
-          await call(tx as unknown as PrismaClient)
-        })).rejects.toThrow(/bound to another lender/)
-      }
-      await web.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`
-        await savePolicy(tx as unknown as PrismaClient, tenantId, policy(), { id: actor })
-      })
+      await expect(saveTx(tenantId, policy(), { id: stranger.id })).rejects.toThrow(/actor must be a user of this lender/)
       await owner.user.delete({ where: { id: stranger.id } })
     })
 
+    it("acts only for the lender the session is bound to, and refuses a session bound to none (a route that forgets or mixes up the lender fails)", async () => {
+      const data = JSON.stringify({ ...policy(), siemUrl: "https://siem.example.invalid/ingest" })
+      const raw = (bind: string | null, tenant = tenantId) => web.$transaction(async (tx) => {
+        if (bind !== null) await tx.$executeRaw`SELECT set_config('app.tenant_id', ${bind}, true)`
+        await tx.$queryRaw`SELECT audit_policy_save(${tenant}, ${data}::jsonb, ${actor}, NULL, NULL)`
+      })
+      const status = (bind: string | null, tenant = tenantId) => web.$transaction(async (tx) => {
+        if (bind !== null) await tx.$executeRaw`SELECT set_config('app.tenant_id', ${bind}, true)`
+        await tx.$queryRaw`SELECT * FROM audit_chain_status(${tenant})`
+      })
+      for (const call of [raw, status]) {
+        await expect(call(null)).rejects.toThrow(/not bound to a lender/)
+        await expect(call(other)).rejects.toThrow(/bound to another lender/)
+        await expect(call(tenantId, "")).rejects.toThrow(/a lender is required|bound to another lender/)
+      }
+      await expect(status(tenantId)).resolves.toBeUndefined()
+      await expect(raw(tenantId)).resolves.toBeUndefined()
+      // Through the application's helpers the lender is bound for it, so a plain client (no transaction) fails closed.
+      await expect(savePolicy(web as never, tenantId, policy(), { id: actor })).rejects.toThrow(/not bound to a lender/)
+    })
+
     it("checks the URL against the origin the application parsed: a disagreement, a backslash or a control character is refused", async () => {
-      const bad = (over: Record<string, unknown>) => savePolicy(web, tenantId, { ...policy(), ...over }, { id: actor })
+      const bad = (over: Record<string, unknown>) => saveTx(tenantId, { ...policy(), ...over }, { id: actor })
       await expect(bad({ siemOrigin: "https://other.example.invalid" })).rejects.toThrow(/URL and its origin disagree/)
       await expect(bad({ siemUrlHasPathOrQuery: false, siemUrl: "https://siem.example.invalid/ingest?token=S", siemOrigin: "https://siem.example.invalid" })).rejects.toThrow(/URL and its origin disagree/)
       await expect(bad({ siemUrl: "https://siem.example.invalid\\@evil.invalid/x?token=S", siemOrigin: "https://siem.example.invalid" })).rejects.toThrow(/siem_url_clean|disagree/)
@@ -264,26 +280,26 @@ suite("the database functions trust nothing they are given", () => {
     })
 
     it("refuses a lender that does not exist, an invalid policy, and a deleted policy row (even for a superuser)", async () => {
-      await expect(savePolicy(web, `no-such-${token}`, policy(), { id: actor })).rejects.toThrow(/no such lender|actor must be a user of this lender/)
-      await expect(savePolicy(web, tenantId, policy({ retentionMonths: 6 }), { id: actor })).rejects.toThrow(/retention_floor/)
+      await expect(saveTx(`no-such-${token}`, policy(), { id: actor })).rejects.toThrow(/no such lender|actor must be a user of this lender/)
+      await expect(saveTx(tenantId, policy({ retentionMonths: 6 }), { id: actor })).rejects.toThrow(/retention_floor/)
       await expect(owner.$executeRawUnsafe(`DELETE FROM "AuditPolicy" WHERE "tenantId" = '${tenantId}'`)).rejects.toThrow(/never deleted/)
       await expect(owner.$executeRawUnsafe(`TRUNCATE "AuditPolicy"`)).rejects.toThrow(/never deleted/)
     })
 
     it("stamps the queued backlog with the old destination in the same transaction, when forwarding moves or stops", async () => {
-      await savePolicy(web, tenantId, policy({ siemUrl: "https://old.example.invalid/ingest" }), { id: actor })
+      await saveTx(tenantId, policy({ siemUrl: "https://old.example.invalid/ingest" }), { id: actor })
       await clear()
       const a = await queued()
       const b = await queued()
-      await savePolicy(web, tenantId, policy({ siemUrl: "https://new.example.invalid/ingest" }), { id: actor })
+      await saveTx(tenantId, policy({ siemUrl: "https://new.example.invalid/ingest" }), { id: actor })
       const stamped = await owner.auditSiemOutbox.findMany({ where: { id: { in: [a.id, b.id] } } })
       expect(stamped.map((o) => (o.targetSnapshot as { siemUrl: string }).siemUrl)).toEqual(["https://old.example.invalid/ingest", "https://old.example.invalid/ingest"])
       // Switching off with a backlog stamps it too (nothing pruned).
       const c = await queued()
-      await savePolicy(web, tenantId, policy({ siemEnabled: false, siemUrl: "https://new.example.invalid/ingest" }), { id: actor })
+      await saveTx(tenantId, policy({ siemEnabled: false, siemUrl: "https://new.example.invalid/ingest" }), { id: actor })
       expect((await owner.auditSiemOutbox.findUniqueOrThrow({ where: { id: c.id } })).targetSnapshot).toMatchObject({ siemUrl: "https://new.example.invalid/ingest" })
       expect(await worker.$queryRaw`SELECT audit_outbox_prune_unsent(${tenantId})`).toEqual([{ audit_outbox_prune_unsent: 0 }])
-      await savePolicy(web, tenantId, policy(), { id: actor })
+      await saveTx(tenantId, policy(), { id: actor })
     })
   })
 

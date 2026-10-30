@@ -30,8 +30,18 @@ export async function chainHead(db: AuditDb, key: string): Promise<ChainHead | n
   return head ?? null
 }
 
-/** What the web login may see of a chain: how far it is chained and the latest checkpoint. */
+/**
+ * Binds the transaction to a lender (app.tenant_id), which the web functions require: they act for the lender
+ * the SESSION is bound to and refuse a session bound to none. `db` must be a transaction client; on a plain client
+ * the binding does not outlive the statement and the function refuses (it fails closed).
+ */
+export async function bindTenant(db: AuditDb, tenantId: string): Promise<void> {
+  await db.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`
+}
+
+/** What the web login may see of a chain: how far it is chained and the latest checkpoint. Run it in a transaction. */
 export async function chainStatus(db: AuditDb, key: string): Promise<{ headSeq: number; checkpointSeq: number | null; checkpointAt: Date | null }> {
+  await bindTenant(db, key)
   const [r] = await db.$queryRaw<Array<{ headSeq: number; checkpointSeq: number | null; checkpointAt: Date | null }>>`SELECT * FROM audit_chain_status(${key})`
   return r ?? { headSeq: 0, checkpointSeq: null, checkpointAt: null }
 }
@@ -169,21 +179,23 @@ export function outboxSources(db: AuditDb, auditLogIds: readonly string[]): Prom
 /**
  * Marks entries of one lender after a delivery attempt, as the holder of its lease. The database accepts only that
  * lender's pending entries whose backoff has elapsed, and only a transition a delivery attempt
- * can end in; 'sent' records a receipt naming `destination` (host or origin, never a credential)
- * and the SIEM's own acknowledgement id when its answer carried one.
+ * can end in; 'sent' records a receipt whose destination the database takes from the entry itself (never from
+ * the caller) and the acknowledgement id the transport got from the SIEM's answer (self-asserted by the worker).
  */
 export async function markOutbox(
-  db: AuditDb, tenantId: string, holder: string, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string, ackId: string | null = null,
+  db: AuditDb, tenantId: string, holder: string, ids: readonly number[], state: "sent" | "retry" | "dead", error: string | null, at: Date, ackId: string | null = null,
 ): Promise<void> {
-  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${tenantId}, ${holder}, ${[...ids]}::int[], ${state}, ${error}, ${ts(at)}, ${destination}, ${ackId})`)
+  await db.$queryRaw(Prisma.sql`SELECT audit_outbox_mark(${tenantId}, ${holder}, ${[...ids]}::int[], ${state}, ${error}, ${ts(at)}, ${ackId})`)
 }
 
 /**
  * Saves a lender's audit policy through audit_policy_save, the only way it changes: the
  * database writes the policy, the revision, the AUDIT_POLICY_UPDATED row and the outbox routing
- * in one transaction. `data` carries the whole policy (sealed secrets already sealed).
+ * in one transaction. `data` carries the whole policy (sealed secrets already sealed). Run it in a transaction:
+ * it binds the lender first (bindTenant).
  */
 export async function savePolicy(db: AuditDb, tenantId: string, data: Record<string, unknown>, actor: { id: string; email?: string | null }, ipAddress?: string | null): Promise<string> {
+  await bindTenant(db, tenantId)
   const [r] = await db.$queryRaw<Array<{ id: string }>>`
     SELECT audit_policy_save(${tenantId}, ${JSON.stringify(data)}::jsonb, ${actor.id}, ${actor.email ?? null}, ${ipAddress ?? null}) AS id`
   return r.id

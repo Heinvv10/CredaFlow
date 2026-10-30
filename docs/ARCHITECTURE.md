@@ -260,7 +260,13 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   was made. A backfill or an outage of any length resumes from the mark, in batches of 500,
   until done. Each chain is locked by a row only `audit_chain_lock` touches (FOR UPDATE SKIP
   LOCKED), not an advisory lock any login could take; the database hands the worker a SHA-256
-  of each value (the worker keys it), so a huge row costs it nothing.
+  of each value (the worker keys it), so a huge row costs it nothing, and an insert trigger replaces
+  any `oldValue`/`newValue` over 1 MB with a stub (`{truncated, bytes}`), whoever writes it, so no
+  writer fails and none needs changing. A batch that fails (a timeout on rows slow to hash) is retried
+  at half the size down to one row, and a chain that still fails is logged and skipped: it never stops
+  another lender being chained. `idle_in_transaction_session_timeout` is set on the application logins
+  but is a user setting a login can change; it is advisory, and the deep pass and daily sweep are the
+  backstop for a late commit.
 - **Verification.** `npm run audit:verify` and the daily `audit-chain-verify` cron
   (the worker, which holds the key) walk every chain, report **every** break (not
   the first), skip a checkpoint whose signature fails, and list the breaks an operator
@@ -303,7 +309,9 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   `AuditPolicy` changes (no login has DML on it; a trigger refuses DELETE). In one transaction
   it writes the policy, the `AuditPolicyRevision` (trigger), stamps the queued backlog with the
   destination being left, writes the `AUDIT_POLICY_UPDATED` row itself (URL as origin only) and
-  queues it, and an anchor, for the right destinations. A late-chained row made before a change
+  queues it, and an anchor, for the right destinations. The web functions refuse a session bound to no
+  lender (the application binds `app.tenant_id` in the transaction that calls them; the platform chain is
+  not the web login's). A late-chained row made before a change
   is stamped too. The tenant binding in `audit_policy_save` and `audit_chain_status` (the session's
   `app.tenant_id` must match the lender; the actor must be one of its users) stops cross-tenant mistakes and
   buggy routes. It does NOT stop a compromised web process, which sets that setting itself: the backstop
@@ -312,8 +320,10 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
 - **Outbox functions trust nothing.** `audit_outbox_mark` takes the tenant, accepts only
   delivery-attempt transitions on entries whose backoff has elapsed (a retry in the future, a
   give-up only after three attempts or when the audit row is gone), stamps `sentAt` with the
-  database clock and writes an append-only receipt (`AuditSiemDelivery`, with the SIEM's own ack
-  id when it sends one). `audit_outbox_prune_unsent` refuses while the lender forwards, or when
+  database clock and writes an append-only receipt (`AuditSiemDelivery`) whose destination the
+  database takes from the entry's own snapshot or the lender's policy, never from the caller. The ack id
+  in it is the worker's own statement of what the SIEM said (required for HTTPS, none for syslog):
+  reconcile receipts with the SIEM; it is not proof against a compromised worker. `audit_outbox_prune_unsent` refuses while the lender forwards, or when
   history says it did and the policy row is gone, and audits itself; `audit_outbox_purge_sent` has
   a fixed 7-day retention. Delivery runs under a lease (`audit_outbox_lease`), in short calls, with
   nothing held open while the SIEM is talked to. The SIEM sees seq + hash on every event and the

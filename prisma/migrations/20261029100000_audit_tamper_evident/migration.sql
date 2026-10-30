@@ -265,13 +265,19 @@ FOR EACH ROW EXECUTE FUNCTION public.audit_log_append_only();
 CREATE TRIGGER "AuditLog_a_append_only_truncate" BEFORE TRUNCATE ON "AuditLog"
 FOR EACH STATEMENT EXECUTE FUNCTION public.audit_log_append_only();
 
--- An audit row's time is the database's clock at the moment of insertion, whatever the caller
--- sent: the chainer's high-water mark and the policy-change routing both rest on it, and a
--- caller-chosen createdAt could hide a row behind the mark. (Historic rows are only ever
--- imported behind the triggers, session_replication_role = replica, by an owner.)
 CREATE FUNCTION public.audit_log_created_at() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   NEW."createdAt" := clock_timestamp();
+  -- A value over 1 MB (as text) is replaced by a stub that says so, whoever wrote it: the chainer and the SIEM read
+  -- every row, and a few hundred 30 MB values (cheap on disk: they compress) would stall them for every lender. No
+  -- writer fails and none needs to know; the audit row still records what happened and how big the payload was.
+  -- (pg_column_size is the cheap pre-check, so a small value is never converted to text here.)
+  IF pg_column_size(NEW."oldValue") > 524288 AND octet_length(NEW."oldValue"::text) > 1048576 THEN
+    NEW."oldValue" := jsonb_build_object('truncated', true, 'bytes', octet_length(NEW."oldValue"::text));
+  END IF;
+  IF pg_column_size(NEW."newValue") > 524288 AND octet_length(NEW."newValue"::text) > 1048576 THEN
+    NEW."newValue" := jsonb_build_object('truncated', true, 'bytes', octet_length(NEW."newValue"::text));
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -700,12 +706,16 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
     AND NOT EXISTS (SELECT 1 FROM "AuditChainLink" l WHERE l."auditLogId" = a."id") LIMIT 1
 $$;
 
--- A login bound to one lender (app.tenant_id set, as the application does inside a tenant frame) may act only for
--- that lender: the database does not take the caller's word for which lender it is acting for.
 CREATE FUNCTION public.audit_require_tenant(p_tenant text) RETURNS void
 LANGUAGE plpgsql STABLE SET search_path = public, pg_temp AS $$
 BEGIN
-  IF public.cf_rls_tenant() IS NOT NULL AND public.cf_rls_tenant() IS DISTINCT FROM p_tenant THEN
+  IF p_tenant IS NULL OR p_tenant = '' THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: a lender is required (the platform chain is not the web login''s to read or change)';
+  END IF;
+  IF public.cf_rls_tenant() IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: this session is not bound to a lender (app.tenant_id)';
+  END IF;
+  IF public.cf_rls_tenant() IS DISTINCT FROM p_tenant THEN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'audit: this session is bound to another lender';
   END IF;
 END;
@@ -816,17 +826,34 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.r
   FROM "AuditLog" a JOIN "AuditChainLink" l ON l."auditLogId" = a."id" WHERE a."id" = ANY(p_ids)
 $$;
 
+-- The target an outbox entry goes to: the snapshot it was stamped with when the lender moved away, else the lender's
+-- current policy ('{}' when there is none).
+CREATE FUNCTION public.audit_outbox_target(p_tenant text, p_snapshot jsonb) RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
+  SELECT COALESCE(p_snapshot, (SELECT to_jsonb(p) FROM "AuditPolicy" p WHERE p."tenantId" = p_tenant), '{}'::jsonb)
+$$;
+
+-- A target as a receipt names it: a syslog host:port or an https origin, never a path, query or credential.
+CREATE FUNCTION public.audit_destination(p_target jsonb) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$
+  SELECT COALESCE(CASE p_target->>'siemTransport'
+    WHEN 'SYSLOG_TLS' THEN 'syslog+tls://' || (p_target->>'siemHost') || ':' || (p_target->>'siemPort')
+    ELSE substring(p_target->>'siemUrl' from '^(https://[^/?#\\[:space:][:cntrl:]]+)') END, 'unknown')
+$$;
+
 -- Marks entries of ONE lender after a delivery attempt, by the deliverer that holds the lender's lease. Only
 -- that lender's still-pending entries whose backoff has elapsed can be marked (anything else raises), and only
 -- in a way a delivery attempt can end:
 --   'sent'  : the SIEM acknowledged the batch. Stamped with the database clock; a receipt per entry goes to
---             AuditSiemDelivery (append-only) naming the destination and the SIEM's own acknowledgement id,
---             which an HTTPS delivery must have (the transport falls back to status + the answer's Date) and
---             a syslog delivery cannot (it has none).
+--             AuditSiemDelivery (append-only). The receipt's destination is the entry's OWN (the snapshot it was
+--             stamped with when the lender moved away, else the lender's current policy), never the caller's word,
+--             and the acknowledgement id is required when that destination is HTTPS (the transport falls back to
+--             status + the answer's Date) and not for syslog (it has none). The ack is the worker's own statement of
+--             what the SIEM said: reconcile it with the SIEM, it is not proof against a compromised worker.
 --   'retry' : attempts + 1, next try at p_at: at least ~a minute ahead, and within two hours.
 --   'dead'  : attempts + 1 and given up: only after three attempts, or when the AuditLog row (or checkpoint)
 --             the entry names is really gone (p_error 'row_missing').
-CREATE FUNCTION public.audit_outbox_mark(p_tenant text, p_holder text, p_ids int[], p_state text, p_error text, p_at timestamp, p_destination text, p_ack text DEFAULT NULL) RETURNS int
+CREATE FUNCTION public.audit_outbox_mark(p_tenant text, p_holder text, p_ids int[], p_state text, p_error text, p_at timestamp, p_ack text DEFAULT NULL) RETURNS int
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
 DECLARE
   n int;
@@ -848,14 +875,16 @@ BEGIN
   END IF;
 
   IF p_state = 'sent' THEN
-    IF p_destination IS NULL OR btrim(p_destination) = '' THEN
-      RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: a delivery names its destination';
-    END IF;
-    IF COALESCE(btrim(p_ack), '') = '' AND p_destination NOT LIKE 'syslog+tls://%' THEN
+    IF COALESCE(btrim(p_ack), '') = '' AND EXISTS (
+      SELECT 1 FROM "AuditSiemOutbox" o
+      WHERE o."id" = ANY(p_ids) AND COALESCE(public.audit_outbox_target(o."tenantId", o."targetSnapshot")->>'siemTransport', 'HTTPS_JSON') <> 'SYSLOG_TLS'
+    ) THEN
       RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'audit_outbox_mark: an HTTPS delivery carries the SIEM''s acknowledgement id';
     END IF;
     INSERT INTO "AuditSiemDelivery" ("outboxId", "tenantId", "kind", "seq", "destination", "ackId")
-    SELECT o."id", o."tenantId", o."kind", o."seq", left(p_destination, 300), left(p_ack, 200) FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids);
+    SELECT o."id", o."tenantId", o."kind", o."seq",
+           left(public.audit_destination(public.audit_outbox_target(o."tenantId", o."targetSnapshot")), 300), left(p_ack, 200)
+    FROM "AuditSiemOutbox" o WHERE o."id" = ANY(p_ids);
     UPDATE "AuditSiemOutbox" SET "sentAt" = now(), "lastError" = NULL WHERE "id" = ANY(p_ids);
   ELSIF p_state = 'retry' THEN
     IF p_at IS NULL OR p_at < now() + interval '50 seconds' OR p_at > now() + interval '2 hours' THEN

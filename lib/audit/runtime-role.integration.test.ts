@@ -19,7 +19,7 @@ import { runChainer } from "./chainer"
 import { checkpointNow } from "./checkpoint.test-helpers"
 import { auditSetupWarnings } from "./deployment-check"
 import { purgeAuditPolicyForTest, purgeAuditRowsForTest } from "./audit-rows.test-helpers"
-import { savePolicy } from "./store"
+import { chainStatus, savePolicy } from "./store"
 import { deliverSiemOutbox, type SiemSender } from "./siem/deliver"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
@@ -170,14 +170,15 @@ suite("the web and worker database logins", () => {
       (c: PrismaClient) => c.$queryRaw`SELECT * FROM audit_delivery_policy(${tenantId})`,
     ]) await expect(call(clients.web)).rejects.toThrow(/permission denied/)
     // The web login's two functions work.
-    expect(await clients.web.$queryRaw`SELECT * FROM audit_chain_status(${tenantId})`).toEqual([{ headSeq: 0, checkpointSeq: null, checkpointAt: null }])
+    expect(await clients.web.$transaction((tx) => chainStatus(tx as unknown as PrismaClient, tenantId))).toEqual({ headSeq: 0, checkpointSeq: null, checkpointAt: null })
   })
 
   it("the worker chains, verifies and checkpoints through the functions, and delivers the SIEM queue", async () => {
-    const policyId = await savePolicy(clients.web, tenantId, {
+    const actorId = (await owner.user.create({ data: { id: `rt-u-${token}`, email: `rt-u-${token}@it.invalid`, password: "x", tenantId, role: "SUPER_ADMIN" } })).id
+    const policyId = await clients.web.$transaction((tx) => savePolicy(tx as unknown as PrismaClient, tenantId, {
       retentionMonths: 12, hotMonths: 3, siemEnabled: true, siemTransport: "HTTPS_JSON", siemHost: null, siemPort: null, siemUrl: "https://siem.example.invalid/ingest", siemOrigin: "https://siem.example.invalid", siemUrlHasPathOrQuery: true,
       siemSealedToken: null, siemCaCertPem: null, siemClientCert: null, siemSealedKey: null,
-    }, { id: (await owner.user.create({ data: { id: `rt-u-${token}`, email: `rt-u-${token}@it.invalid`, password: "x", tenantId, role: "SUPER_ADMIN" } })).id })
+    }, { id: actorId }))
     expect(policyId).toMatch(/^cap_/)
     for (let i = 3; i <= 5; i++) await write(i, clients.web)
 
@@ -187,7 +188,7 @@ suite("the web and worker database logins", () => {
     expect(await verifyAuditChains(clients.worker, { chainKey: tenantId, mode: "incremental" })).toMatchObject({ ok: true })
 
     // What the web login may see of it.
-    expect(await clients.web.$queryRaw`SELECT "headSeq", "checkpointSeq" FROM audit_chain_status(${tenantId})`).toEqual([{ headSeq: 6, checkpointSeq: 6 }])
+    expect(await clients.web.$transaction((tx) => chainStatus(tx as unknown as PrismaClient, tenantId))).toMatchObject({ headSeq: 6, checkpointSeq: 6 })
 
     const sent: number[] = []
     const send: SiemSender = async (_target, events) => {

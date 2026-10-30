@@ -46,6 +46,8 @@ export interface ChainerResult {
   linked: number
   /** Chains another chainer held. */
   busy: number
+  /** Chains whose pass failed (logged); the others went on. */
+  failed: number
 }
 
 let lastDeepScan = 0
@@ -54,12 +56,12 @@ const busyStreak = new Map<string, number>()
 type Tx = Prisma.TransactionClient
 
 /** Links up to BATCH rows of one chain. Returns the rows linked, or null if another chainer holds the chain. */
-async function chainBatch(db: PrismaClient, key: string, mode: ScanMode): Promise<number | null> {
+async function chainBatch(db: PrismaClient, key: string, mode: ScanMode, limit: number): Promise<number | null> {
   return db.$transaction(async (tx: Tx) => {
     if (!(await lockChain(tx, key))) return null
 
     const head = await chainHead(tx, key)
-    const rows = await unlinkedRows(tx, key, mode, MARGIN_SECONDS, BATCH)
+    const rows = await unlinkedRows(tx, key, mode, MARGIN_SECONDS, limit)
     if (rows.length === 0) return 0
 
     let seq = head?.seq ?? 0
@@ -73,6 +75,24 @@ async function chainBatch(db: PrismaClient, key: string, mode: ScanMode): Promis
     })
     return appendLinks(tx, key, links)
   }, { timeout: 60_000 })
+}
+
+/**
+ * One batch with the size halved after each failure (a timeout on rows that are slow to hash, say) down to a single
+ * row, so a heavy row costs its own chain time and nothing more. Returns what chainBatch does; throws only if a
+ * batch of one row fails too.
+ */
+export async function chainBatchAdaptive(db: PrismaClient, key: string, mode: ScanMode, start: number = BATCH): Promise<{ linked: number | null; size: number }> {
+  let size = start
+  for (;;) {
+    try {
+      return { linked: await chainBatch(db, key, mode, size), size }
+    } catch (error) {
+      if (size <= 1) throw error
+      size = Math.max(1, Math.floor(size / 2))
+      logger.warn("[audit-chainer] a batch failed; trying a smaller one", { chainKey: key, size, error })
+    }
+  }
 }
 
 /** Counts the passes in a row a chain was held by another chainer, and says so once it has been too many. */
@@ -94,18 +114,26 @@ export async function runChainer(opts: { db?: PrismaClient; mode?: ScanMode; bud
   const dueDeep = Date.now() - lastDeepScan >= DEEP_EVERY_MS
   const mode: ScanMode = opts.mode ?? (dueDeep ? "deep" : "shallow")
   if (mode !== "shallow") lastDeepScan = Date.now()
-  const result: ChainerResult = { chains: 0, linked: 0, busy: 0 }
+  const result: ChainerResult = { chains: 0, linked: 0, busy: 0, failed: 0 }
 
   return withoutTenantScope(async () => {
     const keys = (await candidateChains(db, mode, MARGIN_SECONDS)).sort().filter((k) => !opts.only || opts.only.includes(k))
     for (const key of keys) {
       result.chains++
-      for (;;) {
-        const n = await chainBatch(db, key, mode)
-        noteBusy(key, n === null)
-        if (n === null) { result.busy++; break }
-        result.linked += n
-        if (n < BATCH || Date.now() - started > (opts.budgetMs ?? 45_000)) break
+      // One chain's failure is that chain's: every other lender is still chained.
+      try {
+        let size = BATCH
+        for (;;) {
+          const { linked, size: used } = await chainBatchAdaptive(db, key, mode, size)
+          size = used
+          noteBusy(key, linked === null)
+          if (linked === null) { result.busy++; break }
+          result.linked += linked
+          if (linked < size || Date.now() - started > (opts.budgetMs ?? 45_000)) break
+        }
+      } catch (error) {
+        result.failed++
+        logger.error("[audit-chainer] a chain could not be chained; the others go on", { chainKey: key, error })
       }
     }
     return result
@@ -114,11 +142,11 @@ export async function runChainer(opts: { db?: PrismaClient; mode?: ScanMode; bud
 
 /** Passes every `intervalMs` for `durationMs`: what the once-a-minute cron route runs, so a row waits seconds, not a minute. */
 export async function runChainerFor(durationMs: number, intervalMs: number, opts: { db?: PrismaClient } = {}): Promise<ChainerResult> {
-  const total: ChainerResult = { chains: 0, linked: 0, busy: 0 }
+  const total: ChainerResult = { chains: 0, linked: 0, busy: 0, failed: 0 }
   const end = Date.now() + durationMs
   for (;;) {
     const r = await runChainer(opts)
-    total.chains += r.chains; total.linked += r.linked; total.busy += r.busy
+    total.chains += r.chains; total.linked += r.linked; total.busy += r.busy; total.failed += r.failed
     if (Date.now() + intervalMs >= end) break
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }

@@ -32,8 +32,8 @@ vi.mock("@/lib/audit/store", () => ({
     id, tenantId: "t1", userId: null, action: "LOAN_NOTE_ADDED", entity: "Loan", entityId: "l1", oldValue: null, newValue: null, ipAddress: null,
     createdAt: new Date("2026-10-29T10:00:00Z"), linkSeq: Number(id.slice(1)), linkRowHash: "a".repeat(64), linkPrevHash: "b".repeat(64),
   })),
-  markOutbox: async (_db: unknown, _tenant: string, _holder: string, ids: number[], mark: "sent" | "retry" | "dead", error: string | null, at: Date, destination: string) => {
-    if (mark === "sent") state.receipts.push(destination)
+  markOutbox: async (_db: unknown, _tenant: string, _holder: string, ids: number[], mark: "sent" | "retry" | "dead", error: string | null, at: Date, ack: string | null = null) => {
+    if (mark === "sent") state.receipts.push(ack ?? "-")
     for (const r of state.rows.filter((x) => ids.includes(x.id))) {
       if (mark === "sent") r.sentAt = at
       else { r.attempts++; r.lastError = error; if (mark === "dead") r.deadAt = at; else r.nextAttemptAt = at }
@@ -109,11 +109,11 @@ describe("deliverSiemOutbox", () => {
     expect(state.rows.every((r) => r.sentAt)).toBe(true)
   })
 
-  it("names the destination (an origin, never a path or credential) on each acknowledgement it records", async () => {
-    state.policy = { ...(state.policy as object), siemUrl: "https://siem.example.invalid/ingest/KEY123?token=abc" }
+  it("hands the SIEM's own acknowledgement id to the receipt and no destination: the database takes that from the entry", async () => {
     queue(1)
-    await deliverSiemOutbox({ db, send: recorder().send, now: NOW })
-    expect(state.receipts).toEqual(["https://siem.example.invalid"])
+    const send: SiemSender = async () => ({ ok: true, error: null, ackId: "siem-req-9" })
+    await deliverSiemOutbox({ db, send, now: NOW })
+    expect(state.receipts).toEqual(["siem-req-9"])
   })
 
   it("stops at the first failed batch, backs it off, and sends nothing behind it", async () => {

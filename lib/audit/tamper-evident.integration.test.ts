@@ -207,6 +207,20 @@ suite("tamper-evident", () => {
         SELECT '${label}-' || g || '-${token}-${tenantId}', '${tenantId}', 'AUDIT_IT', 'Thing', 'p' || g, now() - make_interval(secs => ${startSecondsAgo} - g * ${stepSeconds}) FROM generate_series(1, ${count}) g`)
     const shallow = (tenantId: string) => runChainer({ db, mode: "shallow", only: [tenantId] })
 
+    it("bounds a value at 1 MB at insert, whoever writes it: a stub says it was cut and how big it was; a smaller one is untouched", async () => {
+      const K = await tenant("bound")
+      const big = "a".repeat(3_000_000) // 3 MB of one character: a few KB on disk
+      await db.$executeRaw`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "oldValue", "newValue")
+        VALUES (${`big-${token}`}, ${K}, 'AUDIT_IT', 'Thing', jsonb_build_object('k', ${big}::text), jsonb_build_object('k', repeat('b', 700000)))`
+      const [row] = await db.$queryRaw<Array<{ oldValue: { truncated?: boolean; bytes?: number; k?: string }; newValue: { k?: string } }>>`
+        SELECT "oldValue", "newValue" FROM "AuditLog" WHERE id = ${`big-${token}`}`
+      expect(row.oldValue).toEqual({ truncated: true, bytes: expect.any(Number) })
+      expect(row.oldValue.bytes).toBeGreaterThan(3_000_000)
+      expect(row.newValue.k).toHaveLength(700000) // under the bound: kept whole
+      expect((await chain(K)).linked).toBe(1)
+      expect(await verify(K)).toMatchObject({ ok: true })
+    }, 120_000)
+
     it("chains a row with a huge, compressible value without the worker ever receiving it (the database hashes it)", async () => {
       const K = await tenant("huge")
       await write(K, 1)

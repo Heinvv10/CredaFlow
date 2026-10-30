@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     if (guard.user.tenantId !== tenant.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    const status = await chainStatus(prisma, tenant.id)
+    const status = await prisma.$transaction((tx) => chainStatus(tx, tenant.id))
     const results = await prisma.auditLog.findMany({
       where: { tenantId: tenant.id, action: { in: ["AUDIT_CHAIN_VERIFIED", "AUDIT_CHAIN_BROKEN"] } },
       orderBy: { createdAt: "desc" }, take: 10, select: { action: true, createdAt: true, newValue: true },

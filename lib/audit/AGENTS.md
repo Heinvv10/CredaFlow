@@ -14,7 +14,8 @@
   `rowHash` = HMAC(`AUDIT_CHAIN_KEY`, position + prevHash + ids + KEYED digests of email/ip/old/newValue,
   `chain-hash.ts`). One chain per tenant, `''` = none. No wall-clock window: a per-chain high-water mark less an
   hour, a deep pass (7 days; boot, hourly) and a full sweep (daily job) for late commits; backfill in batches of 500.
-  Chain lock = `audit_chain_lock` (SKIP LOCKED row). The DB returns SHA-256 per value; the worker HMACs it.
+  Chain lock = `audit_chain_lock` (SKIP LOCKED row). The DB returns SHA-256 per value; the worker HMACs it; an insert trigger stubs values over 1 MB; a failing batch halves,
+  a failing chain is logged and skipped.
 - Only the worker holds `AUDIT_CHAIN_KEY` (32+ chars) and the worker login. Web: `audit_grant_web`.
 - Tests purge with `audit-rows.test-helpers.ts` on the OWNER connection; shared fixture `it-fixture.test-helpers.ts`.
 
