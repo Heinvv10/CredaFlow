@@ -35,7 +35,7 @@ describe("plannedStartFor: a start the signing prepare step accepts, from the fi
     }
   })
 
-  it("is what the old pattern was not: dealStartDate(addMonthsClamped(today, 1)) is in the past on the 29th to the 31st", () => {
+  it("the old start, dealStartDate(addMonthsClamped(today, 1)), is in the past on the 29th to the 31st; the helper's start never is", () => {
     const old = (today: string) => dealStartDate(firstDueOf(today))
     const pastDays = daysOf(2026).filter((today) => old(today) < today)
     expect(pastDays).toContain("2026-10-31")

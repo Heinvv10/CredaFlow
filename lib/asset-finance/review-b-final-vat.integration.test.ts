@@ -1,5 +1,5 @@
 /** Legal gaps 13, 14 and 25, through the real migrated ledger and tax-invoice service. Synthetic only. */
-import { monthEndClamps } from "./first-due.test-helpers"
+import { monthEndClamps, reportMonthEndSkip } from "./first-due.test-helpers"
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
@@ -19,6 +19,7 @@ const db = RUN ? new PrismaClient() : null
 const database = () => { if (!db) throw new Error("RUN_ASSET_FINANCE_LEASE_IT required"); return db }
 // Not on the 29th to the 31st: the lease it books ends a day early there (monthEndClamps)
 const suite = RUN && !monthEndClamps() ? describe : describe.skip
+reportMonthEndSkip("lease legal calculations applied to actual accounts (review B final VAT)", RUN)
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
 const loans: string[] = []

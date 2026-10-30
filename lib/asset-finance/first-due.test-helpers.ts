@@ -1,3 +1,4 @@
+import { describe, it } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { addMonthsClamped } from "./dates"
 import { dealStartDate } from "./deal-structure"
@@ -25,4 +26,15 @@ export function plannedStartFor(firstDueDate: string, today: string = sastCalend
  */
 export function monthEndClamps(today: string = sastCalendarDate(new Date())): boolean {
   return addMonthsClamped(addMonthsClamped(today, 1), -1) !== today
+}
+
+/**
+ * Call next to a lease servicing suite that does not run on a month-end clamp day (`RUN && !monthEndClamps()`): on such a day, when the
+ * suite was asked to run, it registers a skipped entry that says why, so the report names the reason instead of a bare skip.
+ */
+export function reportMonthEndSkip(suiteName: string, requested: boolean): void {
+  if (!requested || !monthEndClamps()) return
+  describe.skip(`${suiteName}: skipped on a month-end clamp day (the 29th to the 31st): a lease moved back whole months ends a day early; see monthEndClamps in first-due.test-helpers.ts`, () => {
+    it("is not run today", () => undefined)
+  })
 }
