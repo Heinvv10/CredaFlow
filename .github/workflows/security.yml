@@ -27,7 +27,7 @@ jobs:
   # code scanning on a private repository needs GitHub Advanced Security.
   sast:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: [self-hosted, linux, velo, credaflow-light]
     timeout-minutes: 20
     steps:
       # Fail closed if a fork PR ever reaches this runner.
@@ -77,7 +77,7 @@ jobs:
   # moderate list stays available locally with `npm run audit:security`.
   dependencies:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: [self-hosted, linux, velo, credaflow-light]
     timeout-minutes: 10
     steps:
       # Fail closed if a fork PR ever reaches this runner.
@@ -101,7 +101,7 @@ jobs:
   # fixtures are fingerprinted in .gitleaksignore; anything new fails.
   secrets:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: [self-hosted, linux, velo, credaflow-light]
     timeout-minutes: 10
     steps:
       # Fail closed if a fork PR ever reaches this runner.

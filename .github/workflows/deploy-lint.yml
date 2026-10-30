@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   chart:
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: [self-hosted, linux, velo, credaflow-light]
     timeout-minutes: 10
     env:
       HELM_VERSION: 3.19.0
@@ -78,7 +78,7 @@ jobs:
           helm template rel $chart --set image.tag=v1 --set web.appMode=client --set worker.enabled=false --set externalCrons.enabled=false --set migrate.enabled=false --set persistence.existingClaim=uploads | kc
 
   prometheus-rules:
-    runs-on: [self-hosted, linux, velo, credaflow]
+    runs-on: [self-hosted, linux, velo, credaflow-light]
     timeout-minutes: 10
     steps:
       # Fail closed if a fork PR ever reaches this runner.
