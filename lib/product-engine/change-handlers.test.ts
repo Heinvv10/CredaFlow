@@ -97,14 +97,22 @@ describe("the handlers' verify", () => {
     ])
   })
 
+  it("takes MICRO30 however its code is written: a rule naming it is refused, and a rule for every product leaves it out", async () => {
+    const { pricingRuleHandler: handler } = await handlers()
+    const rule = (productId: string | null) => ({ action: "CREATE", rule: { productId, name: "Best", segment: null, channel: null, riskRankMin: null, riskRankMax: null, campaignCode: null, validFrom: "2027-01-01", validTo: null, priority: 0, rate: { mode: "SET", value: 0.02 }, initiationFeePct: null } })
+    const micro = (code: string) => ({ id: "m1", code, productType: "MICRO", maxAmount: 200_000, maxTermDays: 30, interestRatePm: 0.05, interestModel: "DAILY_ACCRUAL" })
+    for (const code of ["micro30", " Micro30 "]) {
+      await expect(handler.verify!(tx({ products: [micro(code)] }), "t1", rule("m1") as never)).rejects.toMatchObject({ problems: [expect.stringContaining("MICRO30")] })
+    }
+    nca.pricingRuleNcaIssue.mockClear()
+    await handler.verify!(tx({ products: [micro(" micro30 "), { id: "p1", code: "PERS", productType: "PERSONAL", maxAmount: 800_000, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" }] }), "t1", rule(null) as never)
+    expect(nca.pricingRuleNcaIssue).toHaveBeenLastCalledWith("t1", expect.anything(), [expect.objectContaining({ code: "PERS" })])
+  })
+
   it("refuses a rule that names the MICRO30 contract product, and leaves it out of a rule that covers every product", async () => {
     const { pricingRuleHandler: handler } = await handlers()
     const rule = (productId: string | null) => ({ action: "CREATE", rule: { productId, name: "Best", segment: null, channel: null, riskRankMin: null, riskRankMax: null, campaignCode: null, validFrom: "2027-01-01", validTo: null, priority: 0, rate: { mode: "SET", value: 0.02 }, initiationFeePct: null } })
     const micro = { id: "m1", code: "MICRO30", productType: "MICRO", maxAmount: 200_000, maxTermDays: 30, interestRatePm: 0.05, interestModel: "DAILY_ACCRUAL" }
     await expect(handler.verify!(tx({ products: [micro] }), "t1", rule("m1") as never)).rejects.toMatchObject({ problems: [expect.stringContaining("MICRO30")] })
-    // a rule for every product asks the database for the others only
-    const every = tx()
-    await handler.verify!(every, "t1", rule(null) as never)
-    expect((every as never as { loanProduct: { findMany: { mock: { calls: Array<[{ where: Record<string, unknown> }]> } } } }).loanProduct.findMany.mock.calls[0]![0].where).toMatchObject({ code: { not: "MICRO30" } })
   })
 })

@@ -32,3 +32,15 @@ describe("MICRO30 approved product contract", () => {
     expect(micro30DecisionTermsChanged(approved, approved)).toBe(false)
   })
 })
+
+describe("isMicro30Code", () => {
+  it.each(["MICRO30", "micro30", " Micro30 ", "MICRO30\t"])("recognises %j as the MICRO30 contract product", async (code) => {
+    const { isMicro30Code } = await import("./micro30")
+    expect(isMicro30Code(code)).toBe(true)
+  })
+
+  it.each(["MICRO31", "MICRO 30", "XMICRO30", "", null, undefined, 30])("does not take %j for it", async (code) => {
+    const { isMicro30Code } = await import("./micro30")
+    expect(isMicro30Code(code)).toBe(false)
+  })
+})

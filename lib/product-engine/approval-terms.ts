@@ -8,11 +8,10 @@
 import type { LoanCalcInput } from "@/lib/loan-calculator"
 import type { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
-import { MICRO30_CODE } from "@/lib/product-config/micro30"
+import { isMicro30Code } from "@/lib/product-config/micro30"
 import { priceApplication } from "./resolve"
 import { assertValidTerms } from "./schedule"
-import { ncaStructureIssues } from "./terms"
+import { versionNcaIssues } from "./nca"
 import type { RepaymentTerms } from "./types"
 
 type Db = Pick<typeof prisma, "productVersion" | "productPricingRule" | "applicationPricingInput">
@@ -43,8 +42,8 @@ export interface ApprovalTerms extends ProductPricing {
   /** The limits of the version in effect, which an approval's amount and term must be within; null for a product with no version. */
   limits: { minAmountCents: number; maxAmountCents: number; minTermDays: number; maxTermDays: number } | null
   /**
-   * Why an NCA lender may not approve a loan on this version, or []: the structure and fee rules it was approved under, checked
-   * again now, because the process may have been configured differently when the version was approved (lib/product-engine/terms.ts).
+   * Why an NCA lender may not approve a loan on this version, or []: the whole gate the version was approved under and activation
+   * runs (versionNcaIssues), checked again now, because the process may have been configured differently when it was approved.
    */
   ncaIssues: string[]
 }
@@ -54,17 +53,18 @@ export async function approvalTermsFor(
   db: Db,
   tenantId: string,
   application: { id: string; productId: string; appliedTermDays: number; riskGradeRank: number | null },
-  product: ProductPricing & { code?: string },
+  product: ProductPricing & { code?: string; productType?: string },
   asOf: string = sastCalendarDate(new Date()),
 ): Promise<ApprovalTerms> {
-  const priced = await priceApplication(db, tenantId, { productId: application.productId, applicationId: application.id, riskRank: application.riskGradeRank, termDays: application.appliedTermDays, asOf, useRules: product.code !== MICRO30_CODE })
+  const priced = await priceApplication(db, tenantId, { productId: application.productId, applicationId: application.id, riskRank: application.riskGradeRank, termDays: application.appliedTermDays, asOf, useRules: !isMicro30Code(product.code) })
   if (!priced) return { ...pickPricing(product), repayment: null, versioned: null, limits: null, ncaIssues: [] }
   const c = priced.version.config
   return {
     interestRatePm: priced.pricing.ratePm, interestModel: c.interestModel, initiationFeeModel: c.initiationFeeModel, initiationFeePct: priced.pricing.initiationFeePct,
     initiationFeeMax: c.initiationFeeMaxCents, monthlyServiceFee: c.monthlyServiceFeeCents,
     repayment: priced.repayment,
-    ncaIssues: isNcaJurisdiction() ? ncaStructureIssues(c) : [],
+    // The gate activation runs (structure, fee, cap, the MICRO30 contract), so a version one refuses cannot pass the other.
+    ncaIssues: await versionNcaIssues(tenantId, { code: product.code ?? "", productType: product.productType ?? "" }, c),
     limits: { minAmountCents: c.minAmountCents, maxAmountCents: c.maxAmountCents, minTermDays: c.minTermDays, maxTermDays: c.maxTermDays },
     versioned: {
       productVersionId: priced.version.id, version: priced.version.version, baseRatePm: priced.base.ratePm,

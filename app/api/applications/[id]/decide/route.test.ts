@@ -1117,9 +1117,23 @@ describe("NCA interest-rate cap at approval (Regulation 42)", () => {
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
-  it("refuses a loan written at the rate of the product version in effect when that rate is over the cap, though the product row and no pricing rule say otherwise", async () => {
-    // R5,000 over 30 days is a short-term transaction, capped at 5% a month. The product row is under it; the version in effect, which
-    // the loan is written at, is not (6%), and no pricing rule matched.
+  it("refuses a loan a pricing rule prices over the cap, though the product row and the version are under it", async () => {
+    // R5,000 over 30 days is a short-term transaction, capped at 5% a month. The product row and the version (4%) are under it; the rule is not (6%).
+    findUniqueMock.mockResolvedValue({ ...underReviewApplication, riskGradeRank: 0 })
+    productVersionFindFirstMock.mockResolvedValue({
+      id: "pv1", productId: "product-1", version: 2, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+      minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.04, interestModel: "REDUCING_BALANCE",
+      initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.05, initiationFeeMax: 100_000, monthlyServiceFee: 6_900,
+      frequency: null, structure: null, graceKind: null, graceInstalments: 0, collateral: [], eligibility: {},
+    })
+    pricingRuleFindManyMock.mockResolvedValue([{ id: "r9", productId: "product-1", name: "Walk-in", segment: null, channel: null, riskRankMin: null, riskRankMax: null, campaignCode: null, validFrom: new Date("2026-01-01T00:00:00Z"), validTo: null, priority: 0, rateMode: "SET", rateValue: 0.06, initiationFeePct: null, createdAt: new Date("2026-01-02T00:00:00Z") }])
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ interestRateCap: "ABOVE_CAP" })
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a version over the cap at once, by the same gate activation runs", async () => {
     findUniqueMock.mockResolvedValue(underReviewApplication)
     productVersionFindFirstMock.mockResolvedValue({
       id: "pv1", productId: "product-1", version: 2, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
@@ -1129,8 +1143,7 @@ describe("NCA interest-rate cap at approval (Regulation 42)", () => {
     })
     const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
     expect(res.status).toBe(422)
-    expect(await res.json()).toMatchObject({ interestRateCap: "ABOVE_CAP" })
-    expect(transactionMock).not.toHaveBeenCalled()
+    expect(await res.json()).toMatchObject({ productVersionRefused: true, error: expect.stringContaining("exceeds the NCA maximum") })
   })
 
   it("approves the same loan when the version in effect is under the cap", async () => {

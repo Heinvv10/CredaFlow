@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const priced = vi.hoisted(() => ({ value: null as unknown }))
 const priceApplication = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => priced.value))
 vi.mock("./resolve", () => ({ priceApplication }))
+// The one gate activation runs (versionNcaIssues: structure, fee, cap and the MICRO30 contract): approval must run the same.
+const versionNcaIssues = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => [] as string[]))
+vi.mock("./nca", () => ({ versionNcaIssues }))
 
-import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { approvalTermsFor, capApplicationFor, previewCalcInput, versionLimitRefusal, type ProductPricing } from "./approval-terms"
 
 const product: ProductPricing = { interestRatePm: 0.03, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900 }
@@ -15,7 +18,7 @@ const version = (over: Record<string, unknown> = {}) => ({
   config: { minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeeMaxCents: 90_000, monthlyServiceFeeCents: 5_000, interestRatePm: 0.035, initiationFeePct: 0.1, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }, ...over,
 })
 
-beforeEach(() => { priced.value = null; priceApplication.mockClear(); resetActiveJurisdiction() })
+beforeEach(() => { priced.value = null; priceApplication.mockClear(); versionNcaIssues.mockReset().mockResolvedValue([]); resetActiveJurisdiction() })
 
 describe("approvalTermsFor", () => {
   it("a product with no version in effect is approved on its own row, exactly as before: nothing versioned, no structure", async () => {
@@ -23,7 +26,6 @@ describe("approvalTermsFor", () => {
   })
 
   it("a product under the engine is approved on the version in effect, the price its rule gives and the structure for the term", async () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" }) // a weekly structure is not one an NCA lender may use
     priced.value = {
       version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: "SALARIED", channel: null, campaignCode: null, riskRank: 0 },
       pricing: { ratePm: 0.02, initiationFeePct: 0.08, ruleId: "r1", ruleName: "Best grades" },
@@ -47,28 +49,31 @@ describe("approvalTermsFor", () => {
 })
 
 describe("what an NCA lender may still approve on a version", () => {
-  const priceWith = (config: Record<string, unknown>) => {
+  const priceWith = (config: Record<string, unknown> = {}) => {
     priced.value = { version: version({ config: { ...version().config, ...config } }), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: null, campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment: null }
   }
 
-  it("holds the version's structure to the NCA rules again at approval: one approved while the process was another jurisdiction is not approvable under the NCA", async () => {
-    priceWith({})
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
-    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([])
-    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
-    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([expect.stringContaining("legal sign-off")])
+  it("runs the same gate as activation, on the version's configuration and the product's identity: structure, fee, cap and the MICRO30 contract", async () => {
+    priceWith()
+    versionNcaIssues.mockResolvedValue(["repayment: needs legal sign-off", "monthlyServiceFeeCents: above the ceiling"])
+    const terms = await approvalTermsFor(db, "t", application, { ...product, code: "MICRO30", productType: "MICRO" })
+    expect(terms.ncaIssues).toEqual(["repayment: needs legal sign-off", "monthlyServiceFeeCents: above the ceiling"])
+    expect(versionNcaIssues).toHaveBeenCalledWith("t", { code: "MICRO30", productType: "MICRO" }, expect.objectContaining({ minAmountCents: 100_000, monthlyServiceFeeCents: 5_000 }))
   })
 
-  it("and its service fee to the ceiling", async () => {
-    priceWith({ repayment: null, monthlyServiceFeeCents: 6_901 })
-    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([expect.stringContaining("Regulation 44")])
-    priceWith({ repayment: null, monthlyServiceFeeCents: 6_900 })
+  it("has no issues when the gate has none, and asks no gate of a product with no version", async () => {
+    priceWith()
     expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([])
+    priced.value = null
+    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([])
+    expect(versionNcaIssues).toHaveBeenCalledTimes(1)
   })
 
-  it("asks for no pricing rule on the MICRO30 contract product: its price is fixed", async () => {
-    await approvalTermsFor(db, "t", application, { ...product, code: "MICRO30" })
-    expect(priceApplication).toHaveBeenLastCalledWith(db, "t", expect.objectContaining({ useRules: false }))
+  it("asks for no pricing rule on the MICRO30 contract product, however its code is written: its price is fixed", async () => {
+    for (const code of ["MICRO30", "micro30", " Micro30 "]) {
+      await approvalTermsFor(db, "t", application, { ...product, code })
+      expect(priceApplication).toHaveBeenLastCalledWith(db, "t", expect.objectContaining({ useRules: false }))
+    }
     await approvalTermsFor(db, "t", application, { ...product, code: "PERSONAL" })
     expect(priceApplication).toHaveBeenLastCalledWith(db, "t", expect.objectContaining({ useRules: true }))
   })
