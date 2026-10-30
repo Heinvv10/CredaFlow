@@ -38,6 +38,8 @@ export type EventType =
   | "CREDIT_NOTE"
   | "DEALER_COMMISSION"
   | "DEALER_COMMISSION_PAID"
+  | "ECL_PROVISION"
+  | "INTEREST_SUSPENSE"
 
 export interface SourcePayment {
   id: string
