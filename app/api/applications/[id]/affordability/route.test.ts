@@ -132,6 +132,10 @@ beforeEach(() => {
       updateMany: updateManyMock,
     },
     auditLog: { create: auditLogCreateMock },
+    // No product under the product engine: the product's own terms apply.
+    productVersion: { findFirst: async () => null },
+    productPricingRule: { findMany: async () => [] },
+    applicationPricingInput: { findFirst: async () => null },
   }))
 })
 

@@ -5,6 +5,7 @@
  * calculation and the stored inputs, so the schedule, the evidence and the booked loan agree; a loan is then booked on the
  * inputs frozen at approval (lib/affordability/snapshot.ts calculateLoanFromDecisionInputs), never on a later version.
  */
+import type { LoanCalcInput } from "@/lib/loan-calculator"
 import type { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
@@ -87,4 +88,32 @@ export function capApplicationFor<A extends { appliedAmount: number; appliedTerm
   loan: { principalCents: number; termDays: number },
 ): A {
   return { ...application, appliedAmount: loan.principalCents, appliedTermDays: loan.termDays, product: { ...application.product, interestRatePm: terms.interestRatePm, interestModel: terms.interestModel } }
+}
+
+/**
+ * The calculator input for an application as staff see it before it is decided (the affordability assessment, the application
+ * page, the decision engine's facts): the product's terms as approval will use them (approvalTermsFor), so a versioned
+ * product's rate, fees and repayment structure are the ones shown and assessed, not the product row's legacy schedule.
+ */
+export async function previewCalcInput(
+  db: Db,
+  tenantId: string,
+  application: { id: string; productId: string; appliedAmount: number; appliedTermDays: number; riskGradeRank: number | null; initiationFeePayment: "DEFERRED" | "UPFRONT" },
+  product: ProductPricing & { productType: string; code?: string },
+  asOf: string = sastCalendarDate(new Date()),
+): Promise<LoanCalcInput> {
+  const terms = await approvalTermsFor(db, tenantId, application, product, asOf)
+  return {
+    principal: application.appliedAmount,
+    termDays: application.appliedTermDays,
+    interestRatePm: terms.interestRatePm,
+    productType: product.productType,
+    interestModel: terms.interestModel,
+    initiationFeeModel: terms.initiationFeeModel,
+    initiationFeePct: terms.initiationFeePct,
+    initiationFeeMax: terms.initiationFeeMax,
+    monthlyServiceFee: terms.monthlyServiceFee,
+    initiationFeePayment: application.initiationFeePayment,
+    ...(terms.repayment ? { repayment: terms.repayment } : {}),
+  }
 }

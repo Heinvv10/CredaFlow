@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { previewCalcInput } from "@/lib/product-engine/approval-terms"
 import { assessAffordability } from "@/lib/affordability/ndi"
 import type { Prisma } from "@prisma/client"
 import { withInputStaff } from "@/lib/applications/input-staff"
@@ -107,6 +108,7 @@ export async function PATCH(
             productId: true,
             appliedAmount: true,
             appliedTermDays: true,
+            riskGradeRank: true,
             initiationFeePayment: true,
             creditLifeElection: true,
             creditLifeMonthlyPremiumCents: true,
@@ -147,6 +149,7 @@ export async function PATCH(
             },
             product: {
               select: {
+                code: true,
                 interestRatePm: true,
                 interestModel: true,
                 initiationFeeModel: true,
@@ -214,22 +217,8 @@ export async function PATCH(
           notes: debt.notes,
         }))
         const assessedAt = new Date()
-        const interestModel = app.product.interestModel as
-          | "FLAT"
-          | "REDUCING_BALANCE"
-          | "DAILY_ACCRUAL"
-        const loanCalc = calculateLoan({
-          principal: app.appliedAmount,
-          termDays: app.appliedTermDays,
-          interestRatePm: app.product.interestRatePm,
-          productType: app.product.productType,
-          interestModel,
-          initiationFeeModel: app.product.initiationFeeModel,
-          initiationFeePct: app.product.initiationFeePct,
-          initiationFeeMax: app.product.initiationFeeMax,
-          monthlyServiceFee: app.product.monthlyServiceFee,
-          initiationFeePayment: app.initiationFeePayment,
-        }, assessedAt)
+        const calcInput = await previewCalcInput(tx, tenant.id, app, app.product)
+        const loanCalc = calculateLoan(calcInput, assessedAt)
         const creditLifePremiumCents = creditLifeMonthlyPremiumCents === 0
           ? 0
           : creditLifePremiumPaymentLoadCents({
@@ -282,14 +271,15 @@ export async function PATCH(
             principalCents: app.appliedAmount,
             termDays: app.appliedTermDays,
             productId: app.productId,
-            interestRatePm: app.product.interestRatePm,
-            productType: app.product.productType,
-            interestModel,
-            initiationFeeModel: app.product.initiationFeeModel,
-            initiationFeePct: app.product.initiationFeePct,
-            initiationFeeMaxCents: app.product.initiationFeeMax,
-            monthlyServiceFeeCents: app.product.monthlyServiceFee,
+            interestRatePm: calcInput.interestRatePm,
+            productType: calcInput.productType,
+            interestModel: calcInput.interestModel,
+            initiationFeeModel: calcInput.initiationFeeModel,
+            initiationFeePct: calcInput.initiationFeePct,
+            initiationFeeMaxCents: calcInput.initiationFeeMax,
+            monthlyServiceFeeCents: calcInput.monthlyServiceFee,
             initiationFeePayment: app.initiationFeePayment,
+            ...(calcInput.repayment ? { repayment: calcInput.repayment } : {}),
             ndiBufferPct: 100,
           },
           outcome: {

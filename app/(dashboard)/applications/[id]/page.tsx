@@ -15,6 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { previewCalcInput } from "@/lib/product-engine/approval-terms"
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react"
 import { AgreementSection } from "@/components/applications/AgreementSection"
 import { PipelineStepper } from "@/components/applications/PipelineStepper"
@@ -326,18 +327,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     ? kycGate?.missingCoreDocuments ?? null
     : null
 
-  const liveLoanCalc = calculateLoan({
-    principal: application.appliedAmount,
-    termDays: application.appliedTermDays,
-    interestRatePm: application.product.interestRatePm,
-    productType: application.product.productType,
-    interestModel: application.product.interestModel as "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL",
-    initiationFeeModel: application.product.initiationFeeModel,
-    initiationFeePct: application.product.initiationFeePct,
-    initiationFeeMax: application.product.initiationFeeMax,
-    monthlyServiceFee: application.product.monthlyServiceFee,
-    initiationFeePayment: application.initiationFeePayment,
-  })
+  const liveLoanCalc = calculateLoan(await previewCalcInput(prisma, tenantId, application, application.product))
   const affordabilityLocked = !["DRAFT", "SUBMITTED", "UNDER_REVIEW"].includes(application.status)
   const affordabilityStore = readAffordabilitySnapshotStore(application.affordabilityResult)
   const approvalSnapshotRequired = ["APPROVED", "DISBURSED"].includes(application.status)
