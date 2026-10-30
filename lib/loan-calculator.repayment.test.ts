@@ -91,3 +91,17 @@ describe("the figure affordability reads for structures that are not an annuity 
     expect(r.monthlyInstalment).toBe(40_000)
   })
 })
+
+describe("month-end due dates (PR #266 review): the legacy schedule every NCA lender keeps is not touched; a structured one clamps", () => {
+  const start = new Date("2026-01-31T08:00:00Z")
+  const inp = { principal: 500_000, termDays: 90, interestRatePm: 0.05, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 6_900, productType: "PERSONAL_LOAN" }
+  const days = (r: { schedule: Array<{ dueDate: Date }> }) => r.schedule.map((x) => x.dueDate.toISOString().slice(0, 10))
+
+  it("without a structure a loan started on the 31st is due on 3 March, as it always was (Date#setMonth spills February into March)", () => {
+    expect(days(calculateLoan(inp, start))[0]).toBe("2026-03-03")
+  })
+
+  it("with a structure the same loan is due on the last day of February: the engine keeps the day of the month and clamps", () => {
+    expect(days(calculateLoan({ ...inp, repayment: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 3 } }, start))).toEqual(["2026-02-28", "2026-03-31", "2026-04-30"])
+  })
+})
