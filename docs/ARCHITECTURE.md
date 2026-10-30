@@ -262,13 +262,16 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   LOCKED), not an advisory lock any login could take; the database hands the worker a SHA-256
   of each value (the worker keys it), so a huge row costs it nothing, and an insert trigger replaces
   any `oldValue`/`newValue` over 1 MB (always measured as text: a value copied in already compressed is small as
-  stored) with a stub (`{truncated, bytes}`), whoever writes it. The text columns carry a CHECK (ids 256 bytes;
-  action, entity, entityId, userEmail 1 KB; ipAddress 64), added NOT VALID so existing rows are not scanned, and
+  stored) with a stub (`{truncated, bytes}`), whoever writes it. The same trigger CLIPS action, entity, entityId and userEmail to 1 KB and ipAddress to 64 bytes (a prefix, then
+  `…[clipped N bytes]`, and `newValue._clipped` names the columns and original sizes): an insert is never rejected for
+  them, because userEmail, entityId and ipAddress are chosen by whoever the row is about, and a rejected insert
+  would let them choose to leave no audit row. A CHECK (those limits; ids 256 bytes) is the backstop for a row
+  that bypasses the trigger, added NOT VALID so existing rows are not scanned, and
   the database hashes every text column (`audit_hash_inputs`), so even an old oversized row can be linked
   (a row can never be skipped: that would break the chain). To validate on a book you have looked at:
   `ALTER TABLE "AuditLog" VALIDATE CONSTRAINT "AuditLog_text_bounded"`. A legacy row that violates it cannot be
   redacted until it is fixed, since the update is checked.
-  No writer fails on a big value (it is stubbed); one that sends a text column past the CHECK is refused. A batch that fails (a timeout on rows slow to hash) is retried
+  No writer fails on a big or long value (it is stubbed or clipped); only an id past 256 bytes is refused. A batch that fails (a timeout on rows slow to hash) is retried
   at half the size down to one row, within a 20 s retry budget per chain per pass and never past the pass
   deadline; a chain that still fails is logged and left alone with a doubling backoff (30 s to 15 min), and
   the size that last worked is remembered, so it never stops another lender being chained or burns a pass. `idle_in_transaction_session_timeout` is set on the application logins

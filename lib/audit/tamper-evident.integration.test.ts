@@ -237,19 +237,37 @@ suite("tamper-evident", () => {
       expect((await chain(K)).linked).toBe(1)
     }, 180_000)
 
-    it("refuses an oversized action, entity, entityId, email or address at insert, and the lender's next row still chains", async () => {
+    it("clips an oversized action, entity, entityId, email or address at insert, rejecting nothing: the row is stored with a marker and chains", async () => {
       const K = await tenant("oversize")
       const insert = (col: string, len: number) => {
         const base: Record<string, string> = { id: `'big-${col}-${token}'`, tenantId: `'${K}'`, action: `'AUDIT_IT'`, entity: `'Thing'` }
         base[col] = `repeat('x', ${len})`
         return db.$executeRawUnsafe(`INSERT INTO "AuditLog" (${Object.keys(base).map((c) => `"${c}"`).join(", ")}) VALUES (${Object.values(base).join(", ")})`)
       }
-      for (const [col, len] of [["action", 1025], ["entity", 1025], ["entityId", 1025], ["userEmail", 1025], ["ipAddress", 65]] as const) {
-        await expect(insert(col, len), col).rejects.toThrow(/AuditLog_text_bounded/)
+      // 100 million characters of action (the compressed row is a few KB on disk), and the limits plus one for the rest.
+      for (const [col, len] of [["action", 100_000_000], ["entity", 1025], ["entityId", 1025], ["userEmail", 2048], ["ipAddress", 65]] as const) {
+        await insert(col, len)
+        const [row] = await db.$queryRawUnsafe<Array<Record<string, string> & { n: number }>>(`SELECT "${col}", octet_length("${col}") AS n, "newValue" FROM "AuditLog" WHERE id = 'big-${col}-${token}'`)
+        expect(row.n, col).toBeLessThanOrEqual(col === "ipAddress" ? 64 : 1024)
+        expect(row[col], col).toContain(`…[clipped ${col === "action" ? 100_000_000 : len}`)
+        expect((row as unknown as { newValue: { _clipped: Record<string, number> } }).newValue._clipped[col], col).toBe(len)
       }
       await write(K, 1)
-      expect((await chain(K)).linked).toBe(1)
-      expect(await verify(K)).toMatchObject({ ok: true })
+      expect((await chain(K)).linked).toBe(6)
+      expect(await verify(K)).toMatchObject({ ok: true, rowsChecked: 6 })
+    }, 240_000)
+
+    it("keeps the CHECK as the backstop for a row that bypasses the trigger (a superuser planting behind the triggers)", async () => {
+      const K = await tenant("backstop")
+      await expect(tamper(`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "userEmail") VALUES ('bypass-${token}', '${K}', 'AUDIT_IT', 'Thing', repeat('x', 2048))`)).rejects.toThrow(/AuditLog_text_bounded/)
+    })
+
+    it("leaves a short value, and a value exactly at the limit, untouched, and adds no marker to the row's newValue", async () => {
+      const K = await tenant("noclip")
+      await db.$executeRaw`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "userEmail", "newValue") VALUES (${`fit-${token}`}, ${K}, 'AUDIT_IT', 'Thing', ${"u".repeat(1024)}, '{"a": 1}'::jsonb)`
+      const [row] = await db.$queryRaw<Array<{ userEmail: string; newValue: Record<string, unknown> }>>`SELECT "userEmail", "newValue" FROM "AuditLog" WHERE id = ${`fit-${token}`}`
+      expect(row.userEmail).toHaveLength(1024)
+      expect(row.newValue).toEqual({ a: 1 })
     })
 
     it("hashes every text column in the database: a legacy row whose action is tens of MB (a constraint cannot reach it) still links and the worker only ever gets 64-character hashes", async () => {

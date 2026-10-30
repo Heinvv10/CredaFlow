@@ -205,8 +205,10 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userI
 -- ── Hand-written: bounds on the text columns of AuditLog ────────────────────
 -- The chainer and the SIEM read every row, and a text column of hundreds of MB (it compresses to a few MB on disk)
 -- would make its chain unlinkable for good, because a row cannot be skipped without breaking the chain's
--- continuity. Generous limits no real writer comes near (ids are cuids, an ipAddress is an isIP-checked address,
--- action and entity are constants). NOT VALID: new and updated rows are held to it, and the existing rows are not
+-- continuity. The insert trigger CLIPS action, entity, entityId, userEmail and ipAddress to these limits (a
+-- rejected insert would let whoever the row is about choose to leave no audit row); this CHECK is the backstop for
+-- a row that bypasses the trigger, and holds ids (a cuid is 25 bytes) to 256. Generous limits no real writer comes
+-- near. NOT VALID: new and updated rows are held to it, and the existing rows are not
 -- scanned here (audit_hash_inputs hashes each text column in the database, so an old oversized one is still safe).
 -- To validate once you have looked: SELECT count(*) FROM "AuditLog" WHERE NOT (<the condition>) and then
 -- ALTER TABLE "AuditLog" VALIDATE CONSTRAINT "AuditLog_text_bounded".
@@ -285,6 +287,9 @@ CREATE TRIGGER "AuditLog_a_append_only_truncate" BEFORE TRUNCATE ON "AuditLog"
 FOR EACH STATEMENT EXECUTE FUNCTION public.audit_log_append_only();
 
 CREATE FUNCTION public.audit_log_created_at() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  clipped jsonb := '{}'::jsonb;
+  n int;
 BEGIN
   NEW."createdAt" := clock_timestamp();
   -- A value over 1 MB (as text) is replaced by a stub that says so, whoever wrote it: the chainer and the SIEM read
@@ -297,6 +302,27 @@ BEGIN
   END IF;
   IF octet_length(NEW."newValue"::text) > 1048576 THEN
     NEW."newValue" := jsonb_build_object('truncated', true, 'bytes', octet_length(NEW."newValue"::text));
+  END IF;
+
+  -- The short text columns are CLIPPED, never rejected: userEmail (typed at a login), entityId (from a URL) and
+  -- ipAddress (from a header) are chosen by whoever the audit row is about, and an insert that failed on them would
+  -- let that party choose to leave no row at all. A prefix is kept with a marker that carries the original size, and
+  -- newValue records which columns were clipped. (The CHECK AuditLog_text_bounded is the backstop for a row that
+  -- bypasses this trigger.) left() counts characters; 200 of them are at most 800 bytes, plus the marker, under 1 KB.
+  n := octet_length(NEW."action");
+  IF n > 1024 THEN NEW."action" := left(NEW."action", 200) || '…[clipped ' || n || ' bytes]'; clipped := clipped || jsonb_build_object('action', n); END IF;
+  n := octet_length(NEW."entity");
+  IF n > 1024 THEN NEW."entity" := left(NEW."entity", 200) || '…[clipped ' || n || ' bytes]'; clipped := clipped || jsonb_build_object('entity', n); END IF;
+  n := octet_length(NEW."entityId");
+  IF n > 1024 THEN NEW."entityId" := left(NEW."entityId", 200) || '…[clipped ' || n || ' bytes]'; clipped := clipped || jsonb_build_object('entityId', n); END IF;
+  n := octet_length(NEW."userEmail");
+  IF n > 1024 THEN NEW."userEmail" := left(NEW."userEmail", 200) || '…[clipped ' || n || ' bytes]'; clipped := clipped || jsonb_build_object('userEmail', n); END IF;
+  n := octet_length(NEW."ipAddress");
+  IF n > 64 THEN NEW."ipAddress" := left(NEW."ipAddress", 8) || '…[clipped ' || n || ']'; clipped := clipped || jsonb_build_object('ipAddress', n); END IF;
+  IF clipped <> '{}'::jsonb THEN
+    IF NEW."newValue" IS NULL OR jsonb_typeof(NEW."newValue") = 'object' THEN
+      NEW."newValue" := COALESCE(NEW."newValue", '{}'::jsonb) || jsonb_build_object('_clipped', clipped);
+    END IF;
   END IF;
   RETURN NEW;
 END;
