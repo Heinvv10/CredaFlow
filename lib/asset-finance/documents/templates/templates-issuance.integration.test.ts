@@ -20,7 +20,7 @@ import { addMonthsClamped } from "../../dates"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dealFixtureTenantId, dealRoutes } from "../../deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "../../deal-signing.integration-fixture"
-import { dealStartDate } from "../../deal-structure"
+import { plannedStartFor } from "../../first-due.test-helpers"
 import { isoOfDbDate } from "../../dates"
 import { prose, texts } from "../nca/nca-wording.test-helpers"
 import { DRAFT_WATERMARK, SYNTHETIC_DEMO_WATERMARK } from "../pdf-layout"
@@ -53,7 +53,7 @@ const asStaff = (fx: SigningFixture, userId: string, role: string) => {
   session.current = { user: { id: userId, email: `${userId}@templates-it.test`, role, tenantId: fx.tenantId } }
 }
 const asClient = (fx: SigningFixture, clientId: string) => asStaff(fx, clientId, "CLIENT")
-const startOf = async (dealId: string) => dealStartDate(isoOfDbDate((await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { firstDueDate: true } })).firstDueDate))
+const startOf = async (dealId: string) => plannedStartFor(isoOfDbDate((await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { firstDueDate: true } })).firstDueDate))
 const prepare = async (fx: SigningFixture, dealId: string) => {
   asStaff(fx, fx.officer, "CREDIT_OFFICER")
   return signingRoutes(fx.host).prepare(dealId, { plannedStartDate: await startOf(dealId) })

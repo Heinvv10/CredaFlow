@@ -23,7 +23,7 @@ import { POST as publishRoute } from "@/app/api/documents/templates/[id]/version
 import { POST as adoptRoute } from "@/app/api/documents/templates/asset-finance/adopt/route"
 import { dealFixtureTenantId, dealRoutes } from "../../deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "../../deal-signing.integration-fixture"
-import { dealStartDate } from "../../deal-structure"
+import { plannedStartFor } from "../../first-due.test-helpers"
 import { addMonthsClamped, isoOfDbDate } from "../../dates"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { starterContent, type AssetTemplateContent } from "./content"
@@ -78,7 +78,7 @@ const req = (fx: SigningFixture, path: string, body?: unknown) => new NextReques
 const p = <T extends object>(v: T) => ({ params: Promise.resolve(v) })
 const startOf = async (dealId: string) => {
   const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { firstDueDate: true } })
-  return dealStartDate(isoOfDbDate(deal.firstDueDate))
+  return plannedStartFor(isoOfDbDate(deal.firstDueDate))
 }
 /** A new draft of `key` (edited where the variant takes lender text), legally approved by the SUPER_ADMIN and published by adminA. */
 async function publishEdit(fx: SigningFixture, key: string, marker: string): Promise<string> {

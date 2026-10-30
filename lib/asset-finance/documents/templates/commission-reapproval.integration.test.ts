@@ -21,7 +21,7 @@ import { insertDealer, insertDealerUser, lit } from "@/lib/dealer/dealer.integra
 import { ensureSyntheticTemplates } from "@/prisma/seed/asset-finance-templates"
 import { dealFixtureTenantId } from "../../deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "../../deal-signing.integration-fixture"
-import { dealStartDate } from "../../deal-structure"
+import { plannedStartFor } from "../../first-due.test-helpers"
 import { isoOfDbDate } from "../../dates"
 import { ISA_CLAUSE } from "../commission-disclosure.test-helpers"
 import { prose, texts } from "../nca/nca-wording.test-helpers"
@@ -72,7 +72,7 @@ const staff = () => ({ adminOne: { id: fx.adminA, email: "a@x.invalid" }, adminT
 const prepare = async () => {
   session.current = { user: { id: fx.officer, email: "officer@templates-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId } }
   const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, select: { firstDueDate: true } })
-  return signingRoutes(fx.host).prepare(fx.dealId, { plannedStartDate: dealStartDate(isoOfDbDate(deal.firstDueDate)) })
+  return signingRoutes(fx.host).prepare(fx.dealId, { plannedStartDate: plannedStartFor(isoOfDbDate(deal.firstDueDate)) })
 }
 const agreementText = async () => {
   const issuance = await database().assetDocumentIssuance.findFirstOrThrow({ where: { dealId: fx.dealId, document: "AGREEMENT", supersededAt: null } })
