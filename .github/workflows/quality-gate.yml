@@ -6,8 +6,8 @@ name: ci
 # duplicate npm installs on every revision.
 #
 # GitHub-hosted runners (ubuntu-latest). The integration shards use the
-# PostgreSQL 16 the runner image ships (scripts/ci/pg-cluster.sh, PG_BIN default
-# /usr/lib/postgresql/16/bin); poppler-utils and qpdf are apt-installed.
+# postgresql-16 (scripts/ci/pg-cluster.sh, PG_BIN default
+# /usr/lib/postgresql/16/bin), poppler-utils and qpdf are apt-installed.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
@@ -227,10 +227,14 @@ jobs:
           # The baseline ratchet needs the merge base with the target branch.
           fetch-depth: 0
 
-      # A throwaway PostgreSQL 16 cluster of this job's own, from the runner image (no
+      # A throwaway PostgreSQL 16 cluster of this job's own, (apt-installed, no
       # docker service): own directory, OS-assigned loopback port, never shared with the
       # other shard on this machine. These suites create and delete real rows.
       # scripts/ci/pg-cluster.sh exports DATABASE_URL and CI_PG_DIR.
+      # The image has no server binaries at PG_BIN; Ubuntu 24.04 packages 16.
+      - name: Install PostgreSQL 16 and PDF tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-16 poppler-utils
+
       - name: Start PostgreSQL
         run: bash scripts/ci/pg-cluster.sh start
 
@@ -286,9 +290,6 @@ jobs:
 
       - name: Generate Prisma client
         run: npx prisma generate
-
-      - name: Install PDF tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
 
       - name: Integration gate
         run: bash scripts/run-integration-tests.sh
