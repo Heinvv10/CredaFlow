@@ -51,7 +51,8 @@ jobs:
       # and every transitive dependency are installed with --require-hashes from
       # .github/ci/semgrep-requirements.txt (regenerate: uv pip compile
       # --generate-hashes --python-version 3.12 --python-platform
-      # x86_64-unknown-linux-gnu, from a one-line semgrep==X input).
+      # x86_64-unknown-linux-gnu, from semgrep-requirements.in). The runner must
+      # have CPython 3.12: uv may not download one, and may not build from source.
       - name: Semgrep
         env:
           UV_VERSION: 0.13.6
@@ -63,8 +64,8 @@ jobs:
           curl -sSfL -o "$RUNNER_TEMP/uv.tgz" "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
           echo "${UV_SHA256}  $RUNNER_TEMP/uv.tgz" | sha256sum -c -
           mkdir "$RUNNER_TEMP/uvbin" && tar -xzf "$RUNNER_TEMP/uv.tgz" -C "$RUNNER_TEMP/uvbin" --strip-components=1
-          "$RUNNER_TEMP/uvbin/uv" venv --python 3.12 "$RUNNER_TEMP/semgrep-venv"
-          "$RUNNER_TEMP/uvbin/uv" pip install --python "$RUNNER_TEMP/semgrep-venv/bin/python" --require-hashes -r .github/ci/semgrep-requirements.txt
+          "$RUNNER_TEMP/uvbin/uv" --no-python-downloads venv --python 3.12 "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/uvbin/uv" pip install --no-build --python "$RUNNER_TEMP/semgrep-venv/bin/python" --require-hashes -r .github/ci/semgrep-requirements.txt
           "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --metrics=off --error --severity ERROR \
             --config p/typescript --config p/nextjs --config p/security-audit \
             --exclude-rule javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length \
@@ -110,6 +111,11 @@ jobs:
           echo "::error::fork pull requests must not run on the self-hosted runner"
           exit 1
 
+      # The runner workspace persists, and its .git keeps refs fetched for other
+      # PRs (refs/remotes/pull/*) that `gitleaks detect --all` would scan. Start
+      # from an empty .git so the scan sees only what a fresh clone has.
+      - name: Drop stale git state
+        run: rm -rf "${GITHUB_WORKSPACE:?}/.git"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
@@ -123,7 +129,7 @@ jobs:
           curl -sSfL -o "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
           mkdir "$RUNNER_TEMP/gitleaks" && tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP/gitleaks" gitleaks
-          "$RUNNER_TEMP/gitleaks/gitleaks" detect --source . --no-banner --redact --exit-code 1
+          "$RUNNER_TEMP/gitleaks/gitleaks" detect --source . --no-banner --redact --exit-code 1 --log-opts="--all"
 
   # Both images the Helm chart deploys: the runner and the migration runner. HIGH
   # and CRITICAL fail the job. --ignore-unfixed: a CVE with no fixed package yet

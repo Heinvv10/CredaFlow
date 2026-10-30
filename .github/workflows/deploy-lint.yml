@@ -53,10 +53,16 @@ jobs:
       # The default image.tag is empty on purpose: rendering without one must fail.
       - name: Chart refuses a missing or floating image tag
         run: |
+          command -v helm >/dev/null
           for args in "" "--set image.tag=latest" "--set image.tag=sha256:0000000000000000000000000000000000000000000000000000000000000000"; do
             # shellcheck disable=SC2086
-            if helm template rel deploy/helm/credaflow $args >/dev/null 2>&1; then
+            if out=$(helm template rel deploy/helm/credaflow $args 2>&1); then
               echo "::error::chart accepted a bad tag (args: ${args:-none})"
+              exit 1
+            fi
+            # A missing binary or bad path also fails; only the chart's own tag error counts.
+            if ! grep -q "image.tag" <<<"$out"; then
+              echo "::error::chart refused for another reason (args: ${args:-none}): $out"
               exit 1
             fi
           done
