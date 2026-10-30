@@ -1076,6 +1076,10 @@ export async function POST(
         if (!lockedApprovalEvidence.ok) {
           throw new DisbursementEvidenceChangedError(lockedApprovalEvidence.reason)
         }
+        // The same refusal as at approval, held here too: no mandate is registered for a structured schedule (lib/collections-engine/mandates.ts).
+        if (lockedApprovalEvidence.approval.inputs.repayment && (txApplication.repaymentMethod ?? "DEBIT_ORDER") === "DEBIT_ORDER") {
+          throw new DisbursementEvidenceChangedError("structure_not_debit_orderable")
+        }
         const lockedCreditLife = verifyStoredCreditLifeDisclosure(txApplication, {
           principalCents: lockedApprovalEvidence.approval.inputs.principalCents,
           termDays: lockedApprovalEvidence.approval.inputs.termDays,
@@ -1399,7 +1403,7 @@ export async function POST(
           const v = writtenTerms.productVersion
           await tx.loanTerms.create({
             data: {
-              loanId: newLoan.id, tenantId: tenant.id, productVersionId: v.id,
+              loanId: newLoan.id, tenantId: tenant.id, sequence: 1, productVersionId: v.id, deferredInterest: lockedApprovalEvidence.calculation.deferredInterest ?? 0,
               frequency: writtenTerms.repayment?.frequency ?? null, structure: writtenTerms.repayment?.structure ?? null, graceKind: writtenTerms.repayment?.graceKind ?? null,
               graceInstalments: writtenTerms.repayment?.graceInstalments ?? 0, instalments: writtenTerms.repayment?.instalments ?? null,
               baseRatePm: v.baseRatePm, interestRatePm: writtenTerms.interestRatePm, pricingRuleId: v.pricingRuleId, pricingRuleName: v.pricingRuleName, pricingInputs: v.pricingInputs,

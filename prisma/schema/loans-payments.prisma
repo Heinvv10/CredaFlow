@@ -233,7 +233,7 @@ model Loan {
   telematicsAlerts           TelematicsAlert[]
   telematicsHeldReadings     TelematicsHeldReading[]
   telematicsPositionAccesses TelematicsPositionAccess[]
-  terms LoanTerms?
+  terms LoanTerms[]
   trackerClosures            TrackerClosure[]
 
   @@unique([tenantId, id])

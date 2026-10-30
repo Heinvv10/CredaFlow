@@ -55,7 +55,7 @@ model ProductVersion {
   reason                String
   /// The approved ChangeRequest that made it. No relation (lib/maker-checker/.claude.md); the insert trigger requires it
   /// to exist, APPROVED, of kind PRODUCT_VERSION, and the row to equal its payload.
-  changeRequestId       String
+  changeRequestId       String             @unique
   /// Set once, by the activation that made LoanProduct equal to this version.
   appliedAt             DateTime?          @db.Timestamptz(3)
   createdAt             DateTime           @default(now())
@@ -90,8 +90,8 @@ model ProductPricingRule {
   rateMode         String
   rateValue        Float
   initiationFeePct Float?
-  /// The approved ChangeRequest (kind PRODUCT_PRICING_RULE, action CREATE) that made it ...
-  changeRequestId  String
+  /// The approved ChangeRequest (kind PRODUCT_PRICING_RULE, action CREATE) that made it: one request makes one rule ...
+  changeRequestId  String       @unique
   /// ... and the one (action RETIRE) that retired it.
   retiredAt        DateTime?    @db.Timestamptz(3)
   retiredByRequestId String?
@@ -104,8 +104,11 @@ model ProductPricingRule {
 // The terms a loan was written on: which version of the product, the repayment structure it was scheduled with, the
 // rate it was priced at and the rule that priced it. Written once, with the loan; a later version never reaches it.
 model LoanTerms {
-  loanId           String              @id
+  id               String              @id @default(cuid())
+  loanId           String
   tenantId         String
+  /// 1 is the origination; a later change to the loan's terms appends the next number. Rows are never changed.
+  sequence         Int
   tenant           Tenant              @relation(fields: [tenantId], references: [id])
   loan             Loan                @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   productVersionId String
@@ -123,9 +126,12 @@ model LoanTerms {
   pricingRuleName  String?
   /// { segment, channel, campaignCode, riskRank }: what the rule was matched on.
   pricingInputs    Json?
+  /// The interest of a full grace, which no row of the grace carries: it is inside the interest of the rows that follow it
+  /// (IFRS 9 recognises it in the grace, lib/ifrs9/ecl.ts). 0 for every other structure.
+  deferredInterest Int                 @default(0)
   createdAt        DateTime            @default(now())
 
-  @@unique([tenantId, loanId])
+  @@unique([tenantId, loanId, sequence])
   @@index([tenantId, productVersionId])
 }
 

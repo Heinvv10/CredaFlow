@@ -983,6 +983,15 @@ export async function decideApplication({ tenant, user, id, formData, automation
     if (terms.ncaIssues.length > 0) {
       return NextResponse.json({ error: `Approval blocked: the product version in effect is not one an NCA lender may use. ${terms.ncaIssues.join("; ")}`, productVersionRefused: true }, { status: 422 })
     }
+    // A debit-order mandate (DebiCheck) is registered monthly, one recurring amount, one debit day. A weekly or fortnightly loan
+    // would fall into arrears the first week, and an interest-only, graced or bullet schedule has no one recurring amount. Until
+    // the mandate follows the schedule, such a loan is collected by EFT.
+    if (terms.repayment && repaymentMethod === "DEBIT_ORDER") {
+      return NextResponse.json(
+        { error: "This product's repayment structure cannot be collected by debit order yet: approve for EFT.", repaymentMethod: "structure_not_debit_orderable" },
+        { status: 400 },
+      )
+    }
     // The cap above read the product row; the loan is written at the version's rate (and its rule's price), so check that.
     if (terms.versioned) {
       const versionedCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, capApplicationFor(application, terms, { principalCents: approvalPrincipal, termDays: approvalTermDays }))

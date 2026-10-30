@@ -184,6 +184,9 @@ suite("product engine (real Postgres)", () => {
     expect(await refusal(db.productPricingRule.update({ where: { id: rule.id }, data: { rateValue: 0.001 } }))).toContain("never changes")
     expect(await refusal(db.productPricingRule.update({ where: { id: rule.id }, data: { retiredAt: new Date(), retiredByRequestId: "nope" } }))).toContain("never changes")
     expect(await refusal(db.productPricingRule.delete({ where: { id: rule.id } }))).toContain("never changes")
+    // one approved request makes one rule: the same rule again, from the same request, is refused
+    const { id: _ruleId, createdAt: _ruleCreatedAt, retiredAt: _retiredAt, retiredByRequestId: _retiredBy, ...ruleCopy } = rule
+    expect(await refusal(db.productPricingRule.create({ data: ruleCopy as never }))).toContain("changeRequestId")
 
     const retire = await propose({ action: "RETIRE", ruleId: rule.id }, PRICING_RULE_KIND)
     await approveRequest(retire.id)
@@ -198,19 +201,37 @@ suite("product engine (real Postgres)", () => {
     }, PRICING_RULE_KIND)).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
   })
 
-  it("a loan keeps the terms it was written on: one row, written once, never changed, and it names the version", async () => {
+  it("a loan keeps the terms it was written on: appended in sequence, never changed or removed, and each names its version", async () => {
     const tenant = await createChargesTenant(db)
     const loan = await createChargesLoan(db, tenant)
     const own = await createChargesLoan(db, { tenantId: lender.tenantId, userId: lender.makerId, productId })
+    const fresh = async () => (await createChargesLoan(db, { tenantId: lender.tenantId, userId: lender.makerId, productId })).loanId
     const v1 = await db.productVersion.findFirstOrThrow({ where: { tenantId: lender.tenantId, productId, version: 1 } })
-    const terms = { loanId: own.loanId, tenantId: lender.tenantId, productVersionId: v1.id, frequency: "WEEKLY" as const, structure: "AMORTISING" as const, graceKind: "NONE" as const, graceInstalments: 0, instalments: 12, baseRatePm: 0.04, interestRatePm: 0.04 }
+    const terms = { loanId: own.loanId, tenantId: lender.tenantId, sequence: 1, productVersionId: v1.id, frequency: "WEEKLY" as const, structure: "AMORTISING" as const, graceKind: "NONE" as const, graceInstalments: 0, instalments: 12, baseRatePm: 0.04, interestRatePm: 0.04 }
     await db.loanTerms.create({ data: terms })
     // another lender's loan cannot take this lender's version (the composite foreign keys)
     expect(await refusal(db.loanTerms.create({ data: { ...terms, loanId: loan.loanId } }))).toBeTruthy()
-    expect(await refusal(db.loanTerms.update({ where: { loanId: own.loanId }, data: { interestRatePm: 0.01, baseRatePm: 0.01 } }))).toContain("never change")
-    expect(await refusal(db.loanTerms.delete({ where: { loanId: own.loanId } }))).toContain("never change")
-    expect(await refusal(db.loanTerms.create({ data: { ...terms, loanId: (await createChargesLoan(db, { tenantId: lender.tenantId, userId: lender.makerId, productId })).loanId, frequency: "WEEKLY", structure: "BULLET", graceKind: "FULL", graceInstalments: 1 } }))).toContain("LoanTerms_values")
-    expect(await refusal(db.loanTerms.create({ data: { ...terms, loanId: (await createChargesLoan(db, { tenantId: lender.tenantId, userId: lender.makerId, productId })).loanId, interestRatePm: 0.01 } }))).toContain("LoanTerms_values")
+    // a second row is the next number, so a restructure can record the terms from then on; any other number is refused
+    expect(await refusal(db.loanTerms.create({ data: { ...terms, sequence: 3 } }))).toContain("next row for this loan is 2")
+    expect(await refusal(db.loanTerms.create({ data: { ...terms, sequence: 1 } }))).toBeTruthy()
+    await db.loanTerms.create({ data: { ...terms, sequence: 2, interestRatePm: 0.04, instalments: 24 } })
+    expect(await db.loanTerms.count({ where: { loanId: own.loanId } })).toBe(2)
+    expect(await refusal(db.loanTerms.update({ where: { tenantId_loanId_sequence: { tenantId: lender.tenantId, loanId: own.loanId, sequence: 1 } }, data: { interestRatePm: 0.01, baseRatePm: 0.01 } }))).toContain("never change")
+    expect(await refusal(db.loanTerms.delete({ where: { tenantId_loanId_sequence: { tenantId: lender.tenantId, loanId: own.loanId, sequence: 2 } } }))).toContain("never change")
+    expect(await refusal(db.loanTerms.create({ data: { ...terms, loanId: await fresh(), frequency: "WEEKLY", structure: "BULLET", graceKind: "FULL", graceInstalments: 1 } }))).toContain("LoanTerms_values")
+    expect(await refusal(db.loanTerms.create({ data: { ...terms, loanId: await fresh(), interestRatePm: 0.01 } }))).toContain("LoanTerms_values")
+    expect(await refusal(db.loanTerms.create({ data: { ...terms, loanId: await fresh(), deferredInterest: -1 } }))).toContain("LoanTerms_values")
+  })
+
+  it("a version cannot start in the past: the row must carry the day the approval gave it, today at the earliest", async () => {
+    const request = await propose(versionPayload({ config: config({ interestRatePm: 0.031 }) }, "2031-05-01"))
+    await approveRequest(request.id)
+    const made = await db.productVersion.findFirstOrThrow({ where: { changeRequestId: request.id } })
+    expect(sastCalendarDate(made.effectiveFrom)).toBe("2031-05-01")
+    // the same row, a day earlier, is not the approved version: the day is held by the trigger (a past day starts today, never earlier)
+    const { id: _id, createdAt: _createdAt, appliedAt: _appliedAt, ...copy } = made
+    const yesterday = new Date(Date.now() - 2 * 86_400_000)
+    expect(await refusal(db.productVersion.create({ data: { ...copy, version: 99, effectiveFrom: yesterday, collateral: [], eligibility: copy.eligibility as never } as never }))).toContain("must equal")
   })
 
   it("isolates lenders: another lender's versions and rules are invisible", async () => {

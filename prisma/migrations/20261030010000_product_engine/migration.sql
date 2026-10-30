@@ -65,8 +65,10 @@ CREATE TABLE "ProductPricingRule" (
 
 -- CreateTable
 CREATE TABLE "LoanTerms" (
+    "id" TEXT NOT NULL,
     "loanId" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
+    "sequence" INTEGER NOT NULL,
     "productVersionId" TEXT NOT NULL,
     "frequency" "RepaymentFrequency",
     "structure" "RepaymentStructure",
@@ -78,9 +80,10 @@ CREATE TABLE "LoanTerms" (
     "pricingRuleId" TEXT,
     "pricingRuleName" TEXT,
     "pricingInputs" JSONB,
+    "deferredInterest" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "LoanTerms_pkey" PRIMARY KEY ("loanId")
+    CONSTRAINT "LoanTerms_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -106,10 +109,16 @@ CREATE UNIQUE INDEX "ProductVersion_tenantId_id_key" ON "ProductVersion"("tenant
 CREATE UNIQUE INDEX "ProductVersion_tenantId_productId_version_key" ON "ProductVersion"("tenantId", "productId", "version");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "ProductVersion_changeRequestId_key" ON "ProductVersion"("changeRequestId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ProductVersion_tenantId_productId_effectiveFrom_key" ON "ProductVersion"("tenantId", "productId", "effectiveFrom");
 
 -- CreateIndex
 CREATE INDEX "ProductPricingRule_tenantId_productId_idx" ON "ProductPricingRule"("tenantId", "productId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ProductPricingRule_changeRequestId_key" ON "ProductPricingRule"("changeRequestId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ProductPricingRule_tenantId_id_key" ON "ProductPricingRule"("tenantId", "id");
@@ -118,7 +127,7 @@ CREATE UNIQUE INDEX "ProductPricingRule_tenantId_id_key" ON "ProductPricingRule"
 CREATE INDEX "LoanTerms_tenantId_productVersionId_idx" ON "LoanTerms"("tenantId", "productVersionId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "LoanTerms_tenantId_loanId_key" ON "LoanTerms"("tenantId", "loanId");
+CREATE UNIQUE INDEX "LoanTerms_tenantId_loanId_sequence_key" ON "LoanTerms"("tenantId", "loanId", "sequence");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ApplicationPricingInput_tenantId_applicationId_key" ON "ApplicationPricingInput"("tenantId", "applicationId");
@@ -204,7 +213,7 @@ BEGIN
   END IF;
   cfg := req."payload" -> 'config';
   IF NEW."productId" IS DISTINCT FROM req."payload" ->> 'productId'
-    OR NEW."effectiveFrom" < (req."payload" ->> 'effectiveFrom')::DATE
+    OR NEW."effectiveFrom" IS DISTINCT FROM GREATEST((req."payload" ->> 'effectiveFrom')::DATE, (now() AT TIME ZONE 'Africa/Johannesburg')::DATE)
     OR NEW."reason" IS DISTINCT FROM req."payload" ->> 'reason'
     OR NEW."minAmount" IS DISTINCT FROM (cfg ->> 'minAmountCents')::INTEGER
     OR NEW."maxAmount" IS DISTINCT FROM (cfg ->> 'maxAmountCents')::INTEGER
@@ -315,14 +324,22 @@ ALTER TABLE "LoanTerms" ADD CONSTRAINT "LoanTerms_values" CHECK (
   AND ("graceKind" IS DISTINCT FROM 'PRINCIPAL_ONLY' OR "structure" = 'AMORTISING')
   AND (("pricingRuleId" IS NULL) = ("pricingRuleName" IS NULL))
   AND ("pricingRuleId" IS NOT NULL OR "interestRatePm" = "baseRatePm")
+  AND "sequence" >= 1 AND "deferredInterest" >= 0
 );
 
--- A loan keeps the terms it was written on: one row, written with the loan, never changed.
+-- A loan keeps the terms it was written on: rows are only ever appended, numbered 1, 2, 3 ... per loan (sequence 1 is the
+-- origination; a later restructure appends the terms that apply from then on), and none is ever changed or removed.
 CREATE OR REPLACE FUNCTION public."guardLoanTerms"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
+DECLARE
+  last INTEGER;
 BEGIN
   IF TG_OP <> 'INSERT' THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The terms a loan was written on never change';
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The terms a loan was written on never change: a later change appends a row';
+  END IF;
+  SELECT COALESCE(MAX(t."sequence"), 0) INTO last FROM "LoanTerms" t WHERE t."tenantId" = NEW."tenantId" AND t."loanId" = NEW."loanId";
+  IF NEW."sequence" <> last + 1 THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Loan terms are appended in sequence: the next row for this loan is ' || (last + 1)::TEXT;
   END IF;
   RETURN NEW;
 END;

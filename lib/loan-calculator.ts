@@ -72,6 +72,8 @@ export interface LoanCalcResult {
   totalRepayable: number // === sum(schedule.totalDue) in every model/mode
   disbursementAmount: number // cash actually advanced (principal, less the fee if UPFRONT)
   monthlyInstalment: number // 0 for micro loans
+  /** Interest a full grace defers into the rows after it (lib/product-engine/schedule.ts); absent for every other loan. */
+  deferredInterest?: number
   schedule: ScheduleItem[]
 }
 
@@ -123,6 +125,7 @@ export function calculateLoan(
   const schedule: ScheduleItem[] = []
   let totalInterest = 0
   let serviceFees = 0
+  let deferredInterest = 0
 
   if (repayment) {
     if (interestModel === "DAILY_ACCRUAL") throw new Error("A repayment structure needs a FLAT or REDUCING_BALANCE interest model")
@@ -132,6 +135,7 @@ export function calculateLoan(
     schedule.push(...generated.schedule)
     totalInterest = generated.totalInterest
     serviceFees = generated.serviceFees
+    deferredInterest = generated.deferredInterest
   } else if (interestModel === "FLAT") {
     // Flat: interestRatePm is monthly decimal (e.g. 0.05 = 5%/month)
     const interestRatePerDay = interestRatePm / 30
@@ -257,6 +261,7 @@ export function calculateLoan(
     totalRepayable: principal + totalInterest + serviceFees + scheduledInitiationFee,
     disbursementAmount,
     monthlyInstalment,
+    ...(deferredInterest > 0 ? { deferredInterest } : {}),
     schedule,
   }
 }
