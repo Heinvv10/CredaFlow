@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { ruleRefuses } from "./lease-servicing.integration-fixture"
 import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
-import { dealStartDate } from "./deal-structure"
+import { plannedStartFor } from "./first-due.test-helpers"
 import { isoOfDbDate } from "./dates"
 import { verifiedSigningOtp } from "@/lib/signing-otp/signing-otp.integration-fixture"
 
@@ -79,7 +79,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
       session.current = { user: { id: userId, email: `${userId}@signing-it.test`, role, tenantId: `t_af_deal_${t}` } }
     })
     const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, select: { firstDueDate: true } })
-    plannedStart = dealStartDate(isoOfDbDate(deal.firstDueDate))
+    plannedStart = plannedStartFor(isoOfDbDate(deal.firstDueDate))
   })
 
   afterAll(async () => {

@@ -22,7 +22,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { dbDate, isoOfDbDate } from "./dates"
-import { dealStartDate } from "./deal-structure"
+import { plannedStartFor } from "./first-due.test-helpers"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { toScheduleRecord } from "./schedule-records"
 import { signingRoutes } from "./deal-signing.integration-fixture"
@@ -91,7 +91,7 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
 
   it("preparation fixed the contract terms on each deal: start, figures, the product's arrears terms, the signers", async () => {
     const [a, b] = await Promise.all([fx.dealId, fx.dealB].map((id) => database().assetFinanceDeal.findUniqueOrThrow({ where: { id } })))
-    expect(a.plannedStartDate && isoOfDbDate(a.plannedStartDate)).toBe(dealStartDate(isoOfDbDate(a.firstDueDate)))
+    expect(a.plannedStartDate && isoOfDbDate(a.plannedStartDate)).toBe(plannedStartFor(isoOfDbDate(a.firstDueDate)))
     expect(a.signedResultingRate?.toString()).toBe("0.1175")
     expect(a.signedArrearsMarginRate?.toString()).toBe("0.02")
     expect(a.signedCollectionFeeCents).toBe(45_000)
@@ -168,7 +168,7 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
   it("contract re-renders the agreement with its issued version and identity: a mismatch is refused (409, audited); a later identity change is not one", async () => {
     dealC = await approveDeal(fx, fx.assets[2], (id, role) => setSession({ id, email: `${id}@terms-it.test`, role, tenantId: fx.tenantId }), database(), 2)
     const created = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC }, select: { firstDueDate: true } })
-    dealCStart = dealStartDate(isoOfDbDate(created.firstDueDate))
+    dealCStart = plannedStartFor(isoOfDbDate(created.firstDueDate))
     await prepareAndSign(fx, dealC, setSession, database(), [], dealCStart)
     // The recorded issuance no longer describes the signed bytes: the re-render cannot reproduce them.
     const issuance = await database().assetDocumentIssuance.findFirstOrThrow({ where: { dealId: dealC, document: "AGREEMENT", supersededAt: null } })
