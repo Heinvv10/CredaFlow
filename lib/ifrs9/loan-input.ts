@@ -4,6 +4,9 @@ import type { prisma } from "@/lib/prisma"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { collectibleLoanWhere } from "@/lib/loan/collectible-book"
 import { loadAsOfLoans, scheduleAsOf } from "@/lib/reports/book-as-of"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { addPeriods } from "@/lib/product-engine/periods"
+import type { GraceDeferral } from "./ecl"
 import type { RunLoan } from "./snapshot"
 import type { PriorStaging } from "./staging"
 import type { SicrFlagKind, Stage } from "./types"
@@ -14,12 +17,22 @@ const BASE_SELECT = {
   id: true, reference: true, productId: true, contractType: true, status: true, collectionsStage: true, debtReviewNoticeAt: true,
   startDate: true, principal: true, outstandingPrincipal: true, chargesOutstanding: true,
   ifrs9Flags: { where: { clearedAt: null }, select: { kind: true } },
+  // The terms the loan was written on (lib/product-engine): a full grace defers interest that is earned in the grace.
+  terms: { orderBy: { sequence: "asc" }, take: 1, select: { frequency: true, graceKind: true, graceInstalments: true, deferredInterest: true } },
 } as const
 
 type BaseRow = Prisma.LoanGetPayload<{ select: typeof BASE_SELECT }>
 
+function graceDeferralOf(row: BaseRow): GraceDeferral | undefined {
+  const t = row.terms[0]
+  if (!t || t.graceKind !== "FULL" || !t.frequency || t.deferredInterest <= 0) return undefined
+  return { endDate: sastCalendarDate(addPeriods(row.startDate, t.frequency, t.graceInstalments)), cents: t.deferredInterest }
+}
+
 function runLoan(row: BaseRow, schedule: RunLoan["schedule"], outstandingPrincipal: number, status = row.status): RunLoan {
+  const graceDeferral = graceDeferralOf(row)
   return {
+    ...(graceDeferral ? { graceDeferral } : {}),
     id: row.id, reference: row.reference, productId: row.productId, contractType: row.contractType, status,
     collectionsStage: row.collectionsStage, startDate: row.startDate, principal: row.principal, outstandingPrincipal,
     chargesOutstanding: row.chargesOutstanding, debtReview: row.debtReviewNoticeAt !== null, schedule,

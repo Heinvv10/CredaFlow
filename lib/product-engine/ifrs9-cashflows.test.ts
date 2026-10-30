@@ -11,11 +11,13 @@ import type { RepaymentTerms } from "./types"
 
 const START = new Date("2027-02-10T12:00:00+02:00")
 const startDay = sastCalendarDate(START)
-const rows = (terms: Partial<RepaymentTerms> & { instalments: number }, over: { rate?: number; fee?: number } = {}): ScheduleRow[] =>
+const generated = (terms: Partial<RepaymentTerms> & { instalments: number }, over: { rate?: number; fee?: number } = {}) =>
   generateSchedule({
     principalCents: 1_000_000, interestRatePm: over.rate ?? 0.02, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: over.fee ?? 0, startDate: START,
     terms: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, ...terms },
-  }).schedule.map((r) => ({ dueDate: sastCalendarDate(r.dueDate), interestDue: r.interestDue, feesDue: r.feesDue, principalDue: r.principalDue, totalDue: r.totalDue, totalPaid: 0 }))
+  })
+const rows = (terms: Partial<RepaymentTerms> & { instalments: number }, over: { rate?: number; fee?: number } = {}): ScheduleRow[] =>
+  generated(terms, over).schedule.map((r) => ({ dueDate: sastCalendarDate(r.dueDate), interestDue: r.interestDue, feesDue: r.feesDue, principalDue: r.principalDue, totalDue: r.totalDue, totalPaid: 0 }))
 
 describe("IFRS 9 reads the engine's schedules", () => {
   it("weekly: the interest accrued part-way through a week is that week's interest by the day", () => {
@@ -27,13 +29,23 @@ describe("IFRS 9 reads the engine's schedules", () => {
     expect(accruedInterestCents(weekly, "2027-02-17", startDay)).toBe(Math.round((weekly[1]!.interestDue * 0) / 7))
   })
 
-  it("full grace: before the first payment the accrual runs over the whole grace plus the first period, deferred interest included", () => {
+  it("full grace: the deferred interest is earned in the grace, in full by the day it ends (R400 of two months at 2% on R10 000), not through the first period after it", () => {
+    const g = generated({ graceKind: "FULL", graceInstalments: 2, instalments: 6 })
     const graced = rows({ graceKind: "FULL", graceInstalments: 2, instalments: 6 })
-    // first payment 10 May (89 days after 10 Feb) carries 30 000 (its own 20 000 and 10 000 of the deferred 40 000)
+    // first payment 10 May carries 30 000: its own 20 000 and 10 000 of the deferred 40 000
     expect(graced).toHaveLength(4)
     expect(graced[0]).toMatchObject({ dueDate: "2027-05-10", interestDue: 30_000 })
-    expect(accruedInterestCents(graced, "2027-04-10", startDay)).toBe(Math.round((30_000 * 59) / 89))
-    expect(accruedInterestCents(graced, "2027-05-10", startDay)).toBe(Math.round((graced[1]!.interestDue * 0) / 31))
+    expect(g.deferredInterest).toBe(40_000)
+    const deferral = { endDate: "2027-04-10", cents: g.deferredInterest }
+    expect(accruedInterestCents(graced, "2027-02-10", startDay, deferral)).toBe(0)
+    // half way through the grace (the 10 Mar is 28 of its 59 days): that share of the 40 000
+    expect(accruedInterestCents(graced, "2027-03-10", startDay, deferral)).toBe(Math.round((40_000 * 28) / 59))
+    // the day the grace ends all of it is earned
+    expect(accruedInterestCents(graced, "2027-04-10", startDay, deferral)).toBe(40_000)
+    // 15 days into the first period: the deferred interest still unraised and 15 of its 30 days of its own 20 000
+    expect(accruedInterestCents(graced, "2027-04-25", startDay, deferral)).toBe(40_000 + 10_000)
+    // after the first payment raised its 10 000 share, 30 000 of the deferred interest is still earned and unraised
+    expect(accruedInterestCents(graced, "2027-05-10", startDay, deferral)).toBe(30_000)
   })
 
   it("principal-only grace: the interest-only instalments are raised as they fall due", () => {
