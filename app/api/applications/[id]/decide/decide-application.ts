@@ -988,8 +988,11 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // The price a pricing rule gives follows the application's pricing inputs, which staff set: whoever set them does not also approve
     // a loan priced on them (the segment or campaign they typed could otherwise earn the discount they approve).
     if (terms.versioned?.pricingRuleId) {
-      const inputs = await prisma.applicationPricingInput.findFirst({ where: { tenantId: tenant.id, applicationId: id }, select: { updatedById: true } })
-      if (inputs?.updatedById === user.id) {
+      // Everyone who ever set them, from the audit trail: the last to update is not the only one (A sets, B touches, A approves).
+      const setByApprover = await prisma.auditLog.count({
+        where: { tenantId: tenant.id, entity: "LoanApplication", entityId: id, action: AuditAction.APPLICATION_PRICING_INPUT_SET, userId: user.id },
+      })
+      if (setByApprover > 0) {
         return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs, and a pricing rule priced it on them. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
       }
     }

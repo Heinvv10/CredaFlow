@@ -35,6 +35,7 @@ const txAnalysisCountMock = vi.fn()
 const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 const referenceRateFindFirstMock = vi.fn()
+const auditLogCountMock = vi.fn(async (_a: unknown) => 0)
 const calculateLoanMock = vi.fn((..._args: unknown[]) => undefined)
 const pricingRuleFindManyMock = vi.fn(async (_a: unknown) => [] as Array<Record<string, unknown>>)
 const applicationPricingInputFindFirstMock = vi.fn(async (_a: unknown) => null as Record<string, unknown> | null)
@@ -96,6 +97,7 @@ vi.mock("@/lib/prisma", () => ({
     referenceRate: { findFirst: (a: unknown) => referenceRateFindFirstMock(a), findMany: async () => [] },
     loan: { findMany: (a: unknown) => loanFindManyMock(a) },
     // No product under the product engine: the product's own terms apply (lib/product-engine/approval-terms.ts).
+    auditLog: { count: (a: unknown) => auditLogCountMock(a) },
     productVersion: { findFirst: (a: unknown) => productVersionFindFirstMock(a) },
     productPricingRule: { findMany: (a: unknown) => pricingRuleFindManyMock(a) },
     applicationPricingInput: { findFirst: (a: unknown) => applicationPricingInputFindFirstMock(a) },
@@ -399,6 +401,7 @@ beforeEach(() => {
   productVersionFindFirstMock.mockReset().mockResolvedValue(null)
   pricingRuleFindManyMock.mockReset().mockResolvedValue([])
   calculateLoanMock.mockReset()
+  auditLogCountMock.mockReset().mockResolvedValue(0)
   applicationPricingInputFindFirstMock.mockReset().mockResolvedValue(null)
   screeningApprovalGateMock.mockResolvedValue({ allowed: true, state: { state: "CLEAR" }, message: "Screening is clear.", providerError: null })
   lockedScreeningAllowsApprovalMock.mockResolvedValue(true)
@@ -1221,12 +1224,26 @@ describe("approval on a product version with a repayment structure and a pricing
   it("is refused for a person who set the pricing inputs the rule priced on: a different person approves", async () => {
     approveWeekly()
     applicationPricingInputFindFirstMock.mockResolvedValue({ segment: "SALARIED", channel: "BRANCH", campaignCode: null, updatedById: "u1" })
+    auditLogCountMock.mockResolvedValue(1)
 
     const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
 
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ pricingInputsSetByApprover: true })
     expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("is refused for anyone who ever set the pricing inputs, not only the last to: A sets, B touches, A cannot then approve", async () => {
+    approveWeekly()
+    // B was the last to update, but A also set them earlier: the audit trail names every setter
+    applicationPricingInputFindFirstMock.mockResolvedValue({ segment: "SALARIED", channel: "BRANCH", campaignCode: null, updatedById: "b" })
+    auditLogCountMock.mockResolvedValue(1)
+
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ pricingInputsSetByApprover: true })
+    expect(auditLogCountMock).toHaveBeenCalledWith({ where: expect.objectContaining({ tenantId: "t1", action: "APPLICATION_PRICING_INPUT_SET", entityId: "app-1", userId: "u1" }) })
   })
 
   it("does not take a debit order for a structured schedule: approve for EFT", async () => {

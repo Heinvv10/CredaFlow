@@ -6,6 +6,7 @@ const canDo = vi.hoisted(() => vi.fn())
 const findApplication = vi.hoisted(() => vi.fn())
 const ruleFindMany = vi.hoisted(() => vi.fn())
 const queryRaw = vi.hoisted(() => vi.fn())
+const applicationUpdateMany = vi.hoisted(() => vi.fn())
 const inputFindFirst = vi.hoisted(() => vi.fn())
 const inputUpsert = vi.hoisted(() => vi.fn())
 const logAuditStrict = vi.hoisted(() => vi.fn())
@@ -20,7 +21,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findFirst: findApplication },
     productPricingRule: { findMany: ruleFindMany },
-    $transaction: (cb: (tx: unknown) => unknown) => cb({ $queryRaw: queryRaw, applicationPricingInput: { findFirst: inputFindFirst, upsert: inputUpsert } }),
+    $transaction: (cb: (tx: unknown) => unknown) => cb({ $queryRaw: queryRaw, loanApplication: { updateMany: applicationUpdateMany }, applicationPricingInput: { findFirst: inputFindFirst, upsert: inputUpsert } }),
   },
 }))
 
@@ -37,6 +38,7 @@ beforeEach(() => {
   queryRaw.mockResolvedValue([{ status: "UNDER_REVIEW" }])
   inputFindFirst.mockResolvedValue(null)
   inputUpsert.mockResolvedValue({})
+  applicationUpdateMany.mockResolvedValue({ count: 1 })
   logAuditStrict.mockResolvedValue(undefined)
 })
 
@@ -47,6 +49,14 @@ describe("PUT /api/applications/[id]/pricing-inputs", () => {
     expect((queryRaw.mock.calls[0]![0] as string[]).join("?")).toMatch(/FROM "LoanApplication" WHERE .*FOR UPDATE/)
     expect(inputUpsert).toHaveBeenCalledWith(expect.objectContaining({ update: { segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27", updatedById: "officer-1" } }))
     expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "APPLICATION_PRICING_INPUT_SET", newValue: { segment: "SALARIED", channel: "BRANCH", campaignCode: "SPRING27" } }), expect.anything())
+  })
+
+  it("records whoever sets the inputs as input staff of the application, which only grows: the maker and segregation-of-duties rules then cover them", async () => {
+    expect((await put({ segment: "SALARIED", channel: "BRANCH", campaignCode: null })).status).toBe(200)
+    expect(applicationUpdateMany).toHaveBeenCalledWith({
+      where: { id: "app-1", tenantId: "t1", NOT: { inputStaffIds: { has: "officer-1" } } },
+      data: { inputStaffIds: { push: "officer-1" } },
+    })
   })
 
   it("refuses a segment the lender has not configured: the segments are the ones its approved rules name", async () => {

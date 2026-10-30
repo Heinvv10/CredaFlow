@@ -64,6 +64,12 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       if (rows.length === 0) return { kind: "not_found" as const }
       if (!(OPEN as readonly string[]).includes(rows[0]!.status)) return { kind: "closed" as const, status: rows[0]!.status }
       const before = await tx.applicationPricingInput.findFirst({ where: { tenantId: tenant.id, applicationId: id } })
+      // Whoever sets the inputs is an input staff member of the application (LoanApplication.inputStaffIds only grows), so the maker and
+      // segregation-of-duties rules, approval and disbursement included, cover them as they cover anyone who captured its figures.
+      await tx.loanApplication.updateMany({
+        where: { id, tenantId: tenant.id, NOT: { inputStaffIds: { has: guard.user.id } } },
+        data: { inputStaffIds: { push: guard.user.id } },
+      })
       await tx.applicationPricingInput.upsert({
         where: { applicationId: id },
         create: { applicationId: id, tenantId: tenant.id, segment, channel, campaignCode, updatedById: guard.user.id },
