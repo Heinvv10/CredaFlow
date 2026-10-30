@@ -18,6 +18,22 @@ describe("delegationProblems", () => {
   it("accepts a delegation within the delegator's own authority", () => {
     expect(delegationProblems(ok)).toEqual([])
   })
+  describe("a delegation recorded on someone else's behalf", () => {
+    const onBehalf = (o: Record<string, unknown> = {}, actor: Record<string, unknown> = {}) => ({ ...ok, actorId: "admin", actorRole: "ADMIN" as const, ...actor, input: { ...ok.input, ...o } })
+    it("is allowed from an administrator whose own level covers it", () => {
+      expect(delegationProblems(onBehalf())).toEqual([])
+    })
+    it("cannot name the administrator themselves as the delegate (they would grant themselves another's authority)", () => {
+      expect(delegationProblems(onBehalf({ delegateId: "admin" })).join(" | ")).toMatch(/yourself|on behalf/)
+    })
+    it("cannot exceed the administrator's own level, though the delegator holds it", () => {
+      expect(delegationProblems(onBehalf({}, { actorRole: "LOAN_ADMIN" })).join(" | ")).toMatch(/your own level/)
+    })
+    it("a delegator recording their own is judged by their own level only", () => {
+      expect(delegationProblems({ ...ok, actorId: "boss", actorRole: "BRANCH_MANAGER" as const })).toEqual([])
+    })
+  })
+
   it.each([
     ["a level above the delegator's own", over({ level: 3 }), /own level/],
     ["a level the matrix does not have", over({ level: 4 }, { delegatorRole: "SUPER_ADMIN" }), /level/],

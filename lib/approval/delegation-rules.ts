@@ -22,10 +22,17 @@ export interface DelegationInput {
  */
 export function delegationProblems(args: {
   input: DelegationInput; delegatorRole: UserRole; delegateRole: UserRole; levels: readonly MatrixLevel[]; now: Date
+  /** Who is recording it, when that is not the delegator (an administrator on someone's behalf). */
+  actorId?: string; actorRole?: UserRole
 }): string[] {
   const { input, levels, now } = args
   const problems: string[] = []
   if (input.delegatorId === input.delegateId) problems.push("You cannot delegate authority to yourself.")
+  const onBehalf = args.actorId !== undefined && args.actorId !== input.delegatorId
+  if (onBehalf && input.delegateId === args.actorId) problems.push("Recording a delegation on someone else's behalf, you cannot name yourself as the delegate: that would grant you their authority.")
+  if (onBehalf && args.actorRole && Number.isInteger(input.level) && roleLevel(levels, args.actorRole) < input.level) {
+    problems.push(`A delegation recorded on someone else's behalf cannot exceed your own level (${roleLevel(levels, args.actorRole)}).`)
+  }
   if (!Number.isInteger(input.level) || input.level < 1 || input.level > levels.length) problems.push(`The matrix has levels 1 to ${levels.length}.`)
   else if (roleLevel(levels, args.delegatorRole) < input.level) problems.push(`A delegation cannot exceed the delegator's own level (${roleLevel(levels, args.delegatorRole)}).`)
   if (!APPROVER_ROLES.some((role) => hasMinRole(args.delegateRole, role))) problems.push(`The delegate must hold at least the ${APPROVER_ROLES[0]} role, which is what approving an application needs.`)

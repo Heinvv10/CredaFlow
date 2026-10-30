@@ -39,7 +39,7 @@ export async function grantDelegation(input: {
   const delegate = users.find((u) => u.id === input.delegation.delegateId)
   if (!delegator || !delegate) throw new DelegationError("INVALID", 422, "Both people must be active staff of the lender.", ["delegator or delegate"])
   const delegation = { ...input.delegation, delegatorId }
-  const problems = delegationProblems({ input: delegation, delegatorRole: delegator.role, delegateRole: delegate.role, levels: matrix.payload.levels, now })
+  const problems = delegationProblems({ input: delegation, delegatorRole: delegator.role, delegateRole: delegate.role, levels: matrix.payload.levels, now, actorId: input.actor.id, actorRole: input.actor.role })
   if (problems.length > 0) throw new DelegationError("INVALID", 422, problems[0], problems)
   return prisma.$transaction(async (tx) => {
     const created = await tx.approvalDelegation.create({
@@ -48,12 +48,19 @@ export async function grantDelegation(input: {
     await logAuditStrict({
       tenantId: input.tenantId, userId: input.actor.id, userEmail: input.actor.email, action: AuditAction.APPROVAL_DELEGATION_GRANTED,
       entity: "ApprovalDelegation", entityId: created.id,
-      newValue: { delegatorId, delegateId: delegation.delegateId, level: delegation.level, maxAmountCents: delegation.maxAmountCents, validFrom: delegation.validFrom.toISOString(), validTo: delegation.validTo.toISOString(), reason: created.reason },
+      newValue: { ...(delegatorId !== input.actor.id ? { onBehalfOf: delegatorId, recordedBy: input.actor.id } : {}), delegatorId, delegateId: delegation.delegateId, level: delegation.level, maxAmountCents: delegation.maxAmountCents, validFrom: delegation.validFrom.toISOString(), validTo: delegation.validTo.toISOString(), reason: created.reason },
     }, tx)
     await notifyStaff(tx, {
       tenantId: input.tenantId, userIds: [delegation.delegateId], type: "APPROVAL_DELEGATED", title: "Approval authority delegated to you",
       body: `Level ${delegation.level} up to ${(delegation.maxAmountCents / 100).toFixed(2)}, until ${delegation.validTo.toISOString().slice(0, 10)}.`,
     })
+    // On someone's behalf: the delegator is told what was done in their name.
+    if (delegatorId !== input.actor.id) {
+      await notifyStaff(tx, {
+        tenantId: input.tenantId, userIds: [delegatorId], type: "APPROVAL_DELEGATED_ON_YOUR_BEHALF", title: "Your approval authority was delegated on your behalf",
+        body: `${input.actor.email} delegated your level ${delegation.level} authority, up to ${(delegation.maxAmountCents / 100).toFixed(2)}, until ${delegation.validTo.toISOString().slice(0, 10)}. Revoke it under Settings, Approval Matrix, if this is wrong.`,
+      })
+    }
     return created
   })
 }

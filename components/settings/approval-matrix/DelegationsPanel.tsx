@@ -79,7 +79,7 @@ export function DelegationsPanel({ currency, levels, staff, delegations, viewer,
                 </div>
               )}
               <div className="space-y-1"><Label htmlFor="dg-to">Delegate</Label>
-                <select id="dg-to" className={controlClass} value={delegateId} onChange={(e) => setDelegateId(e.target.value)}><option value="">Choose…</option>{staff.filter((s) => s.id !== delegatorId).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.role})</option>)}</select>
+                <select id="dg-to" className={controlClass} value={delegateId} onChange={(e) => setDelegateId(e.target.value)}><option value="">Choose…</option>{staff.filter((s) => s.id !== delegatorId && (delegatorId === viewer.id || s.id !== viewer.id)).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.role})</option>)}</select>
               </div>
               <div className="space-y-1"><Label htmlFor="dg-level">Level</Label>
                 <select id="dg-level" className={controlClass} value={level} onChange={(e) => setLevel(Number(e.target.value))}>{levels.map((l) => <option key={l.level} value={l.level}>{l.level}: {l.name}</option>)}</select>
