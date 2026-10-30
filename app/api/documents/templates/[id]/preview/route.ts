@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { extractTokens, renderTokens, type TokenContext } from "@/lib/documents/tokens"
+import { SAMPLE_QUOTE } from "@/lib/non-nca-documents/quote"
 import { findLenderIdentity } from "@/lib/config/identity"
 import { assetTemplatePreview } from "@/lib/asset-finance/documents/templates/route-helpers"
 
@@ -74,7 +75,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     ])
 
     const lender = await findLenderIdentity(tenant.id)
-    const ctx: TokenContext = { tenant: tenantRow, lender, client, application, loan }
+    // quote.*: synthetic figures, so a key facts statement or loan agreement previews in full before any application exists.
+    const ctx: TokenContext = { tenant: tenantRow, lender, client, application, loan, quote: SAMPLE_QUOTE }
 
     return NextResponse.json(renderTokens(body.bodyHtml, ctx))
   })

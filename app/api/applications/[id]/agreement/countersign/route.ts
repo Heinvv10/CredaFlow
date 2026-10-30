@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { assertDeclarationEvidence, signatureDigest } from "@/lib/compliance/agreement-declarations.server"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
@@ -389,6 +390,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused1) return keyFactsRefused1
     // Countersigning a consumer credit agreement; an entity borrower is refused.
     if (!hasClientBorrowerId(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })

@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { createHash, randomUUID } from "node:crypto"
 import { PDFDocument } from "pdf-lib"
 import { Prisma } from "@prisma/client"
@@ -42,6 +43,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused1) return keyFactsRefused1
     // The signing packet holds consumer NCA documents; an entity borrower is refused.
     if (!hasClientBorrowerId(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
@@ -227,6 +230,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    const keyFactsRefused2 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused2) return keyFactsRefused2
     // The signing packet holds consumer NCA documents; an entity borrower is refused.
     if (!hasClientBorrowerId(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })

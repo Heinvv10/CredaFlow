@@ -21,6 +21,8 @@ import { calculateLoan } from "@/lib/loan-calculator"
 import { previewCalcInput } from "@/lib/product-engine/approval-terms"
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react"
 import { AgreementSection } from "@/components/applications/AgreementSection"
+import { LoanDocumentsPanel } from "@/components/applications/LoanDocumentsPanel"
+import { loanDocumentState } from "@/lib/non-nca-documents/state"
 import { PipelineStepper } from "@/components/applications/PipelineStepper"
 import { AffordabilityCapture } from "@/components/applications/AffordabilityCapture"
 import { PricingInputsCard } from "@/components/applications/PricingInputsCard"
@@ -246,6 +248,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     )
   }
   const userRole = session?.user?.role ?? "READONLY"
+  // A key-facts (non-NCA) application has loan documents, not a PASQ and credit agreement.
+  const keyFactsState = application.disclosureRegime === "KEY_FACTS" ? await loanDocumentState(tenantId, application.id) : null
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")
   // The approval matrix's chain for this application (no matrix in force: nothing to show).
@@ -973,7 +977,20 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             Filing the returned packet as a loose client document records
             nothing — this panel is the only path that binds it. */}
         <div id="credit-agreement" className="scroll-mt-24">
-        {!decisionPricingUnavailable && (
+        {keyFactsState?.keyFacts && (
+          <LoanDocumentsPanel
+            applicationId={application.id}
+            status={application.status}
+            signedAt={application.agreementSignedAt?.toISOString() ?? null}
+            documents={keyFactsState.keyFacts.documents.map((d) => ({
+              kind: d.kind, clientDocumentId: d.clientDocumentId, pdfSha256: d.pdfSha256, templateVersion: d.templateVersion, sample: d.sample,
+              acknowledgedAt: d.acknowledgedAt?.toISOString() ?? null,
+            }))}
+            signingProblem={keyFactsState.keyFacts.signingProblem}
+            canIssue={hasMinRole(userRole, "CREDIT_OFFICER")}
+          />
+        )}
+        {!keyFactsState?.keyFacts && !decisionPricingUnavailable && (
           /* Both figures below MUST come from the SAME calculation.
              FeeElection subtracts one from the other to state, in rands, what
              actually reaches the consumer's account. loanCalc.initiationFee is
@@ -1017,7 +1034,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             path Loan Details above renders for), which is exactly the state
             the link is sent from — so say what to do instead of showing an
             empty anchor. */}
-        {decisionPricingUnavailable && (
+        {!keyFactsState?.keyFacts && decisionPricingUnavailable && (
           <DataPanel title="Credit Agreement">
             <p className="rounded-lg border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] p-4 text-sm text-[var(--cf-danger)]">
               Immutable approval pricing evidence is missing, so the credit

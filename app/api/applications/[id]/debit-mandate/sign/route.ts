@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
@@ -271,6 +272,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
 
   try {
     return await withTenantContext(req, async (tenant) => {
+      const keyFactsRefusedNew = await keyFactsRefusal(tenant.id, id)
+      if (keyFactsRefusedNew) return keyFactsRefusedNew
       signingTenantId = tenant.id
       const application = await prisma.loanApplication.findUnique({
         where: { id, tenantId: tenant.id },

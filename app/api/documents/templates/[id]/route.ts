@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { assetTemplateFixed } from "@/lib/asset-finance/documents/templates/route-helpers"
 import type { DocumentSigningMethod } from "@prisma/client"
+import { isLoanDocumentTemplateKey } from "@/lib/non-nca-documents/keys"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -53,6 +54,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       category?: string
       signingMethod?: DocumentSigningMethod
       requiresApproval?: boolean
+    }
+    if (isLoanDocumentTemplateKey(existing.key) && body.requiresApproval === false) {
+      return NextResponse.json({ error: "The key facts statement and loan agreement templates always need approval by a second person" }, { status: 409 })
     }
 
     const updated = await prisma.documentTemplate.update({
@@ -107,6 +111,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "System templates are read-only" }, { status: 403 })
     }
     if (existing.kind === "ASSET_FINANCE") return assetTemplateFixed()
+    if (isLoanDocumentTemplateKey(existing.key)) {
+      return NextResponse.json({ error: "The key facts statement and loan agreement templates cannot be deleted; documents already issued stand on them" }, { status: 409 })
+    }
 
     await prisma.documentTemplate.update({
       where: { id },

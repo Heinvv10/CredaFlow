@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { notFound, redirect } from "next/navigation"
 import { PortalAgreementClient } from "./PortalAgreementClient"
+import { PortalKeyFactsClient } from "./PortalKeyFactsClient"
+import { loanDocumentState } from "@/lib/non-nca-documents/state"
 import { getResolvedTenantId } from "@/lib/tenant"
 import { signingOtpView } from "@/lib/signing-otp/view"
 
@@ -24,6 +26,7 @@ export default async function PortalAgreementPage({ params }: Props) {
     select: {
       id: true,
       reference: true,
+      disclosureRegime: true,
       agreementGeneratedAt: true,
       agreementSignedAt: true,
       agreementDocumentSha256: true,
@@ -39,6 +42,25 @@ export default async function PortalAgreementPage({ params }: Props) {
 
   if (!application.agreementGeneratedAt) {
     redirect("/portal")
+  }
+
+  // A key-facts (non-NCA) application: the lender's key facts statement and loan agreement, not the PASQ ceremony.
+  if (application.disclosureRegime === "KEY_FACTS") {
+    if (application.agreementSignedAt) redirect(`/portal/applications/${application.id}`)
+    const state = (await loanDocumentState(tenantId, application.id))?.keyFacts
+    const kfs = state?.documents.find((d) => d.kind === "KEY_FACTS_STATEMENT")
+    const agreement = state?.documents.find((d) => d.kind === "LOAN_AGREEMENT")
+    if (!kfs || !agreement) redirect("/portal")
+    return (
+      <PortalKeyFactsClient
+        signingOtp={await signingOtpView(tenantId, application.client, "portal")}
+        applicationId={application.id}
+        reference={application.reference}
+        clientName={`${application.client.firstName} ${application.client.lastName}`}
+        keyFacts={{ documentId: kfs.clientDocumentId, sha256: kfs.pdfSha256, templateVersion: kfs.templateVersion, sample: kfs.sample, acknowledged: kfs.acknowledgedAt !== null }}
+        agreement={{ documentId: agreement.clientDocumentId, sha256: agreement.pdfSha256, templateVersion: agreement.templateVersion, sample: agreement.sample }}
+      />
+    )
   }
 
   if (application.agreementSignedAt) {
