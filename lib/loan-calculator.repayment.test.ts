@@ -105,3 +105,32 @@ describe("month-end due dates (PR #266 review): the legacy schedule every NCA le
     expect(days(calculateLoan({ ...inp, repayment: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 3 } }, start))).toEqual(["2026-02-28", "2026-03-31", "2026-04-30"])
   })
 })
+
+describe("the recurring instalment counts the monthly service fee once a month (PR #266 money breaker, round 2)", () => {
+  const base = { principal: 1_000_000, termDays: 90, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 6_900, productType: "PERSONAL", initiationFeePayment: "UPFRONT" as const }
+  const terms = (t: Partial<RepaymentTerms> & { instalments: number }): RepaymentTerms => ({ frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, ...t })
+  const jan = new Date("2026-01-15T08:00:00Z")
+  const feb = new Date("2026-02-01T08:00:00Z")
+
+  it("weekly, 13 amortising from 15 Jan: the weekly principal and interest x 52/12, plus one R69 fee: R3,566.09", () => {
+    const r = calculateLoan({ ...base, repayment: terms({ frequency: "WEEKLY", instalments: 13 }) }, jan)
+    expect(r.monthlyInstalment).toBe(Math.round((80_702 * 52) / 12) + 6_900)
+    expect(r.monthlyInstalment).toBe(356_609)
+  })
+
+  it("fortnightly, 7 amortising: R3,338.02 whether it starts on 15 Jan or 1 Feb, whichever fortnight a month end falls in", () => {
+    const f = (start: Date) => calculateLoan({ ...base, repayment: terms({ frequency: "FORTNIGHTLY", instalments: 7 }) }, start).monthlyInstalment
+    expect(f(jan)).toBe(333_802)
+    expect(f(feb)).toBe(333_802)
+  })
+
+  it("weekly and fortnightly interest-only: the interest scaled to a month, plus the fee once, on either start date", () => {
+    const io = (frequency: "WEEKLY" | "FORTNIGHTLY", instalments: number, start: Date) => calculateLoan({ ...base, repayment: terms({ frequency, structure: "INTEREST_ONLY", instalments }) }, start).monthlyInstalment
+    // R10 000 at 3% a month: R300 interest a month, however it is paid out in weeks or fortnights, plus the R69 fee, within rounding
+    for (const start of [jan, feb]) {
+      expect(Math.abs(io("WEEKLY", 13, start) - (30_000 + 6_900))).toBeLessThanOrEqual(2)
+      expect(Math.abs(io("FORTNIGHTLY", 7, start) - (30_000 + 6_900))).toBeLessThanOrEqual(2)
+    }
+    expect(io("WEEKLY", 13, jan)).toBe(io("WEEKLY", 13, feb))
+  })
+})
