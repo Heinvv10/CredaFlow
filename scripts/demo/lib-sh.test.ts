@@ -1,13 +1,25 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { DEMO_LENDERS } from '@/prisma/demo-lender'
 
 // Pure helpers of scripts/demo/lib.sh, called from a shell that sources it.
 
 const LIB = join(__dirname, 'lib.sh')
+
+// Every fixture dir goes under the OS tmpdir and is removed when the file finishes,
+// so test runs never leave .env-shaped files behind in /tmp.
+const tmpDirs: string[] = []
+const tmp = (prefix: string) => {
+  const d = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(d)
+  return d
+}
+afterAll(() => {
+  for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+})
 
 function call(fn: string, ...args: string[]): string {
   const r = spawnSync('bash', ['-c', `. "$0"; ${fn} "$@"`, LIB, ...args], { encoding: 'utf8' })
@@ -32,7 +44,7 @@ describe('host_addr', () => {
 
 describe('seed_passwords_ok', () => {
   const ok = (content: string) => {
-    const file = join(mkdtempSync(join(tmpdir(), 'seed-pw-')), 'seed-passwords.env')
+    const file = join(tmp('seed-pw-'), 'seed-passwords.env')
     writeFileSync(file, content)
     return spawnSync('bash', ['-c', '. "$0"; seed_passwords_ok "$1"', LIB, file]).status === 0
   }
@@ -71,7 +83,7 @@ describe('TENANT_DEMO_LENDER_SQL', () => {
 describe('sim_env_preflight', () => {
   // docker is a stub that prints the container env it is told to.
   const preflight = (containerEnv: string[], withSecret = true) => {
-    const dir = mkdtempSync(join(tmpdir(), 'sim-preflight-'))
+    const dir = tmp('sim-preflight-')
     writeFileSync(join(dir, 'docker'), `#!/bin/sh\nprintf '%s\\n' ${containerEnv.map((e) => `'${e}'`).join(' ')}\n`, { mode: 0o755 })
     const secrets = join(dir, 'secrets.env')
     writeFileSync(secrets, withSecret ? 'UNSUB_TOKEN_SECRET=synthetic-secret\n' : '')
@@ -96,7 +108,7 @@ describe('sim_env_preflight', () => {
 
 describe('ensure_demo_audit_env', () => {
   const setup = (envText: string) => {
-    const dir = mkdtempSync(join(tmpdir(), 'audit-env-'))
+    const dir = tmp('audit-env-')
     const file = join(dir, '.env.production')
     writeFileSync(file, envText, { mode: 0o600 })
     return { dir, file, backups: join(dir, 'backups') }
