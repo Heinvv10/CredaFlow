@@ -3,6 +3,8 @@ import { register } from "./instrumentation"
 
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
+// Boot reads the instance jurisdiction from the database (retries for up to 20 s); there is none here.
+vi.mock("@/lib/jurisdiction/load.server", () => ({ bootActiveJurisdiction: vi.fn(), ensureActiveJurisdiction: vi.fn() }))
 
 describe("RATE_LIMIT_STORE at boot", () => {
   beforeEach(() => {
