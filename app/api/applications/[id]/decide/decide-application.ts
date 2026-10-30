@@ -993,6 +993,12 @@ export async function decideApplication({ tenant, user, id, formData, automation
         return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs, and a pricing rule priced it on them. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
       }
     }
+    // Credit life is billed a premium per month of cover, bound to repayment rows (lib/insurance/credit-life-billing.ts): a weekly or
+    // fortnightly schedule has several rows to a month, so the premium periods would be counted per row. Until that is right, no
+    // cover is added to such a loan.
+    if (terms.repayment && terms.repayment.frequency !== "MONTHLY" && application.creditLifeElection === "ACCEPTED") {
+      return NextResponse.json({ error: "Approval blocked: credit life cannot be added to a weekly or fortnightly repayment schedule yet. Decline the cover, or choose a monthly product.", creditLifeEvidence: "structure_not_supported" }, { status: 422 })
+    }
     // A debit-order mandate (DebiCheck) is registered monthly, one recurring amount, one debit day. A weekly or fortnightly loan
     // would fall into arrears the first week, and an interest-only, graced or bullet schedule has no one recurring amount. Until
     // the mandate follows the schedule, such a loan is collected by EFT.

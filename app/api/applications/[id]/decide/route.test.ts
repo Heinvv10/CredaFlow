@@ -35,6 +35,9 @@ const txAnalysisCountMock = vi.fn()
 const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 const referenceRateFindFirstMock = vi.fn()
+const calculateLoanMock = vi.fn((..._args: unknown[]) => undefined)
+const pricingRuleFindManyMock = vi.fn(async (_a: unknown) => [] as Array<Record<string, unknown>>)
+const applicationPricingInputFindFirstMock = vi.fn(async (_a: unknown) => null as Record<string, unknown> | null)
 const productVersionFindFirstMock = vi.fn(async (_a: unknown) => null as Record<string, unknown> | null)
 const loanFindManyMock = vi.fn(async (_a: unknown) => [] as Array<{ startDate: Date; maturityDate: Date }>)
 type ApprovedSibling = { appliedAmount: number; appliedTermDays: number; approvedAmount: number | null; approvedTermDays: number | null }
@@ -94,8 +97,8 @@ vi.mock("@/lib/prisma", () => ({
     loan: { findMany: (a: unknown) => loanFindManyMock(a) },
     // No product under the product engine: the product's own terms apply (lib/product-engine/approval-terms.ts).
     productVersion: { findFirst: (a: unknown) => productVersionFindFirstMock(a) },
-    productPricingRule: { findMany: async () => [] },
-    applicationPricingInput: { findFirst: async () => null },
+    productPricingRule: { findMany: (a: unknown) => pricingRuleFindManyMock(a) },
+    applicationPricingInput: { findFirst: (a: unknown) => applicationPricingInputFindFirstMock(a) },
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => transactionMock(cb),
   },
 }))
@@ -136,7 +139,7 @@ vi.mock("@/lib/kyc/document-state", () => ({
   readCompositeKycState: (...args: unknown[]) => readCompositeKycStateMock(...args),
 }))
 vi.mock("@/lib/loan-calculator", () => ({
-  calculateLoan: () => ({
+  calculateLoan: (...args: unknown[]) => calculateLoanMock(...args) ?? ({
     principal: 500000,
     totalInterest: 50000,
     initiationFee: 75000,
@@ -159,8 +162,10 @@ vi.mock("@/lib/loan-calculator", () => ({
 
 import {
   createSubmissionAffordabilitySnapshot,
+  readAffordabilitySnapshotStore,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { POST } from "./route"
 import { decideApplication, type DecideAutomation } from "./decide-application"
 
@@ -392,6 +397,9 @@ const approvedApplication = {
 beforeEach(() => {
   vi.clearAllMocks()
   productVersionFindFirstMock.mockReset().mockResolvedValue(null)
+  pricingRuleFindManyMock.mockReset().mockResolvedValue([])
+  calculateLoanMock.mockReset()
+  applicationPricingInputFindFirstMock.mockReset().mockResolvedValue(null)
   screeningApprovalGateMock.mockResolvedValue({ allowed: true, state: { state: "CLEAR" }, message: "Screening is clear.", providerError: null })
   lockedScreeningAllowsApprovalMock.mockResolvedValue(true)
   verifyStoredPasqBindingMock.mockReset()
@@ -1151,6 +1159,100 @@ describe("NCA interest-rate cap at approval (Regulation 42)", () => {
     expect(referenceRateFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: "t1", basis: "REPO", status: "APPROVED" }),
     }))
+  })
+})
+
+describe("approval on a product version with a repayment structure and a pricing rule (lib/product-engine)", () => {
+  afterEach(() => resetActiveJurisdiction())
+  const weeklyVersion = {
+    id: "pv-9", productId: "product-1", version: 4, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+    minAmount: 100_000, maxAmount: 800_000, minTermDays: 14, maxTermDays: 180, interestRatePm: 0.05, interestModel: "REDUCING_BALANCE",
+    initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.15, initiationFeeMax: 100_000, monthlyServiceFee: 0,
+    frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, collateral: [], eligibility: {},
+  }
+  const rule = {
+    id: "rule-3", productId: "product-1", name: "Best grades", segment: "SALARIED", channel: null, riskRankMin: null, riskRankMax: null, campaignCode: null,
+    validFrom: new Date("2026-01-01T00:00:00Z"), validTo: null, priority: 0, rateMode: "SET", rateValue: 0.02, initiationFeePct: null, createdAt: new Date("2026-01-02T00:00:00Z"),
+  }
+  const approveWeekly = () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    findUniqueMock.mockResolvedValue({ ...underReviewApplication, riskGradeRank: 0 })
+    productVersionFindFirstMock.mockResolvedValue(weeklyVersion)
+    pricingRuleFindManyMock.mockResolvedValue([rule])
+  }
+
+  it("approves at the rule's price on the version's weekly structure, and freezes the version, the rule and the structure in the approval evidence", async () => {
+    approveWeekly()
+    applicationPricingInputFindFirstMock.mockResolvedValue({ segment: "SALARIED", channel: "BRANCH", campaignCode: null, updatedById: "someone-else" })
+
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+    expect(res.status).toBe(200)
+    // the schedule is generated for the version's structure at the rule's rate, not the product row's 5% flat monthly one
+    expect(calculateLoanMock.mock.calls.map((c) => c[0])).toContainEqual(expect.objectContaining({
+      interestRatePm: 0.02, interestModel: "REDUCING_BALANCE",
+      repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 4 },
+    }))
+    expect(txUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "APPROVED", approvedRate: 0.02 }),
+    }))
+    const data = txUpdateManyMock.mock.calls.find((c) => (c[0] as { data?: { status?: string } }).data?.status === "APPROVED")![0].data as { affordabilityResult: unknown }
+    const frozen = readAffordabilitySnapshotStore(data.affordabilityResult).approval!.inputs
+    expect(frozen).toMatchObject({
+      interestRatePm: 0.02,
+      repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 4 },
+      productVersion: { id: "pv-9", version: 4, baseRatePm: 0.05, pricingRuleId: "rule-3", pricingRuleName: "Best grades", pricingInputs: { segment: "SALARIED", channel: "BRANCH", campaignCode: null, riskRank: 0 } },
+    })
+  })
+
+  it("is refused for a person who set the pricing inputs the rule priced on: a different person approves", async () => {
+    approveWeekly()
+    applicationPricingInputFindFirstMock.mockResolvedValue({ segment: "SALARIED", channel: "BRANCH", campaignCode: null, updatedById: "u1" })
+
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ pricingInputsSetByApprover: true })
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("does not take a debit order for a structured schedule: approve for EFT", async () => {
+    approveWeekly()
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good", repaymentMethod: "DEBIT_ORDER" }), ctx)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ repaymentMethod: "structure_not_debit_orderable" })
+  })
+
+  it("is refused for an NCA lender: a version approved elsewhere keeps its structure out of an NCA lender's approvals", async () => {
+    approveWeekly()
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ productVersionRefused: true })
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("is refused for an amount outside the version's limits, not a 500", async () => {
+    approveWeekly()
+    productVersionFindFirstMock.mockResolvedValue({ ...weeklyVersion, maxAmount: 400_000 })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ productVersionRefused: true })
+  })
+
+  it("is refused when a credit-life election was accepted on a weekly schedule: the premium periods are monthly", async () => {
+    approveWeekly()
+    findUniqueMock.mockResolvedValue({
+      ...underReviewApplication, riskGradeRank: 0, creditLifeElection: "ACCEPTED",
+      creditLifeDisclosureSha256: createCreditLifeDisclosureSha256({
+        version: "credit-life-election-v1", election: "ACCEPTED", principalCents: 500000, termDays: 30, monthlyPremiumCents: 2250,
+        productId: "credit-life-1", productName: "Acme Credit Life", insurerId: "insurer-1", insurerName: "Test Life",
+      }),
+      creditLifeDisclosureAcknowledgedAt: new Date("2026-07-18T12:00:00Z"), creditLifeDisclosureAcknowledgedBy: "client-1",
+    })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ creditLifeEvidence: "structure_not_supported" })
   })
 })
 
