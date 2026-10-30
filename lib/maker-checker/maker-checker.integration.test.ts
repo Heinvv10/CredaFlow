@@ -10,6 +10,7 @@
  */
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { plantAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 import { decisionRuleSetHandler } from "@/lib/decisioning/change-handlers"
 import { RULE_SET_KIND } from "@/lib/decisioning/change-payloads"
 import { asAdminChecker, asChecker, asChecker2, asMaker, asOfficer, createApplication, createLender, type Lender } from "@/lib/decisioning/decisioning.integration-fixture"
@@ -316,7 +317,7 @@ suite("maker-checker (real Postgres)", () => {
       return { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
     }
     const trail = (action: string, userId: string, entityId: string, ageDays: number) =>
-      db.auditLog.create({ data: { tenantId: lender.tenantId, action, entity: "User", entityId, userId, createdAt: new Date(Date.now() - ageDays * 86_400_000), newValue: {} } })
+      plantAuditRowsForTest(db, [{ tenantId: lender.tenantId, action, entity: "User", entityId, userId, createdAt: new Date(Date.now() - ageDays * 86_400_000), newValue: {} }])
     const submitted = async (maker: Awaited<ReturnType<typeof person>>, name: string) => {
       const d = await createDraft({ tenantId: lender.tenantId, actor: maker, kind: RULE_SET_KIND, title: name, payload: payload({ name }) })
       await submit({ tenantId: lender.tenantId, actor: maker, id: d.id })
@@ -407,7 +408,7 @@ suite("maker-checker (real Postgres)", () => {
   it("an account whose sign-in, second factor, role, email or password changed in the last 30 days cannot have its changes approved, whoever wrote the row", async () => {
     const taken = async (label: string, trail: { action: string; oldValue?: object; newValue?: object; ageDays: number } | null, accountAgeDays = 90) => {
       const u = await db.user.create({ data: { id: `u_${label}_${lender.tenantId}`, tenantId: lender.tenantId, email: `${label}_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - accountAgeDays * 86_400_000) } })
-      if (trail) await db.auditLog.create({ data: { tenantId: lender.tenantId, action: trail.action, entity: "User", entityId: u.id, userId: u.id, oldValue: trail.oldValue ?? {}, newValue: trail.newValue ?? {}, createdAt: new Date(Date.now() - trail.ageDays * 86_400_000) } })
+      if (trail) await plantAuditRowsForTest(db, [{ tenantId: lender.tenantId, action: trail.action, entity: "User", entityId: u.id, userId: u.id, oldValue: trail.oldValue ?? {}, newValue: trail.newValue ?? {}, createdAt: new Date(Date.now() - trail.ageDays * 86_400_000) }])
       const actor = { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
       const d = await createDraft({ tenantId: lender.tenantId, actor, kind: RULE_SET_KIND, title: label, payload: payload({ name: `${label} rules` }) })
       await submit({ tenantId: lender.tenantId, actor, id: d.id })
@@ -433,7 +434,7 @@ suite("maker-checker (real Postgres)", () => {
     const ancient = await taken("ancient", { action: "TOTP_ENROLLED", ageDays: 5 }, 400)
     await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: ancient })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
     const reenrolled = await taken("reenrol", { action: "TOTP_ENROLLED", ageDays: 10 })
-    await db.auditLog.create({ data: { tenantId: lender.tenantId, action: "TOTP_RESET_BY_ADMIN", entity: "User", entityId: `u_reenrol_${lender.tenantId}`, userId: lender.checker2Id, newValue: {}, createdAt: new Date(Date.now() - 40 * 86_400_000) } })
+    await plantAuditRowsForTest(db, [{ tenantId: lender.tenantId, action: "TOTP_RESET_BY_ADMIN", entity: "User", entityId: `u_reenrol_${lender.tenantId}`, userId: lender.checker2Id, newValue: {}, createdAt: new Date(Date.now() - 40 * 86_400_000) }])
     await expect(approve({ tenantId: lender.tenantId, actor: asChecker(lender), id: reenrolled })).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
     // A rename, or any of it more than 30 days ago, does not count.
     const renamed = await taken("renamed", { action: "USER_UPDATED", newValue: { changed: ["name"] }, ageDays: 2 })
@@ -445,11 +446,11 @@ suite("maker-checker (real Postgres)", () => {
   it("a long run of harmless edits of the maker's account cannot hide a takeover behind it (the trail is paged, not capped)", async () => {
     const u = await db.user.create({ data: { id: `u_many_${lender.tenantId}`, tenantId: lender.tenantId, email: `many_${lender.tenantId}@test.invalid`, password: "x", role: "ADMIN", createdAt: new Date(Date.now() - 90 * 86_400_000) } })
     const row = (newValue: object, oldValue: object, ageHours: number) => ({ tenantId: lender.tenantId, action: "USER_UPDATED", entity: "User", entityId: u.id, userId: u.id, oldValue, newValue, createdAt: new Date(Date.now() - ageHours * 3_600_000) })
-    await db.auditLog.createMany({ data: [
+    await plantAuditRowsForTest(db, [
       // The role change is the OLDEST row in the window; 450 name and phone edits are newer.
       row({ role: "ADMIN" }, { role: "READONLY" }, 24 * 20),
       ...Array.from({ length: 450 }, (_, i) => row({ changed: [i % 2 ? "name" : "phone"] }, {}, 1 + i / 100)),
-    ] })
+    ])
     const actor = { id: u.id, email: u.email, role: "ADMIN", totpVerified: true }
     const d = await createDraft({ tenantId: lender.tenantId, actor, kind: RULE_SET_KIND, title: "many", payload: payload({ name: "Many rules" }) })
     await submit({ tenantId: lender.tenantId, actor, id: d.id })
