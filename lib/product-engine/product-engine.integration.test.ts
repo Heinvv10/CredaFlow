@@ -129,6 +129,17 @@ suite("product engine (real Postgres)", () => {
     expect(await refused({ interestRatePm: 1 })).toContain("ProductVersion_numbers")
   })
 
+  it("the version table refuses two versions of a product on one day, or with one number, whatever wrote it", async () => {
+    const row = (version: number, effectiveFrom: string) => ({ tenantId: lender.tenantId, productId, version, effectiveFrom: new Date(effectiveFrom), minAmount: 1, maxAmount: 2, minTermDays: 1, maxTermDays: 2, interestRatePm: 0.01, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 0, collateral: [], eligibility: {}, reason: "test reason", changeRequestId: "x" })
+    const behindTriggers = (data: ReturnType<typeof row>) => db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+      return tx.productVersion.create({ data: data as never })
+    })
+    await behindTriggers(row(60, "2033-01-01"))
+    expect(await refusal(behindTriggers(row(61, "2033-01-01")))).toContain("effectiveFrom")
+    expect(await refusal(behindTriggers(row(60, "2033-02-01")))).toContain("version")
+  })
+
   it("an NCA lender may not approve a weekly structure, a grace, or a rate above the ceiling; a lender outside the NCA may approve the structure", async () => {
     await expect(propose(versionPayload({ config: config({ repayment: weekly }) }, "2031-03-01"))).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
     await expect(propose(versionPayload({ config: config({ interestRatePm: 0.06 }) }, "2031-03-01"))).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
