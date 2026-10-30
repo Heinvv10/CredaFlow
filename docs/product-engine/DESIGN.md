@@ -48,7 +48,9 @@ The portal, the website and the lender API show and schedule monthly instalments
 
 ## Pricing inputs
 
-Segment is one of the segments the lender's approved pricing rules name; channel is one of `PRICING_CHANNELS`, set by the code that creates the application (the portal and website DIGITAL, staff and the CRM BRANCH, the lender API API). Staff set segment and campaign on the application page; whoever set them does not approve a loan a rule priced on them. The status is read under the application's row lock.
+The channel is `PRICING_CHANNELS` (DIGITAL, BRANCH, API), recorded by the code that creates the application (the portal and website DIGITAL, staff and the CRM BRANCH, the lender API API) and never typed or changed by a person: the pricing-inputs PUT refuses a different channel. Segment and campaign code are chosen from those the lender's approved pricing rules name. Whoever ever sets them (the audit trail names every setter) does not approve the application, whether or not a rule priced it, and each setter is recorded in the application's grow-only `inputStaffIds`, so the segregation-of-duties rules of an engine approval and its disbursement cover them. The status is read under the application's row lock. An application that came in through a customer channel (DIGITAL, API) is not approved on a structured schedule, even if a version took effect after the customer applied.
+
+A product's type, and whether it is the MICRO30 contract product, are locked once it has versions (the product PUT returns 409): a PO_FUNDING type lifts the Regulation 42 fee ceiling, and no pricing rule prices MICRO30.
 
 ## Limits
 
