@@ -147,6 +147,13 @@ export async function gateApproval(input: GateInput): Promise<Gate> {
     if (plan.kind === "final") {
       const closure = async (tx2: Tx) => {
         if (plan.level === 0) return
+        // The committee's decision can change until this transaction holds the case: lock it (committee.ts records under the same lock) and
+        // read the latest decision again. The database refuses the step too, unless the committee's latest decision is an approval.
+        await tx2.$queryRaw(Prisma.sql`SELECT "id" FROM "ApprovalCase" WHERE "id" = ${theCase!.id} FOR UPDATE`)
+        if (committeeLevel && plan.level >= committeeLevel.level) {
+          const latest = await tx2.creditCommitteeDecision.findFirst({ where: { caseId: theCase!.id, level: committeeLevel.level }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { decision: true } })
+          if (latest?.decision !== "APPROVED") throw new ApprovalChainChangedError()
+        }
         try {
           await tx2.approvalStep.create({ data: stepData(plan.level, plan.via, plan.delegationId) })
         } catch (error) {

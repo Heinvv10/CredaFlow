@@ -108,4 +108,18 @@ suite("approval matrix: one person, one seat (real Postgres)", () => {
     expect(await statusOf(A("st-ok"))).toBe("APPROVED")
     await revoke(as.checker, toAd.id)
   })
+  it("the database holds the committee level's role: a decision recorded without a delegation needs the role, and so does a ROLE step", async () => {
+    const toAd = await delegate(as.checker, ids.ad, 3)
+    await underReview(A("st-sql"), { amount: 800_000 })
+    expect((await approveAs("la1", A("st-sql"))).status).toBe(200)
+    expect((await approveAs("bm", A("st-sql"))).status).toBe(200)
+    const theCase = await caseOf(A("st-sql"))
+    const decision = (by: string) => sql(`INSERT INTO "CreditCommitteeDecision" ("id","tenantId","caseId","applicationId","level","decision","meetingDate","conditions","rationale","recordedById") VALUES ('cd-${randomUUID()}','${ids.tenant}','${theCase.id}','${A("st-sql")}',3,'APPROVED',now(),'[]'::jsonb,'a proper rationale here','${by}')`)
+    // An ADMIN below the committee's SUPER_ADMIN role, writing no delegation: the app would have stored one; the database cannot be lied to.
+    expect(await refusal(decision(ids.ad))).toContain("committee level's role")
+    await decision(ids.checker2)
+    const step = (approver: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','${A("st-sql")}',3,'${approver}','ROLE')`)
+    expect(await refusal(step(ids.la2))).toContain("role reaches the level")
+    await revoke(as.checker, toAd.id)
+  })
 })

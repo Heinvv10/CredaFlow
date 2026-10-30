@@ -320,6 +320,12 @@ $function$;
 CREATE TRIGGER "ApprovalCase_guard" BEFORE UPDATE OR DELETE ON "ApprovalCase" FOR EACH ROW EXECUTE FUNCTION public."guardApprovalCase"();
 CREATE TRIGGER "ApprovalCase_no_truncate" BEFORE TRUNCATE ON "ApprovalCase" FOR EACH STATEMENT EXECUTE FUNCTION public."guardApprovalAppendOnly"();
 
+-- How far a role reaches among the roles that may approve (0: none). Matrix levels name roles in this order (lib/approval/types.ts).
+CREATE OR REPLACE FUNCTION public."approvalRoleRank"(role_name TEXT)
+RETURNS INTEGER LANGUAGE sql IMMUTABLE AS $function$
+  SELECT CASE role_name WHEN 'LOAN_ADMIN' THEN 1 WHEN 'BRANCH_MANAGER' THEN 2 WHEN 'ADMIN' THEN 3 WHEN 'SUPER_ADMIN' THEN 4 ELSE 0 END;
+$function$;
+
 -- One person, one seat: why a candidate's principals (the person, and the delegator whose authority they act on) cannot take a seat on a
 -- case, or NULL. A seat is taken by the maker, by each approver and the delegator behind a delegated approval, and by each committee
 -- recorder (and the delegator behind them). `recorder_id` is the candidate when they record a committee decision: their own earlier
@@ -353,6 +359,9 @@ DECLARE
   amount BIGINT;
   principals TEXT[];
   seat TEXT;
+  level_role TEXT;
+  committee_level INTEGER;
+  latest TEXT;
 BEGIN
   SELECT * INTO c FROM "ApprovalCase" WHERE "id" = NEW."caseId" AND "tenantId" = NEW."tenantId";
   IF NOT FOUND OR c."status" <> 'OPEN' THEN
@@ -392,6 +401,21 @@ BEGIN
   ELSIF seat IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: one person holds one seat on an application: an approver, or the authority a delegate acted on, appears once';
   END IF;
+  -- An approval by role is recorded only by someone whose role reaches the level (a delegation's reach is checked above).
+  IF NEW."via" = 'ROLE' THEN
+    SELECT l->>'role' INTO level_role FROM jsonb_array_elements(c."levelsSnapshot") l WHERE (l->>'level')::int = NEW."level";
+    IF public."approvalRoleRank"((SELECT u."role"::text FROM "User" u WHERE u."id" = NEW."approverId" AND u."tenantId" = NEW."tenantId")) < GREATEST(1, public."approvalRoleRank"(level_role)) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval by role is recorded only by someone whose role reaches the level';
+    END IF;
+  END IF;
+  -- The committee's level (and any after it) is approved only while the committee's latest decision is an approval.
+  SELECT (l->>'level')::int INTO committee_level FROM jsonb_array_elements(c."levelsSnapshot") l WHERE (l->>'committee')::boolean LIMIT 1;
+  IF committee_level IS NOT NULL AND NEW."level" >= committee_level THEN
+    SELECT d."decision"::text INTO latest FROM "CreditCommitteeDecision" d WHERE d."caseId" = NEW."caseId" AND d."level" = committee_level ORDER BY d."createdAt" DESC, d."id" DESC LIMIT 1;
+    IF latest IS DISTINCT FROM 'APPROVED' THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The committee level is approved only while the latest credit committee decision is an approval';
+    END IF;
+  END IF;
   RETURN NEW;
 END;
 $function$;
@@ -407,6 +431,7 @@ DECLARE
   amount BIGINT;
   principals TEXT[];
   seat TEXT;
+  level_role TEXT;
 BEGIN
   IF NEW."decision" = 'APPROVED' AND EXISTS (SELECT 1 FROM "CreditCommitteeDecision" d WHERE d."caseId" = NEW."caseId" AND d."level" = NEW."level" AND d."decision" = 'DECLINED' AND d."recordedById" = NEW."recordedById") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A committee decline is overturned only by someone other than the member who recorded it';
@@ -431,6 +456,13 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: someone who approved a level of the case, or whose authority was used for one, cannot record its credit committee decision';
   ELSIF seat IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: another member has already recorded a decision on this case on this member''s authority';
+  END IF;
+  -- Without a delegation the recorder holds the committee level's role.
+  IF NEW."delegationId" IS NULL THEN
+    SELECT l->>'role' INTO level_role FROM "ApprovalCase" c, jsonb_array_elements(c."levelsSnapshot") l WHERE c."id" = NEW."caseId" AND (l->>'level')::int = NEW."level";
+    IF public."approvalRoleRank"((SELECT u."role"::text FROM "User" u WHERE u."id" = NEW."recordedById" AND u."tenantId" = NEW."tenantId")) < GREATEST(1, public."approvalRoleRank"(level_role)) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Recording the committee''s decision needs the committee level''s role, or a delegation of it';
+    END IF;
   END IF;
   RETURN NEW;
 END;
