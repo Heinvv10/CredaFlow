@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { beforeAll, afterAll, describe, it, expect, vi } from "vitest"
 import { createSigningFixture, cleanupSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
-import { dealStartDate } from "./deal-structure"
+import { plannedStartFor } from "./first-due.test-helpers"
 import { isoOfDbDate } from "./dates"
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: { id: string; role: string; email: string; tenantId: string } } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
@@ -18,7 +18,7 @@ suite("surety consent evidence concurrency", () => {
     await db!.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: SYNTHETIC_IDENTITY })
     const deal = await db!.assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId } })
     session.current = { user: { id: fx.officer, role: "CREDIT_OFFICER", email: "test@review.invalid", tenantId: fx.tenantId } }
-    expect((await signingRoutes(fx.host).prepare(fx.dealId, { plannedStartDate: dealStartDate(isoOfDbDate(deal.firstDueDate)) })).status).toBe(200)
+    expect((await signingRoutes(fx.host).prepare(fx.dealId, { plannedStartDate: plannedStartFor(isoOfDbDate(deal.firstDueDate)) })).status).toBe(200)
   }, 120000)
   afterAll(async () => { if (fx) await cleanupSigningFixture(db!, fx); await db!.$disconnect(); vi.unstubAllEnvs() })
   const evidence = () => db!.entityDocument.create({ data: { tenantId: fx.tenantId, entityId: fx.evidenced, dealId: fx.dealId, docType: "LEGAL_DOCUMENT", fileName: "TEST-consent.pdf", mimeType: "application/pdf", fileSize: 10, storagePath: "/tmp/TEST-security-consent", contentSha256: "a".repeat(64), uploadedByType: "staff", uploadedById: fx.officer } })

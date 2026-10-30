@@ -15,7 +15,7 @@ import { NextRequest } from "next/server"
 import { expect } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { addMonthsClamped } from "./dates"
-import { dealStartDate } from "./deal-structure"
+import { plannedStartFor } from "./first-due.test-helpers"
 import { ASSET_ONE_REGISTRATION, dealFixtureTenantId, dealRoutes } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
 import { POST as confirmRoute } from "@/app/api/asset-finance/deals/[id]/checklist/[item]/route"
@@ -106,7 +106,7 @@ export async function prepareAndSign(
 /** prepareAndSign, then contract. */
 async function signAndContract(fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient, wetInkSureties: string[] = []) {
   const deal = await db.assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { firstDueDate: true } })
-  await prepareAndSign(fx, dealId, setSession, db, wetInkSureties, dealStartDate(deal.firstDueDate.toISOString().slice(0, 10)))
+  await prepareAndSign(fx, dealId, setSession, db, wetInkSureties, plannedStartFor(deal.firstDueDate.toISOString().slice(0, 10)))
   setSession({ id: fx.officer, email: "officer@booking-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })
   expect((await signingRoutes(fx.host).contract(dealId)).status).toBe(200)
 }

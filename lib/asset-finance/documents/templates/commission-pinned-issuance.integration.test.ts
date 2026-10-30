@@ -22,7 +22,7 @@ import { verifiedSigningOtp } from "@/lib/signing-otp/signing-otp.integration-fi
 import { ensureSyntheticTemplates } from "@/prisma/seed/asset-finance-templates"
 import { dealFixtureTenantId } from "../../deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "../../deal-signing.integration-fixture"
-import { dealStartDate } from "../../deal-structure"
+import { plannedStartFor } from "../../first-due.test-helpers"
 import { isoOfDbDate } from "../../dates"
 import { ISA_CLAUSE } from "../commission-disclosure.test-helpers"
 import { prose, texts } from "../nca/nca-wording.test-helpers"
@@ -59,7 +59,7 @@ async function setUp(fx: SigningFixture): Promise<void> {
 async function prepare(fx: SigningFixture): Promise<void> {
   asStaff(fx, fx.officer, "CREDIT_OFFICER")
   const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, select: { firstDueDate: true } })
-  const response = await routes(fx).prepare(fx.dealId, { plannedStartDate: dealStartDate(isoOfDbDate(deal.firstDueDate)) })
+  const response = await routes(fx).prepare(fx.dealId, { plannedStartDate: plannedStartFor(isoOfDbDate(deal.firstDueDate)) })
   expect(response.status, await response.clone().text()).toBe(200)
 }
 /** History, as the dealer fixtures write it: the deal is a dealer deal, handed over. Returns the dealer's id. */
