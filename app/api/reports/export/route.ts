@@ -17,7 +17,9 @@ import { ncrPositionBasis } from "@/lib/compliance/ncr-position-basis"
 import { readSnapshotArrearsRegister } from "@/lib/reports/arrears-snapshot"
 import { overdueWhere } from "@/lib/reports/book-arrears"
 import { collectionsQueueWhere } from "@/lib/collections/queue"
-import { logAuditStrict } from "@/lib/audit"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { buildEclExport } from "@/lib/ifrs9/export"
+import { runWithTenant } from "@/lib/tenant-scope"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { section129LogRow } from "@/lib/collections/section129-reporting"
 import { arrearsBucket } from "@/lib/reports/arrears-buckets"
@@ -749,6 +751,18 @@ export async function GET(req: NextRequest) {
       { name: "Complaints", rows: complaintRows },
     ])
     return workbookResponse(wbQ, `fsca-quarterly-return-${quarter}.xlsx`)
+  } else if (type === "ifrs9-ecl") {
+    // Loan-level ECL, the stage summary and the transition matrix of an IFRS 9 run (lib/ifrs9): LOAN_ADMIN+, and the export is audited.
+    const upgraded = await requireApiRole("LOAN_ADMIN")
+    if (upgraded.error) return upgraded.error
+    const built = await runWithTenant(tenant.id, () =>
+      buildEclExport(prisma, tenant.id, req.nextUrl.searchParams.get("runId") ?? undefined, req.nextUrl.searchParams.get("compareTo") ?? undefined))
+    if (!built) return NextResponse.json({ error: "No IFRS 9 run to export" }, { status: 404 })
+    await logAuditStrict({
+      tenantId: tenant.id, userId: upgraded.user.id, userEmail: upgraded.user.email, action: AuditAction.IFRS9_REPORT_EXPORTED,
+      entity: "Ifrs9Run", entityId: built.report.run.id, newValue: { runDate: built.report.run.runDate, loanCount: built.report.run.loanCount },
+    })
+    wb = createWorkbook(built.sheets)
   } else if (type === "audit-log") {
     // Audit log access is LOAN_ADMIN+ (mirrors /api/audit and /settings/audit-log).
     // The route-level READONLY guard isn't sufficient here.

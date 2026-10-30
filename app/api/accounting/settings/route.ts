@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { ASSET_FINANCE_ROLES } from "@/lib/accounting/accounts"
+import { ASSET_FINANCE_ROLES, IFRS9_ROLES } from "@/lib/accounting/accounts"
 import { parsePeriodKey } from "@/lib/accounting/period"
 import { lockAccounting, readJson, totpWriteRefusal } from "@/lib/accounting/route-helpers"
 import { loadAccountMap, loadSettings } from "@/lib/accounting/store"
@@ -88,8 +88,8 @@ export async function POST(req: NextRequest) {
       const map = await loadAccountMap(tx, tenant.id)
       await tx.accountingSettings.upsert({
         where: { tenantId: tenant.id },
-        create: { tenantId: tenant.id, mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], updatedById: guard.user.id },
-        update: { mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], updatedById: guard.user.id },
+        create: { tenantId: tenant.id, mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, mappingConfirmedRoles: [...ASSET_FINANCE_ROLES, ...IFRS9_ROLES], updatedById: guard.user.id },
+        update: { mappingConfirmedAt: now, mappingConfirmedById: guard.user.id, mappingConfirmedRoles: [...ASSET_FINANCE_ROLES, ...IFRS9_ROLES], updatedById: guard.user.id },
       })
       await logAuditStrict({
         tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email, action: AuditAction.ACCOUNTING_MAPPING_CONFIRMED,

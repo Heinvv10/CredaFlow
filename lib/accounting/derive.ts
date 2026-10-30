@@ -138,6 +138,8 @@ export function deriveEntries(args: {
   postedLoans: Map<string, { loanId: string | null; reference: string }>
   accounts: AccountMap
   vat?: VatSettings | null
+  /** Sources that are not a loan's money events: the IFRS 9 provision and interest in suspense (lib/accounting/sources-ifrs9.ts). */
+  extraSources?: DesiredSource[]
   /** Loans left out of `loans` on purpose (a preview that cannot post them): their posted sources are not reversed as "removed". */
   heldBack?: ReadonlySet<string>
 }): DerivedEntry[] {
@@ -149,7 +151,7 @@ export function deriveEntries(args: {
   // so the asset-finance VAT control sees every OUTPUT_VAT line the contract posts.
   const explicitVat = new Set(args.loans.filter((l) => l.assetFinance).map((l) => l.id))
   const vatFor = (loanId: string | null) => (loanId && explicitVat.has(loanId) ? null : vat)
-  for (const source of desiredSources(args.loans, period.end)) {
+  for (const source of [...desiredSources(args.loans, period.end), ...(args.extraSources ?? [])]) {
     seen.add(source.baseKey)
     const change = delta(source.vector, posted.get(source.baseKey))
     if (Object.keys(change).length === 0) continue
