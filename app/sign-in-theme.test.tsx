@@ -22,6 +22,8 @@ vi.mock("@/lib/portal/portal-policy", async (orig) => ({
   ...(await orig<typeof import("@/lib/portal/portal-policy")>()),
   isPortalEnabled: async () => true,
 }))
+// The staff page asks whether the lender has single sign-on on (lib/sso); none here.
+vi.mock("@/lib/sso/connection", () => ({ getEnabledConnection: async () => null }))
 vi.mock("@/lib/signing-otp/deliver", () => ({ isWhatsAppCloudConfigured: async () => false }))
 
 import StaffLogin from "./login/page"

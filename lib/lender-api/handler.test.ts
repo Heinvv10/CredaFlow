@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextResponse } from "next/server"
 
 const h = vi.hoisted(() => ({
@@ -40,6 +40,51 @@ beforeEach(() => {
 })
 
 const lastLog = () => h.logCreate.mock.calls.at(-1)![0].data
+
+describe("per-key source-address allowlist", () => {
+  const restricted = (list: string[]) => h.findUnique.mockResolvedValue(row({ ipAllowlist: list }))
+  const fromAddr = (xff?: string) => call({ authorization: `Bearer ${key.key}`, ...(xff ? { "x-forwarded-for": xff } : {}) })
+  afterEach(() => { delete process.env.TRUSTED_PROXY })
+
+  it("serves a caller inside the allowlist", async () => {
+    process.env.TRUSTED_PROXY = "1"
+    restricted(["198.51.100.0/24"])
+    const { handler, response } = fromAddr("198.51.100.7")
+    expect((await response).status).toBe(200)
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it("refuses a caller outside it with 403, attributes the log to the key, and never runs the handler", async () => {
+    process.env.TRUSTED_PROXY = "1"
+    restricted(["198.51.100.0/24"])
+    const { handler, response } = fromAddr("203.0.113.9")
+    const res = await response
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe("ip_not_allowed")
+    expect(handler).not.toHaveBeenCalled()
+    expect(lastLog()).toMatchObject({ apiKeyId: "key-A", status: 403 })
+  })
+
+  it("refuses when the caller address is unknown (no trusted proxy) and an allowlist is set", async () => {
+    restricted(["198.51.100.0/24"])
+    const { handler, response } = fromAddr("198.51.100.7")
+    expect((await response).status).toBe(403)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("does not trust a spoofed left-most forwarded hop", async () => {
+    process.env.TRUSTED_PROXY = "1"
+    restricted(["198.51.100.0/24"])
+    expect((await fromAddr("198.51.100.7, 203.0.113.9").response).status).toBe(403)
+  })
+
+  it("applies no restriction when the list is empty or absent", async () => {
+    restricted([])
+    expect((await fromAddr().response).status).toBe(200)
+    h.findUnique.mockResolvedValue(row())
+    expect((await fromAddr().response).status).toBe(200)
+  })
+})
 
 describe("withApiKey", () => {
   it("runs the handler in the key's tenant, whatever tenant header is sent, and logs the call", async () => {
