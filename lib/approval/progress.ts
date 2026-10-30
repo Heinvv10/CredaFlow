@@ -74,7 +74,7 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
   const delegations = await loadDelegationsFor(prisma, tenantId, input.viewer.id, now)
   const authority = authorityLevel({ role: input.viewer.role, levels, delegations, amountCents: application.facts.amountCents, now, delegatorLevels: await delegatorLevels(prisma, tenantId, delegations, levels) })
   const plan = theCase && theCase.status === "OPEN"
-    ? planApproval({ required, levels, steps, userId: input.viewer.id, inputStaffIds: application.inputStaffIds, authority, automated: false, committeeDecision: latestCommittee ? { decision: latestCommittee.decision } : null })
+    ? planApproval({ required, levels, steps, userId: input.viewer.id, inputStaffIds: application.inputStaffIds, authority, automated: false, committeeDecision: latestCommittee ? { decision: latestCommittee.decision } : null, committeeRecorderIds: decisions.filter((d) => d.level === committee?.level).map((d) => d.recordedById) })
     : null
   const pending = theCase?.status === "OPEN" ? steps.length + 1 : null
   return {

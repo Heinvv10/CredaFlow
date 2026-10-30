@@ -357,6 +357,21 @@ suite("approval matrix (real Postgres, row-level security)", () => {
     await expect(revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id })).rejects.toMatchObject({ code: "ALREADY_ENDED" })
   })
 
+  it("a delegation recorded on someone else's behalf cannot name the recorder as delegate or exceed the recorder's level, and tells the delegator", async () => {
+    const day = 86_400_000
+    const base = { level: 2, maxAmountCents: 600_000, validFrom: new Date(Date.now() - 60_000), validTo: new Date(Date.now() + 7 * day), reason: "Recorded for the branch manager on leave" }
+    // The administrator names themselves: refused (they would grant themselves the branch manager's authority).
+    await expect(grantDelegation({ tenantId: ids.tenant, actor: as.ad, delegation: { ...base, delegatorId: ids.bm, delegateId: ids.ad } })).rejects.toMatchObject({ code: "INVALID" })
+    // A loan admin acting for the branch manager is not allowed on behalf at all.
+    await expect(grantDelegation({ tenantId: ids.tenant, actor: as.la1, delegation: { ...base, delegatorId: ids.bm, delegateId: ids.la2 } })).rejects.toMatchObject({ code: "FORBIDDEN" })
+    // An administrator naming someone else is fine, is audited as on behalf, and the delegator is told.
+    const made = await inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.ad, delegation: { ...base, delegatorId: ids.bm, delegateId: ids.la2 } }))
+    const audit = await db.auditLog.findFirstOrThrow({ where: { tenantId: ids.tenant, action: "APPROVAL_DELEGATION_GRANTED", entityId: made.id } })
+    expect(audit.newValue).toMatchObject({ onBehalfOf: ids.bm, recordedBy: ids.ad, delegatorId: ids.bm, delegateId: ids.la2 })
+    expect(await db.notification.count({ where: { tenantId: ids.tenant, userId: ids.bm, type: "APPROVAL_DELEGATED_ON_YOUR_BEHALF" } })).toBe(1)
+    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: made.id }))
+  })
+
   it("the database holds a delegation's shape, and it is never edited or deleted", async () => {
     const row = await db.approvalDelegation.findFirstOrThrow({ where: { tenantId: ids.tenant } })
     const insert = (cols: string) => sql(`INSERT INTO "ApprovalDelegation" ("id","tenantId","delegatorId","delegateId","level","maxAmountCents","validFrom","validTo","reason","createdById") VALUES ('d-${randomUUID()}','${ids.tenant}',${cols})`)
@@ -376,21 +391,28 @@ suite("approval matrix (real Postgres, row-level security)", () => {
     // Not at the committee yet: the branch manager has not approved.
     await expect(inTenant(() => recordCommitteeDecision({ tenantId: ids.tenant, actor: as.ad, applicationId: "ap-big", decision: { decision: "APPROVED", meetingDate: TODAY, attendees: ["A. Dlamini"], conditions: [], rationale: "Too early for this one" } }))).rejects.toMatchObject({ code: "NOT_AT_COMMITTEE" })
     expect((await approveAs("bm", "ap-big")).status).toBe(200)
-    expect(await approveAs("ad", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECISION_REQUIRED" } })
+    expect(await approveAs("ad2", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECISION_REQUIRED" } })
     const decide = (decision: "APPROVED" | "DECLINED" | "DEFERRED", conditions: string[] = [], actor = as.ad) =>
       inTenant(() => recordCommitteeDecision({ tenantId: ids.tenant, actor, applicationId: "ap-big", decision: { decision, meetingDate: TODAY, attendees: ["A. Dlamini", "B. Mokoena"], conditions, rationale: `Committee ${decision.toLowerCase()} this application` } }))
-    await expect(decide("APPROVED", [], as.la1)).rejects.toMatchObject({ code: "FORBIDDEN" })
+    await expect(decide("APPROVED", [], as.la2)).rejects.toMatchObject({ code: "FORBIDDEN" })
     await decide("DEFERRED")
-    expect(await approveAs("ad", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECISION_REQUIRED" } })
+    expect(await approveAs("ad2", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECISION_REQUIRED" } })
     await decide("DECLINED")
-    expect(await approveAs("ad", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECLINED" } })
+    expect(await approveAs("ad2", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_DECLINED" } })
     await decide("APPROVED", ["Obtain a signed employer letter before disbursement", "Insure the vehicle with the bank noted"])
-    const final = await approveAs("ad", "ap-big")
+    // Whoever recorded the committee's decision cannot also give the committee level's approval: not the route, not the database.
+    expect(await approveAs("ad", "ap-big")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_RECORDER_CANNOT_APPROVE" } })
+    const bigCase = await caseOf("ap-big")
+    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${bigCase.id}','ap-big',3,'${ids.ad}','ROLE')`))).toContain("recorded the credit committee")
+    // ...and someone who approved a lower level cannot record it.
+    await expect(decide("APPROVED", [], as.bm)).rejects.toMatchObject({ code: "APPROVER" })
+    expect(await refusal(sql(`INSERT INTO "CreditCommitteeDecision" ("id","tenantId","caseId","applicationId","level","decision","meetingDate","conditions","rationale","recordedById") VALUES ('c-${randomUUID()}','${ids.tenant}','${bigCase.id}','ap-big',3,'DEFERRED',now(),'[]'::jsonb,'a proper rationale here','${ids.la1}')`))).toContain("approved a level of the case")
+    const final = await approveAs("ad2", "ap-big")
     expect(final.status, JSON.stringify(final.body)).toBe(200)
     expect(await statusOf("ap-big")).toBe("APPROVED")
-    expect((await stepsOf("ap-big"))[2]).toMatchObject({ level: 3, approverId: ids.ad, conditions: ["Obtain a signed employer letter before disbursement", "Insure the vehicle with the bank noted"] })
+    expect((await stepsOf("ap-big"))[2]).toMatchObject({ level: 3, approverId: ids.ad2, conditions: ["Obtain a signed employer letter before disbursement", "Insure the vehicle with the bank noted"] })
     expect(await db.creditCommitteeDecision.count({ where: { tenantId: ids.tenant, applicationId: "ap-big" } })).toBe(3)
-    const progress = await loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-big", viewer: { id: ids.ad, role: "ADMIN" } })
+    const progress = await loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-big", viewer: { id: ids.ad2, role: "ADMIN" } })
     expect(progress.committeeDecisions.map((d) => d.decision)).toEqual(["DEFERRED", "DECLINED", "APPROVED"])
     expect(progress.levels[2]).toMatchObject({ committee: true, state: "APPROVED", conditions: expect.arrayContaining(["Obtain a signed employer letter before disbursement"]) })
   })

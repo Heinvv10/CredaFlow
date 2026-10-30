@@ -106,15 +106,16 @@ export async function gateApproval(input: GateInput): Promise<Gate> {
     const required = theCase.requiredLevels ?? 0
     const steps = await tx.approvalStep.findMany({ where: { caseId: theCase.id }, select: { level: true, approverId: true }, orderBy: { level: "asc" } })
     const committeeLevel = levels.find((l) => l.committee)
-    const committeeDecision = committeeLevel
-      ? await tx.creditCommitteeDecision.findFirst({ where: { caseId: theCase.id, level: committeeLevel.level }, orderBy: { createdAt: "desc" }, select: { decision: true, conditions: true } })
-      : null
+    const committeeRows = committeeLevel
+      ? await tx.creditCommitteeDecision.findMany({ where: { caseId: theCase.id, level: committeeLevel.level }, orderBy: { createdAt: "desc" }, select: { decision: true, conditions: true, recordedById: true } })
+      : []
+    const committeeDecision = committeeRows[0] ?? null
     const delegations = await loadDelegationsFor(tx, tenantId, user.id, now)
     const authority = authorityLevel({
       role: user.role as never, levels, delegations, amountCents: application.appliedAmount, now,
       delegatorLevels: await delegatorLevels(tx, tenantId, delegations, levels),
     })
-    const plan = planApproval({ required, levels, steps, userId: user.id, inputStaffIds: application.inputStaffIds, authority, automated: input.automated, committeeDecision })
+    const plan = planApproval({ required, levels, steps, userId: user.id, inputStaffIds: application.inputStaffIds, authority, automated: input.automated, committeeDecision, committeeRecorderIds: committeeRows.map((d) => d.recordedById) })
 
     const stepData = (level: number, via: "ROLE" | "DELEGATION", delegationId: string | null) => ({
       tenantId, caseId: theCase!.id, applicationId: application.id, level, approverId: user.id, via, delegationId,

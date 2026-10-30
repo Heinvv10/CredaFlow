@@ -9,7 +9,7 @@ import { approversForLevel, notifyStaff } from "./notify"
 import type { MatrixLevel } from "./types"
 
 export class CommitteeError extends Error {
-  constructor(readonly code: "NO_CASE" | "NOT_AT_COMMITTEE" | "FORBIDDEN" | "INVALID" | "MAKER", readonly status: number, message: string, readonly problems: readonly string[] = []) {
+  constructor(readonly code: "NO_CASE" | "NOT_AT_COMMITTEE" | "FORBIDDEN" | "INVALID" | "MAKER" | "APPROVER", readonly status: number, message: string, readonly problems: readonly string[] = []) {
     super(message)
     this.name = "CommitteeError"
   }
@@ -35,6 +35,10 @@ export async function recordCommitteeDecision(input: {
   const application = await prisma.loanApplication.findFirst({ where: { id: input.applicationId, tenantId: input.tenantId }, select: { appliedAmount: true, inputStaffIds: true } })
   if (!application) throw new CommitteeError("NO_CASE", 404, "Application not found.")
   if (application.inputStaffIds.includes(input.actor.id)) throw new CommitteeError("MAKER", 403, "You captured this application or changed its figures, so you cannot record its committee decision.")
+  // Someone who approved a lower level on this case cannot also record what the committee decided.
+  if ((await prisma.approvalStep.count({ where: { caseId: theCase.id, approverId: input.actor.id } })) > 0) {
+    throw new CommitteeError("APPROVER", 403, "You approved a level of this application, so you cannot record its committee decision.")
+  }
   const delegations = await loadDelegationsFor(prisma, input.tenantId, input.actor.id, now)
   const authority = authorityLevel({ role: input.actor.role, levels, delegations, amountCents: application.appliedAmount, now, delegatorLevels: await delegatorLevels(prisma, input.tenantId, delegations, levels) })
   if (authority.level < committee.level) throw new CommitteeError("FORBIDDEN", 403, `Recording the committee's decision needs level ${committee.level} authority (${committee.role}).`)

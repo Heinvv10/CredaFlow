@@ -10,6 +10,7 @@ const levels: MatrixLevel[] = [
 const base = {
   required: 2, levels, steps: [] as Array<{ level: number; approverId: string }>, userId: "u1", inputStaffIds: ["maker"],
   authority: { level: 2, via: "ROLE" as const, delegationId: null }, automated: false, committeeDecision: null as null | { decision: "APPROVED" | "DECLINED" | "DEFERRED" },
+  committeeRecorderIds: [] as string[],
 }
 
 describe("planApproval", () => {
@@ -54,5 +55,10 @@ describe("planApproval", () => {
     expect(planApproval({ ...atCommittee, committeeDecision: { decision: "DEFERRED" } })).toMatchObject({ kind: "refuse", code: "COMMITTEE_DECISION_REQUIRED" })
     expect(planApproval({ ...atCommittee, committeeDecision: { decision: "DECLINED" } })).toMatchObject({ kind: "refuse", code: "COMMITTEE_DECLINED" })
     expect(planApproval({ ...atCommittee, committeeDecision: { decision: "APPROVED" } })).toMatchObject({ kind: "final", level: 3 })
+  })
+  it("whoever recorded a committee decision cannot give the committee level's approval", () => {
+    const atCommittee = { ...base, required: 3, steps: [{ level: 1, approverId: "u0" }, { level: 2, approverId: "u9" }], authority: { level: 3, via: "ROLE" as const, delegationId: null }, committeeDecision: { decision: "APPROVED" as const } }
+    expect(planApproval({ ...atCommittee, committeeRecorderIds: ["u1"] })).toMatchObject({ kind: "refuse", status: 409, code: "COMMITTEE_RECORDER_CANNOT_APPROVE" })
+    expect(planApproval({ ...atCommittee, committeeRecorderIds: ["someone-else"] })).toMatchObject({ kind: "final", level: 3 })
   })
 })

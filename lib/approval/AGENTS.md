@@ -33,11 +33,14 @@ SUPER_ADMIN to approve).
   `singleRun`): overdue level -> notify the next level up, record it, climb again each SLA; at the top
   level the approvers are reminded.
 - **Committee**: the committee's level (the last, flagged) waits for an APPROVED `CreditCommitteeDecision`
-  (conditions ride on the step); DEFERRED/DECLINED block it; the latest decision counts. A decline is
+  (conditions ride on the step); DEFERRED/DECLINED block it; the latest decision counts. Whoever
+  recorded a decision at that level cannot give its approval, and nobody who approved a lower level
+  or captured the application can record one (route and triggers). A decline is
   still the normal decline. Viewing the pack (`pack.ts`, personal data) is audited.
 - **Delegation** (`delegations.ts`): from the delegator's own role level only (never re-delegated), to a
   LOAN_ADMIN or above, at most 90 days, never backdated; ends by revocation, never edited. A delegator
-  who has lost the level cannot keep passing it on.
+  who has lost the level cannot keep passing it on. On someone's behalf (an ADMIN): never naming
+  oneself as delegate, never above one's own level, audited as on behalf, and the delegator is told.
 
 ## Tests
 Pure: `evaluate`, `plan`, `matrix-payload`, `delegation-rules`, `committee-rules`. `RUN_APPROVAL_IT=1`:

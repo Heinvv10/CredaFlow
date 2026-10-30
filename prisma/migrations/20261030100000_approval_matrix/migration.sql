@@ -344,10 +344,28 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = NEW."approverId" AND u."tenantId" = NEW."tenantId" AND u."active" AND NOT u."isSystem") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval is recorded against an active staff member, never the automated decisioning account';
   END IF;
+  IF EXISTS (SELECT 1 FROM "CreditCommitteeDecision" d WHERE d."caseId" = NEW."caseId" AND d."level" = NEW."level" AND d."recordedById" = NEW."approverId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: whoever recorded the credit committee''s decision cannot give the committee level''s approval';
+  END IF;
   RETURN NEW;
 END;
 $function$;
 CREATE TRIGGER "ApprovalStep_guard" BEFORE INSERT ON "ApprovalStep" FOR EACH ROW EXECUTE FUNCTION public."guardApprovalStep"();
+
+-- A committee decision: not from someone who already approved a level of the case, and from the maker's side no more than anyone else.
+CREATE OR REPLACE FUNCTION public."guardCreditCommitteeDecision"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "ApprovalStep" s WHERE s."caseId" = NEW."caseId" AND s."approverId" = NEW."recordedById") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: someone who approved a level of the case cannot record its credit committee decision';
+  END IF;
+  IF EXISTS (SELECT 1 FROM "LoanApplication" a WHERE a."id" = NEW."applicationId" AND a."tenantId" = NEW."tenantId" AND NEW."recordedById" = ANY (COALESCE(a."inputStaffIds", '{}'))) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Maker-checker: the staff member who captured the application or changed its inputs cannot record its credit committee decision';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "CreditCommitteeDecision_guard" BEFORE INSERT ON "CreditCommitteeDecision" FOR EACH ROW EXECUTE FUNCTION public."guardCreditCommitteeDecision"();
 
 -- A delegation: both parties are active staff of the lender (not the system account), and it only ever ends, by revocation.
 CREATE OR REPLACE FUNCTION public."guardApprovalDelegation"()

@@ -21,6 +21,8 @@ export interface PlanInput {
   automated: boolean
   /** The latest committee decision at the committee's level, if any. */
   committeeDecision: { decision: "APPROVED" | "DECLINED" | "DEFERRED" } | null
+  /** Everyone who recorded a committee decision at the committee's level: none of them gives that level's approval. */
+  committeeRecorderIds: readonly string[]
 }
 
 const refuse = (status: number, code: string, error: string): ApprovalPlan => ({ kind: "refuse", status, code, error })
@@ -51,6 +53,9 @@ export function planApproval(input: PlanInput): ApprovalPlan {
     return refuse(403, "LEVEL_AUTHORITY_REQUIRED", `Level ${next} (${level.name}) needs the ${level.role} role or a delegation of that authority; yours reaches level ${authority.level}.`)
   }
   if (level.committee) {
+    if (input.committeeRecorderIds.includes(input.userId)) {
+      return refuse(409, "COMMITTEE_RECORDER_CANNOT_APPROVE", "You recorded the committee's decision, so another person must give the committee level's approval.")
+    }
     if (input.committeeDecision?.decision === "DECLINED") {
       return refuse(409, "COMMITTEE_DECLINED", "The credit committee declined this application. Decline it, or have the committee record a new decision.")
     }
