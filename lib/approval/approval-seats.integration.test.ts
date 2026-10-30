@@ -80,6 +80,18 @@ suite("approval matrix: one person, one seat (real Postgres)", () => {
     await revoke(as.checker2, toAd.id)
   })
 
+  it("a second delegate of an approver's delegator cannot record the committee decision either", async () => {
+    const toLa2 = await delegate(as.checker2, ids.la2, 2)
+    const toAd = await delegate(as.checker2, ids.ad, 3)
+    await underReview("st-rec2", { amount: 800_000 })
+    expect((await approveAs("la1", "st-rec2")).status).toBe(200)
+    expect((await approveAs("la2", "st-rec2")).status).toBe(200)
+    await expect(committee(as.ad, "st-rec2", "APPROVED")).rejects.toMatchObject({ code: "APPROVER" })
+    expect(await db.creditCommitteeDecision.count({ where: { applicationId: "st-rec2" } })).toBe(0)
+    await revoke(as.checker2, toLa2.id)
+    await revoke(as.checker2, toAd.id)
+  })
+
   it("a delegate who records the committee decision uses a delegation of someone who has not acted, and the decision says so", async () => {
     const toAd = await delegate(as.checker, ids.ad, 3)
     await underReview("st-ok", { amount: 800_000 })
@@ -89,6 +101,9 @@ suite("approval matrix: one person, one seat (real Postgres)", () => {
     expect(made).toMatchObject({ recordedById: ids.ad, delegationId: toAd.id })
     // The recorder's delegator has now acted too: the delegator may not give the committee level's approval.
     expect(await approveAs("checker", "st-ok")).toMatchObject({ status: 409, body: { approvalMatrix: "COMMITTEE_RECORDER_CANNOT_APPROVE" } })
+    // And the database refuses the same step written directly: the delegator behind the recorder is seated as the recorder.
+    const theCase = await caseOf("st-ok")
+    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','st-ok',3,'${ids.checker}','ROLE')`))).toContain("recorded the credit committee")
     expect((await approveAs("checker2", "st-ok")).status).toBe(200)
     expect(await statusOf("st-ok")).toBe("APPROVED")
     await revoke(as.checker, toAd.id)
