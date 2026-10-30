@@ -1,5 +1,6 @@
 "use client"
 
+import { isLoanDocumentTemplateKey } from "@/lib/non-nca-documents/keys"
 import { useState } from "react"
 import type { DocumentTemplateKind } from "@prisma/client"
 import { toast } from "@/lib/toast"
@@ -102,13 +103,16 @@ export function DocumentTemplatesTable({ templates }: { templates: TemplateRow[]
                       >
                         Preview
                       </a>
-                      <button
-                        onClick={() => handleDelete(row)}
-                        disabled={deletingId === row.id}
-                        className="text-red-500 hover:underline text-xs font-medium disabled:opacity-50"
-                      >
-                        {deletingId === row.id ? "Deleting…" : "Delete"}
-                      </button>
+                      {/* The lender's key facts statement and loan agreement stay: documents issued stand on them. */}
+                      {!isLoanDocumentTemplateKey(row.key) && (
+                        <button
+                          onClick={() => handleDelete(row)}
+                          disabled={deletingId === row.id}
+                          className="text-red-500 hover:underline text-xs font-medium disabled:opacity-50"
+                        >
+                          {deletingId === row.id ? "Deleting…" : "Delete"}
+                        </button>
+                      )}
                       <a
                         href={`/settings/documents/${row.id}/edit`}
                         className="text-[#4F46E5] hover:underline text-xs font-medium"

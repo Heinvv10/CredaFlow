@@ -28,6 +28,17 @@
 --    is signed and the same documents still stand (wording unchanged; a newer
 --    template version after signing does not unsign a signed contract).
 --
+-- 5. Hardening (PR review round 1): the two keyed templates' versions need approval by
+--    someone other than their author whatever requiresApproval says, and the keyed
+--    templates cannot be set to skip approval, re-keyed or deleted
+--    (guardLoanDocumentTemplate); the gate also reads the stored files (present, not deleted,
+--    the issued bytes, rendered for this application: ClientDocument.issuedForApplicationId),
+--    which cannot be deleted or swapped while an issuance references them
+--    (guardLoanDocumentFile); the terms hash is taken of the NEW row inside the gate (a single
+--    UPDATE that changes the terms and signs is judged on the new terms); a signed loan is
+--    checked against the version it was issued from, not the template's present state; the
+--    approval attribution of a key-facts application is fixed once approved.
+--
 -- Every new function pins search_path to pg_catalog and schema-qualifies (same
 -- discipline as 20261029120000_instance_jurisdiction). The guards read with
 -- app.rls_bypass on (restored afterwards), so a strict-RLS session cannot make
@@ -44,6 +55,9 @@ CREATE TYPE "DisclosureRegime" AS ENUM ('NCA_PASQ', 'KEY_FACTS');
 CREATE TYPE "LoanDocumentKind" AS ENUM ('KEY_FACTS_STATEMENT', 'LOAN_AGREEMENT');
 
 ALTER TABLE "LoanApplication" ADD COLUMN "disclosureRegime" "DisclosureRegime" NOT NULL DEFAULT 'NCA_PASQ';
+
+-- The application a generated key facts statement or loan agreement was rendered for.
+ALTER TABLE "ClientDocument" ADD COLUMN "issuedForApplicationId" TEXT;
 
 CREATE TABLE "LoanDocumentIssuance" (
     "id" TEXT NOT NULL,
@@ -70,6 +84,7 @@ CREATE TABLE "LoanDocumentIssuance" (
 );
 
 CREATE INDEX "LoanDocumentIssuance_tenantId_applicationId_idx" ON "LoanDocumentIssuance"("tenantId", "applicationId");
+CREATE UNIQUE INDEX "LoanDocumentIssuance_clientDocumentId_key" ON "LoanDocumentIssuance"("clientDocumentId");
 CREATE INDEX "LoanDocumentIssuance_templateVersionId_idx" ON "LoanDocumentIssuance"("templateVersionId");
 CREATE UNIQUE INDEX "LoanDocumentIssuance_tenantId_id_key" ON "LoanDocumentIssuance"("tenantId", "id");
 -- One standing document of each kind per application.
@@ -911,37 +926,63 @@ $function$;
 
 -- ---------------------------------------------------------------------------
 -- The approved terms, as one hash: what the key facts statement and the agreement
--- print. Computed here so the application that issues a document and the gate that
--- checks it cannot differ.
+-- print. The row form is what a BEFORE trigger must use (it hashes NEW, so a single
+-- UPDATE that changes the terms and signs in one statement is judged on the new
+-- terms, not the stored ones); the ById form is for the application that issues.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public."loanApplicationTermsSha256"(p_application_id text)
+CREATE OR REPLACE FUNCTION public."loanApplicationTermsSha256"(a public."LoanApplication")
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path = pg_catalog, pg_temp
+AS $function$
+  SELECT encode(sha256(convert_to(jsonb_build_object(
+      'productId', a."productId", 'appliedAmount', a."appliedAmount", 'appliedTermDays', a."appliedTermDays",
+      'approvedAmount', a."approvedAmount", 'approvedTermDays', a."approvedTermDays",
+      'repaymentMethod', a."repaymentMethod", 'initiationFeePayment', a."initiationFeePayment",
+      'affordabilityResult', a."affordabilityResult")::text, 'UTF8')), 'hex');
+$function$;
+
+CREATE OR REPLACE FUNCTION public."loanApplicationTermsSha256ById"(p_application_id text)
  RETURNS text
  LANGUAGE plpgsql
  SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   previous_bypass text;
-  terms jsonb;
+  result text;
 BEGIN
   previous_bypass := current_setting('app.rls_bypass', true);
   PERFORM set_config('app.rls_bypass', 'on', true);
-  SELECT jsonb_build_object(
-      'productId', a."productId", 'appliedAmount', a."appliedAmount", 'appliedTermDays', a."appliedTermDays",
-      'approvedAmount', a."approvedAmount", 'approvedTermDays', a."approvedTermDays",
-      'repaymentMethod', a."repaymentMethod", 'initiationFeePayment', a."initiationFeePayment",
-      'affordabilityResult', a."affordabilityResult")
-    INTO terms FROM public."LoanApplication" a WHERE a."id" = p_application_id;
+  SELECT public."loanApplicationTermsSha256"(a) INTO result FROM public."LoanApplication" a WHERE a."id" = p_application_id;
   PERFORM set_config('app.rls_bypass', coalesce(previous_bypass, ''), true);
-  IF terms IS NULL THEN RETURN NULL; END IF;
-  RETURN encode(sha256(convert_to(terms::text, 'UTF8')), 'hex');
+  RETURN result;
 END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- Is a template version the lender's approved wording? For the two keyed
+-- templates approval is UNCONDITIONAL (whatever requiresApproval says): approved,
+-- by somebody other than its author. (A CHECK and a trigger below also keep the
+-- keyed templates from being set to skip approval.)
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."loanTemplateVersionApproved"(v public."DocumentTemplateVersion")
+ RETURNS boolean
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path = pg_catalog, pg_temp
+AS $function$
+  SELECT v."approvedById" IS NOT NULL AND v."approvedAt" IS NOT NULL AND v."createdById" IS NOT NULL AND v."approvedById" <> v."createdById";
 $function$;
 
 -- ---------------------------------------------------------------------------
 -- Why a standing document does not hold, or NULL when it does.
 --   p_require_current: the wording must still be the template's current ACTIVE
 --   approved version (signing). Off (disbursement), the signed contract stands on the
---   version it was rendered from, as long as that wording is unchanged.
+--   version it was ISSUED from: nothing is read of the template's present state, so a
+--   template that was deactivated after signing does not block a signed loan.
+-- Always: the stored document is present, not deleted, still the issued bytes
+-- (ClientDocument.contentSha256) and rendered for this application.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public."loanDocumentProblem"(p_application_id text, p_kind public."LoanDocumentKind", p_require_current boolean)
  RETURNS text
@@ -951,30 +992,36 @@ AS $function$
 DECLARE
   previous_bypass text;
   i record;
-  v record;
-  t record;
+  v public."DocumentTemplateVersion";
+  t public."DocumentTemplate";
+  d record;
+  what text := replace(lower(p_kind::text), '_', ' ');
   problem text;
 BEGIN
   previous_bypass := current_setting('app.rls_bypass', true);
   PERFORM set_config('app.rls_bypass', 'on', true);
   SELECT * INTO i FROM public."LoanDocumentIssuance" WHERE "applicationId" = p_application_id AND "kind" = p_kind AND "supersededAt" IS NULL;
   IF NOT FOUND THEN
-    problem := 'no ' || replace(lower(p_kind::text), '_', ' ') || ' has been issued';
+    problem := 'no ' || what || ' has been issued';
   ELSE
     SELECT * INTO v FROM public."DocumentTemplateVersion" WHERE "id" = i."templateVersionId";
     SELECT * INTO t FROM public."DocumentTemplate" WHERE "id" = i."templateId";
+    SELECT "contentSha256", "deletedAt", "issuedForApplicationId", "storagePath" INTO d FROM public."ClientDocument" WHERE "id" = i."clientDocumentId";
     IF v."id" IS NULL OR t."id" IS NULL THEN
       problem := 'its template is gone';
+    ELSIF d."contentSha256" IS NULL OR d."deletedAt" IS NOT NULL OR d."storagePath" IS NULL
+          OR d."contentSha256" <> i."pdfSha256" OR d."issuedForApplicationId" IS DISTINCT FROM p_application_id THEN
+      problem := 'the stored ' || what || ' was deleted, replaced or is not the one issued for this application';
     ELSIF encode(sha256(convert_to(v."bodyHtml", 'UTF8')), 'hex') <> i."templateContentSha256" THEN
-      problem := 'the wording of template version ' || v."version" || ' changed after the ' || replace(lower(p_kind::text), '_', ' ') || ' was issued';
-    ELSIF t."kind" <> 'CUSTOM' OR t."deletedAt" IS NOT NULL OR NOT t."isActive" THEN
-      problem := 'its template is not in use';
-    ELSIF t."requiresApproval" AND (v."approvedById" IS NULL OR v."approvedAt" IS NULL) THEN
-      problem := 'template version ' || v."version" || ' was never approved';
-    ELSIF p_require_current AND (v."status" <> 'ACTIVE' OR t."currentVersionId" IS DISTINCT FROM v."id") THEN
-      problem := 'template version ' || v."version" || ' is no longer the current approved version; issue the ' || replace(lower(p_kind::text), '_', ' ') || ' again';
-    ELSIF NOT p_require_current AND v."status" = 'DRAFT' THEN
+      problem := 'the wording of template version ' || v."version" || ' changed after the ' || what || ' was issued';
+    ELSIF NOT public."loanTemplateVersionApproved"(v) THEN
+      problem := 'template version ' || v."version" || ' was never approved by someone other than its author';
+    ELSIF v."status" = 'DRAFT' THEN
       problem := 'template version ' || v."version" || ' is not an approved version';
+    ELSIF p_require_current AND (t."kind" <> 'CUSTOM' OR t."deletedAt" IS NOT NULL OR NOT t."isActive") THEN
+      problem := 'its template is not in use';
+    ELSIF p_require_current AND (v."status" <> 'ACTIVE' OR t."currentVersionId" IS DISTINCT FROM v."id") THEN
+      problem := 'template version ' || v."version" || ' is no longer the current approved version; issue the ' || what || ' again';
     END IF;
   END IF;
   PERFORM set_config('app.rls_bypass', coalesce(previous_bypass, ''), true);
@@ -997,6 +1044,7 @@ DECLARE
   problem text;
   kfs record;
   agreement record;
+  terms text;
 BEGIN
   IF NEW."disclosureRegime" <> 'KEY_FACTS' THEN
     RETURN NEW;
@@ -1038,9 +1086,29 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'The agreement being signed is not the issued loan agreement';
   END IF;
-  IF kfs."termsSha256" <> public."loanApplicationTermsSha256"(NEW."id") OR agreement."termsSha256" <> kfs."termsSha256" THEN
+  -- The terms of THIS statement's new row: a single UPDATE that changes them and signs is judged on what it writes.
+  terms := public."loanApplicationTermsSha256"(NEW);
+  IF kfs."termsSha256" <> terms OR agreement."termsSha256" <> kfs."termsSha256" THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'The approved terms changed after the documents were issued; issue them again';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- Approval attribution of a key-facts application is fixed once it is approved (the PASQ
+-- guard that locks it for NCA applications steps aside for KEY_FACTS).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."guardLoanApplicationKeyFactsApproval"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path = pg_catalog, pg_temp
+AS $function$
+BEGIN
+  IF OLD."status"::text IN ('APPROVED', 'DISBURSED') AND NEW."status"::text IN ('APPROVED', 'DISBURSED')
+     AND (NEW."approvedAt" IS DISTINCT FROM OLD."approvedAt" OR NEW."approvedById" IS DISTINCT FROM OLD."approvedById") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Approval attribution is immutable after approval';
   END IF;
   RETURN NEW;
 END;
@@ -1057,8 +1125,8 @@ AS $function$
 DECLARE
   previous_bypass text;
   app record;
-  v record;
-  t record;
+  v public."DocumentTemplateVersion";
+  t public."DocumentTemplate";
   doc record;
   demo boolean;
   signed boolean;
@@ -1084,7 +1152,7 @@ BEGIN
     PERFORM set_config('app.rls_bypass', 'on', true);
     SELECT * INTO v FROM public."DocumentTemplateVersion" WHERE "id" = NEW."templateVersionId";
     SELECT * INTO t FROM public."DocumentTemplate" WHERE "id" = NEW."templateId";
-    SELECT "clientId", "contentSha256", "generatedFromVersionId", "deletedAt" INTO doc FROM public."ClientDocument" WHERE "id" = NEW."clientDocumentId";
+    SELECT "clientId", "tenantId", "contentSha256", "generatedFromVersionId", "deletedAt", "issuedForApplicationId" INTO doc FROM public."ClientDocument" WHERE "id" = NEW."clientDocumentId";
     SELECT coalesce("isDemoLender", false) INTO demo FROM public."TenantConfig" WHERE "tenantId" = NEW."tenantId";
     PERFORM set_config('app.rls_bypass', coalesce(previous_bypass, ''), true);
     IF v."templateId" IS DISTINCT FROM NEW."templateId" OR v."version" IS DISTINCT FROM NEW."templateVersionNumber" OR t."key" IS DISTINCT FROM NEW."templateKey" THEN
@@ -1093,17 +1161,20 @@ BEGIN
     IF t."kind" <> 'CUSTOM' OR t."deletedAt" IS NOT NULL OR NOT t."isActive" OR t."currentVersionId" IS DISTINCT FROM v."id" OR v."status" <> 'ACTIVE' THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan document is issued from the current approved version of its template';
     END IF;
-    IF t."requiresApproval" AND (v."approvedById" IS NULL OR v."approvedAt" IS NULL) THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan document is issued from an approved template version';
+    IF NOT public."loanTemplateVersionApproved"(v) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan document is issued from a template version approved by someone other than its author';
     END IF;
     IF encode(sha256(convert_to(v."bodyHtml", 'UTF8')), 'hex') <> NEW."templateContentSha256" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The issuance does not carry the wording of its template version';
     END IF;
-    IF doc."clientId" IS DISTINCT FROM app."clientId" OR doc."deletedAt" IS NOT NULL OR doc."contentSha256" IS DISTINCT FROM NEW."pdfSha256"
+    IF doc."clientId" IS DISTINCT FROM app."clientId" OR doc."tenantId" IS DISTINCT FROM NEW."tenantId" OR doc."deletedAt" IS NOT NULL OR doc."contentSha256" IS DISTINCT FROM NEW."pdfSha256"
        OR doc."generatedFromVersionId" IS DISTINCT FROM NEW."templateVersionId" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The issuance does not match the document rendered from that template version for this borrower';
     END IF;
-    IF NEW."termsSha256" IS DISTINCT FROM public."loanApplicationTermsSha256"(NEW."applicationId") THEN
+    IF doc."issuedForApplicationId" IS DISTINCT FROM NEW."applicationId" THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The document was rendered for another application';
+    END IF;
+    IF NEW."termsSha256" IS DISTINCT FROM public."loanApplicationTermsSha256ById"(NEW."applicationId") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The issuance does not carry the application''s approved terms';
     END IF;
     IF NEW."supersededAt" IS NOT NULL OR NEW."acknowledgedAt" IS NOT NULL THEN
@@ -1146,8 +1217,73 @@ BEGIN
 END;
 $function$;
 
+-- ---------------------------------------------------------------------------
+-- An issued document's file: it is not deleted, and its bytes, owner and origin are not
+-- swapped, while an issuance references it.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."guardLoanDocumentFile"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+  previous_bypass text;
+  referenced boolean;
+BEGIN
+  previous_bypass := current_setting('app.rls_bypass', true);
+  PERFORM set_config('app.rls_bypass', 'on', true);
+  referenced := EXISTS (SELECT 1 FROM public."LoanDocumentIssuance" WHERE "clientDocumentId" = OLD."id");
+  PERFORM set_config('app.rls_bypass', coalesce(previous_bypass, ''), true);
+  IF NOT referenced THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A document issued as a key facts statement or loan agreement cannot be deleted';
+  END IF;
+  IF NEW."deletedAt" IS NOT NULL AND OLD."deletedAt" IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A document issued as a key facts statement or loan agreement cannot be deleted';
+  END IF;
+  IF NEW."storagePath" IS DISTINCT FROM OLD."storagePath" OR NEW."contentSha256" IS DISTINCT FROM OLD."contentSha256"
+     OR NEW."clientId" IS DISTINCT FROM OLD."clientId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId"
+     OR NEW."issuedForApplicationId" IS DISTINCT FROM OLD."issuedForApplicationId" OR NEW."templateId" IS DISTINCT FROM OLD."templateId"
+     OR NEW."generatedFromVersionId" IS DISTINCT FROM OLD."generatedFromVersionId" OR NEW."deletedAt" IS DISTINCT FROM OLD."deletedAt" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The file of an issued key facts statement or loan agreement cannot be replaced';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- The two keyed templates are the lender's approved wording: they stay CUSTOM and
+-- approval-required, keep their key, and are not deleted (deactivate with isActive).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."guardLoanDocumentTemplate"()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path = pg_catalog, pg_temp
+AS $function$
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW."key" IS DISTINCT FROM OLD."key" AND (OLD."key" IN ('non_nca_key_facts', 'non_nca_loan_agreement') OR NEW."key" IN ('non_nca_key_facts', 'non_nca_loan_agreement')) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The key of a key facts or loan agreement template cannot be changed';
+  END IF;
+  IF NEW."key" NOT IN ('non_nca_key_facts', 'non_nca_loan_agreement') THEN
+    RETURN NEW;
+  END IF;
+  IF NEW."kind" <> 'CUSTOM' OR NOT NEW."requiresApproval" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A key facts or loan agreement template is a custom template whose versions need approval by a second person';
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW."deletedAt" IS NOT NULL AND OLD."deletedAt" IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A key facts or loan agreement template cannot be deleted; deactivate it instead';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
 
 CREATE TRIGGER "LoanApplication_a00_set_disclosure_regime" BEFORE INSERT ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION public."setLoanApplicationDisclosureRegime"();
 CREATE TRIGGER "LoanApplication_guard_disclosure_regime" BEFORE UPDATE OF "disclosureRegime" ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION public."guardLoanApplicationDisclosureRegime"();
 CREATE TRIGGER "LoanApplication_z_guard_key_facts_documents" BEFORE UPDATE OF "status", "agreementSignedAt" ON "LoanApplication" FOR EACH ROW WHEN (NEW."disclosureRegime" = 'KEY_FACTS') EXECUTE FUNCTION public."guardLoanApplicationKeyFactsDocuments"();
 CREATE TRIGGER "LoanDocumentIssuance_guard" BEFORE INSERT OR UPDATE OR DELETE ON "LoanDocumentIssuance" FOR EACH ROW EXECUTE FUNCTION public."guardLoanDocumentIssuance"();
+CREATE TRIGGER "LoanApplication_z_guard_key_facts_approval" BEFORE UPDATE OF "status", "approvedAt", "approvedById" ON "LoanApplication" FOR EACH ROW WHEN (NEW."disclosureRegime" = 'KEY_FACTS') EXECUTE FUNCTION public."guardLoanApplicationKeyFactsApproval"();
+CREATE TRIGGER "ClientDocument_guard_loan_document_file_update" BEFORE UPDATE OF "storagePath", "contentSha256", "clientId", "tenantId", "deletedAt", "issuedForApplicationId", "templateId", "generatedFromVersionId" ON "ClientDocument" FOR EACH ROW EXECUTE FUNCTION public."guardLoanDocumentFile"();
+CREATE TRIGGER "ClientDocument_guard_loan_document_file_delete" BEFORE DELETE ON "ClientDocument" FOR EACH ROW EXECUTE FUNCTION public."guardLoanDocumentFile"();
+CREATE TRIGGER "DocumentTemplate_guard_loan_document_keys" BEFORE INSERT OR UPDATE ON "DocumentTemplate" FOR EACH ROW EXECUTE FUNCTION public."guardLoanDocumentTemplate"();

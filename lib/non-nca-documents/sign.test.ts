@@ -18,6 +18,7 @@ vi.mock("@/lib/signing-otp/challenge", () => ({
 }))
 
 import { createHash } from "node:crypto"
+import { Prisma } from "@prisma/client"
 import { SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
 import { signKeyFactsAgreement } from "./sign"
 
@@ -81,9 +82,16 @@ describe("signKeyFactsAgreement", () => {
   })
 
   it("surfaces the database gate's own sentence when it refuses the write", async () => {
-    m.updateMany.mockRejectedValue(new Error('Error occurred during query execution: ConnectorError { kind: QueryError(PostgresError { code: "23514", message: "A loan without a key facts statement and a loan agreement from an approved template cannot be signed: template version 2 is no longer the current approved version", severity: "ERROR" }) }'))
+    m.updateMany.mockRejectedValue(new Prisma.PrismaClientUnknownRequestError('Error occurred during query execution: ConnectorError { kind: QueryError(PostgresError { code: "23514", message: "A loan without a key facts statement and a loan agreement from an approved template cannot be signed: template version 2 is no longer the current approved version", severity: "ERROR" }) }', { clientVersion: "5.22.0" }))
     const result = await signKeyFactsAgreement(base)
     expect(result).toMatchObject({ ok: false, status: 409 })
     expect((result as { error: string }).error).toMatch(/^A loan without a key facts statement.*current approved version$/)
+  })
+
+  it("answers a fault that is not a conflict with a thrown error (a 500), not a 409", async () => {
+    m.updateMany.mockRejectedValue(new TypeError("cannot read properties of undefined"))
+    await expect(signKeyFactsAgreement(base)).rejects.toThrow(TypeError)
+    m.updateMany.mockResolvedValue({ count: 0 })
+    expect(await signKeyFactsAgreement(base)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/changed while it was being signed/) })
   })
 })

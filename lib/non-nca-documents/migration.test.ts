@@ -55,8 +55,8 @@ describe("the PASQ functions the migration rewrites keep their South African beh
 describe("the new objects", () => {
   it("every new function pins search_path to pg_catalog", () => {
     for (const name of [
-      "setLoanApplicationDisclosureRegime", "guardLoanApplicationDisclosureRegime", "loanApplicationTermsSha256", "loanDocumentProblem",
-      "guardLoanApplicationKeyFactsDocuments", "guardLoanDocumentIssuance",
+      "setLoanApplicationDisclosureRegime", "guardLoanApplicationDisclosureRegime", "loanApplicationTermsSha256", "loanApplicationTermsSha256ById", "loanTemplateVersionApproved",
+      "loanDocumentProblem", "guardLoanApplicationKeyFactsDocuments", "guardLoanApplicationKeyFactsApproval", "guardLoanDocumentIssuance", "guardLoanDocumentFile", "guardLoanDocumentTemplate",
     ]) expect(now(name), name).toContain("SET search_path = pg_catalog, pg_temp")
   })
 
@@ -85,5 +85,37 @@ describe("the new objects", () => {
     expect(guard).toContain("cannot be deleted")
     expect(guard).toContain("An issued loan document is immutable")
     expect(guard).toContain(`NEW."sample" := coalesce(demo, false)`)
+  })
+
+  it("approval of the keyed templates' wording does not depend on requiresApproval, anywhere", () => {
+    for (const name of ["loanDocumentProblem", "guardLoanDocumentIssuance"]) {
+      const fn = now(name)
+      expect(fn, name).toContain(`public."loanTemplateVersionApproved"(v)`)
+      expect(fn, name).not.toContain("requiresApproval")
+    }
+    expect(now("loanTemplateVersionApproved")).toContain(`v."approvedById" <> v."createdById"`)
+    expect(baselineTriggerSql("DocumentTemplate_guard_loan_document_keys")).toMatch(/BEFORE INSERT OR UPDATE ON "DocumentTemplate"/)
+    expect(now("guardLoanDocumentTemplate")).toContain(`NOT NEW."requiresApproval"`)
+  })
+
+  it("the gate hashes the NEW row's terms (a BEFORE trigger reads the old table row otherwise)", () => {
+    expect(now("guardLoanApplicationKeyFactsDocuments")).toContain(`public."loanApplicationTermsSha256"(NEW)`)
+    expect(now("guardLoanApplicationKeyFactsDocuments")).not.toContain("loanApplicationTermsSha256ById")
+  })
+
+  it("a signed loan is checked against the version it was issued from: the template's present state is read only when signing", () => {
+    const problem = now("loanDocumentProblem")
+    for (const clause of [`p_require_current AND (t."kind" <> 'CUSTOM' OR t."deletedAt" IS NOT NULL OR NOT t."isActive")`, `p_require_current AND (v."status" <> 'ACTIVE' OR t."currentVersionId" IS DISTINCT FROM v."id")`]) {
+      expect(problem).toContain(clause)
+    }
+    // The stored file is read on both paths.
+    expect(problem).toContain(`d."contentSha256" <> i."pdfSha256"`)
+    expect(problem).toContain(`d."issuedForApplicationId" IS DISTINCT FROM p_application_id`)
+  })
+
+  it("an issued document's file is guarded on update and on delete", () => {
+    expect(baselineTriggerSql("ClientDocument_guard_loan_document_file_update")).toMatch(/BEFORE UPDATE OF "storagePath", "contentSha256", "clientId", "tenantId", "deletedAt", "issuedForApplicationId"/)
+    expect(baselineTriggerSql("ClientDocument_guard_loan_document_file_delete")).toMatch(/BEFORE DELETE ON "ClientDocument"/)
+    expect(baselineTriggerSql("LoanApplication_z_guard_key_facts_approval")).toMatch(/BEFORE UPDATE OF "status", "approvedAt", "approvedById" ON "LoanApplication"/)
   })
 })

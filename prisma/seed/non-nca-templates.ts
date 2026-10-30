@@ -36,13 +36,13 @@ const PARTIES = `<p>Lender: {{tenant.legalName}}</p>
 
 const BODIES = {
   KEY_FACTS_STATEMENT: `<h1>Key facts statement</h1>\n${PARTIES}\n${FIGURES}\n${GAP}\n<p>Prepared {{today}}.</p>`,
-  LOAN_AGREEMENT: `<h1>Loan agreement</h1>\n${PARTIES}\n<h2>Approved terms</h2>\n${FIGURES}\n<h2>Terms and conditions</h2>\n${GAP}\n<p>The borrower signs electronically: the signature, its date and time, the borrower&rsquo;s address on the network and the one-time-code verification are recorded with this agreement.</p>\n<p>Prepared {{today}}.</p>`,
+  LOAN_AGREEMENT: `<h1>Loan agreement</h1>\n${PARTIES}\n<h2>Approved terms</h2>\n${FIGURES}\n<h2>Terms and conditions</h2>\n${GAP}\n<p>Prepared {{today}}.</p>`,
 } as const
 
 const NAMES = { KEY_FACTS_STATEMENT: "Key facts statement", LOAN_AGREEMENT: "Loan agreement" } as const
 
-/** Idempotent: a template that already has a current version is left alone. */
-export async function seedNonNcaTemplates(db: PrismaClient, tenantId: string, approverId: string): Promise<void> {
+/** Idempotent: a template that already has a current version is left alone. Authored by one admin, approved by another (the database requires it). */
+export async function seedNonNcaTemplates(db: PrismaClient, tenantId: string, creatorId: string, approverId: string): Promise<void> {
   for (const kind of ["KEY_FACTS_STATEMENT", "LOAN_AGREEMENT"] as const) {
     const key = LOAN_DOCUMENT_TEMPLATE_KEYS[kind]
     const template = await db.documentTemplate.upsert({
@@ -56,7 +56,7 @@ export async function seedNonNcaTemplates(db: PrismaClient, tenantId: string, ap
       data: {
         templateId: template.id, version: 1, bodyHtml: BODIES[kind], tokensUsed: extractTokens(BODIES[kind]), status: "ACTIVE",
         notes: "Synthetic demo version: structure and approved figures only. The bank's legal team supplies the wording.",
-        createdById: approverId, activatedById: approverId, activatedAt: new Date(), approvedById: approverId, approvedAt: new Date(),
+        createdById: creatorId, activatedById: creatorId, activatedAt: new Date(), approvedById: approverId, approvedAt: new Date(),
       },
     })
     await db.documentTemplate.update({ where: { id: template.id }, data: { currentVersionId: version.id } })

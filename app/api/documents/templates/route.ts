@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { listTemplates } from "@/lib/documents/catalogue"
 import { logAudit, AuditAction } from "@/lib/audit"
 import type { DocumentSigningMethod } from "@prisma/client"
+import { isLoanDocumentTemplateKey } from "@/lib/non-nca-documents/keys"
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("LOAN_ADMIN")
@@ -45,10 +46,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Keys starting with af. are reserved for asset-finance templates" }, { status: 422 })
     }
 
+    const key = body.key?.trim() || slugify(body.name)
     const created = await prisma.documentTemplate.create({
       data: {
         tenantId: tenant.id,
-        key: body.key?.trim() || slugify(body.name),
+        key,
+        // The lender's key facts statement and loan agreement (lib/non-nca-documents) are legal wording:
+        // their versions need approval by a second person (a database trigger holds the same).
+        requiresApproval: isLoanDocumentTemplateKey(key),
         name: body.name.trim(),
         category: body.category?.trim() || null,
         kind: "CUSTOM",

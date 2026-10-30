@@ -30,8 +30,8 @@ export async function publishVersion(db: PrismaClient, templateId: string, versi
   await db.documentTemplateVersion.updateMany({ where: { templateId, status: "ACTIVE" }, data: { status: "ARCHIVED" } })
   const created = await db.documentTemplateVersion.create({
     data: {
-      templateId, version, bodyHtml, tokensUsed: [], status: "ACTIVE",
-      approvedById: "approver-test", approvedAt: new Date(), activatedById: "approver-test", activatedAt: new Date(),
+      templateId, version, bodyHtml, tokensUsed: [], status: "ACTIVE", createdById: "author-test",
+      approvedById: "approver-test", approvedAt: new Date(), activatedById: "publisher-test", activatedAt: new Date(),
     },
   })
   await db.documentTemplate.update({ where: { id: templateId }, data: { currentVersionId: created.id } })
@@ -71,7 +71,7 @@ export async function createApprovedApplication(db: PrismaClient): Promise<KeyFa
 }
 
 export const termsSha = async (db: PrismaClient, applicationId: string) =>
-  (await db.$queryRaw<{ s: string }[]>`SELECT public."loanApplicationTermsSha256"(${applicationId}) AS s`)[0].s
+  (await db.$queryRaw<{ s: string }[]>`SELECT public."loanApplicationTermsSha256ById"(${applicationId}) AS s`)[0].s
 
 /** What a real issue writes: the rendered document and its issuance row, bound to the template version. */
 export async function issueDocument(db: PrismaClient, fx: KeyFactsFixture, kind: Kind, over: { template?: TemplateRef; bodyHtml?: string } = {}) {
@@ -82,7 +82,7 @@ export async function issueDocument(db: PrismaClient, fx: KeyFactsFixture, kind:
       tenantId: fx.tenant.tenantId, clientId: fx.clientId, docType: kind === "LOAN_AGREEMENT" ? "CREDIT_AGREEMENT" : "OTHER",
       fileName: `${kind}.pdf`, fileUrl: "", storagePath: `/synthetic/${randomUUID()}.pdf`, fileSize: 1, mimeType: "application/pdf",
       uploadedByType: "staff", extractionStatus: "skipped", verified: false, templateId: template.templateId,
-      generatedFromVersionId: template.versionId, contentSha256: pdfSha256,
+      generatedFromVersionId: template.versionId, contentSha256: pdfSha256, issuedForApplicationId: fx.applicationId,
     },
   })
   const issuance = await db.loanDocumentIssuance.create({

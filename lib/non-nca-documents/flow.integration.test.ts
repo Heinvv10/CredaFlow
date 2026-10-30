@@ -15,13 +15,14 @@ import { createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { approvedAffordabilityResult } from "./approval.integration-fixture"
 import { AGREEMENT_KEY, KFS_KEY, createTemplate, publishVersion } from "./gate.integration-fixture"
 
-const holder = vi.hoisted(() => ({ db: null as unknown, files: new Map<string, Buffer>() }))
+const holder = vi.hoisted(() => ({ db: null as unknown, files: new Map<string, Buffer>(), onRender: null as null | (() => Promise<void>) }))
 vi.mock("@/lib/prisma", () => ({ prisma: new Proxy({}, { get: (_t, key) => (holder.db as Record<string | symbol, unknown>)[key] }) }))
 vi.mock("@/lib/storage", () => ({
   saveFile: async (buffer: Buffer) => { const path = `/mem/${holder.files.size}.pdf`; holder.files.set(path, buffer); return { storagePath: path, fileSize: buffer.length } },
+  deleteFile: async (path: string) => { holder.files.delete(path) },
   readFile: async (path: string) => { const b = holder.files.get(path); if (!b) throw new Error("missing"); return b },
 }))
-vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) => Buffer.from(`%PDF-synthetic ${html}`) }))
+vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) => { await holder.onRender?.(); return Buffer.from(`%PDF-synthetic ${html}`) } }))
 vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<typeof import("@/lib/signing-otp/policy")>()), isSigningOtpRequired: async () => false }))
 vi.mock("@/lib/config/identity", () => ({ findLenderIdentity: async () => ({ legalName: "Demo Basotho Lending (Pty) Ltd", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"] }) }))
 
@@ -141,5 +142,18 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     const refusal = await keyFactsRefusal(fx.tenantId, fx.applicationId, "disburse")
     expect(refusal?.status).toBe(422)
     expect(await refusal?.json()).toMatchObject({ error: expect.stringMatching(/the borrower has not signed the loan agreement/), disbursementPrecondition: "non_nca_documents" })
+  })
+
+  it("refuses when the approved terms move while the documents render, and leaves no row and no file behind", async () => {
+    const fx = await approvedApplication()
+    const filesBefore = holder.files.size
+    holder.onRender = async () => {
+      holder.onRender = null
+      await db().loanApplication.update({ where: { id: fx.applicationId }, data: { approvedAmount: 900_000 } })
+    }
+    const result = await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
+    expect(result).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/changed while the documents were being issued/) })
+    expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId } })).toBe(0)
+    expect(holder.files.size).toBe(filesBefore)
   })
 })

@@ -5,6 +5,7 @@ import { CheckCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
 import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
+import { LOAN_DOCUMENT_LABELS, SAMPLE_BANNER_TEXT } from "@/lib/non-nca-documents/keys"
 
 interface DocRef {
   documentId: string
@@ -80,10 +81,10 @@ export function PortalKeyFactsClient({ applicationId, reference, clientName, key
   if (signed) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-12 text-center" data-testid="key-facts-signed">
-        <div className="rounded-lg border border-green-200 bg-green-50 p-8">
-          <CheckCircle className="mx-auto mb-4 h-12 w-12 text-green-600" />
-          <p className="mb-2 text-2xl font-bold text-green-800">Loan agreement signed</p>
-          <p className="text-green-700">Thank you, {clientName}. The lender will now prepare your loan for payout. You can follow it under your applications.</p>
+        <div className="rounded-lg border border-[var(--cf-success)] bg-[var(--cf-surface-soft)] p-8">
+          <CheckCircle className="mx-auto mb-4 h-12 w-12 text-[var(--cf-success)]" />
+          <p className="mb-2 text-2xl font-bold text-[var(--cf-success)]">Loan agreement signed</p>
+          <p className="text-[var(--cf-success)]">Thank you, {clientName}. The lender will now prepare your loan for payout. You can follow it under your applications.</p>
           <a className="mt-6 inline-block text-sm underline" href={`/portal/applications/${applicationId}`}>Back to your application</a>
         </div>
       </div>
@@ -97,16 +98,16 @@ export function PortalKeyFactsClient({ applicationId, reference, clientName, key
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
       <div>
         <h1 className="text-2xl font-bold">Your loan documents</h1>
-        <p className="text-sm text-gray-500">Application {reference}</p>
-        {sample && <p role="note" className="mt-2 rounded border border-amber-600 bg-amber-50 p-2 text-sm font-semibold text-amber-800">SAMPLE &mdash; the bank&rsquo;s legal team supplies wording. This is a demonstration.</p>}
+        <p className="text-sm text-[var(--cf-text-muted)]">Application {reference}</p>
+        {sample && <p role="note" className="mt-2 rounded border border-[var(--cf-warning)] bg-[var(--cf-surface-soft)] p-2 text-sm font-semibold text-[var(--cf-warning)]">{SAMPLE_BANNER_TEXT}. This is a demonstration.</p>}
       </div>
 
-      <section className="space-y-3 rounded-lg border p-4" aria-labelledby="kfs-heading">
-        <h2 id="kfs-heading" className="text-lg font-semibold">1. Key facts statement</h2>
-        <iframe title="Key facts statement" src={`/api/documents/${keyFacts.documentId}/view`} className="h-[520px] w-full rounded border" />
+      <section className="space-y-3 rounded-lg border border-[var(--cf-border-subtle)] p-4" aria-labelledby="kfs-heading">
+        <h2 id="kfs-heading" className="text-lg font-semibold">1. {LOAN_DOCUMENT_LABELS.KEY_FACTS_STATEMENT}</h2>
+        <iframe title="Key facts statement" src={`/api/documents/${keyFacts.documentId}/view`} className="h-[520px] w-full rounded border border-[var(--cf-border-subtle)]" />
         <a className="text-sm underline" href={`/api/documents/${keyFacts.documentId}/view`} target="_blank" rel="noreferrer">Open the key facts statement in a new tab</a>
         {acknowledged ? (
-          <p className="flex items-center gap-2 text-sm text-green-700"><CheckCircle className="h-4 w-4" />You have acknowledged this key facts statement.</p>
+          <p className="flex items-center gap-2 text-sm text-[var(--cf-success)]"><CheckCircle className="h-4 w-4" />You have acknowledged this key facts statement.</p>
         ) : (
           <>
             <label className="flex items-start gap-2 text-sm">
@@ -120,8 +121,8 @@ export function PortalKeyFactsClient({ applicationId, reference, clientName, key
         )}
       </section>
 
-      <section className={`space-y-3 rounded-lg border p-4 ${acknowledged ? "" : "opacity-60"}`} aria-labelledby="agreement-heading">
-        <h2 id="agreement-heading" className="text-lg font-semibold">2. Loan agreement</h2>
+      <section className={`space-y-3 rounded-lg border border-[var(--cf-border-subtle)] p-4 ${acknowledged ? "" : "opacity-60"}`} aria-labelledby="agreement-heading">
+        <h2 id="agreement-heading" className="text-lg font-semibold">2. {LOAN_DOCUMENT_LABELS.LOAN_AGREEMENT}</h2>
         {acknowledged ? (
           <>
             <iframe title="Loan agreement" src={`/api/documents/${agreement.documentId}/view`} className="h-[520px] w-full rounded border" />
@@ -130,7 +131,7 @@ export function PortalKeyFactsClient({ applicationId, reference, clientName, key
               Type your full name to sign
               <input
                 type="text" value={typedName} onChange={(e) => setTypedName(e.target.value)} placeholder={clientName}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 font-['Georgia'] text-xl italic focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
+                className="mt-1 w-full rounded-lg border border-[var(--cf-border-strong)] bg-[var(--cf-bg-raised)] px-4 py-3 font-['Georgia'] text-xl italic text-[var(--cf-text)] focus:outline-none focus:ring-2 focus:ring-[var(--cf-brand)]"
               />
             </label>
             {signingOtp.required && (
@@ -144,7 +145,7 @@ export function PortalKeyFactsClient({ applicationId, reference, clientName, key
             </Button>
           </>
         ) : (
-          <p className="text-sm text-gray-600">Acknowledge the key facts statement first; the loan agreement is shown after.</p>
+          <p className="text-sm text-[var(--cf-text-secondary)]">Acknowledge the key facts statement first; the loan agreement is shown after.</p>
         )}
       </section>
     </div>

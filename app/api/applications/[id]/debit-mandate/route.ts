@@ -128,6 +128,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
   const { id } = await params
   try {
     return await withTenantContext(req, async (tenant) => {
+      const keyFactsRefusedNew = await keyFactsRefusal(tenant.id, id)
+      if (keyFactsRefusedNew) return keyFactsRefusedNew
       const result = await prisma.$transaction(async (tx) => {
         const locked = await verifyLockedCurrentAffordabilityApproval(tx, {
           tenantId: tenant.id,

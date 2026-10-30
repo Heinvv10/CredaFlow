@@ -24,3 +24,6 @@ export const LOAN_DOCUMENT_LABELS: Record<LoanDocumentKind, string> = {
 export const SAMPLE_BANNER_TEXT = "SAMPLE \u2014 the bank\u2019s legal team supplies wording"
 
 export const LOAN_DOCUMENT_KINDS: readonly LoanDocumentKind[] = ["KEY_FACTS_STATEMENT", "LOAN_AGREEMENT"]
+
+/** The two template keys whose wording is the lender's approved legal text (approval is unconditional). */
+export const isLoanDocumentTemplateKey = (key: string) => Object.values(LOAN_DOCUMENT_TEMPLATE_KEYS).includes(key)

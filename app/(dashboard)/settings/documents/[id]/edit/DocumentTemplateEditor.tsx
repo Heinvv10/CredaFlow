@@ -14,6 +14,9 @@ export type TemplateVersionRow = {
   status: DocumentTemplateVersionStatus
   createdAt: string
   notes: string | null
+  createdById: string | null
+  approvedById: string | null
+  approvedAt: string | null
 }
 
 export type TokenOption = {
@@ -73,7 +76,13 @@ export function DocumentTemplateEditor({
   initialBodyHtml,
   versions: initialVersions,
   tokens,
+  currentUserId,
+  requiresApproval,
 }: {
+  /** The signed-in admin: the author of a draft cannot approve it. */
+  currentUserId: string
+  /** The template's versions need approval by a second admin before they can be published. */
+  requiresApproval: boolean
   templateId: string
   initialBodyHtml: string
   versions: TemplateVersionRow[]
@@ -85,6 +94,7 @@ export function DocumentTemplateEditor({
   const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [publishingId, setPublishingId] = useState<string | null>(null)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
 
   const editor = useEditor({
     extensions: [StarterKit],
@@ -153,7 +163,10 @@ export function DocumentTemplateEditor({
         return
       }
       setVersions((prev) => [
-        { id: data.id, version: data.version, status: data.status, createdAt: data.createdAt, notes: data.notes },
+        {
+          id: data.id, version: data.version, status: data.status, createdAt: data.createdAt, notes: data.notes,
+          createdById: data.createdById, approvedById: data.approvedById, approvedAt: data.approvedAt,
+        },
         ...prev,
       ])
       toast.success("Draft saved", `Version ${data.version} created`)
@@ -161,6 +174,24 @@ export function DocumentTemplateEditor({
       toast.networkError()
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleApprove = async (versionId: string) => {
+    setApprovingId(versionId)
+    try {
+      const res = await fetch(`/api/documents/templates/${templateId}/versions/${versionId}/approve`, { method: "POST" })
+      const data = (await res.json()) as { error?: string; approvedById?: string; approvedAt?: string }
+      if (!res.ok) {
+        toast.error(data.error ?? "Failed to approve")
+        return
+      }
+      setVersions((prev) => prev.map((v) => (v.id === versionId ? { ...v, approvedById: data.approvedById ?? currentUserId, approvedAt: data.approvedAt ?? new Date().toISOString() } : v)))
+      toast.success("Version approved", "Anyone but you can now publish it")
+    } catch {
+      toast.networkError()
+    } finally {
+      setApprovingId(null)
     }
   }
 
@@ -392,7 +423,23 @@ export function DocumentTemplateEditor({
                     {new Date(v.createdAt).toLocaleString(undefined, { timeZone: SAST_TIME_ZONE })}
                   </p>
                 </div>
-                {v.status === "DRAFT" && (
+                {v.status === "DRAFT" && requiresApproval && !v.approvedById && (
+                  v.createdById === currentUserId ? (
+                    <span className="text-[11px] text-gray-400" data-testid="awaiting-approval">Awaiting approval by a second admin</span>
+                  ) : (
+                    <button
+                      onClick={() => handleApprove(v.id)}
+                      disabled={approvingId === v.id}
+                      className="text-[#4F46E5] hover:underline text-xs font-medium disabled:opacity-50"
+                    >
+                      {approvingId === v.id ? "Approving…" : "Approve"}
+                    </button>
+                  )
+                )}
+                {v.status === "DRAFT" && requiresApproval && v.approvedById && v.approvedById === currentUserId && (
+                  <span className="text-[11px] text-gray-400">Approved by you; someone else publishes</span>
+                )}
+                {v.status === "DRAFT" && (!requiresApproval || (v.approvedById && v.approvedById !== currentUserId)) && (
                   <button
                     onClick={() => handlePublish(v.id)}
                     disabled={publishingId === v.id}

@@ -8,20 +8,18 @@ import { renderTokens, type TokenContext } from "@/lib/documents/tokens"
 import { escapeHtmlText } from "@/lib/non-nca-documents/html"
 import { sha256Text } from "@/lib/affordability/snapshot"
 import { LOAN_DOCUMENT_TEMPLATE_KEYS, SAMPLE_BANNER_TEXT } from "./keys"
-import { quoteFor, type QuoteFigures } from "./quote"
+import { quoteFor } from "./quote"
 
 export interface RenderedLoanDocument {
   kind: LoanDocumentKind
   templateId: string
   templateKey: string
-  templateName: string
   versionId: string
   versionNumber: number
   /** SHA-256 of the version's bodyHtml: what the database gate recomputes. */
   templateContentSha256: string
   pdf: Buffer
   sample: boolean
-  quote: QuoteFigures
 }
 
 /**
@@ -77,12 +75,10 @@ export async function renderLoanDocument(args: {
     kind,
     templateId: template.id,
     templateKey: key,
-    templateName: template.name,
     versionId: version.id,
     versionNumber: version.version,
     templateContentSha256: sha256Text(version.bodyHtml),
     pdf: await htmlToPdf(banner + html),
     sample,
-    quote,
   }
 }

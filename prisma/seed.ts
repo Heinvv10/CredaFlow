@@ -189,7 +189,7 @@ async function main() {
   // A lender outside the NCA signs a key facts statement and a loan agreement from its own templates (lib/non-nca-documents).
   if (JURISDICTION !== "ZA") {
     const { seedNonNcaTemplates } = await import("./seed/non-nca-templates")
-    await seedNonNcaTemplates(prisma, tenant.id, loanAdminOne.user.id)
+    await seedNonNcaTemplates(prisma, tenant.id, loanAdminOne.user.id, loanAdminTwo.user.id)
   }
 
   const products: Record<string, { id: string }> = {}

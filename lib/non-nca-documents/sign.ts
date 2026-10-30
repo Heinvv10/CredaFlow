@@ -4,7 +4,7 @@ import { readFile } from "@/lib/storage"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
 import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
-import { databaseMessage } from "./issue"
+import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 
 export type SignResult =
   | { ok: true; signedAt: Date }
@@ -74,7 +74,7 @@ export async function signKeyFactsAgreement(args: {
         where: { id: applicationId, tenantId, status: "APPROVED", agreementSignedAt: null, agreementDocumentId: application.agreementDocumentId, agreementDocumentSha256: application.agreementDocumentSha256 },
         data: { agreementSignedAt: now, agreementSignedMethod: "portal", agreementSignedByIp: args.ipAddress, agreementSignatureData: signature },
       })
-      if (claimed.count !== 1) throw new Error("The application changed while it was being signed")
+      if (claimed.count !== 1) throw new ConcurrentChangeError("The application changed while it was being signed")
       await logAuditStrict({
         tenantId, userEmail: args.clientEmail ?? undefined, action: AuditAction.KEY_FACTS_AGREEMENT_SIGNED, entity: "LoanApplication", entityId: applicationId,
         newValue: { actor: { type: "client", clientId }, agreementDocumentSha256: application.agreementDocumentSha256, method: "portal", otp: otpNeeded },
@@ -83,7 +83,10 @@ export async function signKeyFactsAgreement(args: {
     })
   } catch (error) {
     if (error instanceof SigningOtpRefusedError) return { ok: false, status: 409, error: "Verify the one-time code before signing", signingOtp: error.reason }
-    return { ok: false, status: 409, error: error instanceof Error ? databaseMessage(error) : "Could not record the signature" }
+    // Only a change under our feet or a refusal by the database is a conflict; anything else is a fault (500).
+    if (error instanceof ConcurrentChangeError) return { ok: false, status: 409, error: error.message }
+    if (isDatabaseRefusal(error)) return { ok: false, status: 409, error: databaseMessage(error) }
+    throw error
   }
   return { ok: true, signedAt: now }
 }

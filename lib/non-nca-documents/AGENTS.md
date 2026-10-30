@@ -33,7 +33,17 @@ instance and it never changes. Tender items 2.2.4 and 2.4.3.
   a contract). `state.ts documentProblem` calls the same SQL (`loanDocumentProblem`).
 - Figures come from `quote.ts` (the frozen approval, the PASQ's calculator), never
   from the product row; `loanApplicationTermsSha256` is computed in SQL on both sides.
-- Issuance rows are immutable but for supersession and one acknowledgement.
+- Issuance rows are immutable but for supersession and one acknowledgement. The
+  stored files cannot be deleted or swapped while one references them
+  (`guardLoanDocumentFile`); the gate reads them too. The two keyed templates need
+  approval by someone other than the author, whatever `requiresApproval` says, and
+  cannot be re-keyed or deleted (`guardLoanDocumentTemplate`).
+- **Setting up a lender** (Settings, Documents, "Loan documents"): create both
+  templates, save a draft, a second admin approves it (the author cannot), anyone but
+  the approver publishes it. Nothing is issued until both have a published, approved
+  version. **Applications created before the instance became non-ZA stay
+  `NCA_PASQ`** (the column defaults to it; set the instance jurisdiction first, it
+  is frozen by the first application).
 - Staff issue (`CREDIT_OFFICER`); only the borrower acknowledges and signs
   (`proxy` allowlist `lib/proxy/shared-client-api.ts`). Signing OTP as the PASQ flow.
 - The PASQ/agreement/disburse routes answer 409 for a key-facts application

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { readFile } from "@/lib/storage"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
-import { databaseMessage } from "./issue"
+import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 
 export type AcknowledgeResult = { ok: true; acknowledgedAt: Date } | { ok: false; status: 404 | 409 | 422; error: string }
 
@@ -52,7 +52,7 @@ export async function acknowledgeKeyFacts(args: {
         where: { id: issuance.id, tenantId, supersededAt: null, acknowledgedAt: null },
         data: { acknowledgedAt: now, acknowledgedById: clientId, acknowledgedSha256: issuance.pdfSha256 },
       })
-      if (claimed.count !== 1) throw new Error("The key facts statement changed while it was being acknowledged")
+      if (claimed.count !== 1) throw new ConcurrentChangeError("The key facts statement changed while it was being acknowledged")
       await logAuditStrict({
         tenantId, userEmail: args.clientEmail ?? undefined, action: AuditAction.KEY_FACTS_ACKNOWLEDGED, entity: "LoanApplication", entityId: applicationId,
         newValue: { actor: { type: "client", clientId }, issuanceId: issuance.id, pdfSha256: issuance.pdfSha256, templateVersion: issuance.templateVersionNumber },
@@ -60,7 +60,10 @@ export async function acknowledgeKeyFacts(args: {
       }, tx)
     })
   } catch (error) {
-    return { ok: false, status: 409, error: error instanceof Error ? databaseMessage(error) : "Could not record the acknowledgement" }
+    // Only a change under our feet or a refusal by the database is a conflict; anything else is a fault (500).
+    if (error instanceof ConcurrentChangeError) return { ok: false, status: 409, error: error.message }
+    if (isDatabaseRefusal(error)) return { ok: false, status: 409, error: databaseMessage(error) }
+    throw error
   }
   return { ok: true, acknowledgedAt: now }
 }

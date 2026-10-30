@@ -57,3 +57,19 @@ export function quoteFor(application: { affordabilityResult: unknown; repaymentM
     repaymentMethod: application.repaymentMethod ?? "",
   }
 }
+
+/** Figures for the template editor's preview (app/api/documents/templates/[id]/preview): synthetic, so the quote.* tokens render before any application exists. */
+export const SAMPLE_QUOTE: QuoteFigures = {
+  principalCents: 1_000_000,
+  termDays: 180,
+  interestRatePm: 0.025,
+  initiationFeeCents: 105_000,
+  serviceFeesCents: 41_400,
+  monthlyInstalmentCents: 195_000,
+  totalInterestCents: 90_000,
+  totalRepayableCents: 1_236_400,
+  instalments: 6,
+  firstDueDate: new Date("2027-01-31T00:00:00Z"),
+  lastDueDate: new Date("2027-06-30T00:00:00Z"),
+  repaymentMethod: "EFT",
+}

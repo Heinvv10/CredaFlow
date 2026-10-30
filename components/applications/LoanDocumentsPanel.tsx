@@ -6,6 +6,7 @@ import { CheckCircle, FileText, Loader2 } from "lucide-react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
+import { LOAN_DOCUMENT_LABELS } from "@/lib/non-nca-documents/keys"
 
 export interface LoanDocumentRow {
   kind: "KEY_FACTS_STATEMENT" | "LOAN_AGREEMENT"
@@ -25,8 +26,6 @@ interface Props {
   signingProblem: string | null
   canIssue: boolean
 }
-
-const LABEL = { KEY_FACTS_STATEMENT: "Key facts statement", LOAN_AGREEMENT: "Loan agreement" } as const
 
 /**
  * The key facts statement and loan agreement of a key-facts (non-NCA) application:
@@ -71,7 +70,7 @@ export function LoanDocumentsPanel({ applicationId, status, signedAt, documents,
               <li key={d.kind} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm">
                 <span className="flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  <a className="font-medium underline" href={`/api/documents/${d.clientDocumentId}/view`} target="_blank" rel="noreferrer">{LABEL[d.kind]}</a>
+                  <a className="font-medium underline" href={`/api/documents/${d.clientDocumentId}/view`} target="_blank" rel="noreferrer">{LOAN_DOCUMENT_LABELS[d.kind]}</a>
                   <span className="text-[var(--cf-text-muted)]">template v{d.templateVersion}</span>
                   {d.sample && <span className="rounded border border-amber-600 px-1.5 text-xs font-semibold text-amber-700">SAMPLE</span>}
                 </span>

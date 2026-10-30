@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto"
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { saveFile } from "@/lib/storage"
+import { deleteFile, saveFile } from "@/lib/storage"
 import { LOAN_DOCUMENT_KINDS } from "./keys"
+import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 import { renderLoanDocument, type RenderedLoanDocument } from "./render"
 
 export type IssueResult =
@@ -40,6 +40,8 @@ export async function issueLoanDocuments(args: {
   if (application.agreementSignedAt) return { ok: false, status: 409, error: "The loan agreement is already signed" }
   const clientId = application.clientId
 
+  // The terms the documents are rendered from, hashed now: the transaction below refuses if they moved meanwhile.
+  const [{ terms: renderedTerms }] = await prisma.$queryRaw<{ terms: string }[]>`SELECT public."loanApplicationTermsSha256ById"(${applicationId}) AS terms`
   const rendered: RenderedLoanDocument[] = []
   for (const kind of LOAN_DOCUMENT_KINDS) {
     rendered.push(await renderLoanDocument({ tenantId, applicationId, kind, staffUserId: staff.id }))
@@ -48,9 +50,11 @@ export async function issueLoanDocuments(args: {
 
   const issued = await prisma.$transaction(async (tx) => {
     const [locked] = await tx.$queryRaw<{ status: string; signed: Date | null; terms: string }[]>`
-      SELECT "status"::text AS status, "agreementSignedAt" AS signed, public."loanApplicationTermsSha256"("id") AS terms
+      SELECT "status"::text AS status, "agreementSignedAt" AS signed, public."loanApplicationTermsSha256ById"("id") AS terms
       FROM "LoanApplication" WHERE "id" = ${applicationId} AND "tenantId" = ${tenantId} FOR UPDATE`
-    if (!locked || locked.status !== "APPROVED" || locked.signed) throw new IssueRefusedError("The application changed while the documents were being issued; issue them again")
+    if (!locked || locked.status !== "APPROVED" || locked.signed || locked.terms !== renderedTerms) {
+      throw new ConcurrentChangeError("The application changed while the documents were being issued; issue them again")
+    }
     const now = new Date()
     await tx.loanDocumentIssuance.updateMany({ where: { tenantId, applicationId, supersededAt: null }, data: { supersededAt: now } })
     const rows = []
@@ -61,7 +65,7 @@ export async function issueLoanDocuments(args: {
           fileName: `${doc.kind === "LOAN_AGREEMENT" ? "loan-agreement" : "key-facts-statement"}-${applicationId}.pdf`,
           fileUrl: "", storagePath: file.storagePath, fileSize: file.fileSize, mimeType: "application/pdf",
           uploadedByType: "staff", uploadedById: staff.id, templateId: doc.templateId, generatedFromVersionId: doc.versionId,
-          contentSha256: sha, extractionStatus: "skipped", verified: false,
+          contentSha256: sha, issuedForApplicationId: applicationId, extractionStatus: "skipped", verified: false,
         },
       })
       await tx.clientDocument.update({ where: { id: clientDocument.id }, data: { fileUrl: `/api/documents/${clientDocument.id}/view` } })
@@ -86,19 +90,14 @@ export async function issueLoanDocuments(args: {
       ipAddress: args.ipAddress,
     }, tx)
     return rows
-  }).catch((error: unknown) => {
-    if (error instanceof IssueRefusedError) return error
-    if (error instanceof Prisma.PrismaClientKnownRequestError || error instanceof Prisma.PrismaClientUnknownRequestError) return new IssueRefusedError(databaseMessage(error))
+  }).catch(async (error: unknown) => {
+    // A refused or failed issue leaves no file behind.
+    await Promise.all(stored.map(({ file }) => deleteFile(file.storagePath).catch(() => undefined)))
+    if (error instanceof ConcurrentChangeError) return error
+    if (isDatabaseRefusal(error)) return new ConcurrentChangeError(databaseMessage(error))
     throw error
   })
-  if (issued instanceof IssueRefusedError) return { ok: false, status: 409, error: issued.message }
+  if (issued instanceof ConcurrentChangeError) return { ok: false, status: 409, error: issued.message }
   return { ok: true, issued }
 }
 
-class IssueRefusedError extends Error {}
-
-/** The sentence the database raised, without Prisma's query noise. */
-export function databaseMessage(error: Error): string {
-  const m = /message: "([^"]+)"/.exec(error.message) ?? /Message: `ERROR: ([^`]+)`/.exec(error.message)
-  return m ? m[1] : error.message.split("\n").at(-1) ?? "The database refused the change"
-}

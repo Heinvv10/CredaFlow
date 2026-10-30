@@ -295,6 +295,8 @@ model ClientDocument {
   // NULL for staff-uploaded / OCR-captured documents.
   templateId               String?
   generatedFromVersionId   String?
+  // A key facts statement or loan agreement (lib/non-nca-documents): the application it was rendered for.
+  issuedForApplicationId   String?
   // Native (in-app) e-signature state — see lib/documents/signing/native.ts +
   // app/api/documents/[id]/sign/route.ts. NULL for documents never sent for
   // signature (mirrors SignatureState "none" in lib/documents/signing/index.ts).
