@@ -104,8 +104,12 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      # Type-aware rules (eslint.config.mjs) build a TypeScript program: about
+      # 6 GB resident, past Node's default heap.
       - name: Lint
         run: npm run lint
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
       # These checks take seconds once dependencies are installed. They used
       # to pay for two separate runners and npm installs.
