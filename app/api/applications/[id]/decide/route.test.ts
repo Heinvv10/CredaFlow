@@ -1256,6 +1256,21 @@ describe("approval on a product version with a repayment structure and a pricing
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
+  it.each(["DIGITAL", "API"])("is refused for an application that came in on the %s channel: customer channels do not offer a structured schedule, even if a version took effect after they applied", async (channel) => {
+    approveWeekly()
+    applicationPricingInputFindFirstMock.mockResolvedValue({ segment: null, channel, campaignCode: null, updatedById: null })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ productVersionRefused: true, error: expect.stringContaining("channel") })
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("approves the same structured application from the branch", async () => {
+    approveWeekly()
+    applicationPricingInputFindFirstMock.mockResolvedValue({ segment: null, channel: "BRANCH", campaignCode: null, updatedById: null })
+    expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
+  })
+
   it("does not take a debit order for a structured schedule: approve for EFT", async () => {
     approveWeekly()
     const res = await POST(makeReq({ action: "approve", reason: "Looks good", repaymentMethod: "DEBIT_ORDER" }), ctx)

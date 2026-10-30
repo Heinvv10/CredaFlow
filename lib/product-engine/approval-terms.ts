@@ -9,6 +9,7 @@ import type { LoanCalcInput } from "@/lib/loan-calculator"
 import type { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { isMicro30Code } from "@/lib/product-config/micro30"
+import { CUSTOMER_CHANNELS } from "./channels"
 import { priceApplication } from "./resolve"
 import { assertValidTerms } from "./schedule"
 import { versionNcaIssues } from "./nca"
@@ -122,12 +123,19 @@ export async function previewCalcInput(
   }
 }
 
-/** Why a loan of this principal and term is outside the version's limits (or its structure cannot schedule it), or null. */
+/**
+ * Why a loan of this principal and term may not be approved on the version: outside its limits, a structure that cannot schedule the term,
+ * or a structured schedule for an application that came in through a customer channel (portal, website, lender API), which offers
+ * monthly instalments only: a version can take effect after a customer applied, so what the channel offered is checked here, or null.
+ */
 export function versionLimitRefusal(terms: ApprovalTerms, loan: { principalCents: number; termDays: number }): string | null {
   const l = terms.limits
   if (l) {
     if (loan.principalCents < l.minAmountCents || loan.principalCents > l.maxAmountCents) return `the amount is outside the product version's limits of ${l.minAmountCents} to ${l.maxAmountCents} cents`
     if (loan.termDays < l.minTermDays || loan.termDays > l.maxTermDays) return `the term is outside the product version's limits of ${l.minTermDays} to ${l.maxTermDays} days`
+  }
+  if (terms.repayment && terms.versioned && (CUSTOMER_CHANNELS as readonly (string | null)[]).includes(terms.versioned.pricingInputs.channel)) {
+    return `the application came in through the ${terms.versioned.pricingInputs.channel} channel, which does not offer the product version's repayment structure`
   }
   if (terms.repayment) {
     try {

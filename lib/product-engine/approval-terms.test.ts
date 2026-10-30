@@ -94,6 +94,19 @@ describe("versionLimitRefusal", () => {
     expect(versionLimitRefusal(terms, { principalCents: 300_000, termDays: 181 })).toContain("term")
   })
 
+  it.each([["DIGITAL", true], ["API", true], ["BRANCH", false], [null, false]])("a structured schedule for an application that came in on %j is refused: %s", async (channel, refused) => {
+    priced.value = { version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel, campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 13 } }
+    const terms = await approvalTermsFor(db, "t", application, product)
+    const refusal = versionLimitRefusal(terms, { principalCents: 300_000, termDays: 90 })
+    expect(refusal === null).toBe(!refused)
+    if (refused) expect(refusal).toContain(`${channel} channel`)
+  })
+
+  it("does not hold a customer channel to it when the version has no structure: the monthly schedule is what they were offered", async () => {
+    priced.value = { version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: "DIGITAL", campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment: null }
+    expect(versionLimitRefusal(await approvalTermsFor(db, "t", application, product), { principalCents: 300_000, termDays: 90 })).toBeNull()
+  })
+
   it("turns a structure that cannot schedule the term into a refusal, not a thrown error", async () => {
     const terms = await termsFor({ frequency: "WEEKLY", structure: "AMORTISING", graceKind: "FULL", graceInstalments: 5, instalments: 4 })
     expect(versionLimitRefusal(terms, { principalCents: 300_000, termDays: 28 })).toContain("grace must leave")

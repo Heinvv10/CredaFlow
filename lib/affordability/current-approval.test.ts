@@ -272,6 +272,15 @@ describe("locked affordability approval verification", () => {
       expect(await candidate(tx, buildEvidence(null, undefined, { repayment: weekly, productVersion: reference }).approval)).toEqual({ ok: false, reason: "changed" })
     })
 
+    it("refuses a structured candidate for an application that came in through a customer channel", async () => {
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      const tx = transactionFor(applicationFixture("UNDER_REVIEW"))
+      tx.productVersion.findFirst.mockResolvedValue(versionRow())
+      tx.applicationPricingInput.findFirst.mockResolvedValue({ segment: null, channel: "DIGITAL", campaignCode: null })
+
+      expect(await candidate(tx, buildEvidence(null, undefined, { repayment: weekly, productVersion: { ...reference, pricingInputs: { ...reference.pricingInputs, channel: "DIGITAL" } } }).approval)).toEqual({ ok: false, reason: "changed" })
+    })
+
     it("refuses an amount or term outside the version's limits", async () => {
       setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
       const tx = transactionFor(applicationFixture("UNDER_REVIEW"))
