@@ -26,6 +26,7 @@ import {
   verifyLockedCurrentAffordabilityApproval,
 } from "@/lib/affordability/current-approval"
 import { verifyCurrentDisbursementEvidence } from "@/lib/affordability/current-disbursement"
+import { graceDeferredInterest } from "@/lib/product-engine/schedule"
 import { Prisma } from "@prisma/client"
 import { disbursementGuardViolation } from "@/lib/disbursement/guard-violation"
 import { databaseGuardRefusal } from "@/lib/db-guard-refusal"
@@ -1403,7 +1404,8 @@ export async function POST(
           const v = writtenTerms.productVersion
           await tx.loanTerms.create({
             data: {
-              loanId: newLoan.id, tenantId: tenant.id, sequence: 1, productVersionId: v.id, deferredInterest: lockedApprovalEvidence.calculation.deferredInterest ?? 0,
+              loanId: newLoan.id, tenantId: tenant.id, sequence: 1, productVersionId: v.id,
+              deferredInterest: writtenTerms.interestModel === "DAILY_ACCRUAL" ? 0 : graceDeferredInterest({ principalCents: writtenTerms.principalCents, interestRatePm: writtenTerms.interestRatePm, interestModel: writtenTerms.interestModel, startDate: lockedStartDate, repayment: writtenTerms.repayment }),
               frequency: writtenTerms.repayment?.frequency ?? null, structure: writtenTerms.repayment?.structure ?? null, graceKind: writtenTerms.repayment?.graceKind ?? null,
               graceInstalments: writtenTerms.repayment?.graceInstalments ?? 0, instalments: writtenTerms.repayment?.instalments ?? null,
               baseRatePm: v.baseRatePm, interestRatePm: writtenTerms.interestRatePm, pricingRuleId: v.pricingRuleId, pricingRuleName: v.pricingRuleName, pricingInputs: v.pricingInputs,

@@ -619,6 +619,7 @@ function buildTxMock(opts: {
     principal: 500000,
   })
   const scheduleCreateMany = vi.fn().mockResolvedValue({ count: 1 })
+  const loanTermsCreate = vi.fn().mockResolvedValue({ id: "terms-1" })
   const payoutCreate = vi.fn().mockResolvedValue({ id: "payout-1" })
   const auditLogCreate = vi.fn().mockImplementation(
     (args: { data?: { action?: string } }) => {
@@ -671,6 +672,7 @@ function buildTxMock(opts: {
           findFirst: vi.fn().mockResolvedValue(null),
         },
         repaymentSchedule: { createMany: scheduleCreateMany },
+        loanTerms: { create: loanTermsCreate },
         loanApplication: {
           findUnique: async (...args: unknown[]) => {
             const application = await findUniqueApplication(...args)
@@ -749,6 +751,7 @@ function buildTxMock(opts: {
     insurancePolicyCreate,
     referralEventCreate,
     loanCreate,
+    loanTermsCreate,
     scheduleCreateMany,
     auditLogCreate,
     queryRaw,
@@ -3452,7 +3455,7 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
         monthlyServiceFee: 0,
       },
     })
-    const { loanCreate, auditLogCreate } = buildTxMock({})
+    const { loanCreate, loanTermsCreate, auditLogCreate } = buildTxMock({})
 
     const response = await POST(makeRequest(), ctx)
 
@@ -3460,6 +3463,8 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     expect(verifyCurrentStoredDebitMandate).not.toHaveBeenCalled()
     expect(findVerifiedBankStatementForMandate).toHaveBeenCalledTimes(2)
     expect(loanCreate).toHaveBeenCalledOnce()
+    // a loan on a product with no version records no engine terms
+    expect(loanTermsCreate).not.toHaveBeenCalled()
     expect(auditLogCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         action: "LOAN_DISBURSED",
@@ -3469,6 +3474,68 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
         }),
       }),
     }))
+  })
+
+  describe("a loan approved on a product version (lib/product-engine)", () => {
+    const versioned = {
+      id: "pv-9", version: 4, baseRatePm: 0.05, pricingRuleId: "rule-3", pricingRuleName: "Best grades",
+      pricingInputs: { segment: "SALARIED", channel: "BRANCH", campaignCode: null, riskRank: 0 },
+    }
+    const repayment = { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "FULL", graceInstalments: 2, instalments: 12 }
+    const approveOnVersion = (inputs: Record<string, unknown>) => {
+      findUniqueApplication.mockResolvedValue({
+        id: "app-1", tenantId: "tenant-1", status: "APPROVED", repaymentMethod: "EFT", agreementSignedAt: new Date("2026-05-10T01:00:00.000Z"),
+        appliedAmount: 500000, appliedTermDays: 30, clientId: "client-1", productId: "prod-1", initiationFeePayment: "DEFERRED", existingDebtObligations: [],
+        client: { monthlyIncome: 1_500_000, monthlyExpenses: 800_000, debtObligations: [], bankName: "FNB", bankAccountNumber: "12345", bankBranchCode: "250655", accountType: "SAVINGS" },
+        product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+      })
+      approvalSnapshotMatches.mockReturnValue({
+        ...passingApprovalSnapshotMatch,
+        snapshot: { ...passingApprovalSnapshotMatch.snapshot, inputs: { ...passingApprovalSnapshotMatch.snapshot.inputs, ...inputs } },
+      })
+    }
+
+    it("writes the loan's terms from the frozen approval: the version, the price and the rule that gave it, the structure and the deferred grace interest", async () => {
+      approveOnVersion({ interestRatePm: 0.03, interestModel: "REDUCING_BALANCE", productVersion: versioned, repayment })
+      const { loanTermsCreate } = buildTxMock({})
+
+      const response = await POST(makeRequest(), ctx)
+
+      expect(response.status).toBe(200)
+      expect(loanTermsCreate).toHaveBeenCalledOnce()
+      // 2 periods of full grace at 3% a month x 12 / 52 a week on R5,000: the simple interest of the grace, deferred
+      const deferred = loanTermsCreate.mock.calls[0]![0].data.deferredInterest as number
+      expect(deferred).toBe(2 * Math.round(500000 * ((0.03 * 12) / 52)))
+      expect(loanTermsCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          loanId: "loan-1", tenantId: "tenant-1", sequence: 1, productVersionId: "pv-9",
+          frequency: "WEEKLY", structure: "AMORTISING", graceKind: "FULL", graceInstalments: 2, instalments: 12,
+          baseRatePm: 0.05, interestRatePm: 0.03, pricingRuleId: "rule-3", pricingRuleName: "Best grades", pricingInputs: versioned.pricingInputs,
+        }),
+      })
+    })
+
+    it("records a version with no structure as the version and the price alone", async () => {
+      approveOnVersion({ productVersion: { ...versioned, pricingRuleId: null, pricingRuleName: null }, interestRatePm: 0.05 })
+      const { loanTermsCreate } = buildTxMock({})
+
+      expect((await POST(makeRequest(), ctx)).status).toBe(200)
+      expect(loanTermsCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ productVersionId: "pv-9", frequency: null, structure: null, graceKind: null, graceInstalments: 0, instalments: null, deferredInterest: 0, interestRatePm: 0.05, baseRatePm: 0.05, pricingRuleId: null }),
+      })
+    })
+
+    it("does not register a debit order for a structured schedule: refused before any money moves", async () => {
+      approveOnVersion({ productVersion: versioned, repayment })
+      findUniqueApplication.mockResolvedValue({ ...(await findUniqueApplication()), repaymentMethod: "DEBIT_ORDER" })
+      const { loanCreate, loanTermsCreate } = buildTxMock({})
+
+      const response = await POST(makeRequest(), ctx)
+
+      expect(response.status).toBeGreaterThanOrEqual(400)
+      expect(loanCreate).not.toHaveBeenCalled()
+      expect(loanTermsCreate).not.toHaveBeenCalled()
+    })
   })
 
   it("returns the distinct verified-banking 422 when mandate banking evidence is absent", async () => {

@@ -155,3 +155,9 @@ export function generateSchedule(input: ScheduleInput): GeneratedSchedule {
     deferredInterest: deferred,
   }
 }
+
+/** The interest a full grace defers for a loan on these terms (0 for any other); what the booked loan's terms record for IFRS 9. */
+export function graceDeferredInterest(input: { principalCents: number; interestRatePm: number; interestModel: EngineInterestModel; startDate: Date; repayment: RepaymentTerms | null | undefined }): number {
+  if (!input.repayment || input.repayment.graceKind !== "FULL") return 0
+  return generateSchedule({ ...input, monthlyServiceFeeCents: 0, terms: input.repayment }).deferredInterest
+}
