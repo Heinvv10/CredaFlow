@@ -920,6 +920,8 @@ describe("the approval matrix's hooks in the approve path", () => {
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({ applicationChanged: true })
     expect(triggerNotificationMock).not.toHaveBeenCalled()
+    // The transaction itself failed (so the database rolled the step back), rather than committing with the step in it.
+    await expect(transactionMock.mock.results[transactionMock.mock.results.length - 1].value).rejects.toThrow()
   })
 
   it("with no matrix a lost race is answered as before, without a throw", async () => {

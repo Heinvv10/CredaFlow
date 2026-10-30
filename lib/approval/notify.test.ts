@@ -8,27 +8,32 @@ const levels: MatrixLevel[] = [
 ]
 const now = new Date("2026-11-02T10:00:00Z")
 
-function tx(over: { users?: unknown[]; delegations?: unknown[]; activeDelegates?: string[] }) {
+interface Person { id: string; role: string; active: boolean; isSystem: boolean }
+interface UserWhere { id?: { in?: string[]; notIn?: string[] }; active?: boolean; isSystem?: boolean; role?: { in: string[] } }
+
+/** A staff directory the queries are run against (honouring the filters the code passes), and the delegations in force. */
+function tx(directory: Person[], delegateIds: string[]) {
   return {
     user: {
-      findMany: vi.fn(async (args: { where: { id?: { in: string[] } } }) => (args.where.id?.in
-        ? (over.activeDelegates ?? []).filter((id) => args.where.id!.in.includes(id)).map((id) => ({ id }))
-        : (over.users ?? []))),
+      findMany: vi.fn(async ({ where }: { where: UserWhere }) => directory.filter((u) => (
+        (where.active === undefined || u.active === where.active) && (where.isSystem === undefined || u.isSystem === where.isSystem)
+        && (!where.id?.in || where.id.in.includes(u.id)) && (!where.id?.notIn || !where.id.notIn.includes(u.id)) && (!where.role || where.role.in.includes(u.role))
+      ))),
     },
-    approvalDelegation: { findMany: vi.fn(async () => over.delegations ?? []) },
+    approvalDelegation: { findMany: vi.fn(async () => delegateIds.map((delegateId) => ({ delegateId }))) },
   }
 }
+const person = (id: string, role: string, over: Partial<Person> = {}): Person => ({ id, role, active: true, isSystem: false, ...over })
 const input = { tenantId: "t1", levels, level: 2, amountCents: 500_000, exclude: ["maker"], now }
 
 describe("approversForLevel", () => {
-  it("is the active people whose own role level is exactly this one, plus current delegates", async () => {
-    const db = tx({ users: [{ id: "bm1", role: "BRANCH_MANAGER" }, { id: "la1", role: "LOAN_ADMIN" }, { id: "ad1", role: "ADMIN" }], delegations: [{ delegateId: "la2" }], activeDelegates: ["la2"] })
-    // ADMIN holds a level above 2 only if the matrix has one; here the top level is 2, so an ADMIN's level is 2 as well.
-    expect((await approversForLevel(db as never, input)).sort()).toEqual(["ad1", "bm1", "la2"])
+  it("is the active people whose own role level is exactly this one, plus current delegates, never the maker", async () => {
+    const db = tx([person("bm1", "BRANCH_MANAGER"), person("la1", "LOAN_ADMIN"), person("la2", "LOAN_ADMIN"), person("maker", "BRANCH_MANAGER")], ["la2"])
+    expect((await approversForLevel(db as never, input)).sort()).toEqual(["bm1", "la2"])
   })
 
   it("does not wake a delegate who has since left, or is the system account", async () => {
-    const db = tx({ users: [], delegations: [{ delegateId: "gone" }, { delegateId: "la2" }], activeDelegates: ["la2"] })
+    const db = tx([person("gone", "LOAN_ADMIN", { active: false }), person("robot", "LOAN_ADMIN", { isSystem: true }), person("la2", "LOAN_ADMIN")], ["gone", "robot", "la2"])
     expect(await approversForLevel(db as never, input)).toEqual(["la2"])
   })
 })

@@ -102,6 +102,19 @@ suite("approval matrix: bypass attempts (real Postgres)", () => {
     const step = (approver: string, delegation: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-deleg',2,'${approver}','DELEGATION','${delegation}')`)
     expect(await refusal(step(ids.la2, granted.id))).toContain("delegator")
     expect(await refusal(step(ids.la2, "no-such-delegation"))).toMatch(/delegation|foreign key/i)
+    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id }))
+  })
+
+  it("a delegator whose delegate already approved on their authority cannot approve as well", async () => {
+    const granted = await inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.bm, delegation: { delegateId: ids.la2, level: 2, maxAmountCents: 2_000_000_000, ...window(), reason: "Covering for my leave" } }))
+    await underReview("bp-reverse", { amount: 800_000 })
+    expect((await approveAs("la1", "bp-reverse")).status).toBe(200)
+    expect((await approveAs("la2", "bp-reverse")).status).toBe(200)
+    expect((await stepsOf("bp-reverse"))[1]).toMatchObject({ level: 2, approverId: ids.la2, via: "DELEGATION", delegationId: granted.id })
+    expect(await approveAs("bm", "bp-reverse")).toMatchObject({ status: 403, body: { approvalMatrix: "DELEGATOR_ALREADY_ACTED" } })
+    const theCase = await caseOf("bp-reverse")
+    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-reverse',3,'${ids.bm}','ROLE')`))).toContain("delegate already approved")
+    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id }))
   })
 
   it("the requirement follows the facts: an engine attempt before the grade is written freezes nothing, and a later grade raises it, never lowers it", async () => {
