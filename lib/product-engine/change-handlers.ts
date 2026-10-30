@@ -4,7 +4,7 @@ import { dbDate } from "@/lib/asset-finance/dates"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import type { ChangeHandler, Tx } from "@/lib/maker-checker/types"
 import { MICRO30_CODE } from "@/lib/product-config/micro30"
-import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
+import { Problems, isDay, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
 import { activateDueVersions } from "./activate"
 import { pricingRuleNcaIssue, versionNcaIssues } from "./nca"
 import { PRICING_RULE_KIND, parsePricingRule, type PricingRulePayload } from "./pricing"
@@ -19,12 +19,6 @@ export interface ProductVersionPayload {
   effectiveFrom: string
   reason: string
   config: ProductConfig
-}
-
-const isDay = (v: unknown): v is string => {
-  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
-  const d = new Date(`${v}T00:00:00Z`)
-  return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(v)
 }
 
 export function parseProductVersionPayload(raw: unknown): ProductVersionPayload {

@@ -10,6 +10,7 @@
  * so principal, interest and fees each add up exactly and the last closing balance is 0.
  */
 import { evenly } from "./evenly"
+import { graceRuleProblems } from "./grace-rules"
 import { addCalendarMonths, addPeriods } from "./periods"
 import { PERIOD_DAYS, PERIODS_PER_YEAR, type EngineInterestModel, type GeneratedSchedule, type RepaymentTerms, type ScheduleRowOut } from "./types"
 
@@ -28,11 +29,9 @@ export function assertValidTerms(terms: RepaymentTerms): void {
   const { instalments, graceKind, graceInstalments, structure } = terms
   if (!Number.isInteger(instalments) || instalments < 1) throw new Error("instalments must be a whole number of at least 1")
   if (!Number.isInteger(graceInstalments) || graceInstalments < 0) throw new Error("graceInstalments must be a whole number, 0 or more")
-  if (graceKind === "NONE" && graceInstalments !== 0) throw new Error("grace periods need a grace kind")
-  if (graceKind !== "NONE" && graceInstalments < 1) throw new Error("a grace kind needs at least 1 grace period")
+  const rule = graceRuleProblems(structure, graceKind, graceInstalments)[0]
+  if (rule) throw new Error(rule.message)
   if (graceInstalments >= instalments && graceKind !== "NONE") throw new Error("the grace must leave at least 1 instalment to pay")
-  if (graceKind === "PRINCIPAL_ONLY" && structure !== "AMORTISING") throw new Error("a principal-only grace belongs to an amortising structure: interest-only and bullet already defer the principal")
-  if (graceKind !== "NONE" && structure === "BULLET") throw new Error("a bullet has a single payment at the end: it has no grace")
 }
 
 function periodRate(interestRatePm: number, terms: RepaymentTerms): number {

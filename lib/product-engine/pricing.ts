@@ -10,7 +10,7 @@
  */
 import { PRICING_CHANNELS, isPricingChannel } from "./channels"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
-import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
+import { Problems, isDay, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
 
 export interface PricingRule {
   id: string
@@ -63,7 +63,7 @@ function matches(rule: PricingRule, ctx: PricingContext): boolean {
   if (rule.channel !== null && rule.channel !== ctx.channel) return false
   if (rule.campaignCode !== null && rule.campaignCode !== ctx.campaignCode) return false
   if (rule.riskRankMin !== null) {
-    if (ctx.riskRank === null) return false
+    if (ctx.riskRank == null) return false // null or undefined: an application with no grade matches no rule that names one
     if (ctx.riskRank < rule.riskRankMin || ctx.riskRank > (rule.riskRankMax ?? rule.riskRankMin)) return false
   }
   return true
@@ -83,12 +83,6 @@ export const PRICING_RULE_KIND = "PRODUCT_PRICING_RULE"
 export type PricingRulePayload =
   | { action: "CREATE"; rule: Omit<PricingRule, "id" | "createdAt"> }
   | { action: "RETIRE"; ruleId: string }
-
-const isDay = (v: unknown): v is string => {
-  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
-  const d = new Date(`${v}T00:00:00Z`)
-  return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(v)
-}
 
 const label = (path: string, v: unknown, problems: Problems): string | null => {
   if (v === null) return null
@@ -125,7 +119,7 @@ export function parsePricingRule(raw: unknown): PricingRulePayload {
   const rankOk = (v: unknown) => v === null || v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 50)
   if (!rankOk(rule.riskRankMin) || !rankOk(rule.riskRankMax)) problems.add("rule.riskRankMin", "a whole grade rank from 0 (best) to 50, or null")
   else if ((rule.riskRankMin ?? null) === null !== ((rule.riskRankMax ?? null) === null)) problems.add("rule.riskRankMin", "give both ends of the rank range, or neither")
-  else if (rule.riskRankMin != null && rule.riskRankMax != null && (rule.riskRankMax as number) < (rule.riskRankMin as number)) problems.add("rule.riskRankMin", "the first rank must not be after the last")
+  else if ((rule.riskRankMin ?? null) !== null && (rule.riskRankMax as number) < (rule.riskRankMin as number)) problems.add("rule.riskRankMin", "the first rank must not be after the last")
   if (rule.campaignCode !== null && rule.campaignCode !== undefined && (typeof rule.campaignCode !== "string" || !/^[A-Z][A-Z0-9_]{1,39}$/.test(rule.campaignCode))) problems.add("rule.campaignCode", "UPPER_SNAKE, 2 to 40 characters, or null")
   if (!isDay(rule.validFrom)) problems.add("rule.validFrom", "a date, YYYY-MM-DD")
   if (rule.validTo !== null && rule.validTo !== undefined && !isDay(rule.validTo)) problems.add("rule.validTo", "a date, YYYY-MM-DD, or null")

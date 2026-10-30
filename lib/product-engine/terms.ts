@@ -3,6 +3,7 @@
  * eligibility. Pure: parsing and the rules that need no database. What needs one (the NCA interest ceiling, which reads
  * the repo rate) is checked by the change handler (change-handlers.ts).
  */
+import { graceRuleProblems } from "./grace-rules"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
 import { NCA_ASSET_CAPS } from "@/lib/asset-finance/nca-caps"
@@ -85,10 +86,7 @@ function parseRepayment(raw: unknown, config: { minTermDays: number; interestMod
   }
   if (!frequency || !structure || !graceKind || typeof graceInstalments !== "number") return null
   if (config.interestModel === "DAILY_ACCRUAL") problems.add("repayment", "a daily-accrual product is a single payment: it has no repayment structure")
-  if (graceKind === "NONE" && graceInstalments !== 0) problems.add("repayment.graceInstalments", "grace periods need a grace kind")
-  if (graceKind !== "NONE" && graceInstalments < 1) problems.add("repayment.graceInstalments", "a grace kind needs at least 1 grace period")
-  if (graceKind === "PRINCIPAL_ONLY" && structure !== "AMORTISING") problems.add("repayment", "a principal-only grace belongs to an amortising structure: interest-only and bullet already defer the principal")
-  if (graceKind !== "NONE" && structure === "BULLET") problems.add("repayment", "a bullet has a single payment at the end: it has no grace")
+  for (const p of graceRuleProblems(structure, graceKind, graceInstalments)) problems.add(p.path, p.message)
   if (graceKind !== "NONE" && graceInstalments >= instalmentsFor(config.minTermDays, frequency)) {
     problems.add("repayment.graceInstalments", `the shortest term (${config.minTermDays} days) is ${instalmentsFor(config.minTermDays, frequency)} instalments: the grace must leave at least one to pay`)
   }

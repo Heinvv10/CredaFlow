@@ -1,26 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const priced = vi.hoisted(() => ({ value: null as unknown }))
-vi.mock("./resolve", () => ({ priceApplication: vi.fn(async () => priced.value) }))
+const priceApplication = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => priced.value))
+vi.mock("./resolve", () => ({ priceApplication }))
 
-import { approvalTermsFor, capApplicationFor, type ProductPricing } from "./approval-terms"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { approvalTermsFor, capApplicationFor, previewCalcInput, versionLimitRefusal, type ProductPricing } from "./approval-terms"
 
 const product: ProductPricing = { interestRatePm: 0.03, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900 }
 const application = { id: "a1", productId: "p1", appliedTermDays: 84, riskGradeRank: 0 }
 const db = {} as never
 const version = (over: Record<string, unknown> = {}) => ({
   id: "pv1", productId: "p1", version: 3, effectiveFrom: "2027-01-01",
-  config: { interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeeMaxCents: 90_000, monthlyServiceFeeCents: 5_000, interestRatePm: 0.035, initiationFeePct: 0.1, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }, ...over,
+  config: { minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeeMaxCents: 90_000, monthlyServiceFeeCents: 5_000, interestRatePm: 0.035, initiationFeePct: 0.1, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }, ...over,
 })
 
-beforeEach(() => { priced.value = null })
+beforeEach(() => { priced.value = null; priceApplication.mockClear(); resetActiveJurisdiction() })
 
 describe("approvalTermsFor", () => {
   it("a product with no version in effect is approved on its own row, exactly as before: nothing versioned, no structure", async () => {
-    expect(await approvalTermsFor(db, "t", application, product)).toEqual({ ...product, repayment: null, versioned: null })
+    expect(await approvalTermsFor(db, "t", application, product)).toEqual({ ...product, repayment: null, versioned: null, limits: null, ncaIssues: [] })
   })
 
   it("a product under the engine is approved on the version in effect, the price its rule gives and the structure for the term", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" }) // a weekly structure is not one an NCA lender may use
     priced.value = {
       version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: "SALARIED", channel: null, campaignCode: null, riskRank: 0 },
       pricing: { ratePm: 0.02, initiationFeePct: 0.08, ruleId: "r1", ruleName: "Best grades" },
@@ -30,6 +33,8 @@ describe("approvalTermsFor", () => {
       interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.08, initiationFeeMax: 90_000, monthlyServiceFee: 5_000,
       repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 12 },
       versioned: { productVersionId: "pv1", version: 3, baseRatePm: 0.035, pricingRuleId: "r1", pricingRuleName: "Best grades", pricingInputs: { segment: "SALARIED", channel: null, campaignCode: null, riskRank: 0 } },
+      limits: { minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180 },
+      ncaIssues: [],
     })
   })
 
@@ -38,6 +43,72 @@ describe("approvalTermsFor", () => {
     const terms = await approvalTermsFor(db, "t", application, product)
     expect(terms.repayment).toBeNull()
     expect(terms.versioned).toMatchObject({ productVersionId: "pv1", pricingRuleId: null })
+  })
+})
+
+describe("what an NCA lender may still approve on a version", () => {
+  const priceWith = (config: Record<string, unknown>) => {
+    priced.value = { version: version({ config: { ...version().config, ...config } }), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: null, campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment: null }
+  }
+
+  it("holds the version's structure to the NCA rules again at approval: one approved while the process was another jurisdiction is not approvable under the NCA", async () => {
+    priceWith({})
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([])
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([expect.stringContaining("legal sign-off")])
+  })
+
+  it("and its service fee to the ceiling", async () => {
+    priceWith({ repayment: null, monthlyServiceFeeCents: 6_901 })
+    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([expect.stringContaining("Regulation 44")])
+    priceWith({ repayment: null, monthlyServiceFeeCents: 6_900 })
+    expect((await approvalTermsFor(db, "t", application, product)).ncaIssues).toEqual([])
+  })
+
+  it("asks for no pricing rule on the MICRO30 contract product: its price is fixed", async () => {
+    await approvalTermsFor(db, "t", application, { ...product, code: "MICRO30" })
+    expect(priceApplication).toHaveBeenLastCalledWith(db, "t", expect.objectContaining({ useRules: false }))
+    await approvalTermsFor(db, "t", application, { ...product, code: "PERSONAL" })
+    expect(priceApplication).toHaveBeenLastCalledWith(db, "t", expect.objectContaining({ useRules: true }))
+  })
+})
+
+describe("versionLimitRefusal", () => {
+  const termsFor = async (repayment: unknown = null) => {
+    priced.value = { version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: null, campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment }
+    return approvalTermsFor(db, "t", application, product)
+  }
+
+  it("refuses an amount or a term outside the version's limits, and passes one inside", async () => {
+    const terms = await termsFor()
+    expect(versionLimitRefusal(terms, { principalCents: 300_000, termDays: 90 })).toBeNull()
+    expect(versionLimitRefusal(terms, { principalCents: 99_999, termDays: 90 })).toContain("amount")
+    expect(versionLimitRefusal(terms, { principalCents: 800_001, termDays: 90 })).toContain("amount")
+    expect(versionLimitRefusal(terms, { principalCents: 300_000, termDays: 27 })).toContain("term")
+    expect(versionLimitRefusal(terms, { principalCents: 300_000, termDays: 181 })).toContain("term")
+  })
+
+  it("turns a structure that cannot schedule the term into a refusal, not a thrown error", async () => {
+    const terms = await termsFor({ frequency: "WEEKLY", structure: "AMORTISING", graceKind: "FULL", graceInstalments: 5, instalments: 4 })
+    expect(versionLimitRefusal(terms, { principalCents: 300_000, termDays: 28 })).toContain("grace must leave")
+  })
+})
+
+describe("previewCalcInput", () => {
+  it("is the terms approval uses, for a staff preview: a versioned product's rate, fees and structure, not the product row's", async () => {
+    priced.value = {
+      version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: null, campaignCode: null, riskRank: 0 },
+      pricing: { ratePm: 0.02, initiationFeePct: 0.08, ruleId: "r1", ruleName: "x" }, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 12 },
+    }
+    const calc = await previewCalcInput(db, "t", { ...application, appliedAmount: 300_000, initiationFeePayment: "DEFERRED" }, { ...product, productType: "PERSONAL" })
+    expect(calc).toMatchObject({ principal: 300_000, interestRatePm: 0.02, initiationFeePct: 0.08, monthlyServiceFee: 5_000, productType: "PERSONAL", repayment: { frequency: "WEEKLY", instalments: 12 } })
+  })
+
+  it("is the product row's own terms for a product with no version", async () => {
+    const calc = await previewCalcInput(db, "t", { ...application, appliedAmount: 300_000, initiationFeePayment: "UPFRONT" }, { ...product, productType: "PERSONAL" })
+    expect(calc).toMatchObject({ interestRatePm: 0.03, initiationFeePct: 0.15, initiationFeePayment: "UPFRONT" })
+    expect(calc.repayment).toBeUndefined()
   })
 })
 
