@@ -249,12 +249,18 @@ suite("tamper-evident", () => {
         await insert(col, len)
         const [row] = await db.$queryRawUnsafe<Array<Record<string, string> & { n: number }>>(`SELECT "${col}", octet_length("${col}") AS n, "newValue" FROM "AuditLog" WHERE id = 'big-${col}-${token}'`)
         expect(row.n, col).toBeLessThanOrEqual(col === "ipAddress" ? 64 : 1024)
-        expect(row[col], col).toContain(`…[clipped ${col === "action" ? 100_000_000 : len}`)
+        if (col === "ipAddress") expect(row[col]).toBe("invalid")
+        else expect(row[col], col).toContain(`…[clipped ${len}`)
         expect((row as unknown as { newValue: { _clipped: Record<string, number> } }).newValue._clipped[col], col).toBe(len)
       }
+      // an id over 256 bytes (the primary key) is clipped as well
+      await db.$executeRawUnsafe(`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity") VALUES (repeat('i', 300), '${K}', 'AUDIT_IT', 'Thing')`)
+      const [big] = await db.$queryRaw<Array<{ id: string; newValue: { _clipped: { id: number } } }>>`SELECT id, "newValue" FROM "AuditLog" WHERE "tenantId" = ${K} AND id LIKE ${"iiii%clipped%"}`
+      expect(big.id).toContain("…[clipped 300 bytes]")
+      expect(big.newValue._clipped.id).toBe(300)
       await write(K, 1)
-      expect((await chain(K)).linked).toBe(6)
-      expect(await verify(K)).toMatchObject({ ok: true, rowsChecked: 6 })
+      expect((await chain(K)).linked).toBe(7)
+      expect(await verify(K)).toMatchObject({ ok: true, rowsChecked: 7 })
     }, 240_000)
 
     it("keeps the CHECK as the backstop for a row that bypasses the trigger (a superuser planting behind the triggers)", async () => {
