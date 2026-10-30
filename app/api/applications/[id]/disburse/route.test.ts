@@ -194,6 +194,7 @@ const { readBorrowerScreening } = vi.hoisted(() => ({
 vi.mock("@/lib/screening/gate", () => ({ readBorrowerScreening }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    approvalStep: { findMany: async () => [] },
     loanApplication: {
       findUnique: async (...args: unknown[]) => {
         const application = await findUniqueApplication(...args)

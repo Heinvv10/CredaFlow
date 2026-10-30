@@ -106,11 +106,20 @@ export type DecideDealResult =
   | { kind: "exception_reason_without_exceptions" }
   | { kind: "product_not_asset_finance" }
   | { kind: "decided"; status: "APPROVED" | "DECLINED" | "REFERRED" }
+  /** Only for a preflight: every gate on approving passed and nothing was written. */
+  | { kind: "ready" }
+
+export interface DecideDealOptions {
+  /** Run every gate on approving and stop before writing anything. */
+  preflight?: boolean
+  /** Runs in the decision's transaction just before the application is set APPROVED (the approval matrix's last step commits with it). */
+  beforeApprove?: (tx: RegimeTx) => Promise<void>
+}
 
 const DECIDABLE_DEAL = ["SUBMITTED", "REFERRED"]
 const DECIDABLE_APPLICATION = ["SUBMITTED", "UNDER_REVIEW"]
 
-export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string, input: DecideInput): Promise<DecideDealResult> {
+export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string, input: DecideInput, options: DecideDealOptions = {}): Promise<DecideDealResult> {
   const { tenantId } = actor
   const applicationId = await lockDeal(tx, tenantId, dealId)
   if (!applicationId) return { kind: "not_found" }
@@ -160,6 +169,8 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
     }
   }
 
+  if (options.preflight) return { kind: "ready" }
+
   const now = new Date()
   const reasons = reasonsWithExceptions(input.reasons, exceptions, input.exceptionReason ?? null)
   const decisionReason = reasons.join("; ")
@@ -170,6 +181,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
   switch (input.decision) {
     case "APPROVE":
       status = "APPROVED"
+      await options.beforeApprove?.(tx)
       await tx.loanApplication.update({
         where: { id: applicationId, tenantId },
         data: {

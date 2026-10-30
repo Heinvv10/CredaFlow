@@ -78,6 +78,13 @@ vi.mock("@/lib/tenant", () => ({
   withTenantContext: (req: unknown, cb: (t: { id: string; name: string }) => Promise<unknown>) =>
     cb({ id: "t1", name: "Acme Lending" }),
 }))
+// No approval matrix in force for these tests (the matrix's own gate is tested in lib/approval/).
+vi.mock("@/lib/approval/chain", () => ({
+  gateApproval: vi.fn(async () => ({ kind: "none" })),
+  openApprovalCaseSafely: vi.fn(async () => undefined),
+  ApprovalChainChangedError: class extends Error {},
+  ApprovalWriteLostError: class extends Error {},
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: {
@@ -156,6 +163,7 @@ import {
   createSubmissionAffordabilitySnapshot,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { gateApproval as gateApprovalMock } from "@/lib/approval/chain"
 import { POST } from "./route"
 import { decideApplication, type DecideAutomation } from "./decide-application"
 
@@ -876,6 +884,53 @@ it("still 500s an approval whose constraint check fails for any other reason", a
 
   expect(res.status).toBe(500)
   expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+describe("the approval matrix's hooks in the approve path", () => {
+  it("records a level only after the gates on approving: an open credit check refuses before the matrix is asked", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    recomputeApplicationFlagsMock.mockResolvedValue({ recomputed: true, flags: [{ id: "f1", status: "OPEN", check: "SALARY_MATCH", code: "NO_SALARY_CREDIT", summary: "x" }] })
+    expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(409)
+    expect(gateApprovalMock).not.toHaveBeenCalled()
+  })
+
+  it("answers with the matrix's word when another level has still to approve, and writes no approval", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    vi.mocked(gateApprovalMock).mockResolvedValueOnce({ kind: "respond", status: 200, body: { ok: true, approvalRecorded: true, level: 1 } })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ approvalRecorded: true })
+    expect(txUpdateManyMock).not.toHaveBeenCalled()
+  })
+
+  it("the final level's step is written in the approval's transaction, before the status write", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const recordFinalStep = vi.fn(async () => undefined)
+    vi.mocked(gateApprovalMock).mockResolvedValueOnce({ kind: "final", recordFinalStep })
+    expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
+    expect(recordFinalStep).toHaveBeenCalledTimes(1)
+    expect(recordFinalStep.mock.invocationCallOrder[0]).toBeLessThan(txUpdateManyMock.mock.invocationCallOrder[0])
+  })
+
+  it("a lost race after the final step throws out of the transaction, so the step is rolled back with it, and answers 409", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    vi.mocked(gateApprovalMock).mockResolvedValueOnce({ kind: "final", recordFinalStep: vi.fn(async () => undefined) })
+    txUpdateManyMock.mockResolvedValueOnce({ count: 0 })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ applicationChanged: true })
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+    // The transaction itself failed (so the database rolled the step back), rather than committing with the step in it.
+    await expect(transactionMock.mock.results[transactionMock.mock.results.length - 1].value).rejects.toThrow()
+  })
+
+  it("with no matrix a lost race is answered as before, without a throw", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    txUpdateManyMock.mockResolvedValueOnce({ count: 0 })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ applicationChanged: true })
+  })
 })
 
 it("approves an UNDER_REVIEW application (happy path)", async () => {
@@ -2283,7 +2338,7 @@ describe("the decision log (lib/learning-loop)", () => {
 describe("decideApplication with the decision engine's automation", () => {
   const systemUser = { id: "sys-1", email: "automated-decisioning@system.invalid", role: "LOAN_ADMIN" as const }
   const automation = (over: Partial<DecideAutomation> = {}): DecideAutomation => ({
-    ruleVersion: "ALL:v2", ruleSetVersionId: "ver-2", reasonCodes: ["BUREAU_SCORE_LOW"], riskGrade: "C", bureauCheckId: "b1",
+    ruleVersion: "ALL:v2", ruleSetVersionId: "ver-2", reasonCodes: ["BUREAU_SCORE_LOW"], riskGrade: "C", riskGradeRank: 2, bureauCheckId: "b1",
     exactInputs: { requestedAmountCents: 500_000 }, expectedUpdatedAt: underReviewApplication.updatedAt, inTransaction: vi.fn(async () => undefined), ...over,
   })
   const decline = (a: DecideAutomation) => {
@@ -2306,6 +2361,16 @@ describe("decideApplication with the decision engine's automation", () => {
     const record = txDecisionRecordCreateMock.mock.calls[0][0].data
     expect(record).toMatchObject({ decision: "DECLINE", actorType: "SYSTEM", actorUserId: null, s71ReviewRequired: true, recommendation: "BLOCK" })
     expect(triggerNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ event: "application_declined" }))
+  })
+
+  it("asks the approval matrix with the verdict's grade rank, which is not on the application until the decision commits", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const form = new FormData()
+    form.set("action", "approve")
+    form.set("repaymentMethod", "EFT")
+    form.set("reason", "Approved automatically (ALL:v2)")
+    await decideApplication({ tenant: { id: "t1" }, user: systemUser, id: "app-1", formData: form, automation: automation({ riskGradeRank: 4 }) })
+    expect(gateApprovalMock).toHaveBeenCalledWith(expect.objectContaining({ automated: true, application: expect.objectContaining({ riskGradeRank: 4 }) }))
   })
 
   it("runs the engine's in-transaction hook after the decision record and before the deferred constraints", async () => {

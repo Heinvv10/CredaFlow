@@ -53,6 +53,9 @@ model User {
   agentTasks                   AgentTask[]
   apiKeysCreated               ApiKey[]                              @relation("ApiKeysCreatedBy")
   apiKeysRevoked               ApiKey[]                              @relation("ApiKeysRevokedBy")
+  approvalDelegationsGiven     ApprovalDelegation[]                  @relation("ApprovalDelegator")
+  approvalDelegationsReceived  ApprovalDelegation[]                  @relation("ApprovalDelegate")
+  approvalStepsGiven           ApprovalStep[]                        @relation("ApprovalStepApprover")
   approvedLoans                LoanApplication[]                     @relation("ApprovedBy")
   assessedClaims               InsuranceClaim[]                      @relation("ClaimAssessor")
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
@@ -72,6 +75,7 @@ model User {
   coiDeclarations              CoiDeclaration[]
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
   commercialCancellations       CommercialCancellation[]
+  committeeDecisionsRecorded   CreditCommitteeDecision[]             @relation("CommitteeDecisionRecordedBy")
   contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
   contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
   countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")

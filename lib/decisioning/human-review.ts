@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { Prisma } from "@prisma/client"
 import { returnAffordabilityToReview } from "@/lib/affordability/snapshot"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { openApprovalCaseSafely } from "@/lib/approval/chain"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerReturnRecord } from "@/lib/learning-loop/records"
 import { prisma } from "@/lib/prisma"
@@ -85,4 +86,6 @@ export async function requestHumanReview(input: {
       decidedAt: now, to: "REVIEW", priorStatus: "DECLINED",
     })])
   })
+  // A person's review of the application is an approval chain with its clock, like any review that starts.
+  await openApprovalCaseSafely({ tenantId: input.tenantId, applicationId: input.applicationId })
 }

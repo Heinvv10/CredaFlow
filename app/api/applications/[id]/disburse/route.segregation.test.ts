@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   sodRequired: vi.fn(),
   screening: vi.fn(),
   auditRefusal: vi.fn(),
+  stepApprovers: [] as string[],
 }))
 
 // The key-facts redirect reads the application by its own query; these routes are exercised as PASQ applications.
@@ -26,7 +27,10 @@ vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "tenant-1" }),
 }))
 vi.mock("@/lib/prisma", () => ({
-  prisma: { loanApplication: { findUnique: (...args: unknown[]) => h.findUnique(...args) } },
+  prisma: {
+    loanApplication: { findUnique: (...args: unknown[]) => h.findUnique(...args) },
+    approvalStep: { findMany: async () => h.stepApprovers.map((approverId) => ({ approverId })) },
+  },
 }))
 vi.mock("@/lib/security/segregation-of-duties", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/security/segregation-of-duties")>(),
@@ -60,6 +64,7 @@ const approvedBy = (approvedById: string) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   h.sodRequired.mockResolvedValue(true)
+  h.stepApprovers = []
   // Stops a payout that got past segregation of duties at the next gate.
   h.screening.mockResolvedValue({ allowed: false, message: "screening stop", state: "HIT" })
 })
@@ -80,6 +85,17 @@ describe("POST /api/applications/[id]/disburse — segregation of duties", () =>
     expect(h.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({
       action: "LOAN_DISBURSEMENT_REFUSED", reason: "segregation_of_duties", status: 403, userId: "user-1",
     }))
+  })
+
+  it("refuses someone who approved a lower level of the approval matrix's chain, not only the last approver", async () => {
+    h.findUnique.mockResolvedValue(approvedBy("user-2"))
+    h.stepApprovers = ["user-1", "user-2"]
+
+    const response = await POST(request(), ctx)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties" })
+    expect(h.screening).not.toHaveBeenCalled()
   })
 
   it("lets the approver continue while the setting is off", async () => {

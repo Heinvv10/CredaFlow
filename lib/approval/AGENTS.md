@@ -1,0 +1,47 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: approval
+<!-- summary: multi-level approval matrix, delegated authority, TAT escalation and credit-committee decisions; the maker never approves -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+A lender's own approval chain: how many levels (by role) must approve an application, by amount,
+product, risk grade and branch; delegated authority; escalation when a level is overdue; the credit
+committee's pack and recorded decisions. **No enabled matrix = today's single-approver flow, unchanged.**
+The matrix is versioned (`ApprovalMatrixVersion`) and changes only through `lib/maker-checker/` (kind
+`APPROVAL_MATRIX`): an ADMIN drafts, a SUPER_ADMIN approves, for every change (two ADMINs could
+otherwise cut every approval).
+
+## Critical Rules
+- **The gate** (`chain.ts` `gateApproval`, from `decideApplication` and the asset-finance deal decide
+  route) assesses each attempt (`assess.ts`, shared with the progress view; `plan.ts`, pure): the engine
+  approves only where 0 levels are required; one person, one seat (`seats.ts`: the principals of an act are
+  the person and, on a delegation, the delegator; across makers, steps and committee recorders each appears
+  once, in the gate and in `approvalSeatTaken`); levels go in order, by
+  authority (role level, or delegation up to its amount and dates). A level that is not the last is
+  recorded; the last runs the real approval, writing its step in the same transaction (`recordFinalStep`).
+  It runs after every other gate on approving, so a level is recorded only for an approvable application.
+- **The requirement follows the facts** (`requiredLevels`, `levelsSnapshot`): recomputed every attempt,
+  raised (audited) if a grade or figure now asks for more, never lowered; written only by an attempt
+  that records or completes a level. The engine's grade comes from its verdict (`automation.riskGradeRank`).
+- **The database enforces it** (migration 20261030100000): `LoanApplication_y_guard_approval_chain`
+  refuses APPROVED without a complete open case (whichever code wrote it) while the matrix is in force,
+  closes the case when review ends, and refuses a disburser who approved at ANY level; steps are in order,
+  append-only, from active non-system non-maker staff; delegated steps name a live delegation of that
+  approver; a delegator never also approves. Open the case on every path into review (`openApprovalCaseSafely`).
+- **Escalation** (`escalation.ts`, cron `approval-escalations`, every 15 min, claimed by `dueAt`): overdue
+  level -> notify the next up, climb each SLA; a failing case is pushed back an hour (no starvation).
+- **Committee**: the last, flagged level waits for an APPROVED `CreditCommitteeDecision` (conditions ride
+  on the step); the latest decision counts, also at commit: the final step locks the case and the step
+  trigger refuses the level unless that decision is an approval. Whoever recorded a decision at that level cannot give its
+  approval; nobody who approved a level or captured the application can record one. A decline is
+  overturned only by another member holding the role itself. Pack and detail need `view_committee_pack`.
+- **Delegation**: from the delegator's own level only, to a LOAN_ADMIN or above, at most 90 days, never
+  backdated, never edited. On someone's behalf (an ADMIN): never naming oneself, never above one's own level.
+
+## Tests
+Pure: `evaluate`, `plan`, `seats`, `notify`, `escalation`, rules. `RUN_APPROVAL_IT=1`: `approval*.integration.test.ts`
+(shared `approval.integration-fixture.ts`; `-bypass` is the breaker's attacks), under RLS, every trigger.

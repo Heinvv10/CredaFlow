@@ -214,6 +214,7 @@ model LoanApplication {
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   agreementDeclarationAcceptances AgreementDeclarationAcceptance[]
+  approvalCases                           ApprovalCase[]
   assetFinanceDeal          AssetFinanceDeal?
   checkFlags                ApplicationCheckFlag[]
   conversations             Conversation[]

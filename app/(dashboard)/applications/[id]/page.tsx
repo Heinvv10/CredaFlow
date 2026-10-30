@@ -11,6 +11,9 @@ import { ActionRail } from "@/components/app-shell/ActionRail"
 import { CaseFileLayout } from "@/components/app-shell/CaseFileLayout"
 import { MetricCard } from "@/components/app-shell/MetricCard"
 import { StatusPill } from "@/components/app-shell/StatusPill"
+import { ApprovalProgressPanel } from "@/components/applications/ApprovalProgressPanel"
+import { approvalStepApproverIds, loadApprovalProgress } from "@/lib/approval/progress"
+import { sastCalendarDate } from "@/lib/date/sast"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -37,6 +40,7 @@ import { ApplicationSubmitButton } from "@/components/applications/ApplicationSu
 import { ApplicationReturnToReviewButton } from "@/components/applications/ApplicationReturnToReviewButton"
 import { auth } from "@/lib/auth"
 import { canDo, hasMinRole } from "@/lib/auth-guards"
+import type { UserRole } from "@/lib/permissions"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import {
   readCompositeKycState,
@@ -246,10 +250,14 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   const keyFactsState = application.disclosureRegime === "KEY_FACTS" ? await loanDocumentState(tenantId, application.id) : null
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")
+  // The approval matrix's chain for this application (no matrix in force: nothing to show).
+  const approvalProgress = hasMinRole(userRole, "CREDIT_OFFICER") ? await loadApprovalProgress({ tenantId, applicationId: application.id, viewer: { id: session?.user?.id ?? "", role: userRole as UserRole } }) : null
   // The routes refuse these to this viewer while segregation of duties is on;
   // say so where the button would be.
   const viewerId = session?.user?.id ?? ""
-  const disburseConflict = segregationOfDuties ? segregationOfDutiesConflict("disburse", viewerId, { ...application, approvedBySystem: application.approvedBy?.isSystem === true }) : null
+  const disburseConflict = segregationOfDuties
+    ? segregationOfDutiesConflict("disburse", viewerId, { ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenantId, application.id) })
+    : null
   const countersignConflict = segregationOfDuties ? segregationOfDutiesConflict("countersign", viewerId, application) : null
   // The checks API (GET /api/applications/[id]/checks) needs CREDIT_OFFICER.
   const canReadChecks = hasMinRole(userRole, "CREDIT_OFFICER")
@@ -574,11 +582,15 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       {application.status === "UNDER_REVIEW" && (
         <>
           <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
+          {approvalProgress && <ApprovalProgressPanel applicationId={application.id} progress={approvalProgress} canUseCommittee={canDo(userRole, "view_committee_pack")} today={sastCalendarDate(new Date())} />}
           {bureauRailAction(bureauDisplay) === "retry" && (
             <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
           )}
           {canDo(userRole, "amend_application") && <ApplicationReturnToDraftButton applicationId={application.id} />}
         </>
+      )}
+      {application.status !== "UNDER_REVIEW" && approvalProgress?.applies && approvalProgress.caseId && (
+        <ApprovalProgressPanel applicationId={application.id} progress={approvalProgress} canUseCommittee={canDo(userRole, "view_committee_pack")} today={sastCalendarDate(new Date())} />
       )}
       {application.status === "APPROVED" && !application.loan && !application.agreementSignedAt && (
         <StatusPill tone="warning" className="w-full justify-center rounded-md py-2">
