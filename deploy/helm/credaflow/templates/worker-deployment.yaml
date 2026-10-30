@@ -1,4 +1,6 @@
 {{- if .Values.worker.enabled }}
+{{- include "credaflow.assertWorkerSecretsApart" . }}
+{{- include "credaflow.assertAuditLogins" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,7 +38,7 @@ spec:
       securityContext:
         {{- include "credaflow.podSecurityContext" . | nindent 8 }}
       containers:
-        {{- include "credaflow.appContainer" (dict "root" . "component" "worker" "appMode" .Values.worker.appMode "cronScheduler" "on" "resources" .Values.worker.resources "extraEnv" .Values.worker.extraEnv) | nindent 8 }}
+        {{- include "credaflow.appContainer" (dict "root" . "component" "worker" "appMode" .Values.worker.appMode "cronScheduler" "on" "resources" .Values.worker.resources "extraEnv" .Values.worker.extraEnv "secrets" .Values.worker.existingSecrets) | nindent 8 }}
       volumes:
         {{- include "credaflow.runtimeVolumes" . | nindent 8 }}
       {{- with .Values.worker.nodeSelector }}

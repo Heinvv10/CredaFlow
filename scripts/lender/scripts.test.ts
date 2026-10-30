@@ -33,6 +33,40 @@ describe("deploy.sh", () => {
     expect(state("deploys.log")).toMatch(/DEPLOYED/)
   })
 
+  it("sets up the application's database login after migrating and before switching, as the owner", () => {
+    const r = sh("deploy.sh", [lender, "cf:new"])
+    expect(r.status).toBe(0)
+    const migrate = idx(r.calls, "migrate deploy"), role = idx(r.calls, "psql -v ON_ERROR_STOP=1 -q -U u -d d -f -"), up = idx(r.calls, "up -d --no-deps app")
+    expect(role).toBeGreaterThan(migrate)
+    expect(up).toBeGreaterThan(role)
+    expect(r.calls.join("\n")).not.toContain("appp") // the application's password is never on a command line
+  })
+
+  it("does not switch the app when its database login cannot be set up", () => {
+    writeFileSync(join(lender, "state/current-image"), "cf:old\n")
+    const r = sh("deploy.sh", [lender, "cf:new"], { STUB_FAIL_MATCH: "psql -v ON_ERROR_STOP=1 -q -U u" })
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/application's database login/)
+    expect(r.calls.some((c) => c.includes("up -d --no-deps app"))).toBe(false)
+    expect(state("current-image")).toBe("cf:old")
+  })
+
+  it("refuses to deploy without a 32+ character AUDIT_CHAIN_KEY, before anything changes", () => {
+    const env = readFileSync(join(lender, ".env"), "utf8").replace(/AUDIT_CHAIN_KEY=.*\n/, "AUDIT_CHAIN_KEY=short\n")
+    writeFileSync(join(lender, ".env"), env)
+    const r = sh("deploy.sh", [lender, "cf:new"])
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/AUDIT_CHAIN_KEY/)
+    expect(r.calls.some((c) => c.includes("migrate deploy") || c.includes("pg_dump"))).toBe(false)
+  })
+
+  it("refuses to deploy when the owner database password reaches an app container, before anything changes", () => {
+    const r = sh("deploy.sh", [lender, "cf:new"], { STUB_OWNER_LEAK: "owner-pw" })
+    expect(r.status).not.toBe(0)
+    expect(r.out).toMatch(/owner database login/)
+    expect(r.calls.some((c) => c.includes("migrate deploy") || c.includes("pg_dump") || c.includes("up -d --no-deps"))).toBe(false)
+  })
+
   it("does not switch the app when the migration fails", () => {
     writeFileSync(join(lender, "state/current-image"), "cf:old\n")
     const r = sh("deploy.sh", [lender, "cf:new"], { STUB_MIGRATE_RC: "1" })

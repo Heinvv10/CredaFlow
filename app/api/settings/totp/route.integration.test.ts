@@ -26,6 +26,7 @@ import { DELETE, POST } from "./route"
 import { DELETE as RESET } from "../users/[id]/totp/route"
 import { generateTotpCode, generateTotpSecret, verifyTotpCode } from "@/lib/totp"
 import { claimTotpCounter } from "@/lib/totp-claim"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -73,7 +74,7 @@ suite("staff TOTP routes (real database)", () => {
   })
 
   afterAll(async () => {
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.user.deleteMany({ where: { tenantId } })
     await db.tenantConfig.deleteMany({ where: { tenantId } })
     await db.tenant.deleteMany({ where: { id: tenantId } })

@@ -53,6 +53,7 @@ vi.mock("@/lib/prisma", async (importOriginal) => {
 })
 
 import { PATCH } from "./route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -80,7 +81,7 @@ suite("PATCH /api/inbox/roster (real database)", () => {
   })
 
   afterAll(async () => {
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.user.deleteMany({ where: { tenantId } })
     await db.tenant.delete({ where: { id: tenantId } })
     await db.$disconnect()

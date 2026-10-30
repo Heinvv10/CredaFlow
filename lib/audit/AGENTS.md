@@ -1,0 +1,50 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: lib/audit/ (tamper-evident audit, SIEM)
+<!-- summary: AuditLog is append-only; a keyed chainer links committed rows; verifier, checkpoints, redaction, SIEM -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Append-only in the database, chained after commit (migrations 20261029100000/50/100)
+- `AuditLog` refuses UPDATE/DELETE/TRUNCATE; its `createdAt` is the DB clock at insert (trigger). FKs are RESTRICT.
+  Inserts do no chain work. `AuditPolicy` is never deleted. Docs: `docs/ARCHITECTURE.md` (Tamper-evident audit).
+- Chainer (`chainer.ts`, cron `audit-chainer`, a pass every 5 s): an `AuditChainLink` per COMMITTED row,
+  `rowHash` = HMAC(`AUDIT_CHAIN_KEY`, position + prevHash + ids + KEYED digests of email/ip/old/newValue,
+  `chain-hash.ts`). One chain per tenant, `''` = none. No wall-clock window: a per-chain high-water mark less an
+  hour, a deep pass (7 days; boot, hourly) and a full sweep (daily job) for late commits; backfill in batches of 500.
+  Chain lock = `audit_chain_lock` (SKIP LOCKED row). The DB returns SHA-256 per value; the worker HMACs it; an insert trigger stubs values over 1 MB (always measured as text) and clips the short text columns (CHECK = backstop); the DB hashes every text column; a failing batch halves within a 20 s retry budget
+  and the pass deadline; a failing chain is logged, left alone with backoff, and the others go on; sizes are remembered.
+- Only the worker holds `AUDIT_CHAIN_KEY` (32+ chars) and the worker login. Web: `audit_grant_web`.
+- Tests purge with `audit-rows.test-helpers.ts` on the OWNER connection; shared fixture `it-fixture.test-helpers.ts`.
+
+## Three logins; the database trusts nothing it is given
+- Everything on the evidence tables is an `audit_*` SECURITY DEFINER function (`store.ts`): a new query on them is
+  a new function, never a grant. Web = INSERT/SELECT AuditLog + `audit_policy_save` + `audit_chain_status`.
+  Worker = chainer, verifier, checkpoints, outbox (`audit_grant_worker`). One login for both: `audit_grant_runtime`.
+- `deployment-check.ts`: production refuses to start on an owner/superuser/CREATEROLE role, or if its own check cannot
+  run; `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` alone allows it, loudly (demo/legacy only; not DEMO_MODE). After a restore run
+  `audit_reassert_protections()`. Helm renders only with two logins unless `audit.singleLogin=true`.
+
+## Verifying (`chain-verify.ts`)
+Reports EVERY break: `seq_gap`, `prev_hash_mismatch`, `row_hash_mismatch`, `row_missing`, `unchained_row`,
+`checkpoint_invalid` (skipped, not relied on), `checkpoint_mismatch`, `repair_invalid`. Operator-signed
+`audit:accept-break` (HMAC over the audit row, link hash and observed hash) moves that one break to `accepted`. A checkpoint signs the (seq, hash) the walk verified.
+Daily cron `audit-chain-verify` (02:30, worker): chain, verify (full on Sundays SAST), checkpoint, results rows.
+`npm run audit:verify`; the web only reports status. Database AND key can rewrite everything: the SIEM copy defends.
+
+## Redaction (POPIA)
+`audit_log_redact(id, cols, reason, operator, digests)`, owned by NOLOGIN `audit_redactor`; the trigger accepts a
+nulling only as that role with an `AuditRedaction` row. `npm run audit:redact` computes the keyed digests.
+
+## SIEM (`siem/`)
+- Policy changes only via `audit_policy_save` (it writes the audit row, stamps the backlog with the OLD destination,
+  queues the change event and an ANCHOR); SUPER_ADMIN + TOTP route; GET shows the URL origin only. The tenant binding
+  stops cross-tenant mistakes, not a compromised web process; the old-destination audit row is the backstop.
+- `deliver.ts`: per-lender lease, short calls, in order, stops at the first failed batch, splits a 4xx batch;
+  `audit_outbox_mark` takes tenant, checks backoff/attempts, writes `AuditSiemDelivery` receipts (+ ack id).
+- `minimise.ts`: no values/IP except `VALUE_ACTIONS`, masked; never email; no values for redaction/accept-break rows.
+- Destinations public only; `AUDIT_SIEM_ALLOW_PRIVATE=1` admits private ranges, never loopback/link-local/metadata.
+- Security events (`security-events.ts`): staff sign-in/failure/TOTP failure and `requireApiRole` denials of staff;
+  failures once per (tenant, user, kind, ip) per 5 min; a success is never suppressed.

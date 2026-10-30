@@ -15,6 +15,7 @@ import {
   recordPaymentNotification,
   rejectPaymentNotification,
 } from "./payment-notifications"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_PAYMENT_NOTIFICATIONS_IT === "1" ? describe : describe.skip
 
@@ -82,7 +83,7 @@ suite("client-notified payments", () => {
 
   beforeEach(async () => {
     await prisma.paymentNotification.deleteMany({ where: { tenantId: T } })
-    await prisma.auditLog.deleteMany({ where: { tenantId: T, entityId: LOAN } })
+    await purgeAuditRowsForTest(prisma, { tenantId: T, entityId: LOAN })
     await prisma.notification.deleteMany({ where: { tenantId: T } })
     await prisma.payment.deleteMany({ where: { loanId: LOAN } })
     await prisma.repaymentSchedule.updateMany({ where: { loanId: LOAN }, data: { totalPaid: 0, status: "PENDING", paidAt: null } })

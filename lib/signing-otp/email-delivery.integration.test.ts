@@ -26,6 +26,7 @@ import { syntheticSaId } from "@/lib/bureau-submission/bureau.integration-fixtur
 import { AuditAction } from "@/lib/audit"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { requestSigningOtp } from "./request"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -123,7 +124,7 @@ suite("signing OTP by email through SMTP (real database, real SMTP sink)", () =>
     await db.contact.deleteMany({ where: { tenantId } })
     await db.client.deleteMany({ where: { tenantId } })
     await db.emailConfig.deleteMany({ where: { tenantId } })
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.tenant.deleteMany({ where: { id: tenantId } })
     await db.$disconnect()
   })

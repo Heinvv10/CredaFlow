@@ -28,6 +28,7 @@ vi.mock("@/lib/tenant", async () => {
 import { POST } from "@/app/api/inbox/conversations/[id]/assignment/route"
 import { joinChat, leaveChat, sendStaffChatReply } from "./staff"
 import { loadChat, recordAssistantReply, startChat } from "./store"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 suite("website chat staff leave", () => {
   const db = new PrismaClient()
@@ -67,7 +68,7 @@ suite("website chat staff leave", () => {
 
   afterAll(async () => {
     const where = { tenantId: { in: tenants } }
-    await db.auditLog.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where)
     await db.message.deleteMany({ where })
     await db.conversation.deleteMany({ where })
     await db.contactConsent.deleteMany({ where })

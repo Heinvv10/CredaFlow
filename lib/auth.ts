@@ -8,6 +8,7 @@ import { withoutTenantScope } from "@/lib/tenant-scope"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
 import { claimTotpCounter } from "./totp-claim"
+import { recordSecurityEvent } from "./audit/security-events"
 import { signInTotpOutcome } from "./auth-totp-step"
 import { dealerAppHost, normaliseHost, operatorAppHost } from "@/lib/config/deployment-urls"
 import { isOperatorRole } from "@/lib/operator/roles"
@@ -211,6 +212,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               attempts.push(
                 prisma.loginLog.create({ data: { tenantId: user.tenantId, userId: user.id, ip, userAgent, success: false } })
                   .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) }),
+                recordSecurityEvent({ kind: "login_failed", tenantId: user.tenantId, userId: user.id, email: user.email, ipAddress: ip, reason: passwordMatch ? "refused" : "wrong_password" }),
               )
             }
             await Promise.all(attempts)
@@ -240,11 +242,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               prisma.loginLog.create({ data: { tenantId: loginTenantId, userId: user.id, ip, userAgent, success: false } })
                 .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) }),
               recordFailure("totp_invalid"),
+              recordSecurityEvent({ kind: "totp_failed", tenantId: loginTenantId, userId: user.id, email: user.email, ipAddress: ip, reason: "totp_invalid" }),
             ])
             throw new TotpInvalidError()
           }
           if (totp.kind === "replayed") {
-            await recordFailure("totp_replay")
+            await Promise.all([
+              recordFailure("totp_replay"),
+              recordSecurityEvent({ kind: "totp_failed", tenantId: loginTenantId, userId: user.id, email: user.email, ipAddress: ip, reason: "totp_replay" }),
+            ])
             throw new TotpInvalidError()
           }
           const totpVerified = totp.kind === "verified"
@@ -271,6 +277,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             .catch((err: unknown) => { console.error("[auth] lastLoginAt update failed:", err) })
           await prisma.loginLog.create({ data: { tenantId: loginTenantId, userId: user.id, ip, userAgent, success: true } })
             .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) })
+          await recordSecurityEvent({ kind: "login_succeeded", tenantId: loginTenantId, userId: user.id, email: user.email, ipAddress: ip })
           return {
             id: user.id,
             email: user.email,

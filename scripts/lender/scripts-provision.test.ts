@@ -12,7 +12,7 @@ describe("docker-compose.lender.yml", () => {
     const dir = mkdtempSync(join(tmpdir(), "lender-compose-"))
     cpSync(join(SRC, "docker-compose.lender.yml"), join(dir, "docker-compose.yml"))
     writeFileSync(join(dir, ".env"), "")
-    const env = { ...process.env, APP_IMAGE: "cf:x", APP_PORT: "3999", PORTAL_PORT: "3998", PORTAL_NEXTAUTH_URL: "https://portal.example", STAFF_AUTH_SECRET: "staff-secret", PORTAL_AUTH_SECRET: "portal-secret", POSTGRES_USER: "u", POSTGRES_PASSWORD: "p", POSTGRES_DB: "d", NEXTAUTH_SECRET: "s" }
+    const env = { ...process.env, APP_IMAGE: "cf:x", APP_PORT: "3999", PORTAL_PORT: "3998", PORTAL_NEXTAUTH_URL: "https://portal.example", STAFF_AUTH_SECRET: "staff-secret", PORTAL_AUTH_SECRET: "portal-secret", POSTGRES_USER: "u", POSTGRES_PASSWORD: "p", POSTGRES_DB: "d", APP_DB_USER: "app_u", APP_DB_PASSWORD: "appp", NEXTAUTH_SECRET: "s" }
     const [bin, ...sub] = compose.split(" ")
     const r = spawnSync(bin, [...sub, "-p", "x", "-f", join(dir, "docker-compose.yml"), "--project-directory", dir, "config", "--format", "json"], { env, encoding: "utf8" })
     rmSync(dir, { recursive: true, force: true })
@@ -25,6 +25,10 @@ describe("docker-compose.lender.yml", () => {
     // each host gets only its own session secret, and the portal its own origin
     expect(cfg.services.app.environment).toMatchObject({ AUTH_SECRET: "staff-secret", APP_MODE: "staff" })
     expect(cfg.services["app-portal"].environment).toMatchObject({ AUTH_SECRET: "portal-secret", APP_MODE: "client", NEXTAUTH_URL: "https://portal.example", AUTH_URL: "https://portal.example" })
+    // both hosts connect as the application's login, never as the owner that migrates
+    for (const service of ["app", "app-portal"]) {
+      expect(cfg.services[service].environment?.DATABASE_URL, service).toMatch(/^postgresql:\/\/app_u:appp@db:5432\/d\?/)
+    }
     expect(JSON.stringify(cfg.services.app)).not.toContain("portal-secret")
     expect(JSON.stringify(cfg.services["app-portal"])).not.toContain("staff-secret")
   })

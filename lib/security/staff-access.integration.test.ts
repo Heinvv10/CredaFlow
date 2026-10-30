@@ -25,6 +25,7 @@ import { revalidatePrincipal } from "@/lib/auth"
 import { applyStaffAccessPolicy } from "./staff-access-write"
 import { checkStaffSignIn } from "./staff-access-enforcement"
 import { applyPortalPolicy, getPortalPolicy } from "@/lib/portal/portal-policy"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -45,7 +46,7 @@ suite("staff access policy (real database)", () => {
     })
   })
   afterAll(async () => {
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.loginLog.deleteMany({ where: { tenantId } })
     await db.failedLoginAttempt.deleteMany({ where: { email } })
     await db.user.deleteMany({ where: { id: userId } })

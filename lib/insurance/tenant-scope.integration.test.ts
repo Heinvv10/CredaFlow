@@ -20,6 +20,7 @@ import { prisma } from "@/lib/prisma"
 import { runWithTenant, TenantScopeError } from "@/lib/tenant-scope"
 import { POST as insuranceRenewal } from "@/app/api/cron/insurance-renewal/route"
 import { POST as crossSell } from "@/app/api/cron/cross-sell/route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 // Fixtures and assertions read through a plain client, so they see the
@@ -137,7 +138,7 @@ suite.sequential("insurance and cross-sell models are tenant-scoped (real Postgr
     // belongs to its two tenants. Children before parents. `db` has no
     // tenant-scope extension, so no frame is needed.
     const tenantId = { in: createdTenantIds }
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.crmActivity.deleteMany({ where: { tenantId } })
     await db.notificationLog.deleteMany({ where: { tenantId } })
     await db.crossSellOpportunity.deleteMany({ where: { tenantId } })

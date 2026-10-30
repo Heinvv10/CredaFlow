@@ -37,6 +37,7 @@ vi.mock("@/lib/auth", () => ({
 }))
 
 import { POST } from "./route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -119,7 +120,7 @@ suite("POST /api/crm/leads/[id]/convert Contact promotion", () => {
   afterAll(async () => {
     await db.contactIdentity.deleteMany({ where: { tenantId } })
     await db.contact.deleteMany({ where: { tenantId } })
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.crmActivity.deleteMany({ where: { tenantId } })
     await db.lead.deleteMany({ where: { tenantId } })
     await db.loanApplication.deleteMany({ where: { tenantId } })

@@ -1,0 +1,165 @@
+// ── Tamper-evident audit: chain links, checkpoints, redactions, policy, SIEM outbox ──
+// Spec: lib/audit/.claude.md. AuditLog itself is append-only (trigger) and carries no
+// chain columns; the chainer (lib/audit/chainer.ts) appends one AuditChainLink per
+// committed row, so an insert never waits on a chain. Triggers, the redaction function
+// and partial indexes are hand-written SQL (migration 20261029100000).
+
+enum AuditSiemTransport {
+  SYSLOG_TLS
+  HTTPS_JSON
+}
+
+/// One link of a chain (chainKey = tenantId, '' for rows with no tenant). Insert-only.
+/// rowHash = HMAC(AUDIT_CHAIN_KEY, content digests + prevHash); the key is not in the database.
+model AuditChainLink {
+  chainKey   String
+  seq        Int
+  auditLogId String   @unique
+  tenantId   String?
+  prevHash   String
+  rowHash    String
+  linkedAt   DateTime @default(now())
+
+  @@id([chainKey, seq])
+}
+
+/// A signed note of a chain's head (seq + rowHash), written daily after the chain verified.
+/// The verifier starts from the latest one; each is also sent to the lender's SIEM. Insert-only.
+model AuditChainCheckpoint {
+  id        String   @id @default(cuid())
+  chainKey  String
+  tenantId  String?
+  seq       Int
+  rowHash   String
+  hmac      String
+  createdAt DateTime @default(now())
+
+  @@index([chainKey, seq])
+}
+
+/// A documented removal of personal data from an AuditLog row. The digests the row hashed
+/// with are kept here, so its link still verifies. Written only by audit_log_redact(). Insert-only.
+model AuditRedaction {
+  id              String   @id @default(cuid())
+  auditLogId      String
+  tenantId        String?
+  columns         String[]
+  userEmailDigest String
+  ipAddressDigest String
+  oldValueDigest  String
+  newValueDigest  String
+  reason          String
+  operator        String
+  createdAt       DateTime @default(now())
+
+  @@index([auditLogId])
+}
+
+/// A lender's audit retention and SIEM forwarding. No row = 12 months retained,
+/// 3 hot, nothing forwarded. Secrets are sealed (lib/crypto/secret-box.ts).
+model AuditPolicy {
+  id              String             @id @default(cuid())
+  tenantId        String             @unique
+  tenant          Tenant             @relation(fields: [tenantId], references: [id])
+  retentionMonths Int                @default(12)
+  hotMonths       Int                @default(3)
+  siemEnabled     Boolean            @default(false)
+  siemTransport   AuditSiemTransport @default(HTTPS_JSON)
+  siemHost        String?
+  siemPort        Int?
+  siemUrl         String?
+  siemSealedToken String?
+  siemCaCertPem   String?
+  siemClientCert  String?
+  siemSealedKey   String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @default(now())
+}
+
+/// Something to ship to a lender's SIEM, in order per lender (id). EVENT = a chained
+/// AuditLog row; ANCHOR = the chain head when forwarding starts; CHECKPOINT = a daily
+/// checkpoint. targetSnapshot (sealed fields) sends a policy-change row to the destination
+/// it was changed away from. At-least-once; the receiver de-duplicates on the event id.
+model AuditSiemOutbox {
+  id             Int       @id @default(autoincrement())
+  tenantId       String
+  kind           String
+  auditLogId     String?   @unique
+  checkpointId   String?
+  seq            Int?
+  targetSnapshot Json?
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now())
+  lastError      String?
+  sentAt         DateTime?
+  deadAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([sentAt])
+}
+
+/// What a change to a lender's SIEM settings left behind (written by the AuditPolicy trigger,
+/// never by the application): the destination it left, whether forwarding moved or stopped,
+/// and the transaction. The policy-change row and late-chained rows are routed from this.
+/// Insert-only.
+model AuditPolicyRevision {
+  id          Int      @id @default(autoincrement())
+  tenantId    String
+  txid        BigInt
+  oldEnabled  Boolean
+  newEnabled  Boolean
+  rerouted    Boolean
+  oldSnapshot Json
+  changedAt   DateTime @default(now())
+
+  @@index([tenantId, changedAt])
+}
+
+/// A receipt for each outbox entry the SIEM acknowledged, written by audit_outbox_mark with the
+/// destination it went to. Insert-only; compare with what the SIEM holds to find a forged 'sent'.
+model AuditSiemDelivery {
+  id          Int      @id @default(autoincrement())
+  outboxId    Int
+  tenantId    String
+  kind        String
+  seq         Int?
+  destination String
+  ackId       String?
+  recordedAt  DateTime @default(now())
+
+  @@index([tenantId, outboxId])
+}
+
+/// An operator's signed acceptance of ONE break the verifier reported at a link, so verification
+/// continues past it (audit_chain_accept_break). hmac = HMAC(AUDIT_CHAIN_KEY, chain, seq, kind, the audit
+/// row, the link's hash, the hash the row recomputes to, reason, operator): a repair without the key, or for
+/// a row edited again since, is ignored. Insert-only.
+model AuditChainRepair {
+  id           String   @id @default(cuid())
+  chainKey     String
+  tenantId     String?
+  seq          Int
+  kind         String
+  auditLogId   String   @default("")
+  linkRowHash  String   @default("")
+  observedHash String   @default("")
+  reason       String
+  operator     String
+  hmac         String
+  createdAt    DateTime @default(now())
+
+  @@index([chainKey, seq])
+}
+
+/// The delivery lease of a lender's SIEM queue: one deliverer at a time, expiring by itself.
+model AuditSiemLease {
+  tenantId  String   @id
+  holder    String
+  expiresAt DateTime
+}
+
+/// A chain's mutual exclusion: the chainer locks its row FOR UPDATE SKIP LOCKED for the length of its
+/// transaction (audit_chain_lock). Only that function touches it.
+model AuditChainMutex {
+  chainKey String @id
+}

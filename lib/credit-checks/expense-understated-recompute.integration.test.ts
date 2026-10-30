@@ -18,6 +18,7 @@ import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { syntheticStatement } from "@/lib/statement-analysis/fixtures/dataset"
 import { buildCapitecStatement } from "@/lib/statement-analysis/fixtures/synthetic"
 import { recomputeApplicationFlags } from "./recompute"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 vi.mock("./policy", async (importOriginal) => ({ ...(await importOriginal<typeof import("./policy")>()), EXPENSE_UNDERSTATED_ENABLED: true }))
 
@@ -64,7 +65,7 @@ suite("EXPENSE_UNDERSTATED recompute against Postgres", () => {
   })
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(prisma, { tenantId })
     await prisma.$transaction([
       prisma.$executeRawUnsafe(`ALTER TABLE "ApplicationCheckFlag" DISABLE TRIGGER "ApplicationCheckFlag_guard_record"`),
       prisma.$executeRawUnsafe(`DELETE FROM "ApplicationCheckFlag" WHERE "tenantId" = '${tenantId}'`),

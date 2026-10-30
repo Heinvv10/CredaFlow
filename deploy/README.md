@@ -104,7 +104,18 @@ helm upgrade --install credaflow deploy/helm/credaflow -n credaflow \
 
 The chart never creates Secrets: name existing ones in `existingSecrets` (External Secrets, Sealed
 Secrets, Vault agent...). The Secret must exist before the migration hook runs; the hook receives only
-`DATABASE_URL` (`migrate.databaseUrlSecret`), the cron Jobs only `CRON_SECRET` (`externalCrons.secret`).
+`MIGRATE_DATABASE_URL` (`migrate.databaseUrlSecret`, default Secret `credaflow-migrate`), the cron Jobs only `CRON_SECRET` (`externalCrons.secret`).
+
+**Two database logins.** `MIGRATE_DATABASE_URL`, in its own Secret that **no pod mounts** (the render fails if `migrate.databaseUrlSecret.name` is in `existingSecrets`), is the owner login (it owns the schema and runs migrations and
+the role Job); the pods' `DATABASE_URL` is a different login, `appRole.name`, that owns nothing. The
+`app-role` Job runs `files/app-role.sql` right after the migration Job, before any pod changes: the role gets the table privileges
+and loses the audit evidence tables, so a compromised pod can insert and read `AuditLog` but cannot rewrite
+it, switch a trigger off or touch the hash chain, checkpoints or SIEM queue. Set `appRole.workerName` for a separate
+WORKER login (the chainer, verifier and SIEM delivery) and give the worker Deployment its own Secret with
+`worker.existingSecrets` (its `DATABASE_URL` and `AUDIT_CHAIN_KEY`, 32+ characters, not in the database);
+the web pods mount neither, so a web compromise cannot forge the chain. With no worker login, web and worker share
+one (weaker). `/api/health` warns while the pods' role owns or can write those tables, and a production pod whose
+role could undo the audit protections refuses to start.
 
 A separate client-portal host is a second release of the same chart, in the same namespace:
 

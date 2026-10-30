@@ -39,6 +39,10 @@ SQL
 #     each other and from NEXTAUTH_SECRET;
 #   - neither container's environment carries STAFF_AUTH_SECRET or PORTAL_AUTH_SECRET
 #     (a leak through `.env`, which both containers read);
+#   - neither container's environment carries the OWNER database login (POSTGRES_USER,
+#     POSTGRES_PASSWORD, MIGRATE_DATABASE_URL, OWNER_DATABASE_URL): the compose file blanks
+#     them, so a non-empty value means that was edited away and the app could switch the audit
+#     triggers off (docs/DEPLOY.md, "Two database logins");
 #   - the database publishes no port.
 # It also sets APP_PORT, PORTAL_PORT and PROBE_HOST from the rendered ports, so the
 # port check and the health probes look where compose really publishes. Values are
@@ -57,6 +61,8 @@ check_rendered_config() {
     || die "refusing to deploy: an auth secret renders equal to the shared NEXTAUTH_SECRET"
   jq -e '[.services.app, .services["app-portal"] | .environment | (has("STAFF_AUTH_SECRET") or has("PORTAL_AUTH_SECRET"))] | any | not' <<<"$cfg" >/dev/null \
     || die "refusing to deploy: STAFF_AUTH_SECRET or PORTAL_AUTH_SECRET reaches a container's environment (it is set in $ENV_FILE, which both containers read); keep the per-host secrets in $AUTH_ENV only"
+  jq -e '[.services.app, .services["app-portal"] | .environment | ((.POSTGRES_USER // "") + (.POSTGRES_PASSWORD // "") + (.MIGRATE_DATABASE_URL // "") + (.OWNER_DATABASE_URL // ""))] | all(. == "")' <<<"$cfg" >/dev/null \
+    || die "refusing to deploy: the owner database login (POSTGRES_USER/POSTGRES_PASSWORD/MIGRATE_DATABASE_URL) reaches an app container's environment; the app must connect as APP_DB_USER only (docs/DEPLOY.md, 'Two database logins')"
   jq -e '.services.db.ports == null' <<<"$cfg" >/dev/null || die "refusing to deploy: the database would publish a host port"
   APP_PORT="$(jq -r '.services.app.ports[0].published' <<<"$cfg")" PORTAL_PORT="$(jq -r '.services["app-portal"].ports[0].published' <<<"$cfg")"
   host="$(jq -r '.services.app.ports[0].host_ip // ""' <<<"$cfg")"

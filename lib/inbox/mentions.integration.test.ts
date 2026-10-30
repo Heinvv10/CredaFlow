@@ -28,6 +28,7 @@ import { describe, expect, it, beforeAll, afterAll } from "vitest"
 import { prisma as appPrisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { editInternalNote, softDeleteInternalNote } from "./notes"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_MENTIONS_IT === "1" ? describe : describe.skip
 
@@ -137,7 +138,7 @@ suite("MessageMention DB constraints and the cross-conversation note guard", () 
     await db.message.deleteMany({ where: { tenantId } })
     await db.conversation.deleteMany({ where: { tenantId } })
     await db.contact.deleteMany({ where: { tenantId } })
-    await db.auditLog.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } })
+    await purgeAuditRowsForTest(db, { tenantId: { in: [tenantId, otherTenantId] } })
     await db.user.deleteMany({ where: { id: { in: [authorId, mentionedId, otherTenantUserId] } } })
     await db.tenant.deleteMany({ where: { id: { in: [tenantId, otherTenantId] } } })
     await db.$disconnect()

@@ -41,6 +41,7 @@ done
 [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die "--health-timeout must be a positive integer"
 need docker curl jq flock
 load_lender "$dir"
+[ "$(env_get "$ENV_FILE" AUDIT_CHAIN_KEY | wc -c)" -ge 33 ] || die "refusing: AUDIT_CHAIN_KEY in $ENV_FILE must be 32+ characters (the audit hash chain is keyed outside the database; provision-lender.sh adds it)"
 check_rendered_config
 acquire_lender_lock "$LENDER_DIR"
 
@@ -84,6 +85,8 @@ if ! tools_run "$tools_id" npx prisma migrate deploy; then
   log MIGRATE_FAILED "backup=${backup:-none}"
   die "migration failed; the app was NOT switched and still runs ${prev:-nothing}. A partly applied migration is not reverted: see docs/DEPLOY.md, 'A failed migration'. Backup before it: ${backup:-none}"
 fi
+
+ensure_app_role || { log APP_ROLE_FAILED "backup=${backup:-none}"; die "could not set up the application's database login; the app was NOT switched and still runs ${prev:-nothing}"; }
 
 note "switching app to $image ($image_id)"
 if switch_to "$image_id" "$expected"; then

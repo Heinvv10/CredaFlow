@@ -111,6 +111,8 @@ TENANT_SOD_OFF_SQL='DO $sod$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.c
 # seed sets it, but the column arrives false on rows that existed before it,
 # which no restore or in-place upgrade re-seeds. A snapshot from before the
 # column exists is left alone. Tested by staff-totp-off.integration.test.ts.
+# Re-establishes the audit protections a --no-owner --no-acl restore loses (audit_reassert_protections, migration 20261029100000).
+AUDIT_REASSERT_SQL="DO \$\$ BEGIN IF to_regprocedure('public.audit_reassert_protections()') IS NOT NULL THEN PERFORM public.audit_reassert_protections(); END IF; END \$\$"
 TENANT_DEMO_LENDER_SQL='DO $demo$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = '"'TenantConfig'"' AND column_name = '"'isDemoLender'"') THEN UPDATE "TenantConfig" SET "isDemoLender" = true WHERE "tenantId" IN (SELECT id FROM "Tenant" WHERE slug IN ('"'acme', 'fairscore', 'tsela', 'basotho'"')); END IF; END $demo$'
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
@@ -129,6 +131,38 @@ env_set() {
   printf '%s=%s\n' "$key" "$value" >> "$tmp"
   chmod --reference="$file" "$tmp"
   mv "$tmp" "$file"
+}
+
+# ensure_demo_audit_env ENV_FILE BACKUP_DIR — a demo stack's app env gets what the tamper-evident audit needs
+# (docs/DEPLOY.md): AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 (the demo stacks run as the database owner; a production process
+# refuses that unless told, on purpose, and DEMO_MODE does not stand in for it) and an AUDIT_CHAIN_KEY (without it the
+# audit crons answer 503 and tamper-evidence cannot be shown). ONLY when the file says DEMO_MODE=true: any other file is
+# left alone. An existing key is NEVER replaced (rotating it makes the history unverifiable); one that is too short is
+# reported and left. Idempotent: with nothing to add it writes and backs up nothing. When it changes the file, the
+# file as it was is copied to BACKUP_DIR/<name>.pre-audit-<UTC> (0600) first, and each key added is named in the log
+# (never a value).
+ensure_demo_audit_env() {
+  local file="$1" backups="$2" added="" key ts
+  [ -f "$file" ] || die "ensure_demo_audit_env: $file not found"
+  if [ "$(env_get "$file" DEMO_MODE)" != true ]; then
+    note "audit env: $file does not say DEMO_MODE=true; left alone"
+    return 0
+  fi
+  key="$(env_get "$file" AUDIT_CHAIN_KEY)"
+  if [ -n "$key" ] && [ "${#key}" -lt 32 ]; then
+    note "WARNING: AUDIT_CHAIN_KEY in $file is shorter than 32 characters; the audit chain cannot use it. It is not replaced (replacing it would orphan history): fix it by hand."
+  fi
+  [ "$(env_get "$file" AUDIT_ALLOW_PRIVILEGED_DB_ROLE)" = 1 ] || added+=" AUDIT_ALLOW_PRIVILEGED_DB_ROLE"
+  [ -n "$key" ] || added+=" AUDIT_CHAIN_KEY"
+  if [ -z "$added" ]; then
+    note "audit env: $file already has AUDIT_ALLOW_PRIVILEGED_DB_ROLE and AUDIT_CHAIN_KEY"
+    return 0
+  fi
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  (umask 077; mkdir -p "$backups"; cp "$file" "$backups/${file##*/}.pre-audit-$ts")
+  case "$added" in *AUDIT_ALLOW_PRIVILEGED_DB_ROLE*) env_set "$file" AUDIT_ALLOW_PRIVILEGED_DB_ROLE 1 ;; esac
+  case "$added" in *AUDIT_CHAIN_KEY*) env_set "$file" AUDIT_CHAIN_KEY "$(openssl rand -base64 48 | tr -d '\n')" ;; esac
+  note "audit env: added${added} to $file (the file as it was: $backups/${file##*/}.pre-audit-$ts)"
 }
 
 # demo_slug — DEMO_LENDER's tenant slug.
@@ -204,7 +238,7 @@ worktree_tag() {
 
 # sim_env_preflight — die within seconds, naming each missing key, when the sim
 # stack cannot finish a bake: secrets.env without UNSUB_TOKEN_SECRET, or a sim
-# app container started without DEMO_MODE=true or UNSUB_TOKEN_SECRET (the signing
+# app container started without DEMO_MODE=true, AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 or UNSUB_TOKEN_SECRET (the signing
 # OTP then 502s for every persona, which simulate.ts found 70 minutes in).
 # Prints key names only; the container env is held in a variable and only tested.
 # The container's UNSUB_TOKEN_SECRET is checked non-empty, not equal to
@@ -215,6 +249,9 @@ sim_env_preflight() {
   env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SIM_APP" 2>/dev/null)" \
     || die "$SIM_APP not found; the sim stack is not up"
   grep -x 'DEMO_MODE=true' <<< "$env" >/dev/null || missing+=" $SIM_APP: DEMO_MODE=true;"
+  # The demo stacks run as the database owner/superuser; a production process refuses that unless told, on purpose,
+  # that this stack accepts it (lib/audit/deployment-check.ts). DEMO_MODE does not stand in for it.
+  grep -x 'AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1' <<< "$env" >/dev/null || missing+=" $SIM_APP: AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1;"
   grep -E '^UNSUB_TOKEN_SECRET=.' <<< "$env" >/dev/null || missing+=" $SIM_APP: UNSUB_TOKEN_SECRET;"
   [ -z "$missing" ] || die "sim env incomplete, missing:$missing nothing was simulated (fix secrets.env / docker-compose.demo-sim.yml and re-run)"
 }

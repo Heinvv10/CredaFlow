@@ -126,6 +126,98 @@ Provisioning validates everything it writes into `.env`: the two URLs must be
 `--admin-email` and `--image` plain. A rerun reports a changed value as `kept existing …` and
 applies it only with `--update-settings`.
 
+## Two database logins and the audit chain key
+
+`POSTGRES_USER` is the owner: it owns the schema, runs `prisma migrate deploy` (and every tools-image
+command) and owns the SECURITY DEFINER audit functions. The two apps connect as `APP_DB_USER`
+(`credaflow_app`), a login that owns nothing and, after `ensure_app_role`, holds INSERT and SELECT on
+`AuditLog` and nothing on the hash-chain, checkpoint, redaction or SIEM-queue tables, so a compromised
+app cannot rewrite the audit trail or switch its triggers off (docs/ARCHITECTURE.md, "Tamper-evident
+audit"). `provision-lender.sh` generates `APP_DB_PASSWORD` (alphanumeric) and `AUDIT_CHAIN_KEY` into the
+lender's `.env` and runs `ensure_app_role`; `deploy.sh` re-runs it after every migration (a new table has
+no privileges for the login until then) and before switching the app. A lender provisioned earlier gets
+both keys by re-running `provision-lender.sh` (it only adds what is missing). `deploy.sh` refuses an
+`AUDIT_CHAIN_KEY` shorter than 32 characters. Back the key up with the other secrets: without it the
+earlier part of the chain can no longer be verified.
+
+The owner password must not reach the app containers. The compose files blank `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `POSTGRES_DB`, `MIGRATE_DATABASE_URL` and `OWNER_DATABASE_URL` in the `app` and
+`app-portal` environments even though their env file may still carry them (the file is also what compose
+interpolates, and what the `db` container reads), and `deploy.sh` refuses to run when the rendered
+config shows any of them non-empty (`scripts/__tests__/compose-owner-credentials.test.ts`).
+
+### Moving an existing stack to two logins (operator steps)
+
+Do this by hand on the host, after hours, once per stack (a lender-script lender, or a stack run from
+`docker-compose.yml` such as the Tsela and Fair Score demos). Nothing here is done by a deploy script
+for you except where stated, and no agent edits these files.
+
+1. Take a backup (`scripts/lender/backup.sh <lender-dir>`, or `pg_dump` for a compose stack).
+2. Add three values to the stack's env file(s): `APP_DB_USER=credaflow_app`, `APP_DB_PASSWORD=$(openssl rand -hex 24)`
+   (alphanumeric only) and `AUDIT_CHAIN_KEY=$(openssl rand -hex 32)`. For a lender-script lender, running
+   `scripts/lender/provision-lender.sh` again does this and keeps everything else. For a compose stack put
+   them in `.env` (interpolation) and the app's env file (`.env.production`). Copy `AUDIT_CHAIN_KEY` to the
+   place the other secrets are backed up.
+3. Leave `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` where they are (the `db` container and the
+   migration tools read them). They are blanked inside the app containers by the new compose files.
+4. Deploy the new image. Lender-script: `scripts/lender/deploy.sh <lender-dir> <image>`; it migrates as the
+   owner, runs `ensure_app_role`, then switches. Compose stack:
+   `docker compose --profile tools run --rm db-migrate && docker compose --profile tools run --rm db-roles && docker compose up -d app app-portal`.
+5. Check: `curl -s localhost:<port>/api/health` with the cron secret header lists no `audit_runtime_role_*` or
+   `audit_chain_key_missing` warning, and `docker compose exec app printenv POSTGRES_PASSWORD` prints an empty line.
+6. The live demo stacks (Fair Score `~/Workspace/CredaFlow-fairscore`, Acme `~/Workspace/CredaFlow-demo`, and the
+   demo-sim stack) run as the database owner or superuser, so their app env needs two things:
+   `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (without it a production process exits at boot; `DEMO_MODE` does not stand in
+   for it, so that one variable cannot switch off both the demo gates and the audit role guard on a misconfigured real
+   lender) and an `AUDIT_CHAIN_KEY` (without it the audit crons answer 503 and tamper-evidence cannot be shown).
+   **No operator action is needed for either (adding the two lines by hand to `.env.production` is only the fallback
+   for an image brought up some other way):** `scripts/demo/upgrade-stack.sh` (Fair Score) and `scripts/demo/restore.sh`
+   (Acme, by bake + restore) call `ensure_demo_audit_env`, which, only when `$LIVE_DIR/.env.production` says
+   `DEMO_MODE=true`, adds whichever of the two is missing: the allowance as `1`, and a key of 48 random bytes in base64.
+   It first copies the file as it was to `$LIVE_DIR/backups/.env.production.pre-audit-<UTC>` (0600), logs which keys it
+   added (never a value), never replaces an existing key (rotating it would make the history unverifiable; a key shorter
+   than 32 characters is reported and left), and does nothing, writes no backup, when both are already there. The new
+   image therefore boots, and `/api/health` lists `audit_privileged_role_allowed` and the app logs
+   `PRIVILEGED DATABASE ROLE ALLOWED (AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1)` at every boot. Keep the generated
+   `AUDIT_CHAIN_KEY` with the other demo secrets. The demo-sim stack sets the allowance in its compose file and
+   `sim_env_preflight` refuses to bake without it. (The portal container reads the same env file, so it also
+   warns `audit_chain_key_on_web`: harmless on a demo; only the staff container runs the crons.) They are not a pattern
+   for a real lender.
+
+**`AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1`: demo/legacy only, never a real lender.** A production process whose database
+role owns an audit table, is a superuser, can create roles or databases, or holds CREATE on `public` exits at boot,
+and so does one whose own setup check cannot run (it is retried four times). `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (and
+only that) lets it start anyway: every boot logs the allowance at error level, `/api/health` lists
+`audit_privileged_role_allowed` as a warning, and on that stack the audit trail is NOT tamper-evident against whoever
+holds the database login. A compose stack with no `APP_DB_USER`/`APP_DB_PASSWORD` gets a `DATABASE_URL` with no user
+(it cannot connect) unless this variable is set, in which case it falls back to the owner login. The restore drill
+sets it for its throwaway stack.
+
+A single-process stack (the lender scripts and `docker-compose.yml` run the app and the crons together) uses
+ONE login for both kinds of work (`audit_grant_runtime`) and one `AUDIT_CHAIN_KEY`: the web process then
+holds the worker's functions and the key. That is the compose and demo shape only. The shape for a bank is two
+logins, and the Helm chart refuses to render without them unless `audit.singleLogin=true`: set `appRole.workerName`
+and give the worker Deployment its own Secret (`worker.existingSecrets`) holding the worker login's `DATABASE_URL`
+and `AUDIT_CHAIN_KEY`; the web pods mount neither.
+
+**Managed Postgres without CREATEROLE.** `audit_reassert_protections()` (run by the migration and after every restore)
+creates the NOLOGIN role `audit_redactor` if it is missing, which needs CREATEROLE. Where the migrating role has
+none, an administrator creates it once, before the migration, and lets the migrating role act as it:
+`CREATE ROLE audit_redactor NOLOGIN; GRANT audit_redactor TO <migrating role>;` (the migrating role must also be able
+to `GRANT CREATE ON SCHEMA public` to it for the length of one statement, i.e. own the schema). The application logins
+are created the same way by the administrator, then `app-role.sql` grants them.
+
+**Seeds and imports.** `AuditLog.createdAt` is the database clock at insertion whatever a seed or import sends
+(trigger `AuditLog_created_at`): the chainer's high-water mark and the policy routing rest on it. A load of historic
+audit rows must be done behind the triggers by an owner (`SET session_replication_role = replica` in the loading
+transaction), as the integration tests do (`plantAuditRowsForTest`); the chainer then chains them from its first pass.
+
+After ANY restore (`scripts/lender/restore.sh`, `restore-drill.sh`, `scripts/demo/restore.sh`) the scripts run
+`audit_reassert_protections()` in the restored database (a `--no-owner --no-acl` dump loses the redaction
+function's owner and the REVOKE FROM PUBLIC on the audit functions) and, for a lender with `APP_DB_USER`, the
+application's grants. Restoring by hand: run `SELECT audit_reassert_protections();` as the owner, then the
+app-role script (`deploy/helm/credaflow/files/app-role.sql`).
+
 ## Deploy
 
 ```bash

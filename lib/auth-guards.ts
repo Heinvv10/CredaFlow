@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/auth"
 import { Prisma, type UserRole } from "@prisma/client"
 import { PERMISSIONS as REGISTRY_PERMISSIONS } from "@/lib/registry/generated/permissions"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { recordSecurityEvent } from "@/lib/audit/security-events"
 import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
 import { NO_ACCESS_PAGE } from "@/lib/proxy/no-access"
@@ -130,6 +131,13 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
     return { error: enrolmentRequiredResponse() }
   }
   if (!hasMinRole(session.user.role, minRole) || await refusesLoanBook(session.user.role)) {
+    // Staff only: a portal client's id is not a User row, so it can neither be attributed nor sit on the audit FK.
+    if (session.user.role !== "CLIENT") {
+      await recordSecurityEvent({
+        kind: "permission_denied", tenantId: session.user.tenantId, userId: session.user.id, email: session.user.email,
+        reason: `requires ${minRole}`,
+      })
+    }
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
   return { user: session.user as StaffUser }

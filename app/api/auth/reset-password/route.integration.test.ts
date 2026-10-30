@@ -26,6 +26,7 @@ vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: () => ({ allowed: true }), 
 import { POST as reset } from "./route"
 import { POST as forgot } from "../forgot-password/route"
 import bcrypt from "bcryptjs"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 const suffix = randomUUID().replaceAll("-", "")
@@ -43,12 +44,12 @@ suite("staff recovery state and audit commit together", () => {
       await db.tenant.create({ data: { id: tenantId, slug: `recovery-${suffix}`, name: "Synthetic Recovery IT" } })
       userId = (await db.user.create({ data: { tenantId, email, name: "Synthetic Staff", role: "CREDIT_OFFICER", password: "synthetic-old-hash" } })).id
     }
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.user.update({ where: { id: userId }, data: { password: "synthetic-old-hash", active: true, tokenVersion: 0, resetToken: token, resetTokenExp: new Date(Date.now() + 60_000) } })
   })
   afterAll(async () => {
     if (userId) {
-      await db.auditLog.deleteMany({ where: { tenantId } }); await db.user.delete({ where: { id: userId } }); await db.tenant.delete({ where: { id: tenantId } })
+      await purgeAuditRowsForTest(db, { tenantId }); await db.user.delete({ where: { id: userId } }); await db.tenant.delete({ where: { id: tenantId } })
     }
     await db.$disconnect()
   })

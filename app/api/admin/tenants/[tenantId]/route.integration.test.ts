@@ -21,6 +21,7 @@ vi.mock("@/lib/auth", () => ({ auth: authMock }))
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }))
 
 import { PATCH } from "./route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_TENANT_COLOUR_RACE_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -56,7 +57,7 @@ suite("PATCH /api/admin/tenants/[tenantId] concurrent colour writes", () => {
 
   afterAll(async () => {
     for (const id of [tenantId, bareTenantId]) {
-      await db.auditLog.deleteMany({ where: { tenantId: id } })
+      await purgeAuditRowsForTest(db, { tenantId: id })
       await db.tenantConfig.deleteMany({ where: { tenantId: id } })
       await db.tenant.delete({ where: { id } })
     }

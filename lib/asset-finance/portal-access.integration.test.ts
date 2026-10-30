@@ -36,6 +36,7 @@ import { PUT as setEvidence } from "@/app/api/asset-finance/entities/[id]/financ
 import { prisma as appPrisma } from "@/lib/prisma"
 import { requirePortalEntityAccess } from "./portal-access"
 import { verifiedTrusteeEvidenceIds } from "./entity-documents"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_ASSET_FINANCE_PORTAL_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -125,7 +126,7 @@ suite.sequential("portal entity access and entity documents (real Postgres, real
     const rows = await db.entityDocument.findMany({ where: { tenantId }, select: { id: true, storagePath: true } })
     await Promise.all(rows.map((r) => unlink(r.storagePath).catch(() => undefined)))
     await db.documentAccessLog.deleteMany({ where: { documentId: { in: rows.map((r) => r.id) } } })
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.entityDocument.deleteMany({ where: { tenantId } })
     await db.entityRelationship.deleteMany({ where: { tenantId } })
     await db.businessEntity.deleteMany({ where: { tenantId } })

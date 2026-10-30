@@ -18,6 +18,7 @@ import { NextRequest } from "next/server"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { POST as crossSell } from "@/app/api/cron/cross-sell/route"
 import { POST as dormantClients } from "@/app/api/cron/dormant-clients/route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 // Fixtures and assertions read through a plain client, so they see the
@@ -140,7 +141,7 @@ suite.sequential("cross-sell and dormant-clients sweep every ACTIVE tenant (real
     // Children before parents. `db` has no tenant-scope extension, so no
     // frame is needed. Other suites' tenants are never touched.
     const tenantId = { in: createdTenantIds }
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.crossSellOpportunity.deleteMany({ where: { tenantId } })
     await db.crmActivity.deleteMany({ where: { tenantId } })
     await db.loan.deleteMany({ where: { tenantId } })

@@ -28,14 +28,15 @@ echo "$* APP_IMAGE=$APP_IMAGE" >> "$STUB_LOG"
 if [ -n "$STUB_FAIL_MATCH" ]; then case "$*" in *"$STUB_FAIL_MATCH"*) exit 1 ;; esac; fi
 case "$*" in
   "compose version") exit 0 ;;
+  *"psql -v ON_ERROR_STOP=1 -q -U "*" -f -") cat > /dev/null ;;
   "image inspect -f {{.Id}} "*) echo "sha256:id-$(echo "$5" | tr ':/' '__')$STUB_ID_SUFFIX" ;;
   "image inspect -f {{index .Config.Labels"*) s="$STUB_IMAGE_SLUG"; [ -n "$s" ] || s=stub-lender; if [ "$s" = NONE ]; then echo; else echo "$s"; fi ;;
   *"config --format json"*)
     e="$STUB_LENDER"; g() { sed -n "s/^$1=//p" "$e/$2" | head -1; }
     bind="$(g APP_BIND .env)"; [ -n "$bind" ] || bind=127.0.0.1
     jq -n --arg s "$(g STAFF_AUTH_SECRET secrets/auth.env)" --arg p "$(g PORTAL_AUTH_SECRET secrets/auth.env)" --arg sh "$(g NEXTAUTH_SECRET .env)" \
-      --arg b "$bind" --arg ap "$(g APP_PORT .env)" --arg pp "$(g PORTAL_PORT .env)" --arg leak "$(g STAFF_AUTH_SECRET .env)" \
-      '{services:{db:{}, app:{environment:({AUTH_SECRET:$s,NEXTAUTH_SECRET:$sh} + (if $leak != "" then {STAFF_AUTH_SECRET:$leak} else {} end)), ports:[{host_ip:$b,published:$ap}]}, "app-portal":{environment:{AUTH_SECRET:$p,NEXTAUTH_SECRET:$sh}, ports:[{host_ip:$b,published:$pp}]}}}' ;;
+      --arg b "$bind" --arg ap "$(g APP_PORT .env)" --arg pp "$(g PORTAL_PORT .env)" --arg leak "$(g STAFF_AUTH_SECRET .env)" --arg owner "$STUB_OWNER_LEAK" \
+      '{services:{db:{}, app:{environment:({AUTH_SECRET:$s,NEXTAUTH_SECRET:$sh} + (if $owner != "" then {POSTGRES_PASSWORD:$owner} else {} end) + (if $leak != "" then {STAFF_AUTH_SECRET:$leak} else {} end)), ports:[{host_ip:$b,published:$ap}]}, "app-portal":{environment:{AUTH_SECRET:$p,NEXTAUTH_SECRET:$sh}, ports:[{host_ip:$b,published:$pp}]}}}' ;;
   "image inspect -f "*) case "$*" in *new*) echo "GIT_SHA=$STUB_COMMIT_NEW" ;; *) echo "GIT_SHA=$STUB_COMMIT_OLD" ;; esac ;;
   "image inspect "*) exit 0 ;;
   "ps -q --filter label=com.docker.compose.project="*"status=running --filter status=restarting") echo "$STUB_OUR_CONTAINER" ;;
@@ -93,14 +94,16 @@ beforeEach(() => {
   repo = join(root, "repo"); lender = join(root, "lender"); log = join(root, "docker.log")
   mkdirSync(join(repo, "scripts"), { recursive: true }); mkdirSync(join(root, "bin")); mkdirSync(join(root, "gnupg"), { mode: 0o700 }); mkdirSync(join(root, "run"), { mode: 0o700 })
   cpSync(SRC, join(repo, "scripts/lender"), { recursive: true, filter: (s) => !s.endsWith(".test.ts") })
+  // ensure_app_role (lib.sh) reads the chart's role script from the repository root.
+  cpSync(join(SRC, "../../deploy/helm/credaflow/files"), join(repo, "deploy/helm/credaflow/files"), { recursive: true })
   writeFileSync(log, "")
   for (const [n, body] of [["docker", DOCKER], ["curl", CURL], ["sleep", "#!/bin/sh\nexit 0\n"]]) {
     writeFileSync(join(root, "bin", n), body); chmodSync(join(root, "bin", n), 0o755)
   }
-  git("init", "-q"); git("add", "scripts"); git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
+  git("init", "-q"); git("add", "scripts", "deploy"); git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
   mkdirSync(join(lender, "secrets"), { recursive: true }); mkdirSync(join(lender, "backups")); mkdirSync(join(lender, "state"))
   writeFileSync(join(lender, "secrets/backup.passphrase"), "test-passphrase\n")
-  writeFileSync(join(lender, ".env"), "NEXT_PUBLIC_TENANT_SLUG=stub-lender\nPOSTGRES_USER=u\nPOSTGRES_DB=d\nPOSTGRES_PASSWORD=p\nAPP_PORT=3999\nPORTAL_PORT=3998\nNEXTAUTH_SECRET=shared-secret-0123456789abcdef0123456789\n")
+  writeFileSync(join(lender, ".env"), "NEXT_PUBLIC_TENANT_SLUG=stub-lender\nPOSTGRES_USER=u\nPOSTGRES_DB=d\nPOSTGRES_PASSWORD=p\nAPP_DB_USER=app_u\nAPP_DB_PASSWORD=appp\nAUDIT_CHAIN_KEY=" + "k".repeat(40) + "\nAPP_PORT=3999\nPORTAL_PORT=3998\nNEXTAUTH_SECRET=shared-secret-0123456789abcdef0123456789\n")
   writeFileSync(join(lender, "secrets/auth.env"), `STAFF_AUTH_SECRET=${"s".repeat(40)}\nPORTAL_AUTH_SECRET=${"p".repeat(40)}\n`)
   writeFileSync(join(lender, "docker-compose.yml"), "services: {}\n")
 })

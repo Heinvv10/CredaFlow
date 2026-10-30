@@ -22,6 +22,19 @@ describe("failed migration recovery does not poison later backups", () => {
     expect(q).toContain("finished_at IS NULL AND rolled_back_at IS NULL")
   })
 
+  it("a restore replays no ownership or grants (pg_restore --no-owner --no-acl) and then re-asserts the audit protections and the application's login, in the restored database, before anything is swapped", () => {
+    const f = backup()
+    const r = sh("restore.sh", [lender, f])
+    expect(r.status, r.out).toBe(0)
+    const restore = r.calls.findIndex((c) => c.includes("pg_restore") && c.includes("--exit-on-error"))
+    const reassert = r.calls.findIndex((c) => c.includes("audit_reassert_protections"))
+    const role = r.calls.findIndex((c) => /psql -v ON_ERROR_STOP=1 -q -U u -d \S*restore_\S* -f -/.test(c))
+    expect(r.calls[restore]).toContain("--no-owner --no-acl")
+    expect(reassert).toBeGreaterThan(restore)
+    expect(role).toBeGreaterThan(reassert)
+    expect(r.calls[reassert]).toContain("restore_") // the scratch database, not the live one
+  })
+
   const UNRESOLVED = "20261012090000_loan_product_amount_bounds"
   const unresolvedBackup = () => {
     const r = sh("backup.sh", [lender], { STUB_MIG_UNFINISHED: UNRESOLVED })

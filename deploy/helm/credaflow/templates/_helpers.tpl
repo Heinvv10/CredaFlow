@@ -57,11 +57,15 @@ app.kubernetes.io/component: {{ .component }}
 {{- default (printf "%s-uploads" (include "credaflow.fullname" .)) .Values.persistence.existingClaim -}}
 {{- end -}}
 
-{{/* envFrom: the shared ConfigMap and every existing Secret. */}}
+{{/*
+envFrom: the shared ConfigMap and every existing Secret. The worker may name its own Secrets
+(worker.existingSecrets) INSTEAD of the shared list: its database login and AUDIT_CHAIN_KEY
+live there and the web pods do not mount them (docs/ARCHITECTURE.md, Tamper-evident audit).
+*/}}
 {{- define "credaflow.envFrom" -}}
 - configMapRef:
     name: {{ include "credaflow.fullname" .root }}
-{{- range .root.Values.existingSecrets }}
+{{- range (default .root.Values.existingSecrets .secrets) }}
 - secretRef:
     name: {{ . }}
 {{- end }}
@@ -199,4 +203,50 @@ capabilities:
 {{- with .Values.networkPolicy.egressExtra }}
 {{ toYaml . }}
 {{- end }}
+{{- end -}}
+
+{{/*
+The owner database login (migrate.databaseUrlSecret) must not sit in a Secret the web or
+worker pods mount: a pod holding it can switch the audit triggers off and rewrite the trail.
+It also may not share a Secret with the cron Jobs. Rendering fails if it does.
+*/}}
+{{- define "credaflow.assertOwnerSecretApart" -}}
+{{- $owner := .Values.migrate.databaseUrlSecret.name -}}
+{{- if not $owner -}}
+{{- fail "migrate.databaseUrlSecret.name is required: the owner database login lives in its own Secret" -}}
+{{- end -}}
+{{- if has $owner .Values.existingSecrets -}}
+{{- fail (printf "migrate.databaseUrlSecret.name %q is also in existingSecrets, so the web and worker pods would mount the owner database login. Put MIGRATE_DATABASE_URL in a separate Secret (default credaflow-migrate) that no pod mounts; the pods' DATABASE_URL is the application login." $owner) -}}
+{{- end -}}
+{{- if eq $owner .Values.externalCrons.secret.name -}}
+{{- fail (printf "migrate.databaseUrlSecret.name %q is also externalCrons.secret.name: keep the owner database login in a Secret of its own" $owner) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The web and worker logins and the worker's key stay apart: a Secret the web pods mount must not
+be one the worker needs for the audit chain, and the worker's own Secrets must not be the owner's.
+*/}}
+{{- define "credaflow.assertWorkerSecretsApart" -}}
+{{- range .Values.worker.existingSecrets -}}
+{{- if eq . $.Values.migrate.databaseUrlSecret.name -}}
+{{- fail (printf "worker.existingSecrets includes %q, the owner database login's Secret (migrate.databaseUrlSecret.name): the worker connects as the worker login, never as the owner" .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The supported shape for a bank: a web login and a worker login, the worker in its own Secret (docs/ARCHITECTURE.md,
+Tamper-evident audit). One login for both is the weaker compose/demo shape and must be asked for by name
+(audit.singleLogin=true), so it is never the accident of a missing value.
+*/}}
+{{- define "credaflow.assertAuditLogins" -}}
+{{- if not .Values.audit.singleLogin -}}
+{{- if and .Values.worker.enabled (not .Values.worker.existingSecrets) -}}
+{{- fail "worker.existingSecrets is required: the worker's own Secret holds its database login and AUDIT_CHAIN_KEY, which the web pods must not mount. For the weaker one-login shape (compose and demo only) set audit.singleLogin=true." -}}
+{{- end -}}
+{{- if and .Values.migrate.enabled .Values.appRole.enabled (not .Values.appRole.workerName) -}}
+{{- fail "appRole.workerName is required: the web and the worker connect as different database logins. For the weaker one-login shape (compose and demo only) set audit.singleLogin=true." -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}

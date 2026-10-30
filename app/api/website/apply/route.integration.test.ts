@@ -46,6 +46,7 @@ vi.mock("@/lib/messaging/agent-message-template", () => ({
 vi.mock("@/lib/email/service", () => ({ sendEmail: vi.fn() }))
 
 import { POST } from "./route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -121,7 +122,7 @@ suite("POST /api/website/apply transaction boundary", () => {
     await db.contactIdentity.deleteMany({ where: { tenantId } })
     await db.contact.deleteMany({ where: { tenantId } })
     await db.consentRecord.deleteMany({ where: { tenantId } })
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     await db.crmActivity.deleteMany({ where: { tenantId } })
     await db.loanApplication.deleteMany({ where: { tenantId } })
     await db.clientExpenseBreakdown.deleteMany({ where: { client: { tenantId } } })
@@ -266,7 +267,7 @@ suite("POST /api/website/apply idempotent concurrency", () => {
     await db.contactIdentity.deleteMany({ where: { tenantId: idempotentTenantId } })
     await db.contact.deleteMany({ where: { tenantId: idempotentTenantId } })
     await db.consentRecord.deleteMany({ where: { tenantId: idempotentTenantId } })
-    await db.auditLog.deleteMany({ where: { tenantId: idempotentTenantId } })
+    await purgeAuditRowsForTest(db, { tenantId: idempotentTenantId })
     await db.crmActivity.deleteMany({ where: { tenantId: idempotentTenantId } })
     await db.lead.deleteMany({ where: { tenantId: idempotentTenantId } })
     await db.loanApplication.deleteMany({ where: { tenantId: idempotentTenantId } })

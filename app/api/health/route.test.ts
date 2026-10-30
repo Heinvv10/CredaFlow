@@ -18,6 +18,8 @@ vi.mock("@/lib/prisma", () => ({
 // An operator session (lib/operator/) also gets the detail; read only when a cookie is sent.
 const { authMock } = vi.hoisted(() => ({ authMock: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: authMock }))
+const auditWarnings = vi.hoisted(() => vi.fn(async () => [] as string[]))
+vi.mock("@/lib/audit/deployment-check", () => ({ warnAuditSetupOnce: auditWarnings }))
 
 vi.mock("@/lib/storage", () => ({
   storageEncryptionEnabled: () => Boolean(process.env.UPLOADS_ENC_KEY),
@@ -113,6 +115,12 @@ describe("/api/health, operator (x-cron-secret)", () => {
   it("names each check", async () => {
     const { body } = await operator()
     expect(body).toMatchObject({ status: "ok", checks: { database: "ok", storage: "ok", storageEncryption: "on", cron: "ok" }, warnings: [] })
+  })
+
+  it("passes on the audit setup warnings (the runtime role owns the audit tables, no chain key)", async () => {
+    auditWarnings.mockResolvedValueOnce(["audit_runtime_role_owns_tables", "audit_chain_key_missing"])
+    const { body } = await operator()
+    expect(body.warnings).toEqual(expect.arrayContaining(["audit_runtime_role_owns_tables", "audit_chain_key_missing"]))
   })
 
   it("names the failed check: storage that does not read back", async () => {

@@ -71,6 +71,7 @@ model Tenant {
   assetTheftReports          AssetTheftReport[]
   attorneyFirms              AttorneyFirm[]
   auditLogs                  AuditLog[]
+  auditPolicy                AuditPolicy?
   autoDecisionDues           AutoDecisionDue[]
   autoDecisionRuns           AutoDecisionRun[]
   automationLogs             AutomationLog[]
@@ -515,9 +516,9 @@ model IntegrationLog {
 model AuditLog {
   id        String   @id @default(cuid())
   tenantId  String?
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
   userEmail String?
   action    String
   entity    String
@@ -530,6 +531,7 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([userId])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
 }
 
 // ── Branches ──────────────────────────────────────────────────────────────────

@@ -23,6 +23,7 @@ import { OUTCOME_DEFINITION_VERSION } from "../outcomes/definition"
 import { consumerApprovalRecords, consumerDeclineRecord } from "../records"
 import { recordSubmissionRefusal, submissionRefusalRecord } from "../submission-refusal"
 import { loadDecisionPerformance, type DashboardDb, type DecisionPerformance } from "./loader"
+import { plantAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DECISION_DASHBOARD_IT === "1" ? describe.sequential : describe.skip
 const db = new PrismaClient()
@@ -221,7 +222,7 @@ suite("decision-performance dashboard (real Postgres)", () => {
     })
     await db.auditLog.createMany({ data: [failure(a.tenantId), failure(a.tenantId), failure(b.tenantId)] })
     // Older than the decision lookback: off the page, like the refusals beside it.
-    await db.auditLog.create({ data: { ...failure(a.tenantId), createdAt: new Date("2023-06-01T10:00:00+02:00") } })
+    await plantAuditRowsForTest(db, [{ ...failure(a.tenantId), createdAt: new Date("2023-06-01T10:00:00+02:00") }]) // an insert would stamp the clock
     expect((await loadDecisionPerformance(db as unknown as DashboardDb, a.tenantId, NOW, "12M")).refusalRecordFailures).toBe(2)
     expect((await loadDecisionPerformance(db as unknown as DashboardDb, b.tenantId, NOW, "12M")).refusalRecordFailures).toBe(1)
     expect((await loadDecisionPerformance(db as unknown as DashboardDb, lenders[2].tenantId, NOW, "12M")).refusalRecordFailures).toBe(0)

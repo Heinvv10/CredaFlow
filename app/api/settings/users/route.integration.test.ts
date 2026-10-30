@@ -71,6 +71,7 @@ vi.mock("@/lib/prisma", async (importOriginal) => {
 import { POST } from "./route"
 import { DELETE, PATCH } from "./[id]/route"
 import { refuseLockedStaffUserWrite, type StaffUser } from "@/lib/auth-guards"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -161,7 +162,7 @@ suite("staff-user role ceiling and tenant boundary (real database)", () => {
 
   afterAll(async () => {
     const tenants = { tenantId: { in: [tenantA, tenantB] } }
-    await db.auditLog.deleteMany({ where: tenants })
+    await purgeAuditRowsForTest(db, tenants)
     await db.user.deleteMany({ where: tenants })
     await db.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } })
     await db.$disconnect()

@@ -293,6 +293,137 @@ enforcement (`pg_trigger`, `pg_constraint`; the queries are in `CLAUDE.md`),
 and `npm run db:drift` compares a live database's objects with what the
 migrations declare.
 
+## Tamper-evident audit and SIEM forwarding
+
+`AuditLog` is the record of every state change (`lib/audit.ts`). Postgres makes
+it append-only and a keyed hash chain makes it tamper-evident; module rules in
+`lib/audit/.claude.md`.
+
+- **Append-only.** Triggers refuse UPDATE, DELETE and TRUNCATE on `AuditLog` and on the
+  evidence tables (`AuditChainLink`, `AuditChainCheckpoint`, `AuditRedaction`,
+  `AuditChainRepair`, `AuditPolicyRevision`, `AuditSiemDelivery`), and DELETE and TRUNCATE
+  on `AuditPolicy`. An audit row's `createdAt` is the database clock at insertion
+  (trigger), whatever the caller sent. The only change a row ever sees is
+  `audit_log_redact()` nulling personal data (POPIA).
+- **Chain, after commit.** An audit insert touches no chain. The chainer (cron
+  `audit-chainer`, every few seconds, advisory lock per chain) appends a link per
+  committed row; `rowHash` is an HMAC under `AUDIT_CHAIN_KEY`, which is not in the
+  database, over **keyed digests** of the personal-data columns (also under the key,
+  computed by the worker, so the database never holds an unkeyed hash of an email or
+  an address). A rolled-back transaction leaves no link; a Serializable one never
+  waits on a chain. There is no wall-clock window: each chain has a high-water mark
+  (newest `createdAt` among its last 1000 links), a pass looks past the mark less an
+  hour (never further back than the 5000th newest link); a deep pass (seven days back; at
+  boot and hourly) and a daily full sweep (no floor) find a row that committed long after it
+  was made. A backfill or an outage of any length resumes from the mark, in batches of 500,
+  until done. Each chain is locked by a row only `audit_chain_lock` touches (FOR UPDATE SKIP
+  LOCKED), not an advisory lock any login could take; the database hands the worker a SHA-256
+  of each value (the worker keys it), so a huge row costs it nothing, and an insert trigger replaces
+  any `oldValue`/`newValue` over 1 MB (always measured as text: a value copied in already compressed is small as
+  stored) with a stub (`{truncated, bytes}`), whoever writes it. The same trigger CLIPS action, entity, entityId and userEmail to 1 KB and id to 256 bytes (a prefix, then
+  `…[clipped N bytes]`) and stores `invalid` for an ipAddress over 64 bytes (and `newValue._clipped` names the columns and original sizes): an insert is never rejected for
+  them, because userEmail, entityId and ipAddress are chosen by whoever the row is about, and a rejected insert
+  would let them choose to leave no audit row. A CHECK (those limits; ids 256 bytes) is the backstop for a row
+  that bypasses the trigger, added NOT VALID so existing rows are not scanned, and
+  the database hashes every text column (`audit_hash_inputs`), so even an old oversized row can be linked
+  (a row can never be skipped: that would break the chain). To validate on a book you have looked at:
+  `ALTER TABLE "AuditLog" VALIDATE CONSTRAINT "AuditLog_text_bounded"`. A legacy row that violates it cannot be
+  redacted until it is fixed, since the update is checked.
+  No writer fails on a big or long value (it is stubbed or clipped); only a tenantId or userId past 256 bytes is refused, and those are foreign keys that match no row. A batch that fails (a timeout on rows slow to hash) is retried
+  at half the size down to one row, within a 20 s retry budget per chain per pass and never past the pass
+  deadline; a chain that still fails is logged and left alone with a doubling backoff (30 s to 15 min), and
+  the size that last worked is remembered, so it never stops another lender being chained or burns a pass. `idle_in_transaction_session_timeout` is set on the application logins
+  but is a user setting a login can change; it is advisory, and the deep pass and daily sweep are the
+  backstop for a late commit.
+- **Verification.** `npm run audit:verify` and the daily `audit-chain-verify` cron
+  (the worker, which holds the key) walk every chain, report **every** break (not
+  the first), skip a checkpoint whose signature fails, and list the breaks an operator
+  signed off (`npm run audit:accept-break`: an HMAC-signed, audited
+  `AuditChainRepair`; a repair without the key is itself reported). A daily signed
+  checkpoint per chain signs exactly the (seq, hash) the walk verified, bounds
+  the next walk and is sent to the lender's SIEM. The web process only reports
+  status (`GET /api/admin/audit/verify`): it has neither the key nor the access.
+- **Three database logins (deploy requirement).** The **owner** (`POSTGRES_USER`, Helm
+  `migrate.databaseUrlSecret`) owns the schema, runs migrations and owns the SECURITY
+  DEFINER audit functions. The **web** login (`audit_grant_web`) holds INSERT and SELECT on
+  `AuditLog`, SELECT on `AuditPolicy`, and EXECUTE on `audit_policy_save` and
+  `audit_chain_status`; the **worker** login (`audit_grant_worker`) the chainer, verifier,
+  checkpoint and SIEM-delivery functions. Neither owns anything, is a superuser,
+  `BYPASSRLS`, `CREATEROLE`/`CREATEDB`, holds `CREATE` on `public`, or is a MEMBER
+  (`pg_has_role`) of a table owner or `audit_redactor`; the grants refuse such a role. Neither
+  has any privilege on the links, checkpoints, redactions, repairs, revisions, receipts,
+  outbox, lease, or the sequences behind them: everything goes through `audit_*` functions
+  that check what they are given (`lib/audit/store.ts`). `AUDIT_CHAIN_KEY` and the worker
+  login live in the worker's Secret only (Helm `worker.existingSecrets`); a single process that
+  runs the app and the crons shares one login (`audit_grant_runtime`) and one key: weaker, and
+  `/api/health` says so on a web process that holds the worker functions or the key. The
+  role/ACL tests are `runtime-role`, `grant-refusals` and `outbox-functions` integration
+  suites. `deploy/helm/credaflow/files/app-role.sql` creates the logins and grants them (re-run
+  after every migration: compose `db-roles`, `scripts/lender` `ensure_app_role`, the chart's
+  `app-role` Job). In production a process whose role owns a table, is a superuser or can
+  create roles refuses to start (as does one whose setup check cannot run), unless
+  `AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1` (demo/legacy stacks; `DEMO_MODE` does not stand in; logged loudly at every boot and
+  shown in `/api/health`). The Helm chart renders only with two logins unless `audit.singleLogin=true`. The owner login never
+  reaches the app containers (compose blanks it; the chart keeps it in a Secret no pod
+  mounts). A restore with `--no-owner --no-acl` loses ownership and ACLs: the restore scripts
+  run `audit_reassert_protections()` and the grants again.
+- **Redaction is a role, not a setting.** `audit_log_redact` is owned by the NOLOGIN role
+  `audit_redactor`; the append-only trigger lets an UPDATE through only when
+  `current_user = 'audit_redactor'` and an `AuditRedaction` row records the keyed digest of
+  each column being nulled (computed by `npm run audit:redact`, which holds the key). No login
+  is a member and none can write `AuditRedaction`. The `AUDIT_ROW_REDACTED` row (an operator's
+  free-text reason) is never forwarded to a SIEM.
+- **Policy changes go through one function.** `audit_policy_save` is the only way an
+  `AuditPolicy` changes (no login has DML on it; a trigger refuses DELETE). In one transaction
+  it writes the policy, the `AuditPolicyRevision` (trigger), stamps the queued backlog with the
+  destination being left, writes the `AUDIT_POLICY_UPDATED` row itself (URL as origin only) and
+  queues it, and an anchor, for the right destinations. The web functions refuse a session bound to no
+  lender (the application binds `app.tenant_id` in the transaction that calls them; the platform chain is
+  not the web login's). **What that binding is and is not:** it guards against route bugs (a handler that
+  forgets or mixes up the lender). It does not protect against a stolen web login: that login can set
+  `app.tenant_id` to any lender, and could already write business rows for every lender, so it can save
+  that lender's audit policy too. This is an accepted trade-off. The detection is the audit trail itself:
+  every policy change writes its `AUDIT_POLICY_UPDATED` row, and when forwarding was on that row is queued
+  for the OLD destination, so the bank's SOC sees a redirect or switch-off of its own trail. A late-chained row made before a change
+  is stamped too. The tenant binding in `audit_policy_save` and `audit_chain_status` (the session's
+  `app.tenant_id` must match the lender; the actor must be one of its users) stops cross-tenant mistakes and
+  buggy routes. It does NOT stop a compromised web process, which sets that setting itself: the backstop
+  there is the `AUDIT_POLICY_UPDATED` row the function writes, which is queued for the OLD destination, so the
+  bank's SOC sees every redirect of its own trail.
+- **Outbox functions trust nothing.** `audit_outbox_mark` takes the tenant, accepts only
+  delivery-attempt transitions on entries whose backoff has elapsed (a retry in the future, a
+  give-up only after three attempts or when the audit row is gone), stamps `sentAt` with the
+  database clock and writes an append-only receipt (`AuditSiemDelivery`) whose destination the
+  database takes from the entry's own snapshot or the lender's policy, never from the caller. The ack id
+  in it is the worker's own statement of what the SIEM said (required for HTTPS, none for syslog):
+  reconcile receipts with the SIEM; it is not proof against a compromised worker. `audit_outbox_prune_unsent` refuses while the lender forwards, or when
+  history says it did and the policy row is gone, and audits itself; `audit_outbox_purge_sent` has
+  a fixed 7-day retention. Delivery runs under a lease (`audit_outbox_lease`), in short calls, with
+  nothing held open while the SIEM is talked to. The SIEM sees seq + hash on every event and the
+  daily signed checkpoint, so a suppressed event shows as a gap there.
+- **SIEM.** A lender's `AuditPolicy` turns forwarding on; the chainer queues each chained row in
+  `AuditSiemOutbox` and the `audit-siem-deliver` cron ships it as RFC 5424 syslog over TLS (CEF
+  body) or an HTTPS JSON batch, in order, at least once, with backoff. What leaves is minimised
+  (`lib/audit/siem/minimise.ts`). Only a SUPER_ADMIN (TOTP where required) changes the policy.
+- **Retention is recorded policy, not enforced.** At least 12 months (a CHECK on `AuditPolicy`),
+  the latest 3 "hot". Nothing deletes or archives audit rows (they are append-only); archiving
+  up to a checkpoint is a follow-up.
+
+| AuditLog | JSON | CEF | RFC 5424 |
+|---|---|---|---|
+| id | eventId | externalId | SD eventId |
+| createdAt | timestamp | rt (ms) | TIMESTAMP |
+| action | action | signature, name | MSGID |
+| userId | actor.userId | suid | SD userId |
+| ipAddress (value actions only) | sourceIp | src | SD ip |
+| entity / entityId | entity / entityId | cs1 / cs2 | SD entity / entityId |
+| link seq / rowHash | chain.seq / rowHash | cn1 / cs3 | SD seq / rowHash |
+| oldValue / newValue (value actions only, masked) | oldValue / newValue | cs4 / cs5 (1000 chars) | in the CEF body |
+
+Syslog PRI is facility 13 (log audit) * 8 + severity (CEF 9 = 2, 5 = 4, else 6).
+The structured-data id is `cf@<AUDIT_SYSLOG_PEN>`; the default 32473 is the number
+RFC 5612 reserves for documentation, so set the deployment's own.
+
 ## Row-level security: activation checklist
 
 The policies (`prisma/migrations/20261014130000_tenant_rls`) are in every

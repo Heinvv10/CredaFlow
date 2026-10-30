@@ -26,6 +26,7 @@ import { referenceRateOn } from "@/lib/asset-finance/rates-store"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { GET, POST as record } from "./route"
 import { POST as decide } from "./[id]/decide/route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_ASSET_FINANCE_RATES_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -63,7 +64,7 @@ suite.sequential("reference-rate four-eyes (real Postgres, real routes)", () => 
 
   afterAll(async () => {
     await db.notification.deleteMany({ where: { tenantId } })
-    await db.auditLog.deleteMany({ where: { tenantId } })
+    await purgeAuditRowsForTest(db, { tenantId })
     // An approved value is never deleted (guardReferenceRateLifecycle); only this
     // test's rows go, with triggers off for the transaction.
     await db.$transaction([

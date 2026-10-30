@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { encryptionState, probeCron, probeDatabase, probeStorage, recentOutboxFailures } from "@/lib/ops/health-checks"
 import { prisma } from "@/lib/prisma"
 import { isOperatorRole } from "@/lib/operator/roles"
+import { warnAuditSetupOnce } from "@/lib/audit/deployment-check"
 import { envCredentialsWarning, warnEnvCredentialsOnce } from "@/lib/integrations/tenant-credentials"
 
 const noStoreHeaders = { "Cache-Control": "no-store" }
@@ -63,6 +64,7 @@ async function setupWarnings(): Promise<string[]> {
     rlsWarningLogged = true
     warnings.push("db_role_bypasses_rls")
   }
+  warnings.push(...(await warnAuditSetupOnce()))
   const envCredentials = await envCredentialsWarning()
   if (envCredentials) {
     warnEnvCredentialsOnce(envCredentials)

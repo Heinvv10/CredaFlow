@@ -27,6 +27,7 @@ import { referenceRateOn } from "./rates-store"
 import { runReferenceRateFeed, syncReferenceRatesFromFeed } from "./rate-feed-sync"
 import type { SarbObservation } from "./sarb-rate-feed"
 import { POST as decide } from "@/app/api/asset-finance/reference-rates/[id]/decide/route"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_ASSET_FINANCE_RATE_FEED_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -69,9 +70,9 @@ suite.sequential("SARB reference-rate feed (real Postgres)", () => {
   afterAll(async () => {
     for (const id of [tenantId, otherTenantId]) {
       await db.notification.deleteMany({ where: { tenantId: id } })
-      await db.auditLog.deleteMany({ where: { tenantId: id } })
+      await purgeAuditRowsForTest(db, { tenantId: id })
     }
-    await db.auditLog.deleteMany({ where: { action: "REFERENCE_RATE_FEED_FAILED", newValue: { path: ["detail"], equals: `it-${t}` } } })
+    await purgeAuditRowsForTest(db, { action: "REFERENCE_RATE_FEED_FAILED", newValue: { path: ["detail"], equals: `it-${t}` } })
     // An approved value is never deleted (guardReferenceRateLifecycle); only this test's rows go.
     await db.$transaction([
       db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),

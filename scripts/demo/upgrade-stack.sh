@@ -41,6 +41,9 @@
 #   4. back up: pg_dump -Fc (docker exec, the db container's own POSTGRES_*) into
 #      $LIVE_DIR/backups/pre-<short sha>-<UTC>.dump, read in full by `pg_restore -f /dev/null`,
 #      plus .env and .env.production beside it. Never pruned: delete by hand;
+#      Then, on a DEMO_MODE=true stack only, .env.production gets AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 and an
+#      AUDIT_CHAIN_KEY when it lacks them (ensure_demo_audit_env in lib.sh: backed up first, an existing key is never
+#      replaced), so the new image boots and the tamper-evident audit can be shown;
 #   5. `prisma migrate deploy` from the worktree against the db's published
 #      127.0.0.1 port; DATABASE_URL (it has the password) is env-only, never argv;
 #      then segregation of duties off for the demo tenant (TENANT_SOD_OFF_SQL)
@@ -243,6 +246,8 @@ docker exec -i "$LIVE_DB" pg_restore -f /dev/null < "$dump" \
   || { rm -f "$dump"; die "pg_restore cannot read the dump of $db; not upgrading without a usable backup"; }
 (umask 077; cp "$env_file" "$backups/.env.pre-$short-$ts"; cp "$prod_env_file" "$backups/.env.production.pre-$short-$ts")
 note "backed up $db to $dump"
+step="audit env"
+ensure_demo_audit_env "$prod_env_file" "$backups"
 
 # --- 5. migrate.
 step="migrate"

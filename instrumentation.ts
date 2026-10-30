@@ -31,6 +31,10 @@ export async function register() {
     await bootActiveJurisdiction()
 
     const APP_MODE = process.env.APP_MODE || "all"
+    // The audit trail's tamper-evidence depends on the runtime role not owning its tables and on
+    // AUDIT_CHAIN_KEY; say so at boot, and in production refuse to run as a role that could undo it
+    // (lib/audit/deployment-check.ts; AUDIT_ALLOW_PRIVILEGED_DB_ROLE=1 opts out for a stack that accepts it).
+    void import("@/lib/audit/deployment-check").then((m) => m.enforceAuditSetupAtBoot())
     console.log(`[boot] APP_MODE=${APP_MODE} GIT_SHA=${process.env.GIT_SHA ?? "unknown"}`)
 
     // Cron jobs hit staff-only API routes (/api/cron/*) which the audience

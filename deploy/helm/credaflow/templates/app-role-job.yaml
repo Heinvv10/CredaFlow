@@ -1,0 +1,114 @@
+{{- if and .Values.migrate.enabled .Values.appRole.enabled }}
+{{- include "credaflow.assertOwnerSecretApart" . }}
+{{- include "credaflow.assertAuditLogins" . }}
+# Runs right after the migration Job (hook weight 5 against its 0) and before any pod
+# changes: gives the application's database login its table privileges on the new
+# schema and takes the audit evidence tables back from it (files/app-role.sql, SELECT
+# audit_grant_runtime). The owner login (migrate.databaseUrlSecret) runs it; the pods
+# connect as appRole.name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "credaflow.fullname" . }}-app-role-sql
+  labels:
+    {{- include "credaflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app-role
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  app-role.sql: |
+{{ .Files.Get "files/app-role.sql" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "credaflow.fullname" . }}-app-role-{{ .Release.Revision }}
+  labels:
+    {{- include "credaflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app-role
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.appRole.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.appRole.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "credaflow.selectorLabels" (dict "root" . "component" "app-role") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app-role
+          image: {{ include "credaflow.imageRef" (dict "repository" .Values.appRole.image.repository "tag" .Values.appRole.image.tag) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # libpq rejects Prisma's ?schema= query parameter: it is dropped from the URL. The role names
+          # and passwords go to psql on STDIN as \set lines, never on its command line (where any
+          # process on the node could read them).
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              url=$(printf '%s' "$OWNER_DATABASE_URL" | sed -E 's/([?&])schema=[^&]*&?/\1/; s/[?&]$//')
+              {
+                printf '\\set app_role %s\n' "'$APP_DB_USER'"
+                [ -z "${APP_DB_PASSWORD:-}" ] || printf '\\set app_password %s\n' "'$APP_DB_PASSWORD'"
+                [ -z "${WORKER_DB_USER:-}" ] || printf '\\set worker_role %s\n' "'$WORKER_DB_USER'"
+                [ -z "${WORKER_DB_PASSWORD:-}" ] || printf '\\set worker_password %s\n' "'$WORKER_DB_PASSWORD'"
+                cat /sql/app-role.sql
+              } | psql "$url" -v ON_ERROR_STOP=1 -f -
+          env:
+            - name: OWNER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.migrate.databaseUrlSecret.name }}
+                  key: {{ .Values.migrate.databaseUrlSecret.key }}
+            - name: APP_DB_USER
+              value: {{ .Values.appRole.name | quote }}
+            {{- if .Values.appRole.passwordSecret.name }}
+            - name: APP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.appRole.passwordSecret.name }}
+                  key: {{ .Values.appRole.passwordSecret.key }}
+            {{- end }}
+            {{- if .Values.appRole.workerName }}
+            - name: WORKER_DB_USER
+              value: {{ .Values.appRole.workerName | quote }}
+            {{- end }}
+            {{- if and .Values.appRole.workerName .Values.appRole.workerPasswordSecret.name }}
+            - name: WORKER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.appRole.workerPasswordSecret.name }}
+                  key: {{ .Values.appRole.workerPasswordSecret.key }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.appRole.resources | nindent 12 }}
+          securityContext:
+            {{- include "credaflow.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: sql, mountPath: /sql, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: sql
+          configMap:
+            name: {{ include "credaflow.fullname" . }}-app-role-sql
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -203,6 +203,11 @@ describe("tenant-scope — ALS primitives", () => {
       "AssetTheftReport",
       "AssetMeterReadingVoid",
       "TrackerClosure",
+      "AuditPolicy",
+      "AuditSiemOutbox",
+      "AuditPolicyRevision",
+      "AuditSiemDelivery",
+      "AuditSiemLease",
       // IFRS 9 staging, ECL and suspension (lib/ifrs9) — non-null tenantId; runs and the cron write inside runWithTenant.
       "Ifrs9Config",
       "Ifrs9EclParameter",

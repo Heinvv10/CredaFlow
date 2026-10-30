@@ -23,6 +23,7 @@ import { joinChat, leaveChat } from "./staff"
 import { sweepHandoffs } from "./handoff-sweep"
 import { HANDOFF_WAIT_MS } from "./mode"
 import { loadChat, recordAssistantReply, startChat } from "./store"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -79,7 +80,7 @@ suite("sweepHandoffs", () => {
 
   afterAll(async () => {
     const where = { tenantId: { in: tenants } }
-    await db.auditLog.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where)
     await db.notification.deleteMany({ where })
     await db.message.deleteMany({ where })
     await db.conversation.deleteMany({ where }) // cascades WebsiteChatHandoff

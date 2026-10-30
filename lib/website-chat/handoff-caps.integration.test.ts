@@ -23,6 +23,7 @@ import { MAX_HANDOFF_BELLS_PER_HOUR, notifyStaffOfHandoff } from "./handoff"
 import { sweepHandoffs } from "./handoff-sweep"
 import { joinChat } from "./staff"
 import { recordAssistantReply, startChat } from "./store"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -75,7 +76,7 @@ suite("hand-off caps", () => {
 
   afterAll(async () => {
     const where = { tenantId: { in: tenants } }
-    await db.auditLog.deleteMany({ where })
+    await purgeAuditRowsForTest(db, where)
     await db.notification.deleteMany({ where })
     await db.emailLog.deleteMany({ where })
     await db.message.deleteMany({ where })

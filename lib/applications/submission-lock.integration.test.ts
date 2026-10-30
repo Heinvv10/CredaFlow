@@ -32,6 +32,7 @@ import {
   createApprovedPasqV3Application,
   writePasqV3Disbursement,
 } from "@/lib/compliance/pasq-v3-application.integration-fixture"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -172,7 +173,7 @@ suite("application submission evidence locking", () => {
 
   afterAll(async () => {
     await submissionDb.avsCheck.deleteMany({ where: { id: ids.avs } })
-    await submissionDb.auditLog.deleteMany({ where: { entityId: ids.application } })
+    await purgeAuditRowsForTest(submissionDb, { entityId: ids.application })
     await submissionDb.tenantConfig.deleteMany({ where: { tenantId: ids.tenant } })
     await submissionDb.loanApplication.deleteMany({ where: { tenantId: ids.tenant } })
     await submissionDb.loanProduct.deleteMany({ where: { tenantId: ids.tenant } })

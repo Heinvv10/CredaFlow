@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { PrismaClient, type ConvStatus } from "@prisma/client"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { closeIdleChats, closeIfStillIdle } from "./auto-close"
+import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -53,7 +54,7 @@ suite("closeIdleChats", () => {
 
   afterAll(async () => {
     for (const id of [mine, other]) {
-      await db.auditLog.deleteMany({ where: { tenantId: id } })
+      await purgeAuditRowsForTest(db, { tenantId: id })
       await db.conversation.deleteMany({ where: { tenantId: id } })
       await db.contact.deleteMany({ where: { tenantId: id } })
       await db.tenant.delete({ where: { id } })

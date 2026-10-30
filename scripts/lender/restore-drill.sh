@@ -82,6 +82,10 @@ services:
     environment:
       DATABASE_URL: postgresql://\${POSTGRES_USER}:\${POSTGRES_PASSWORD}@db:5432/\${POSTGRES_DB}?schema=public
       NODE_ENV: production
+      # The drill's database login is its throwaway Postgres superuser, which a production process would otherwise
+      # refuse to run as (lib/audit/deployment-check.ts). Explicit, logged at every boot, and this stack is deleted
+      # when the drill ends; a real lender never sets it.
+      AUDIT_ALLOW_PRIVILEGED_DB_ROLE: "1"
       PORT: "3300"
       HOSTNAME: 0.0.0.0
       APP_MODE: staff
@@ -117,7 +121,8 @@ dcompose up -d --wait db >/dev/null
 t_db_up="$(ms)"
 
 gpg --batch --quiet --pinentry-mode loopback --decrypt --passphrase-file "$pass" "$file" \
-  | dcompose exec -T db pg_restore --no-owner --exit-on-error -U "$PGUSER" -d "$PGDB" || die "pg_restore failed"
+  | dcompose exec -T db pg_restore --no-owner --no-acl --exit-on-error -U "$PGUSER" -d "$PGDB" || die "pg_restore failed"
+dcompose exec -T db psql -v ON_ERROR_STOP=1 -qAt -U "$PGUSER" -d "$PGDB" -c "$AUDIT_REASSERT_SQL" >/dev/null || failures+=("the audit protections could not be re-asserted after the restore")
 t_restored="$(ms)"
 restored="$(dcompose exec -T db psql -v ON_ERROR_STOP=1 -qAt -U "$PGUSER" -d "$PGDB" -c "$COUNTS_SQL")"
 if drift="$(count_drift "$file.counts" "$restored")"; then note "row counts match the backup: $(tr '\n' ' ' <<<"$restored")"

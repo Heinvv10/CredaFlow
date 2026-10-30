@@ -119,6 +119,20 @@ worker:
   affinity: {}
   podAnnotations: {}
   extraEnv: {}
+  # Secrets the worker mounts INSTEAD of existingSecrets (empty: the shared list). The supported
+  # production shape: the worker's own Secret holds its database login (appRole.workerName's
+  # DATABASE_URL), AUDIT_CHAIN_KEY and the other cron-side secrets; the web pods mount none of them.
+  # Then the web login can neither chain, checkpoint nor touch the SIEM queue, and a web compromise
+  # cannot forge the chain. Left empty, web and worker share one login (weaker: docs/ARCHITECTURE.md).
+  existingSecrets: []
+
+# The audit trail's logins (docs/ARCHITECTURE.md, Tamper-evident audit). The supported shape for a bank is TWO
+# database logins: web (appRole.name) and worker (appRole.workerName), the worker in its own Secret
+# (worker.existingSecrets) with AUDIT_CHAIN_KEY. The chart refuses to render without them unless singleLogin
+# is set, which is the weaker shape (the web pods then hold the worker's functions and the key): compose and
+# demo stacks, never a real lender.
+audit:
+  singleLogin: false
 
 # `prisma migrate deploy` before each install/upgrade (Helm hook). Its image is the
 # Dockerfile `migrator` target. A migration that adds a trigger, CHECK or UNIQUE
@@ -127,10 +141,13 @@ worker:
 # and migrations".
 migrate:
   enabled: true
-  # Only this key of an existing Secret reaches the Job (not the whole of existingSecrets).
+  # The OWNER login: it owns the schema and the audit functions. The pods do NOT use it
+  # (their DATABASE_URL is appRole.name's), so a compromised pod cannot switch an audit
+  # trigger off. It lives in a Secret of its own that no pod mounts: rendering fails if this
+  # name is in existingSecrets. Only this key reaches the Jobs.
   databaseUrlSecret:
-    name: credaflow-app
-    key: DATABASE_URL
+    name: credaflow-migrate
+    key: MIGRATE_DATABASE_URL
   image:
     repository: credaflow-migrate
     tag: ""
@@ -139,6 +156,34 @@ migrate:
     limits: { cpu: "1", memory: 512Mi }
   backoffLimit: 1
   activeDeadlineSeconds: 900
+
+# The application's database login (docs/ARCHITECTURE.md, "Tamper-evident audit"). A
+# Job after the migration Job, before any pod changes, runs files/app-role.sql as the owner login above:
+# the role gets the table privileges and loses the audit evidence tables (INSERT and
+# SELECT on "AuditLog" only; the links, checkpoints and SIEM outbox are reachable only
+# through the audit functions). The pods' DATABASE_URL (existingSecrets) is this role's.
+appRole:
+  enabled: true
+  # The WEB login (the pods' DATABASE_URL): INSERT/SELECT on AuditLog, audit_policy_save, a chain's status.
+  name: credaflow_app
+  # The WORKER login (worker.existingSecrets' DATABASE_URL): the chainer, verifier and SIEM delivery.
+  # Empty: one login for both (name above), the weaker single-process shape.
+  workerName: ""
+  # Set to have the Job create the role (or reset its password); unset, the role must exist.
+  passwordSecret:
+    name: ""
+    key: APP_DB_PASSWORD
+  workerPasswordSecret:
+    name: ""
+    key: APP_DB_PASSWORD
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
 
 service:
   type: ClusterIP

@@ -8,6 +8,8 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("next/server", () => ({ NextResponse: { json: vi.fn((body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 })) } }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/auth", () => ({ auth: mockAuth, AppRole: undefined }))
+const { recordSecurityEvent } = vi.hoisted(() => ({ recordSecurityEvent: vi.fn(async () => undefined) }))
+vi.mock("@/lib/audit/security-events", () => ({ recordSecurityEvent }))
 
 import { hasMinRole, requireApiRole, requireOwnerOrStaff, canDo } from "../auth-guards"
 import type { UserRole } from "@prisma/client"
@@ -120,6 +122,25 @@ describe("requireApiRole", () => {
     const result = await requireApiRole("READONLY")
     expect(result.error).toBeUndefined()
     expect(result.user?.role).toBe("READONLY")
+  })
+
+  it("records a refused staff permission as a security event on the user's lender", async () => {
+    recordSecurityEvent.mockClear()
+    mockAuth.mockResolvedValue({ user: { id: "u1", email: "a@a.com", name: null, role: "READONLY", tenantId: "tenant-1" } })
+    await requireApiRole("CREDIT_OFFICER")
+    expect(recordSecurityEvent).toHaveBeenCalledTimes(1)
+    expect(recordSecurityEvent).toHaveBeenCalledWith({ kind: "permission_denied", tenantId: "tenant-1", userId: "u1", email: "a@a.com", reason: "requires CREDIT_OFFICER" })
+  })
+
+  it("records nothing for a portal client, a missing session, or a permitted call", async () => {
+    recordSecurityEvent.mockClear()
+    mockAuth.mockResolvedValue({ user: { id: "c1", email: "x@x.com", name: null, role: "CLIENT", tenantId: "tenant-1" } })
+    await requireApiRole("READONLY")
+    mockAuth.mockResolvedValue(null)
+    await requireApiRole("READONLY")
+    mockAuth.mockResolvedValue({ user: { id: "u1", email: "a@a.com", name: null, role: "LOAN_ADMIN", tenantId: "tenant-1" } })
+    await requireApiRole("READONLY")
+    expect(recordSecurityEvent).not.toHaveBeenCalled()
   })
 
   it("returns 403 for a staff principal without a persisted tenant", async () => {

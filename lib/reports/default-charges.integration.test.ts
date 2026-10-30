@@ -41,6 +41,7 @@ import { COLLECTIBLE_STATUSES, SETTLED_STATUSES } from "@/lib/loan/collectible-b
 import { PATCH as setExemption } from "@/app/api/loans/[id]/default-charges-exemption/route"
 import { loadChargesOwingByBand } from "./charges-owing"
 import { boardPackChargesSummary, loadDefaultChargesReport, loadInDuplumSnapshot } from "./default-charges-loader"
+import { updateAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -100,7 +101,7 @@ suite.sequential("charges reporting (real Postgres)", () => {
     // A stored figure on a tenant whose charges are not live must never show.
     await db.loan.update({ where: { id: loans.offLoan }, data: { chargesOutstanding: 999, daysInArrears: 25 } })
     // Audit rows are stamped by the database clock; pin them to the test's month.
-    await db.auditLog.updateMany({ where: { tenantId: a.tenantId }, data: { createdAt: NOW } })
+    await updateAuditRowsForTest(db, { tenantId: a.tenantId }, { createdAt: NOW })
   })
   afterAll(async () => {
     vi.useRealTimers()
