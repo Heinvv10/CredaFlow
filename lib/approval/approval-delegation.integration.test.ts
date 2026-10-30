@@ -8,7 +8,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/notifications")>()), triggerNotification: vi.fn(async () => undefined) }))
 
 import { grantDelegation, revokeDelegation } from "./delegations"
-import { MATRIX, approveAs, approveMatrix, as, caseOf, db, ids, inTenant, refusal, registerApprovalFixture, sql, stepsOf, suite, underReview } from "./approval.integration-fixture"
+import { A, approveAs, approveMatrix, as, caseOf, db, ids, inTenant, MATRIX, refusal, registerApprovalFixture, sql, stepsOf, suite, underReview } from "./approval.integration-fixture"
 
 suite("approval matrix: delegated authority (real Postgres)", () => {
   registerApprovalFixture()
@@ -23,20 +23,20 @@ suite("approval matrix: delegated authority (real Postgres)", () => {
     // Authority cannot be passed on from a role that lacks it.
     await expect(grantDelegation({ tenantId: ids.tenant, actor: as.la1, delegation: delegation() })).rejects.toMatchObject({ code: "INVALID" })
     const granted = await inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.bm, delegation: delegation() }))
-    await underReview("ap-delegated", { amount: 500_000 })
-    expect((await approveAs("la1", "ap-delegated")).status).toBe(200)
-    const done = await approveAs("la2", "ap-delegated")
+    await underReview(A("ap-delegated"), { amount: 500_000 })
+    expect((await approveAs("la1", A("ap-delegated"))).status).toBe(200)
+    const done = await approveAs("la2", A("ap-delegated"))
     expect(done.status, JSON.stringify(done.body)).toBe(200)
-    expect(await stepsOf("ap-delegated")).toMatchObject([{ level: 1 }, { level: 2, approverId: ids.la2, via: "DELEGATION", delegationId: granted.id }])
+    expect(await stepsOf(A("ap-delegated"))).toMatchObject([{ level: 1 }, { level: 2, approverId: ids.la2, via: "DELEGATION", delegationId: granted.id }])
     // Above the delegated amount it does not reach.
-    await underReview("ap-over-limit", { amount: 650_000 })
-    expect((await approveAs("la1", "ap-over-limit")).status).toBe(200)
-    expect(await approveAs("la2", "ap-over-limit")).toMatchObject({ status: 403, body: { approvalMatrix: "LEVEL_AUTHORITY_REQUIRED" } })
+    await underReview(A("ap-over-limit"), { amount: 650_000 })
+    expect((await approveAs("la1", A("ap-over-limit"))).status).toBe(200)
+    expect(await approveAs("la2", A("ap-over-limit"))).toMatchObject({ status: 403, body: { approvalMatrix: "LEVEL_AUTHORITY_REQUIRED" } })
     // Revoked: no more.
-    await underReview("ap-revoked", { amount: 500_000 })
+    await underReview(A("ap-revoked"), { amount: 500_000 })
     await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id }))
-    expect((await approveAs("la1", "ap-revoked")).status).toBe(200)
-    expect(await approveAs("la2", "ap-revoked")).toMatchObject({ status: 403, body: { approvalMatrix: "LEVEL_AUTHORITY_REQUIRED" } })
+    expect((await approveAs("la1", A("ap-revoked"))).status).toBe(200)
+    expect(await approveAs("la2", A("ap-revoked"))).toMatchObject({ status: 403, body: { approvalMatrix: "LEVEL_AUTHORITY_REQUIRED" } })
     await expect(revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id })).rejects.toMatchObject({ code: "ALREADY_ENDED" })
   })
 
@@ -75,10 +75,10 @@ suite("approval matrix: delegated authority (real Postgres)", () => {
     const grant = (maxAmountCents: number) => inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.bm, delegation: { delegateId: ids.la2, level: 2, maxAmountCents, validFrom: new Date(), validTo: new Date(Date.now() + 7 * day), reason: "Covering the branch this week" } }))
     const small = await grant(100_000)
     const big = await grant(2_000_000_000)
-    await underReview("ap-dbdeleg", { amount: 500_000 })
-    expect((await approveAs("la1", "ap-dbdeleg")).status).toBe(200)
-    const theCase = await caseOf("ap-dbdeleg")
-    const step = (approver: string, delegation: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','ap-dbdeleg',2,'${approver}','DELEGATION','${delegation}')`)
+    await underReview(A("ap-dbdeleg"), { amount: 500_000 })
+    expect((await approveAs("la1", A("ap-dbdeleg"))).status).toBe(200)
+    const theCase = await caseOf(A("ap-dbdeleg"))
+    const step = (approver: string, delegation: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','${A("ap-dbdeleg")}',2,'${approver}','DELEGATION','${delegation}')`)
     expect(await refusal(step(ids.la2, "no-such-delegation"))).toContain("names a delegation that exists")
     expect(await refusal(step(ids.la2, small.id))).toContain("in force and reaches this level and amount")
     expect(await refusal(step(ids.ad2, big.id))).toContain("in force and reaches this level and amount")

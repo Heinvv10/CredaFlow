@@ -23,6 +23,8 @@ export const RUN = process.env.RUN_APPROVAL_IT === "1"
 export const suite = RUN ? describe.sequential : describe.skip
 export const t = randomUUID().replaceAll("-", "").slice(0, 12)
 const ROLE = `cf_ap_${t.slice(0, 10)}_it`
+/** An application or client id for this run: ids are table-wide primary keys, so a literal one collides with another file's, or a crashed run's. */
+export const A = (name: string) => `${name}-${t}`
 export const ids = {
   tenant: `approval-${t}`, product: `ap-product-${t}`, branch: `ap-branch-${t}`,
   la1: `ap-la1-${t}`, la2: `ap-la2-${t}`, bm: `ap-bm-${t}`, ad: `ap-ad-${t}`, ad2: `ap-ad2-${t}`, maker: `ap-maker-${t}`, checker: `ap-checker-${t}`, checker2: `ap-checker2-${t}`, officer: `ap-officer-${t}`,
@@ -49,17 +51,11 @@ export const MATRIX = {
   ],
 }
 
-/** Role grants rewrite shared catalog rows, which Postgres refuses while another suite's grants run (the files may share a database). */
+/** Held while a role's DDL runs: grants rewrite shared catalog rows, which Postgres refuses (or deadlocks on) while another file's grants run. */
+const ROLE_DDL_LOCK = 265_001
+
 async function ddl(text: string): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await db.$executeRawUnsafe(text)
-      return
-    } catch (error) {
-      if (attempt >= 20 || !String(error).includes("tuple concurrently updated")) throw error
-      await new Promise((resolve) => setTimeout(resolve, 100 + attempt * 50))
-    }
-  }
+  await db.$transaction([db.$executeRaw`SELECT pg_advisory_xact_lock(${ROLE_DDL_LOCK})`, db.$executeRawUnsafe(text)])
 }
 
 async function createAppRole(): Promise<string> {

@@ -20,7 +20,7 @@ import { gateApproval, openApprovalCaseSafely } from "./chain"
 import { escalateOverdueApprovals } from "./escalation"
 import { loadApprovalProgress } from "./progress"
 import { MATRIX_KIND } from "./types"
-import { MATRIX, app, approveAs, approveMatrix, as, caseOf, db, ids, inTenant, refusal, registerApprovalFixture, sql, statusOf, stepsOf, suite, t, underReview } from "./approval.integration-fixture"
+import { A, app, approveAs, approveMatrix, as, caseOf, db, ids, inTenant, MATRIX, refusal, registerApprovalFixture, sql, statusOf, stepsOf, suite, t, underReview } from "./approval.integration-fixture"
 
 suite("approval matrix (real Postgres, row-level security)", () => {
   registerApprovalFixture()
@@ -31,11 +31,11 @@ suite("approval matrix (real Postgres, row-level security)", () => {
   })
 
   it("with no matrix, an approval is the single-approver flow it always was (no case, no step)", async () => {
-    await underReview("ap-nomatrix", { amount: 300_000 })
-    const res = await approveAs("la1", "ap-nomatrix")
+    await underReview(A("ap-nomatrix"), { amount: 300_000 })
+    const res = await approveAs("la1", A("ap-nomatrix"))
     expect(res.status, JSON.stringify(res.body)).toBe(200)
-    expect(await statusOf("ap-nomatrix")).toBe("APPROVED")
-    expect(await db.approvalCase.count({ where: { tenantId: ids.tenant, applicationId: "ap-nomatrix" } })).toBe(0)
+    expect(await statusOf(A("ap-nomatrix"))).toBe("APPROVED")
+    expect(await db.approvalCase.count({ where: { tenantId: ids.tenant, applicationId: A("ap-nomatrix") } })).toBe(0)
   })
 
   it("the matrix arrives only through maker-checker, holds exactly what was approved, and never changes", async () => {
@@ -67,49 +67,49 @@ suite("approval matrix (real Postgres, row-level security)", () => {
   })
 
   it("one level required: a loan admin's approval is the whole chain, and the case ends APPROVED with the step on record", async () => {
-    await underReview("ap-small", { amount: 300_000 })
-    const res = await approveAs("la1", "ap-small")
+    await underReview(A("ap-small"), { amount: 300_000 })
+    const res = await approveAs("la1", A("ap-small"))
     expect(res.status, JSON.stringify(res.body)).toBe(200)
-    expect(await statusOf("ap-small")).toBe("APPROVED")
-    expect(await caseOf("ap-small")).toMatchObject({ status: "APPROVED", requiredLevels: 1, matchedRuleIds: [] })
-    expect(await stepsOf("ap-small")).toMatchObject([{ level: 1, approverId: ids.la1, via: "ROLE" }])
+    expect(await statusOf(A("ap-small"))).toBe("APPROVED")
+    expect(await caseOf(A("ap-small"))).toMatchObject({ status: "APPROVED", requiredLevels: 1, matchedRuleIds: [] })
+    expect(await stepsOf(A("ap-small"))).toMatchObject([{ level: 1, approverId: ids.la1, via: "ROLE" }])
   })
 
   it("two levels: level 1 is recorded and leaves it under review; the same person cannot do level 2, nor can a role below it; the branch manager completes it", async () => {
-    await underReview("ap-mid", { amount: 500_000 })
-    const first = await approveAs("la1", "ap-mid")
+    await underReview(A("ap-mid"), { amount: 500_000 })
+    const first = await approveAs("la1", A("ap-mid"))
     expect(first).toMatchObject({ status: 200, body: { approvalRecorded: true, level: 1, requiredLevels: 2, nextLevel: 2, status: "UNDER_REVIEW" } })
-    expect(await statusOf("ap-mid")).toBe("UNDER_REVIEW")
-    expect(await approveAs("la1", "ap-mid")).toMatchObject({ status: 409, body: { approvalMatrix: "ALREADY_APPROVED" } })
-    expect(await approveAs("la2", "ap-mid")).toMatchObject({ status: 403, body: { approvalMatrix: "LEVEL_AUTHORITY_REQUIRED" } })
-    expect(await statusOf("ap-mid")).toBe("UNDER_REVIEW")
-    const last = await approveAs("bm", "ap-mid")
+    expect(await statusOf(A("ap-mid"))).toBe("UNDER_REVIEW")
+    expect(await approveAs("la1", A("ap-mid"))).toMatchObject({ status: 409, body: { approvalMatrix: "ALREADY_APPROVED" } })
+    expect(await approveAs("la2", A("ap-mid"))).toMatchObject({ status: 403, body: { approvalMatrix: "LEVEL_AUTHORITY_REQUIRED" } })
+    expect(await statusOf(A("ap-mid"))).toBe("UNDER_REVIEW")
+    const last = await approveAs("bm", A("ap-mid"))
     expect(last.status, JSON.stringify(last.body)).toBe(200)
-    expect(await statusOf("ap-mid")).toBe("APPROVED")
-    expect(await caseOf("ap-mid")).toMatchObject({ status: "APPROVED", requiredLevels: 2, matchedRuleIds: ["mid"] })
-    expect((await stepsOf("ap-mid")).map((s) => [s.level, s.approverId])).toEqual([[1, ids.la1], [2, ids.bm]])
+    expect(await statusOf(A("ap-mid"))).toBe("APPROVED")
+    expect(await caseOf(A("ap-mid"))).toMatchObject({ status: "APPROVED", requiredLevels: 2, matchedRuleIds: ["mid"] })
+    expect((await stepsOf(A("ap-mid"))).map((s) => [s.level, s.approverId])).toEqual([[1, ids.la1], [2, ids.bm]])
   })
 
   it("progress shows each level, who approved it, and whether the viewer may approve next", async () => {
-    const progress = await inTenant(() => loadApprovalProgress({ tenantId: ids.tenant, applicationId: "ap-mid", viewer: { id: ids.la2, role: "LOAN_ADMIN" } }))
+    const progress = await inTenant(() => loadApprovalProgress({ tenantId: ids.tenant, applicationId: A("ap-mid"), viewer: { id: ids.la2, role: "LOAN_ADMIN" } }))
     expect(progress).toMatchObject({ applies: true, status: "APPROVED", requiredLevels: 2, requirementFrozen: true, matchedRules: [{ id: "mid", name: "Mid-size loans" }] })
     expect(progress.levels.map((l) => [l.level, l.state])).toEqual([[1, "APPROVED"], [2, "APPROVED"], [3, "NOT_REQUIRED"]])
   })
 
   it("the maker never approves, at any level: the route refuses, and so does the database", async () => {
-    await underReview("ap-maker", { amount: 500_000, inputStaff: [ids.bm] })
-    expect(await approveAs("bm", "ap-maker")).toMatchObject({ status: 403, body: { approvalMatrix: "MAKER_CANNOT_APPROVE" } })
+    await underReview(A("ap-maker"), { amount: 500_000, inputStaff: [ids.bm] })
+    expect(await approveAs("bm", A("ap-maker"))).toMatchObject({ status: 403, body: { approvalMatrix: "MAKER_CANNOT_APPROVE" } })
     // A first level done by someone else, then the maker (who has the authority) tries the second.
-    expect((await approveAs("la1", "ap-maker")).status).toBe(200)
-    expect(await approveAs("bm", "ap-maker")).toMatchObject({ status: 403, body: { approvalMatrix: "MAKER_CANNOT_APPROVE" } })
-    const theCase = await caseOf("ap-maker")
-    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','ap-maker',2,'${ids.bm}','ROLE')`))).toContain("cannot approve it")
+    expect((await approveAs("la1", A("ap-maker"))).status).toBe(200)
+    expect(await approveAs("bm", A("ap-maker"))).toMatchObject({ status: 403, body: { approvalMatrix: "MAKER_CANNOT_APPROVE" } })
+    const theCase = await caseOf(A("ap-maker"))
+    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','${A("ap-maker")}',2,'${ids.bm}','ROLE')`))).toContain("cannot approve it")
   })
 
   it("the database refuses APPROVED while the chain is incomplete, a step out of order, one past the requirement, or one by the system account", async () => {
-    const theCase = await caseOf("ap-maker")
-    expect(await refusal(sql(`UPDATE "LoanApplication" SET "status" = 'APPROVED' WHERE "id" = 'ap-maker'`))).toContain("every required level must approve")
-    const step = (level: number, approver: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','ap-maker',${level},'${approver}','ROLE')`)
+    const theCase = await caseOf(A("ap-maker"))
+    expect(await refusal(sql(`UPDATE "LoanApplication" SET "status" = 'APPROVED' WHERE "id" = '${A("ap-maker")}'`))).toContain("every required level must approve")
+    const step = (level: number, approver: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','${A("ap-maker")}',${level},'${approver}','ROLE')`)
     expect(await refusal(step(3, ids.ad))).toContain("at a level the case requires")
     expect(await refusal(step(1, ids.ad))).toMatch(/in order|unique/i)
     await db.user.create({ data: { id: `ap-sys-${t}`, tenantId: ids.tenant, email: `ap-sys-${t}@system.invalid`, password: "!", role: "LOAN_ADMIN", active: false, isSystem: true } })
@@ -117,11 +117,11 @@ suite("approval matrix (real Postgres, row-level security)", () => {
   })
 
   it("a case's requirement is only ever raised; its steps and escalations are append-only; the case never goes away", async () => {
-    const theCase = await caseOf("ap-maker")
+    const theCase = await caseOf(A("ap-maker"))
     expect(await refusal(sql(`UPDATE "ApprovalCase" SET "requiredLevels" = 1 WHERE "id" = '${theCase.id}'`))).toContain("raised as the facts firm up")
     // Its application and the matrix it began under cannot be moved once it holds a requirement.
     expect(await refusal(sql(`UPDATE "ApprovalCase" SET "matrixVersionId" = NULL WHERE "id" = '${theCase.id}'`))).toContain("cannot be changed")
-    expect(await refusal(sql(`UPDATE "ApprovalCase" SET "applicationId" = 'ap-mid' WHERE "id" = '${theCase.id}'`))).toContain("cannot be changed")
+    expect(await refusal(sql(`UPDATE "ApprovalCase" SET "applicationId" = '${A("ap-mid")}' WHERE "id" = '${theCase.id}'`))).toContain("cannot be changed")
     expect(await refusal(sql(`DELETE FROM "ApprovalCase" WHERE "id" = '${theCase.id}'`))).toContain("never goes away")
     expect(await refusal(sql(`UPDATE "ApprovalStep" SET "note" = 'x' WHERE "caseId" = '${theCase.id}'`))).toContain("append-only")
     expect(await refusal(sql(`DELETE FROM "ApprovalStep" WHERE "caseId" = '${theCase.id}'`))).toContain("append-only")
@@ -129,22 +129,22 @@ suite("approval matrix (real Postgres, row-level security)", () => {
   })
 
   it("the decision engine cannot approve what needs staff approval, and may where none is required", async () => {
-    await underReview("ap-engine", { amount: 500_000 })
-    const gate = await inTenant(() => gateApproval({ tenantId: ids.tenant, application: { id: "ap-engine", appliedAmount: 500_000, productId: ids.product, branchId: ids.branch, riskGradeRank: null, inputStaffIds: [] }, user: { id: ids.la1, email: "s@system.invalid", role: "LOAN_ADMIN" }, automated: true }))
+    await underReview(A("ap-engine"), { amount: 500_000 })
+    const gate = await inTenant(() => gateApproval({ tenantId: ids.tenant, application: { id: A("ap-engine"), appliedAmount: 500_000, productId: ids.product, branchId: ids.branch, riskGradeRank: null, inputStaffIds: [] }, user: { id: ids.la1, email: "s@system.invalid", role: "LOAN_ADMIN" }, automated: true }))
     expect(gate).toMatchObject({ kind: "respond", status: 409, body: { approvalMatrix: "AUTOMATION_NOT_PERMITTED" } })
-    expect(await statusOf("ap-engine")).toBe("UNDER_REVIEW")
+    expect(await statusOf(A("ap-engine"))).toBe("UNDER_REVIEW")
   })
 
   it("an overdue level escalates to the next up (its people are told, once), climbs again if still waiting, and reminds the top", async () => {
-    await underReview("ap-slow", { amount: 800_000, inputStaff: [ids.officer] })
+    await underReview(A("ap-slow"), { amount: 800_000, inputStaff: [ids.officer] })
     // The review has started: the case (and its clock) opens with it. Make level 1 overdue.
-    await inTenant(() => openApprovalCaseSafely({ tenantId: ids.tenant, applicationId: "ap-slow" }))
-    const theCase = await caseOf("ap-slow")
+    await inTenant(() => openApprovalCaseSafely({ tenantId: ids.tenant, applicationId: A("ap-slow") }))
+    const theCase = await caseOf(A("ap-slow"))
     await sql(`UPDATE "ApprovalCase" SET "dueAt" = now() - interval '1 hour' WHERE "id" = '${theCase.id}'`)
     const now = new Date()
     expect(await escalateOverdueApprovals({ now })).toMatchObject({ escalated: 1, failed: 0 })
     expect(await db.approvalEscalation.findMany({ where: { caseId: theCase.id } })).toMatchObject([{ fromLevel: 1, toLevel: 2 }])
-    const told = await db.notification.findMany({ where: { tenantId: ids.tenant, type: "APPROVAL_ESCALATED", entityId: "ap-slow" } })
+    const told = await db.notification.findMany({ where: { tenantId: ids.tenant, type: "APPROVAL_ESCALATED", entityId: A("ap-slow") } })
     expect(told.map((n) => n.userId)).toEqual([ids.bm])
     // Not overdue again until another SLA has passed: a second run does nothing.
     expect(await escalateOverdueApprovals({ now })).toMatchObject({ escalated: 0, reminded: 0 })
@@ -155,19 +155,19 @@ suite("approval matrix (real Postgres, row-level security)", () => {
   })
 
   it("leaving review any other way ends the case, and a new review opens a fresh one", async () => {
-    await underReview("ap-cancelled", { amount: 500_000 })
-    expect((await approveAs("la1", "ap-cancelled")).status).toBe(200)
-    const first = await caseOf("ap-cancelled")
-    await sql(`UPDATE "LoanApplication" SET "status" = 'CANCELLED' WHERE "id" = 'ap-cancelled'`)
+    await underReview(A("ap-cancelled"), { amount: 500_000 })
+    expect((await approveAs("la1", A("ap-cancelled"))).status).toBe(200)
+    const first = await caseOf(A("ap-cancelled"))
+    await sql(`UPDATE "LoanApplication" SET "status" = 'CANCELLED' WHERE "id" = '${A("ap-cancelled")}'`)
     expect(await db.approvalCase.findUniqueOrThrow({ where: { id: first.id } })).toMatchObject({ status: "CLOSED" })
     expect(await refusal(sql(`UPDATE "ApprovalCase" SET "status" = 'OPEN', "completedAt" = NULL WHERE "id" = '${first.id}'`))).toContain("cannot be reopened")
   })
 
   it("only one open case per application", async () => {
-    await underReview("ap-twice", { amount: 300_000 })
-    await inTenant(() => gateApproval({ tenantId: ids.tenant, application: { id: "ap-twice", appliedAmount: 300_000, productId: ids.product, branchId: ids.branch, riskGradeRank: null, inputStaffIds: [ids.ad] }, user: as.ad, automated: false }))
-    const open = await caseOf("ap-twice")
-    const message = await refusal(sql(`INSERT INTO "ApprovalCase" ("id","tenantId","applicationId") VALUES ('c-${randomUUID()}','${ids.tenant}','ap-twice')`))
+    await underReview(A("ap-twice"), { amount: 300_000 })
+    await inTenant(() => gateApproval({ tenantId: ids.tenant, application: { id: A("ap-twice"), appliedAmount: 300_000, productId: ids.product, branchId: ids.branch, riskGradeRank: null, inputStaffIds: [ids.ad] }, user: as.ad, automated: false }))
+    const open = await caseOf(A("ap-twice"))
+    const message = await refusal(sql(`INSERT INTO "ApprovalCase" ("id","tenantId","applicationId") VALUES ('c-${randomUUID()}','${ids.tenant}','${A("ap-twice")}')`))
     expect(message, message).toMatch(/one_open|unique|23505/i)
     expect(open.status).toBe("OPEN")
   })
@@ -176,10 +176,10 @@ suite("approval matrix (real Postgres, row-level security)", () => {
     const draft = await createDraft({ tenantId: ids.tenant, actor: as.maker, kind: MATRIX_KIND, title: "Off", payload: { ...MATRIX, enabled: false } })
     await submit({ tenantId: ids.tenant, actor: as.maker, id: draft.id })
     await approve({ tenantId: ids.tenant, actor: as.checker, id: draft.id })
-    await underReview("ap-off", { amount: 500_000 })
-    const res = await approveAs("la1", "ap-off")
+    await underReview(A("ap-off"), { amount: 500_000 })
+    const res = await approveAs("la1", A("ap-off"))
     expect(res.status, JSON.stringify(res.body)).toBe(200)
-    expect(await statusOf("ap-off")).toBe("APPROVED")
-    expect(await db.approvalCase.count({ where: { tenantId: ids.tenant, applicationId: "ap-off" } })).toBe(0)
+    expect(await statusOf(A("ap-off"))).toBe("APPROVED")
+    expect(await db.approvalCase.count({ where: { tenantId: ids.tenant, applicationId: A("ap-off") } })).toBe(0)
   })
 })
