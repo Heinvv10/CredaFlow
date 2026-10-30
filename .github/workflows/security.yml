@@ -3,7 +3,7 @@ name: security
 # Scans, kept apart from quality-gate.yml so they neither slow nor loosen the
 # required `quality` and `integration` checks. Every third-party action is pinned
 # to a full commit SHA; scanner binaries are pinned by version AND sha256, and
-# the Semgrep image by digest, so a moved tag cannot change what runs here.
+# semgrep by PyPI version, so a moved tag cannot change what runs here.
 # Not wired into branch protection: add `sast`, `dependencies`, `secrets` and
 # `image` as required checks when the first runs are green.
 on:
@@ -23,13 +23,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Static analysis of the TypeScript source. Semgrep rather than CodeQL: CodeQL
+  # Static analysis of the TypeScript source (semgrep from PyPI via a pinned uv). Semgrep rather than CodeQL: CodeQL
   # code scanning on a private repository needs GitHub Advanced Security.
   sast:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 20
     steps:
+      # Fail closed if a fork PR ever reaches this runner.
+      - name: Refuse fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::fork pull requests must not run on the self-hosted runner"
+          exit 1
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
@@ -40,23 +47,37 @@ jobs:
       # the stored value (real, low severity: needs write access to the database).
       # Fix with `{ authTagLength: 16 }`, then delete this exclusion.
       - name: Semgrep
+        env:
+          UV_VERSION: 0.13.6
+          UV_SHA256: f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
+          SEMGREP_VERSION: 1.183.0
         run: |
-          docker run --rm -v "$PWD:/src:ro" \
-            semgrep/semgrep@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3 \
-            semgrep scan --metrics=off --error --severity ERROR \
-              --config p/typescript --config p/nextjs --config p/security-audit \
-              --exclude-rule javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length \
-              --exclude node_modules --exclude '*.test.ts' --exclude '*.test.tsx' \
-              --exclude .claude --exclude docs /src
+          curl -sSfL -o "$RUNNER_TEMP/uv.tgz" "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${UV_SHA256}  $RUNNER_TEMP/uv.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/uvbin" && tar -xzf "$RUNNER_TEMP/uv.tgz" -C "$RUNNER_TEMP/uvbin" --strip-components=1
+          export UV_TOOL_DIR="$RUNNER_TEMP/uvtools" UV_TOOL_BIN_DIR="$RUNNER_TEMP/uvbin"
+          "$RUNNER_TEMP/uvbin/uv" tool install "semgrep==${SEMGREP_VERSION}"
+          "$RUNNER_TEMP/uvbin/semgrep" scan --metrics=off --error --severity ERROR \
+            --config p/typescript --config p/nextjs --config p/security-audit \
+            --exclude-rule javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length \
+            --exclude node_modules --exclude '*.test.ts' --exclude '*.test.tsx' \
+            --exclude .claude --exclude docs .
 
   # Known-vulnerable production dependencies. The repo's own script, narrowed to
   # what ships (--omit=dev) and to what blocks (high and critical); the full
   # moderate list stays available locally with `npm run audit:security`.
   dependencies:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 10
     steps:
+      # Fail closed if a fork PR ever reaches this runner.
+      - name: Refuse fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::fork pull requests must not run on the self-hosted runner"
+          exit 1
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
@@ -71,9 +92,16 @@ jobs:
   # fixtures are fingerprinted in .gitleaksignore; anything new fails.
   secrets:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 10
     steps:
+      # Fail closed if a fork PR ever reaches this runner.
+      - name: Refuse fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::fork pull requests must not run on the self-hosted runner"
+          exit 1
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
@@ -83,15 +111,17 @@ jobs:
           GITLEAKS_VERSION: 8.30.1
           GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
-          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
-          mkdir "$RUNNER_TEMP/gitleaks" && tar -xzf gitleaks.tgz -C "$RUNNER_TEMP/gitleaks" gitleaks
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gitleaks" && tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP/gitleaks" gitleaks
           "$RUNNER_TEMP/gitleaks/gitleaks" detect --source . --no-banner --redact --exit-code 1
 
   # Both images the Helm chart deploys: the runner and the migration runner. HIGH
   # and CRITICAL fail the job. --ignore-unfixed: a CVE with no fixed package yet
   # cannot be acted on; the weekly run catches it once a fix ships. Accepted
   # exceptions go in .trivyignore with a reason and an expiry date.
+  # Stays on a GitHub-hosted runner: it needs docker, and giving the self-hosted
+  # runner user docker access would be root-equivalent on velo-server.
   image:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
