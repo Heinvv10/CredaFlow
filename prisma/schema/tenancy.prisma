@@ -121,6 +121,11 @@ model Tenant {
   emailLogs                  EmailLog[]
   entityDocuments            EntityDocument[]
   financedAssets             FinancedAsset[]
+  ifrs9Config                Ifrs9Config?
+  ifrs9EclParameters         Ifrs9EclParameter[]
+  ifrs9LoanSnapshots         Ifrs9LoanSnapshot[]
+  ifrs9Runs                  Ifrs9Run[]
+  ifrs9SicrFlags             Ifrs9SicrFlag[]
   insuranceAdviceRecords     InsuranceAdviceRecord[]
   insuranceClaims            InsuranceClaim[]
   insuranceEligibilityRules  InsuranceEligibilityRule[]

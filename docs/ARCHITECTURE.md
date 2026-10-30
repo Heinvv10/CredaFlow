@@ -26,7 +26,8 @@ routes, each with its own session secret (`docker-compose.yml`).
 - **Origination** — `applications/`, `affordability/`, `credit/`, `decision/`,
   `kyc/`, `ocr/` (document extraction), `qualify.ts`, `loan-calculator.ts`,
   `pdf/` (the NCA documents), `disbursement/`.
-- **Servicing** — `loan/` (schedules, balances, default charges), `payments/`,
+- **Servicing** — `loan/` (schedules, balances, default charges), `ifrs9/` (staging, ECL,
+  interest suspension; `docs/ifrs9/DESIGN.md`), `payments/`,
   `bank-sync/` (statement import and reconciliation), `collections/`
   (escalation, arrangements, Section 129).
 - **Customer contact** — `messaging/` (the one send pipeline), `email/`,
