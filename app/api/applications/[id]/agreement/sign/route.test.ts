@@ -60,6 +60,8 @@ const {
   readFileMock: vi.fn(),
 }))
 
+// The key-facts redirect reads the application by its own query; these routes are exercised as PASQ applications.
+vi.mock("@/lib/non-nca-documents/refusal", () => ({ keyFactsRefusal: async () => null }))
 vi.mock("@/lib/auth", () => ({ auth: () => authMock() }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, callback: (tenant: { id: string }) => unknown) =>

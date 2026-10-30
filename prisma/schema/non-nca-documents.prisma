@@ -1,0 +1,62 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Non-NCA loan documents (lib/non-nca-documents): the key facts statement and
+// the loan agreement of an application whose disclosureRegime is KEY_FACTS
+// (a jurisdiction without the NCA, e.g. Lesotho). Lesotho PostBank tender items
+// 2.2.4 and 2.4.3. The wording is the lender's own: a CUSTOM DocumentTemplate
+// (dual-approved versions, lib/documents) the lender's legal team supplies; the
+// system never invents it.
+// Hand-written guards: prisma/migrations/20261030090000_non_nca_documents.
+// ════════════════════════════════════════════════════════════════════════════
+
+enum DisclosureRegime {
+  NCA_PASQ
+  KEY_FACTS
+}
+
+enum LoanDocumentKind {
+  KEY_FACTS_STATEMENT
+  LOAN_AGREEMENT
+}
+
+// One issued document of a KEY_FACTS application: the template version and the
+// hash of its wording it was rendered from, and the hash of the PDF. Immutable
+// but for supersededAt (an unsigned issuance replaced by a re-issue) and the
+// borrower's one-time acknowledgement of a key facts statement
+// (guardLoanDocumentIssuance). The sign and disburse gates read these rows
+// (guardLoanApplicationKeyFactsDocuments).
+model LoanDocumentIssuance {
+  id                    String                  @id @default(cuid())
+  tenantId              String
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id])
+  applicationId         String
+  application           LoanApplication         @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind                  LoanDocumentKind
+  templateId            String
+  template              DocumentTemplate        @relation(fields: [tenantId, templateId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  templateKey           String
+  templateVersionId     String
+  templateVersion       DocumentTemplateVersion @relation(fields: [templateVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  templateVersionNumber Int
+  // SHA-256 of the version's bodyHtml when it was rendered: the gate recomputes it.
+  templateContentSha256 String
+  // One issuance per stored document: a document cannot be issued for two applications (and a replaced one stays referenced).
+  clientDocumentId      String                  @unique
+  clientDocument        ClientDocument          @relation(fields: [tenantId, clientDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  pdfSha256             String
+  // SHA-256 of the application's commercial terms as printed (amount, term, rate, fees):
+  // the gate refuses a signature once they have changed.
+  termsSha256           String
+  // A demo lender's documents carry the SAMPLE banner (TenantConfig.isDemoLender).
+  sample                Boolean                 @default(false)
+  issuedAt              DateTime                @default(now())
+  issuedById            String?
+  supersededAt          DateTime?
+  // KEY_FACTS_STATEMENT only: the borrower's acceptance of exactly these bytes.
+  acknowledgedAt        DateTime?
+  acknowledgedById      String?
+  acknowledgedSha256    String?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, applicationId])
+  @@index([templateVersionId])
+}

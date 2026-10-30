@@ -16,6 +16,8 @@ const h = vi.hoisted(() => ({
   stepApprovers: [] as string[],
 }))
 
+// The key-facts redirect reads the application by its own query; these routes are exercised as PASQ applications.
+vi.mock("@/lib/non-nca-documents/refusal", () => ({ keyFactsRefusal: async () => null }))
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: vi.fn().mockResolvedValue({
     user: { id: "user-1", email: "admin@acme-lending.example", role: "ADMIN" },

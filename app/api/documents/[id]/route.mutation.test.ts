@@ -74,6 +74,7 @@ const tx = {
   auditLog: { create: (args: unknown) => auditCreateMock(args) },
   loanApplication: { findFirst: (args: unknown) => loanApplicationFindFirstMock(args) },
   paymentNotification: { findFirst: (args: unknown) => paymentNotificationFindFirstMock(args) },
+  loanDocumentIssuance: { findFirst: async () => null },
 }
 
 vi.mock("@/lib/prisma", () => ({

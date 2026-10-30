@@ -3,6 +3,7 @@ import { requireMinRole } from "@/lib/auth-guards"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { prisma } from "@/lib/prisma"
 import { TOKEN_REGISTRY } from "@/lib/documents/tokens"
+import { isLoanDocumentTemplateKey } from "@/lib/non-nca-documents/keys"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { DocumentTemplateEditor } from "./DocumentTemplateEditor"
 import { AssetTemplateEditor } from "./AssetTemplateEditor"
@@ -76,7 +77,11 @@ export default async function EditDocumentTemplatePage({
           ]}
         />
         <h1 className="text-2xl font-bold text-[#1b1d24]">{template.name}</h1>
-        <p className="text-sm text-gray-500 mt-1">Custom letter — HTML editor with token picker</p>
+        <p className="text-sm text-gray-500 mt-1">
+          {isLoanDocumentTemplateKey(template.key)
+            ? "The lender's own legal wording: save a draft, a second admin approves it, then it is published. Documents issued from it are fixed to that version."
+            : "Custom letter — HTML editor with token picker"}
+        </p>
       </div>
 
       <DocumentTemplateEditor
@@ -88,8 +93,13 @@ export default async function EditDocumentTemplatePage({
           status: v.status,
           createdAt: v.createdAt.toISOString(),
           notes: v.notes,
+          createdById: v.createdById,
+          approvedById: v.approvedById,
+          approvedAt: v.approvedAt?.toISOString() ?? null,
         }))}
         tokens={tokens}
+        currentUserId={user.id}
+        requiresApproval={template.requiresApproval}
       />
     </div>
   )

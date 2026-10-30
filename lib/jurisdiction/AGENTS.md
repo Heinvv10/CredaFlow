@@ -50,8 +50,9 @@ process, or a lender's config differs from it, it refuses to serve.
   Do not derive date of birth or gender from it until it is.
 - `active.ts` is on `globalThis` (Next bundles entry points separately); the
   browser is primed by `components/JurisdictionProvider`. A change needs a restart.
-- Lesotho documents need Lesotho legal wording; the NCA ones refuse to render
-  without an NCR number. Unblocking LS approval and signing is item A10.
+- Lesotho documents are the bank's own wording: a key facts statement and a loan
+  agreement from lender-owned templates (`lib/non-nca-documents`); the NCA ones
+  refuse to render without an NCR number.
 - Store and compare IDs through `canonicalIdNumber` (LS: trimmed, upper case).
 
 ## Key Files

@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { createHash } from "node:crypto"
 import { NextResponse, type NextRequest } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -45,6 +46,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const { id } = await params
+      const keyFactsRefusedNew = await keyFactsRefusal(tenant.id, id)
+      if (keyFactsRefusedNew) return keyFactsRefusedNew
 
     const application = await prisma.loanApplication.findUnique({
       where: { id, tenantId: tenant.id },
