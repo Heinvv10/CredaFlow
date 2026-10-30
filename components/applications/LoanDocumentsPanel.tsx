@@ -42,7 +42,7 @@ export function LoanDocumentsPanel({ applicationId, status, signedAt, documents,
   async function issue() {
     setIssuing(true)
     try {
-      const res = await fetch(`/api/applications/${applicationId}/non-nca-documents`, { method: "POST" })
+      const res = await fetch(`/api/applications/${applicationId}/loan-documents`, { method: "POST" })
       const data = await res.json().catch(() => ({})) as { error?: string }
       if (!res.ok) {
         toast.error?.("Could not issue the documents", data.error ?? "Try again")
@@ -66,7 +66,7 @@ export function LoanDocumentsPanel({ applicationId, status, signedAt, documents,
         {documents.length === 0 ? (
           <p className="text-sm">{status === "APPROVED" ? "Nothing has been issued yet." : "Documents are issued once the application is approved."}</p>
         ) : (
-          <ul className="divide-y divide-[var(--cf-border)] rounded-lg border border-[var(--cf-border)]">
+          <ul className="divide-y divide-[var(--cf-border-subtle)] rounded-lg border border-[var(--cf-border-subtle)]">
             {documents.map((d) => (
               <li key={d.kind} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm">
                 <span className="flex items-center gap-2">

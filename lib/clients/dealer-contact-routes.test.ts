@@ -7,6 +7,8 @@ import { NextRequest } from "next/server"
 // dealer's own (lib/clients/dealer-contact.ts). The PASQ and selfie
 // send-link routes have their own cases beside them.
 const m = vi.hoisted(() => ({ findUnique: vi.fn(), sendEmail: vi.fn(), sendSms: vi.fn(), sendWhatsApp: vi.fn(), sendMessage: vi.fn() }))
+// The key-facts redirect reads the application by its own query; this route is exercised as a PASQ application.
+vi.mock("@/lib/non-nca-documents/refusal", () => ({ keyFactsRefusal: async () => null }))
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: vi.fn(async () => ({ user: { id: "officer-1", email: "officer@lender.test" } })) }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "tenant-1" }),

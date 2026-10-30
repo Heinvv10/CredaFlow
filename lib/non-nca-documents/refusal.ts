@@ -5,7 +5,7 @@ import { documentProblem } from "./state"
 /**
  * The PASQ and credit-agreement ceremony routes (app/api/applications/[id]/pasq,
  * agreement, signing-packet, ...) belong to South African (NCA_PASQ) applications.
- * A key-facts application is governed by app/api/applications/[id]/non-nca-documents
+ * A key-facts application is governed by app/api/applications/[id]/loan-documents
  * and never gets a PASQ: those routes answer 409 here, before they do any work. One
  * indexed read; a PASQ application passes through untouched. The disburse route asks
  * for "disburse", which answers with the document gate's own reason.

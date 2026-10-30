@@ -19,7 +19,7 @@ import { POST as SIGN } from "./sign/route"
 import { MissingTokenError, TemplateUnavailableError } from "@/lib/documents/render"
 
 const ctx = { params: Promise.resolve({ id: "a1" }) }
-const req = (body?: unknown) => new NextRequest("http://localhost/api/applications/a1/non-nca-documents", { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) })
+const req = (body?: unknown) => new NextRequest("http://localhost/api/applications/a1/loan-documents", { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) })
 const SHA = "a".repeat(64)
 const client = { type: "client", clientId: "c1", clientEmail: "c1@client.invalid" }
 

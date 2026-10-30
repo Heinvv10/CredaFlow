@@ -39,7 +39,7 @@ export function PortalKeyFactsClient({ applicationId, reference, clientName, key
   const otpSatisfied = !signingOtp.required || otpChallengeId !== null
 
   async function post(path: string, body: Record<string, unknown>) {
-    const res = await fetch(`/api/applications/${applicationId}/non-nca-documents/${path}`, {
+    const res = await fetch(`/api/applications/${applicationId}/loan-documents/${path}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     })
     const data = await res.json().catch(() => ({})) as { error?: string; signingOtp?: string }

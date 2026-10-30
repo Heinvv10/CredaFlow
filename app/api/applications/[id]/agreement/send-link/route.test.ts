@@ -17,6 +17,8 @@ const {
   logAudit: vi.fn(),
 }))
 
+// The key-facts redirect reads the application by its own query; these routes are exercised as PASQ applications.
+vi.mock("@/lib/non-nca-documents/refusal", () => ({ keyFactsRefusal: async () => null }))
 vi.mock("@/lib/config/identity", async () => {
   const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
   const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
