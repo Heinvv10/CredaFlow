@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     if (actor.totpVerified !== true && !demoStaffWithoutTotp() && await isStaffTotpRequired(tenant.id)) {
       return NextResponse.json({ error: "Sign in with two-factor authentication to test the SIEM connection." }, { status: 403 })
     }
-    if (!checkRateLimit(`audit-siem-test:${tenant.id}`, TEST_LIMIT).allowed) {
+    if (!(await checkRateLimit(`audit-siem-test:${tenant.id}`, TEST_LIMIT)).allowed) {
       return NextResponse.json({ error: "Too many tests. Try again later." }, { status: 429 })
     }
     const policy = await prisma.auditPolicy.findUnique({ where: { tenantId: tenant.id } })
