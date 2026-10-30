@@ -182,6 +182,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         ) {
           return { status: 409 as const, doc: null, immutable: "po_document" as const }
         }
+        // A key facts statement or loan agreement an issuance references (lib/non-nca-documents): the database refuses too.
+        if (await tx.loanDocumentIssuance.findFirst({ where: { tenantId: tenant.id, clientDocumentId: id }, select: { id: true } })) {
+          return { status: 409 as const, doc: null, immutable: "loan_document" as const }
+        }
         // A payment notification awaiting reconciliation is judged on this
         // proof; once allocated or rejected it may go.
         if (
@@ -344,7 +348,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       if (deletion.status === 409) {
         return NextResponse.json(
           {
-            error: deletion.immutable === "debit_mandate"
+            error: deletion.immutable === "loan_document"
+              ? "An issued key facts statement or loan agreement cannot be deleted"
+              : deletion.immutable === "debit_mandate"
               ? "Signed debit-mandate records are immutable and cannot be deleted"
               : deletion.immutable === "po_document"
                 ? "This purchase order is part of a PO funding application and cannot be deleted"

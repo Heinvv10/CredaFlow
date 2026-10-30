@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     if (template.requiresApproval && !version.approvedById) {
       return NextResponse.json(
-        { error: "This version requires approval by a second admin before it can be published" },
+        { error: "This version needs approval first: a second admin (not its author) approves it in the version list; anyone but the approver then publishes it." },
         { status: 409 }
       )
     }

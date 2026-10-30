@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -309,6 +310,8 @@ export async function POST(
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
       }
+      const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id, "disburse")
+      if (keyFactsRefused1) return keyFactsRefused1
       // Consumer payout path (PASQ, mandate, credit life); asset finance has its own.
       if (!hasClientBorrower(application)) {
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })

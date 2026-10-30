@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { randomUUID } from "node:crypto"
 import { NextResponse, type NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
@@ -439,6 +440,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
       },
     })
     if (!application) return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused1) return keyFactsRefused1
     // The PASQ is a consumer document (NCA s.92); an entity borrower has none.
     if (application.clientId === null) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
@@ -504,6 +507,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     const { id } = await params
     const application = await loadApplication(tenant.id, id)
     if (!application) return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    const keyFactsRefused2 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused2) return keyFactsRefused2
     // The PASQ is a consumer document (NCA s.92); an entity borrower has none.
     if (!hasClientBorrower(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })

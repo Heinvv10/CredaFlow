@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { randomUUID } from "node:crypto"
@@ -342,6 +343,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused1) return keyFactsRefused1
     // The credit agreement is a consumer NCA document; an entity borrower is refused.
     if (application.clientId === null) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
@@ -477,6 +480,8 @@ export async function PATCH(req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    const keyFactsRefused2 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused2) return keyFactsRefused2
     if (application.status !== "UNDER_REVIEW") {
       return NextResponse.json(
         { error: "The initiation-fee election must be recorded while the application is under review." },
@@ -657,6 +662,8 @@ export async function POST(_req: NextRequest, { params }: RouteCtx) {
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
     }
+    const keyFactsRefused3 = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefused3) return keyFactsRefused3
     // The credit agreement is a consumer NCA document; an entity borrower is refused.
     if (!hasClientBorrower(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })

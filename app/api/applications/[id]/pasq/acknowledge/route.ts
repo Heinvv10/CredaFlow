@@ -1,3 +1,4 @@
+import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
 import { NextResponse, type NextRequest } from "next/server"
 import { requireOwnerOrStaff } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
@@ -20,6 +21,8 @@ type RouteCtx = { params: Promise<{ id: string }> }
 export async function POST(req: NextRequest, { params }: RouteCtx) {
   return withTenantContext(req, async (tenant) => {
     const { id } = await params
+    const keyFactsRefusedNew = await keyFactsRefusal(tenant.id, id)
+    if (keyFactsRefusedNew) return keyFactsRefusedNew
     const body = await req.json().catch(() => null) as { documentSha256?: unknown } | null
     if (!isSha256Digest(body?.documentSha256)) {
       return NextResponse.json({
