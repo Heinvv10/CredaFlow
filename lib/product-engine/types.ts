@@ -49,6 +49,8 @@ export interface GeneratedSchedule {
   schedule: ScheduleRowOut[]
   totalInterest: number
   serviceFees: number
+  /** Interest a full grace defers into the rows after it (they carry it); 0 for any other structure. */
+  deferredInterest: number
 }
 
 /** Days a period stands for when a term in days is turned into instalments (the month is 30 days, as everywhere in billing). */

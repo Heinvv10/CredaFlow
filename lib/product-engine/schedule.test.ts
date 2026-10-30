@@ -150,8 +150,9 @@ describe("it reconciles to the cent, whatever the structure", () => {
   const structures: RepaymentStructure[] = ["AMORTISING", "INTEREST_ONLY", "BULLET"]
   const graces: Array<[GraceKind, number]> = [["NONE", 0], ["PRINCIPAL_ONLY", 1], ["PRINCIPAL_ONLY", 3], ["FULL", 1], ["FULL", 2]]
   // a fixed sequence of principals and rates: no randomness, so a failure names its case
-  const principals = [100_000, 123_457, 999_999, 5_000_000, 7_654_321]
-  const rates = [0, 0.0125, 0.05, 0.1033]
+  // down to a few cents and up to 50% a month: a non-NCA lender may price either way, and rounding bites hardest there
+  const principals = [99, 10_000, 100_000, 123_457, 999_999, 5_000_000, 7_654_321]
+  const rates = [0, 0.0125, 0.05, 0.1033, 0.2, 0.5]
 
   it("principal rows add up to the principal, rows add up to principal + interest + fees, the last balance is 0, dates rise", () => {
     let cases = 0
@@ -173,6 +174,9 @@ describe("it reconciles to the cent, whatever the structure", () => {
             expect(row.totalDue, label).toBe(row.principalDue + row.interestDue + row.feesDue)
             expect(row.principalDue >= 0 && row.interestDue >= 0 && row.feesDue >= 0, label).toBe(true)
             expect(row.totalDue, label).toBeGreaterThan(0)
+            // a payment never exceeds the balance it is paid against, and the balance never goes negative
+            expect(row.principalDue, label).toBeLessThanOrEqual(row.openingBalance)
+            expect(row.closingBalance, label).toBeGreaterThanOrEqual(0)
             if (k > 0) {
               expect(row.dueDate.getTime(), label).toBeGreaterThan(s[k - 1]!.dueDate.getTime())
               expect(row.openingBalance, label).toBe(s[k - 1]!.closingBalance)
@@ -183,6 +187,43 @@ describe("it reconciles to the cent, whatever the structure", () => {
       }
     }
     expect(cases).toBeGreaterThan(1_000)
+  })
+})
+
+describe("principal reconciles where rounding bites (PR #266 review)", () => {
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
+  const run = (principalCents: number, interestRatePm: number, frequency: Frequency, instalments: number) =>
+    generateSchedule(input({ principalCents, interestRatePm, terms: { frequency, instalments } })).schedule
+
+  it("weekly 152 x R100 at 3% a month: the principal rows add up to R100 and no balance goes negative", () => {
+    const s = run(10_000, 0.03, "WEEKLY", 152)
+    expect(sum(s.map((r) => r.principalDue))).toBe(10_000)
+    expect(s.every((r) => r.closingBalance >= 0 && r.principalDue <= r.openingBalance)).toBe(true)
+  })
+
+  it("a zero rate over 26 weeks on 99 cents: the principal is 99, not 100", () => {
+    expect(sum(run(99, 0, "WEEKLY", 26).map((r) => r.principalDue))).toBe(99)
+  })
+
+  it("fortnightly 104 x R1 000 at 20% a month: the principal is R1 000, not R1 142.36", () => {
+    const s = run(100_000, 0.2, "FORTNIGHTLY", 104)
+    expect(sum(s.map((r) => r.principalDue))).toBe(100_000)
+    expect(s.every((r) => r.closingBalance >= 0 && r.principalDue <= r.openingBalance)).toBe(true)
+  })
+})
+
+describe("a full grace's service fees are spread, not piled on the first payment (PR #266 review)", () => {
+  it("monthly, 3 months of full grace over 12, R69 a month: every paying row carries the same fee, the 12 fees are all charged", () => {
+    const g = generateSchedule(input({ principalCents: 1_000_000, monthlyServiceFeeCents: 6_900, terms: { graceKind: "FULL", graceInstalments: 3, instalments: 12 } }))
+    expect(g.schedule).toHaveLength(9)
+    expect(g.serviceFees).toBe(12 * 6_900)
+    // 9 own fees (6 900) and the 3 graced ones (20 700) spread over 9 rows: 2 300 each
+    expect(g.schedule.map((r) => r.feesDue)).toEqual(Array.from({ length: 9 }, () => 9_200))
+  })
+
+  it("the deferred interest of a full grace is reported: 2 months at 2% of R10 000", () => {
+    expect(generateSchedule(input({ terms: { graceKind: "FULL", graceInstalments: 2, instalments: 6 } })).deferredInterest).toBe(40_000)
+    expect(generateSchedule(input()).deferredInterest).toBe(0)
   })
 })
 

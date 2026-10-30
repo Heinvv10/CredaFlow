@@ -9,6 +9,7 @@
  * whole term (P x rate x 12 x periods / periods per year) and splits it evenly. Every remainder lands on the last row,
  * so principal, interest and fees each add up exactly and the last closing balance is 0.
  */
+import { evenly } from "./evenly"
 import { addCalendarMonths, addPeriods } from "./periods"
 import { PERIOD_DAYS, PERIODS_PER_YEAR, type EngineInterestModel, type GeneratedSchedule, type RepaymentTerms, type ScheduleRowOut } from "./types"
 
@@ -34,12 +35,6 @@ export function assertValidTerms(terms: RepaymentTerms): void {
   if (graceKind !== "NONE" && structure === "BULLET") throw new Error("a bullet has a single payment at the end: it has no grace")
 }
 
-/** `total` split evenly over `parts`, the remainder on the last. */
-function evenly(total: number, parts: number): number[] {
-  const share = Math.floor(total / parts)
-  return Array.from({ length: parts }, (_, i) => (i === parts - 1 ? total - share * (parts - 1) : share))
-}
-
 function periodRate(interestRatePm: number, terms: RepaymentTerms): number {
   return terms.frequency === "MONTHLY" ? interestRatePm : (interestRatePm * 12) / PERIODS_PER_YEAR[terms.frequency]
 }
@@ -47,6 +42,8 @@ function periodRate(interestRatePm: number, terms: RepaymentTerms): number {
 interface Parts {
   principal: number[]
   interest: number[]
+  /** The interest of a full grace, which no row of the grace carries: it is inside the interest of the rows that follow. */
+  deferred: number
 }
 
 /** Principal and interest of every row, before dates and fees. */
@@ -60,7 +57,7 @@ function split(input: ScheduleInput): Parts {
 
   if (structure === "BULLET") {
     const interest = Math.round(P * r * N)
-    return { principal: [P], interest: [interest] }
+    return { principal: [P], interest: [interest], deferred: 0 }
   }
 
   if (interestModel === "FLAT") {
@@ -69,7 +66,7 @@ function split(input: ScheduleInput): Parts {
     const principal = structure === "AMORTISING"
       ? [...Array.from({ length: lead }, () => 0), ...evenly(P, rows - lead)]
       : Array.from({ length: rows }, (_, i) => (i === rows - 1 ? P : 0))
-    return { principal, interest: evenly(total, rows) }
+    return { principal, interest: evenly(total, rows), deferred: graceKind === "FULL" ? Math.round((total * G) / N) : 0 }
   }
 
   // REDUCING_BALANCE. The interest of a full grace is the simple interest of those periods on the principal, deferred.
@@ -84,7 +81,7 @@ function split(input: ScheduleInput): Parts {
       principal.push(i === repayRows - 1 ? P : 0)
       interest.push(perPeriod + deferredShare[i]!)
     }
-    return { principal, interest }
+    return { principal, interest, deferred }
   }
 
   // AMORTISING: the principal-only grace rows first, then the annuity of the whole principal over the rest.
@@ -94,15 +91,17 @@ function split(input: ScheduleInput): Parts {
     principal.push(0)
     interest.push(perPeriod)
   }
+  // Each row's principal is what the instalment leaves after its own interest, never more than the balance and never below
+  // 0 (rounding can leave the instalment a cent under the interest); the last row clears whatever balance is left.
   let balance = P
   for (let i = 0; i < m; i++) {
     const own = Math.round(balance * r)
-    const due = i === m - 1 ? balance : instalment - own
+    const due = i === m - 1 ? balance : Math.min(Math.max(instalment - own, 0), balance)
     principal.push(due)
     interest.push(own + deferredShare[lead + i]!)
     balance -= due
   }
-  return { principal, interest }
+  return { principal, interest, deferred }
 }
 
 export function generateSchedule(input: ScheduleInput): GeneratedSchedule {
@@ -110,22 +109,27 @@ export function generateSchedule(input: ScheduleInput): GeneratedSchedule {
   if (!Number.isInteger(principalCents) || principalCents <= 0) throw new Error("principalCents must be a positive whole number of cents")
   assertValidTerms(terms)
 
-  const { principal, interest } = split(input)
+  const { principal, interest, deferred } = split(input)
   const first = terms.graceKind === "FULL" ? terms.graceInstalments : 0
   const single = terms.structure === "BULLET"
   const dueAt = (row: number) => addPeriods(startDate, terms.frequency, single ? terms.instalments : first + row + 1)
 
   // Service fee: one per month of the term (30-day months, rounded as the single-payment loans do, at least 1), each on
-  // the first instalment due on or after that month's end, or on the last. Monthly: one on every instalment.
+  // the first instalment due on or after that month's end, or on the last. Monthly: one on every instalment. The months of
+  // a full grace owe their fee with the rest of the loan, spread over the instalments that follow like the deferred
+  // interest, so the first payment is not a pile of fees.
   const months = Math.max(1, Math.round((terms.instalments * PERIOD_DAYS[terms.frequency]) / 30))
+  const graceMonths = terms.graceKind === "FULL" ? Math.min(Math.round((terms.graceInstalments * PERIOD_DAYS[terms.frequency]) / 30), months - 1) : 0
+  const graceEnd = terms.graceKind === "FULL" ? addPeriods(startDate, terms.frequency, terms.graceInstalments) : startDate
   const dueDates = principal.map((_, i) => dueAt(i))
   const fees = principal.map(() => 0)
   if (input.monthlyServiceFeeCents > 0) {
-    for (let month = 1; month <= months; month++) {
-      const monthEnd = addCalendarMonths(startDate, month).getTime()
+    for (let month = 1; month <= months - graceMonths; month++) {
+      const monthEnd = addCalendarMonths(graceEnd, month).getTime()
       const index = dueDates.findIndex((d) => d.getTime() >= monthEnd)
       fees[index === -1 ? fees.length - 1 : index]! += input.monthlyServiceFeeCents
     }
+    evenly(graceMonths * input.monthlyServiceFeeCents, fees.length).forEach((share, i) => { fees[i]! += share })
   }
 
   let balance = principalCents
@@ -149,5 +153,6 @@ export function generateSchedule(input: ScheduleInput): GeneratedSchedule {
     schedule: owed,
     totalInterest: interest.reduce((a, b) => a + b, 0),
     serviceFees: fees.reduce((a, b) => a + b, 0),
+    deferredInterest: deferred,
   }
 }
