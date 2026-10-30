@@ -14,7 +14,9 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { approve, createDraft, submit } from "@/lib/maker-checker/service"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { prisma } from "@/lib/prisma"
+import { loadRunLoans } from "@/lib/ifrs9/loan-input"
 import { activateDueVersions } from "./activate"
+import { addPeriods } from "./periods"
 import { priceApplication } from "./resolve"
 import { PRICING_RULE_KIND } from "./pricing"
 import { PRODUCT_VERSION_KIND } from "./change-handlers"
@@ -232,6 +234,31 @@ suite("product engine (real Postgres)", () => {
     const { id: _id, createdAt: _createdAt, appliedAt: _appliedAt, ...copy } = made
     const yesterday = new Date(Date.now() - 2 * 86_400_000)
     expect(await refusal(db.productVersion.create({ data: { ...copy, version: 99, effectiveFrom: yesterday, collateral: [], eligibility: copy.eligibility as never } as never }))).toContain("must equal")
+  })
+
+  it("a version with a structure stops the customer channels offering the product; the night an NCA lender may not use it, it is not applied", async () => {
+    const own = await db.loanProduct.create({ data: { tenantId: lender.tenantId, code: `ST${Date.now() % 100000}`, name: "Structured", productType: "PERSONAL", minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" } })
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const request = await propose({ productId: own.id, effectiveFrom: TODAY, reason: "Weekly collection cycle", config: config({ repayment: weekly }) })
+    await approveRequest(request.id)
+    expect((await db.loanProduct.findUniqueOrThrow({ where: { id: own.id } })).repaymentStructured).toBe(true)
+    // a later version with no structure offers it again
+    const monthly = await propose({ productId: own.id, effectiveFrom: TOMORROW, reason: "Back to monthly", config: config({ repayment: null }) })
+    await approveRequest(monthly.id)
+    await as(() => prisma.$transaction((tx) => activateDueVersions(tx, lender.tenantId, TOMORROW, null)))
+    expect((await db.loanProduct.findUniqueOrThrow({ where: { id: own.id } })).repaymentStructured).toBe(false)
+  })
+
+  it("IFRS 9 reads the interest a full grace deferred from the loan's terms: earned through the grace, not the first period after it", async () => {
+    const own = await createChargesLoan(db, { tenantId: lender.tenantId, userId: lender.makerId, productId })
+    const v1 = await db.productVersion.findFirstOrThrow({ where: { tenantId: lender.tenantId, productId, version: 1 } })
+    await db.loanTerms.create({ data: { loanId: own.loanId, tenantId: lender.tenantId, sequence: 1, productVersionId: v1.id, frequency: "MONTHLY", structure: "AMORTISING", graceKind: "FULL", graceInstalments: 2, instalments: 6, baseRatePm: 0.04, interestRatePm: 0.04, deferredInterest: 40_000 } })
+    const loans = await as(() => loadRunLoans(prisma, lender.tenantId, new Date(), null))
+    const loan = loans.find((l) => l.id === own.loanId)
+    expect(loan?.graceDeferral).toBeDefined()
+    expect(loan!.graceDeferral!.cents).toBe(40_000)
+    // the grace ends two calendar months after the loan started
+    expect(loan!.graceDeferral!.endDate).toBe(sastCalendarDate(addPeriods(loan!.startDate, "MONTHLY", 2)))
   })
 
   it("isolates lenders: another lender's versions and rules are invisible", async () => {

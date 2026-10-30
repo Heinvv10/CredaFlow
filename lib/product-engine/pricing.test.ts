@@ -94,6 +94,7 @@ describe("parsePricingRule", () => {
   })
 
   it.each([
+    ["a channel typed at will rather than one of the fixed channels", { channel: "MOBILE" }, "rule.channel"],
     ["a rate of 100% a month", { rate: { mode: "SET", value: 1 } }, "rule.rate"],
     ["a negative SET rate", { rate: { mode: "SET", value: -0.01 } }, "rule.rate"],
     ["an unknown mode", { rate: { mode: "MULTIPLY", value: 2 } }, "rule.rate"],
