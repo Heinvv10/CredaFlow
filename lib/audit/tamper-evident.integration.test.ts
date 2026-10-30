@@ -4,10 +4,10 @@
  *   RUN_DB_IT=1 AUDIT_CHAIN_KEY=<32+ chars> DATABASE_URL=postgresql://... \
  *     npx vitest run lib/audit/tamper-evident.integration.test.ts
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { Prisma, PrismaClient } from "@prisma/client"
 import { logAuditStrict } from "@/lib/audit"
-import { runChainer } from "./chainer"
+import { resetChainerState, runChainer } from "./chainer"
 import { checkpointNow } from "./checkpoint.test-helpers"
 import { auditFixture, suite, type Writer } from "./it-fixture.test-helpers"
 
@@ -16,6 +16,7 @@ suite("tamper-evident", () => {
   const { db, token, write, rows, links, chain, verify, tamper, tenant, redact, ids } = fx
   const { a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H } = ids
   beforeAll(fx.setup)
+  beforeEach(() => resetChainerState())
   afterAll(fx.teardown)
 
   describe("append-only", () => {
@@ -284,6 +285,30 @@ suite("tamper-evident", () => {
       expect((await chain(K)).linked).toBe(1)
       expect(await verify(K)).toMatchObject({ ok: true, rowsChecked: 5 })
     })
+
+    it("a stalled chain costs one retry budget and no other lender waits behind it; it is then left alone for a while", async () => {
+      // "astall" sorts first, so it is the first chain of the pass: everything behind it is what must not wait.
+      const [bad, g1, g2] = [await tenant("astall"), await tenant("fine1"), await tenant("fine2")]
+      for (const t of [bad, g1, g2]) for (let i = 1; i <= 3; i++) await write(t, i)
+      await db.$executeRawUnsafe(`CREATE FUNCTION public.zz_stall() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.4); RAISE EXCEPTION 'stalled'; END $$`)
+      await db.$executeRawUnsafe(`CREATE TRIGGER zz_stall BEFORE INSERT ON "AuditChainLink" FOR EACH ROW WHEN (NEW."chainKey" = '${bad}') EXECUTE FUNCTION public.zz_stall()`)
+      try {
+        const started = Date.now()
+        // Without a budget the stalled chain would retry 500, 250 ... 1 (ten attempts of 0.4 s) before the others began.
+        const first = await runChainer({ db, mode: "shallow", only: [bad, g1, g2], retryBudgetMs: 1000 })
+        expect(first).toMatchObject({ failed: 1, linked: 6, skipped: 0 })
+        expect(Date.now() - started).toBeLessThan(3500)
+        expect(await links(g1)).toHaveLength(3)
+        expect(await links(g2)).toHaveLength(3)
+        expect(await links(bad)).toHaveLength(0)
+        const again = Date.now()
+        expect(await runChainer({ db, mode: "shallow", only: [bad, g1, g2], retryBudgetMs: 1000 })).toMatchObject({ failed: 0, skipped: 1 })
+        expect(Date.now() - again).toBeLessThan(1500) // not touched while it backs off
+      } finally {
+        await db.$executeRawUnsafe(`DROP TRIGGER zz_stall ON "AuditChainLink"`)
+        await db.$executeRawUnsafe(`DROP FUNCTION public.zz_stall()`)
+      }
+    }, 60_000)
 
     it("takes a chain's lock in the database: a second chainer skips the chain while the first holds it, and the lock needs no advisory lock", async () => {
       const K = await tenant("mutex")

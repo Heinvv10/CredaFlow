@@ -263,8 +263,9 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   of each value (the worker keys it), so a huge row costs it nothing, and an insert trigger replaces
   any `oldValue`/`newValue` over 1 MB with a stub (`{truncated, bytes}`), whoever writes it, so no
   writer fails and none needs changing. A batch that fails (a timeout on rows slow to hash) is retried
-  at half the size down to one row, and a chain that still fails is logged and skipped: it never stops
-  another lender being chained. `idle_in_transaction_session_timeout` is set on the application logins
+  at half the size down to one row, within a 20 s retry budget per chain per pass and never past the pass
+  deadline; a chain that still fails is logged and left alone with a doubling backoff (30 s to 15 min), and
+  the size that last worked is remembered, so it never stops another lender being chained or burns a pass. `idle_in_transaction_session_timeout` is set on the application logins
   but is a user setting a login can change; it is advisory, and the deep pass and daily sweep are the
   backstop for a late commit.
 - **Verification.** `npm run audit:verify` and the daily `audit-chain-verify` cron
