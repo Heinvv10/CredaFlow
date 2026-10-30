@@ -246,7 +246,18 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     expect(1.1 / 100).not.toBe(0.011)
     const response = await PUT(request({ code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", name: "Short-term Loan", interestRatePm: 1.1 }), context)
     expect({ status: response.status, body: await response.json() }).toMatchObject({ status: 200 })
-    expect(update).toHaveBeenCalled()
+    // the stored rate is kept as it is: what is written is the value held, never the float that came back from the form
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ interestRatePm: 0.011 }) }))
+  })
+
+  it("a rate that differs by less than the comparison's width is not a way round the version: the stored value is kept", async () => {
+    versioned(1)
+    findUnique.mockResolvedValue({ ...before, code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", interestRatePm: 0.0225 })
+    // 2.2504% a month is 0.04 of a basis point off 2.25%: inside the tolerance, so not a "change", and not a write either
+    const response = await PUT(request({ code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", name: "Short-term Loan", interestRatePm: 2.2504 }), context)
+    expect(response.status).toBe(200)
+    const data = update.mock.calls.at(-1)![0].data as { interestRatePm: number }
+    expect(data.interestRatePm).toBe(0.0225)
   })
 
   it("leaves a product with no versions exactly as it was", async () => {

@@ -151,6 +151,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       if (await tx.productVersion.count({ where: { tenantId: tenant.id, productId: id } }) > 0) {
         const versioned = VERSIONED_PRODUCT_FIELDS.filter((field) => !sameValue(before[field], data[field]))
         if (versioned.length > 0) return { kind: "versioned" as const, fields: versioned }
+        // What is within the comparison's width is not a change, so it is not written either: the stored value stays exactly as the
+        // version made it, and a rate nudged by less than the tolerance cannot be moved without a second person's approval.
+        for (const field of VERSIONED_PRODUCT_FIELDS) (data as Record<string, unknown>)[field] = before[field]
       }
       const product = await tx.loanProduct.update({
         where: { id, tenantId: tenant.id },
