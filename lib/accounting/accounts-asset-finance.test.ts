@@ -8,7 +8,7 @@ const map = (role: string, extra: Record<string, unknown> = {}) => parseMappingI
 describe("asset-finance account roles", () => {
   it("are appended after the consumer roles, so earlier roles keep their place in every journal", () => {
     expect(ACCOUNT_ROLES.slice(0, 14).at(-1)).toBe("WAIVER_EXPENSE")
-    expect(ASSET_FINANCE_ROLES).toEqual(ACCOUNT_ROLES.slice(14))
+    expect(ASSET_FINANCE_ROLES).toEqual(ACCOUNT_ROLES.slice(14, 32))
     expect(ASSET_FINANCE_ROLES).toHaveLength(18)
   })
 

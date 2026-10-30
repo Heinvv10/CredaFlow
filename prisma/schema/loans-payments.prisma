@@ -204,6 +204,8 @@ model Loan {
   debitMandates              DebitMandate[]
   disbursementPayouts        DisbursementPayout[]
   disbursementReversals      DisbursementReversal[]
+  ifrs9Flags                 Ifrs9SicrFlag[]
+  ifrs9Snapshots             Ifrs9LoanSnapshot[]
   leaseEndOfTerm             LeaseEndOfTerm?
   leaseExpiryNotice          LeaseExpiryNotice?
   leaseRentals               LeaseRental[]
