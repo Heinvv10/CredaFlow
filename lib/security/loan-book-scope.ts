@@ -22,6 +22,8 @@ export const LOAN_BOOK_APIS = [
   "reports", "crm", "payouts", "accounting", "agent-tasks",
   // Client-notified payments awaiting reconciliation (#141).
   "payment-notifications",
+  // IFRS 9 staging and ECL (lib/ifrs9): every loan's exposure.
+  "ifrs9",
 ] as const
 
 /**

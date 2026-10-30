@@ -29,6 +29,7 @@
     "dates:check": "tsx scripts/check-date-boundaries.ts",
     "face-models:fetch": "tsx scripts/fetch-face-models.ts",
     "lender:bootstrap-tenant": "npm run --silent gen:registries && tsx scripts/lender/bootstrap-tenant-cli.ts",
+    "lender:set-exit-date": "npm run --silent gen:registries && tsx scripts/lender/set-exit-date-cli.ts",
     "lender:bootstrap-admin": "npm run --silent gen:registries && tsx scripts/lender/bootstrap-admin-cli.ts",
     "uploads:encrypt": "npm run --silent gen:registries && tsx scripts/encrypt-uploads-cli.ts",
     "demo:typecheck": "npm run --silent gen:registries && tsc --noEmit -p scripts/demo/tsconfig.json"

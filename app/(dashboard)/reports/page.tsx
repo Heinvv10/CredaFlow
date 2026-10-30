@@ -275,6 +275,10 @@ export default async function ReportsPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
             Accounting Export
           </Link>
+          <Link href="/reports/ifrs9"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
+            IFRS 9
+          </Link>
           {showDecisionPerformance && (
             <Link href="/reports/decision-performance"
               className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
