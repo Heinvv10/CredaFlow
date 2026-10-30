@@ -5,10 +5,11 @@ name: ci
 # agent-doc and date checks into quality avoids two runner startups and two
 # duplicate npm installs on every revision.
 #
-# GitHub-hosted runners (ubuntu-latest, which is 26.04 and packages PostgreSQL 18;
-# integration-shard pins ubuntu-24.04, whose archive has postgresql-16). postgresql-16 (for
-# scripts/ci/pg-cluster.sh, PG_BIN default /usr/lib/postgresql/16/bin),
-# poppler-utils and qpdf are apt-installed.
+# GitHub-hosted runners, pinned to ubuntu-24.04: ubuntu-latest is 26.04, which has
+# no postgresql-16, and a floating label would move the poppler and qpdf versions
+# the PDF tests run against. PostgreSQL 16 (scripts/ci/pg-cluster.sh, PG_BIN
+# default /usr/lib/postgresql/16/bin), poppler-utils and qpdf come from the image
+# or apt.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
@@ -49,7 +50,7 @@ jobs:
     # emits ready_for_review and runs the complete gate. Scheduled runs need
     # only the real-DB integration job below.
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Unit + build took 29.5 min on 2026-10-21 (run 39611551763), and 30
     # cancelled the next run (39633530189) with no failure.
     timeout-minutes: 45
@@ -90,6 +91,9 @@ jobs:
         run: npm run demo:typecheck
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Runner memory
+        run: free -m
 
       # Type-aware rules (eslint.config.mjs) build a TypeScript program: about
       # 6 GB resident, past Node's default heap.
@@ -145,7 +149,7 @@ jobs:
   unit:
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       # Report every shard's failures, as the single run did.
@@ -175,7 +179,7 @@ jobs:
 
       # The unit suites shell out to pdftoppm/pdfinfo and qpdf.
       - name: Install PDF tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
+        run: sudo apt-get -o DPkg::Lock::Timeout=300 update -qq && sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq poppler-utils qpdf
 
       - name: Unit tests
         run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }} --maxWorkers=2
@@ -187,7 +191,7 @@ jobs:
   quality:
     needs: [checks, unit]
     if: always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checks and every unit shard succeeded
@@ -232,12 +236,21 @@ jobs:
       # docker service): own directory, OS-assigned loopback port, never shared with the
       # other shard on this machine. These suites create and delete real rows.
       # scripts/ci/pg-cluster.sh exports DATABASE_URL and CI_PG_DIR.
-      # The image has no server binaries at PG_BIN; Ubuntu 24.04 packages 16.
+      # pdftotext (poppler-utils) and qpdf, as on the old hosts. The server comes
+      # from the image when it ships PostgreSQL 16 at PG_BIN, else from apt.
       - name: Install PostgreSQL 16 and PDF tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-16 poppler-utils
+        run: |
+          pkgs="poppler-utils qpdf"
+          [ -x /usr/lib/postgresql/16/bin/initdb ] || pkgs="$pkgs postgresql-16"
+          sudo apt-get -o DPkg::Lock::Timeout=300 update -qq && sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq $pkgs
 
       - name: Start PostgreSQL
         run: bash scripts/ci/pg-cluster.sh start
+
+      # Log the semantics the suites rely on: C collation, UTC, superuser.
+      - name: Show database settings
+        run: |
+          /usr/lib/postgresql/16/bin/psql "$DATABASE_URL" -Atc "SHOW lc_collate; SHOW timezone; SELECT rolsuper FROM pg_roles WHERE rolname = current_user;"
 
       # The integration baseline is a debt register and may only shrink.
       # Once per run: the check reads only git, so shard 1 carries it.
@@ -308,7 +321,7 @@ jobs:
     # Seconds of work and no checkout; it is a required check.
     needs: integration-shard
     if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Every shard passed
