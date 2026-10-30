@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { ruleAdmits, ruleRefuses, testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
 import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration-fixture"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { pollTenant } from "./poll"
 import { ingestEvent } from "./ingest"
 import { acknowledgeAlert, resolveAlert } from "./alerts"
@@ -85,9 +86,9 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
     const pending = await raise(ids.queueDevice, "TAMPER")
     expect(await database().telematicsAlert.findUniqueOrThrow({ where: { id: (pending as { alertId: string }).alertId } })).toMatchObject({ queue: "COLLECTIONS" })
     await testSetup(database(), [`UPDATE "Loan" SET "status" = 'DEFAULTED' WHERE "id" = $1`, ids.queueLoan])
-    // Recovered today: an exit from yesterday (inside the tenure) is a recovery item; one from today has no tenure, so no item.
+    // Recovered today (the SAST date: a tenure runs in SAST days, and CURRENT_DATE is the database's UTC date, a day behind from 22:00 UTC): an exit from yesterday (inside the tenure) is a recovery item; one from today has no tenure, so no item.
     await testSetup(database(), [`INSERT INTO "Recovery" ("id", "tenantId", "loanId", "assetId", "route", "status", "recoveredOn", "location", "condition", "createdById", "updatedAt")
-      VALUES ($1, $2, $3, $4, 'NON_NCA_COURT_ORDER', 'RECOVERED', CURRENT_DATE, 'Synthetic yard', 'Synthetic condition', $5, now())`, `rcq_${t}`, fx.tenantId, ids.queueLoan, fx.assets[3], fx.adminA])
+      VALUES ($1, $2, $3, $4, 'NON_NCA_COURT_ORDER', 'RECOVERED', $6::date, 'Synthetic yard', 'Synthetic condition', $5, now())`, `rcq_${t}`, fx.tenantId, ids.queueLoan, fx.assets[3], fx.adminA, sastCalendarDate(new Date())])
     const before = await raise(ids.queueDevice, "GEOFENCE_EXIT", new Date(Date.now() - 86_400_000))
     expect(await database().telematicsAlert.findUniqueOrThrow({ where: { id: (before as { alertId: string }).alertId } })).toMatchObject({ queue: "RECOVERY" })
     expect(await raise(ids.queueDevice, "POWER_CUT")).toEqual({ stored: false, noAgreement: true })
