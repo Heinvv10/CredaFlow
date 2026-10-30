@@ -7,7 +7,6 @@
  */
 import type { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { pricedRateRefusal } from "./nca"
 import { priceApplication } from "./resolve"
 import type { RepaymentTerms } from "./types"
 
@@ -66,11 +65,17 @@ const pickPricing = (p: ProductPricing): ProductPricing => ({
 })
 
 /**
- * The refusal when a price a RULE set (as opposed to the product's own rate, which the product configuration already holds to
- * the cap) is above the NCA ceiling for this loan, or null. A rule is checked when it is approved and again here, for the
- * loan's actual principal and term: a loan is refused, never re-priced.
+ * `application` as the NCA interest-rate cap must see it for a loan on `terms`: the rate and basis the loan is WRITTEN at, not
+ * the product row's, and the principal and term it is approved for. Whenever a version is in effect those are the version's
+ * (with its pricing rule's price, if one matched), so the cap is checked on them, rule or no rule: a version approved under
+ * an earlier repo rate, or one not yet written through to the product row, may price a loan above today's ceiling.
+ * Hand the result to approvalInterestCapRefusal / approvalInterestCapCheck (lib/loan/nca-interest-cap.server.ts), which keep
+ * the NON_NCA and jurisdiction exemptions and the repeat short-term rule. A loan is refused, never re-priced.
  */
-export async function ruledRateRefusal(tenantId: string, terms: ApprovalTerms, loan: { principalCents: number; termDays: number }): Promise<string | null> {
-  if (!terms.versioned?.pricingRuleId) return null
-  return pricedRateRefusal(tenantId, { ...loan, interestRatePm: terms.interestRatePm, interestModel: terms.interestModel })
+export function capApplicationFor<A extends { appliedAmount: number; appliedTermDays: number; product: { interestRatePm: number; interestModel: string } }>(
+  application: A,
+  terms: ApprovalTerms,
+  loan: { principalCents: number; termDays: number },
+): A {
+  return { ...application, appliedAmount: loan.principalCents, appliedTermDays: loan.termDays, product: { ...application.product, interestRatePm: terms.interestRatePm, interestModel: terms.interestModel } }
 }

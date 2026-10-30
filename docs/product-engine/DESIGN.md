@@ -29,7 +29,7 @@ The direct product PUT returns 409 `PRODUCT_VERSIONED` for versioned fields once
 
 ## NCA
 
-An NCA lender may configure only MONTHLY + AMORTISING + no grace + REDUCING_BALANCE (or no structure), and a service fee of at most R69. Everything else is refused until the lender's legal team signs off the rendered documents. A rule's rate is re-checked against the cap at approval.
+An NCA lender may configure only MONTHLY + AMORTISING + no grace + REDUCING_BALANCE (or no structure), and a service fee of at most R69. Everything else is refused until the lender's legal team signs off the rendered documents. The rate a loan is written at (the version's, with its rule's price if one matched) is checked against the cap at approval and again at payout, whether or not a rule matched, with the NON_NCA and repeat short-term rules unchanged (`capApplicationFor`).
 
 ## Evidence chain
 

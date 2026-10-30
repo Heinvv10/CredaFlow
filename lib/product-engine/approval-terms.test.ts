@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const priced = vi.hoisted(() => ({ value: null as unknown }))
-const refusal = vi.hoisted(() => vi.fn(async () => null as string | null))
 vi.mock("./resolve", () => ({ priceApplication: vi.fn(async () => priced.value) }))
-vi.mock("./nca", () => ({ pricedRateRefusal: refusal }))
 
-import { approvalTermsFor, ruledRateRefusal, type ProductPricing } from "./approval-terms"
+import { approvalTermsFor, capApplicationFor, type ProductPricing } from "./approval-terms"
 
 const product: ProductPricing = { interestRatePm: 0.03, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900 }
 const application = { id: "a1", productId: "p1", appliedTermDays: 84, riskGradeRank: 0 }
@@ -15,7 +13,7 @@ const version = (over: Record<string, unknown> = {}) => ({
   config: { interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeeMaxCents: 90_000, monthlyServiceFeeCents: 5_000, interestRatePm: 0.035, initiationFeePct: 0.1, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }, ...over,
 })
 
-beforeEach(() => { priced.value = null; refusal.mockClear().mockResolvedValue(null) })
+beforeEach(() => { priced.value = null })
 
 describe("approvalTermsFor", () => {
   it("a product with no version in effect is approved on its own row, exactly as before: nothing versioned, no structure", async () => {
@@ -43,26 +41,27 @@ describe("approvalTermsFor", () => {
   })
 })
 
-describe("ruledRateRefusal", () => {
-  const terms = async (ruleId: string | null) => {
+describe("capApplicationFor", () => {
+  const capApplication = { appliedAmount: 500_000, appliedTermDays: 120, product: { interestRatePm: 0.02, interestModel: "FLAT" } }
+  const termsOf = async (ruleId: string | null) => {
     priced.value = { version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: null, campaignCode: null, riskRank: null }, pricing: { ratePm: 0.06, initiationFeePct: 0.1, ruleId, ruleName: ruleId ? "x" : null }, repayment: null }
     return approvalTermsFor(db, "t", application, product)
   }
 
-  it("checks a rule's rate against the cap for this loan and passes on the refusal", async () => {
-    refusal.mockResolvedValue("6.00% per month exceeds the NCA maximum")
-    expect(await ruledRateRefusal("t", await terms("r1"), { principalCents: 300_000, termDays: 84 })).toContain("NCA maximum")
-    expect(refusal).toHaveBeenCalledWith("t", { principalCents: 300_000, termDays: 84, interestRatePm: 0.06, interestModel: "REDUCING_BALANCE" })
+  it("shows the cap the rate and basis the loan is written at and the principal and term it is approved for, not the product row's", async () => {
+    expect(capApplicationFor(capApplication, await termsOf(null), { principalCents: 300_000, termDays: 84 })).toEqual({
+      appliedAmount: 300_000, appliedTermDays: 84, product: { interestRatePm: 0.06, interestModel: "REDUCING_BALANCE" },
+    })
   })
 
-  it("does not re-check a price no rule set: the product's own rate is held to the cap when the version is approved", async () => {
-    refusal.mockResolvedValue("would refuse")
-    expect(await ruledRateRefusal("t", await terms(null), { principalCents: 300_000, termDays: 84 })).toBeNull()
-    expect(refusal).not.toHaveBeenCalled()
+  it("does so with a pricing rule or without: the version's own rate is checked too", async () => {
+    const loan = { principalCents: 300_000, termDays: 84 }
+    expect(capApplicationFor(capApplication, await termsOf("r1"), loan).product.interestRatePm).toBe(0.06)
+    expect(capApplicationFor(capApplication, await termsOf(null), loan).product.interestRatePm).toBe(0.06)
   })
 
-  it("has nothing to check for a product with no version", async () => {
-    priced.value = null
-    expect(await ruledRateRefusal("t", await approvalTermsFor(db, "t", application, product), { principalCents: 1, termDays: 1 })).toBeNull()
+  it("leaves the rest of the application as it was", async () => {
+    const app = { ...capApplication, ncaRegime: "NON_NCA", clientId: "c1" }
+    expect(capApplicationFor(app, await termsOf(null), { principalCents: 1, termDays: 1 })).toMatchObject({ ncaRegime: "NON_NCA", clientId: "c1" })
   })
 })

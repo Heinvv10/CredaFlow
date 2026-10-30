@@ -130,7 +130,7 @@ function transactionFor(
     // No product under the product engine: the product's own terms apply.
     productVersion: { findFirst: vi.fn().mockResolvedValue(null) },
     productPricingRule: { findMany: vi.fn().mockResolvedValue([]) },
-    applicationPricingInput: { findUnique: vi.fn().mockResolvedValue(null) },
+    applicationPricingInput: { findFirst: vi.fn().mockResolvedValue(null) },
     loanApplication: { findUnique: vi.fn().mockResolvedValue(application), findMany: vi.fn().mockResolvedValue([]) },
     tenant: { findUnique: vi.fn().mockResolvedValue({ name: "Acme Lending" }) },
     clientDocument: {
@@ -207,6 +207,23 @@ describe("locked affordability approval verification", () => {
         reviewGeneration: "review-generation-1",
       }),
     }))
+  })
+
+  it("refuses a candidate whose product version in effect prices it over the NCA cap, though the product row does not", async () => {
+    // R5,000 over 90 days is short-term: capped at 5% a month. The product row (3%) is under it; the version the loan is written at is not.
+    const application = applicationFixture("UNDER_REVIEW")
+    const tx = transactionFor(application)
+    tx.productVersion.findFirst.mockResolvedValue({
+      id: "pv1", productId: "product-1", version: 2, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+      minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.06, interestModel: "REDUCING_BALANCE",
+      initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900,
+      frequency: null, structure: null, graceKind: null, graceInstalments: 0, collateral: [], eligibility: {},
+    })
+    const { approval } = buildEvidence()
+    expect(await verifyLockedApprovalCandidate(tx as never, {
+      tenantId: "tenant-1", applicationId: "application-1", expectedApplicationUpdatedAt: applicationUpdatedAt, expectedApproval: approval,
+      capturedAt, calculationStartDate: pasqGeneratedAt, capturedById: "officer-1", bureauOverrideReason: null, expectedPasqDocumentSha256: pasqDocumentSha256,
+    })).toEqual({ ok: false, reason: "changed" })
   })
 
   // NCA s.81 requires the affordability assessment to test what the consumer

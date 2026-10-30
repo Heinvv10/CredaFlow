@@ -1,12 +1,9 @@
 /**
- * What a version or a price must satisfy for an NCA lender, beyond the structure rules in terms.ts: the interest ceiling
- * (which reads the lender's approved repo rate), the Micro Loan contract, and the rate a rule actually prices a loan at.
+ * What a version or a pricing rule must satisfy for an NCA lender, beyond the structure rules in terms.ts: the interest ceiling
+ * (which reads the lender's approved repo rate), the Micro Loan contract.
  * Outside the NCA jurisdiction none of it applies; the sign checks of the parsers stand.
  */
-import { prisma } from "@/lib/prisma"
 import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
-import { ncaCreditType } from "@/lib/loan/nca-interest-cap"
-import { checkNcaInterestRateFor } from "@/lib/loan/nca-interest-cap.server"
 import { loanProductInterestCapRefusal } from "@/lib/product-config/interest-cap"
 import { micro30ContractIssues } from "@/lib/product-config/micro30"
 import { ncaStructureIssues, type ProductConfig } from "./terms"
@@ -47,11 +44,4 @@ export async function pricingRuleNcaIssue(
     if (refusal) return `rate: ${product.code}: ${refusal.error}`
   }
   return null
-}
-
-/** The refusal when a loan of this principal and term may not be priced at `interestRatePm`, or null. Never re-prices: it refuses. */
-export async function pricedRateRefusal(tenantId: string, loan: { principalCents: number; termDays: number; interestRatePm: number; interestModel: string }): Promise<string | null> {
-  if (!isNcaJurisdiction()) return null
-  const result = await checkNcaInterestRateFor(prisma, tenantId, { creditType: ncaCreditType(loan.principalCents, loan.termDays), interestRatePm: loan.interestRatePm, interestModel: loan.interestModel })
-  return result.ok ? null : result.message
 }

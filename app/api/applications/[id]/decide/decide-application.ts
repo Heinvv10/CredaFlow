@@ -10,7 +10,7 @@ import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { calculateLoan } from "@/lib/loan-calculator"
-import { approvalTermsFor, ruledRateRefusal } from "@/lib/product-engine/approval-terms"
+import { approvalTermsFor, capApplicationFor } from "@/lib/product-engine/approval-terms"
 import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
 import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
@@ -978,9 +978,10 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // The terms this application is approved on: its product's own, or, for a product under the product engine, the version
     // in effect today with the price its matching rule gives (lib/product-engine/approval-terms.ts).
     const terms = await approvalTermsFor(prisma, tenant.id, { id: application.id, productId: application.productId, appliedTermDays: approvalTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(decisionAt))
-    const ruledRefusal = await ruledRateRefusal(tenant.id, terms, { principalCents: approvalPrincipal, termDays: approvalTermDays })
-    if (ruledRefusal) {
-      return NextResponse.json({ error: `Approval blocked: the pricing rule's rate is above the NCA ceiling for this loan. ${ruledRefusal}`, pricingRuleRefused: true }, { status: 422 })
+    // The cap above read the product row; the loan is written at the version's rate (and its rule's price), so check that.
+    if (terms.versioned) {
+      const versionedCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, capApplicationFor(application, terms, { principalCents: approvalPrincipal, termDays: approvalTermDays }))
+      if (versionedCapRefusal) return versionedCapRefusal
     }
     const loanCalc = calculateLoan({
       principal: approvalPrincipal,

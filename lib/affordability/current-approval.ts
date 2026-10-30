@@ -1,7 +1,7 @@
 import type { LoanCalcResult } from "@/lib/loan-calculator"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { approvalTermsFor, ruledRateRefusal } from "@/lib/product-engine/approval-terms"
+import { approvalTermsFor, capApplicationFor } from "@/lib/product-engine/approval-terms"
 import { Prisma } from "@prisma/client"
 import {
   lockAffordabilityApplicationEvidence,
@@ -55,7 +55,7 @@ import {
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
 import { liveOwnAwareDebtInputs, ownLenderDebtIncreasedSinceApproval, recordedOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
-import { checkRepeatShortTermFor } from "@/lib/loan/nca-interest-cap.server"
+import { approvalInterestCapCheck, checkRepeatShortTermFor } from "@/lib/loan/nca-interest-cap.server"
 import {
   requireClientBorrowerId,
   requireClientBorrowerRow,
@@ -477,12 +477,12 @@ export async function verifyLockedApprovalCandidate(
   }
 
   // The same terms decide-application approved on (lib/product-engine/approval-terms.ts): the product's own, or the version
-  // in effect that day with the price its rule gives. A rule's rate above the NCA ceiling is refused, never re-priced.
+  // in effect that day with the price its rule gives. The rate it prices at, above the NCA ceiling, is refused, never re-priced.
   let terms: Awaited<ReturnType<typeof approvalTermsFor>>
   let calculation: LoanCalcResult
   try {
     terms = await approvalTermsFor(tx, args.tenantId, { id: application.id, productId: application.productId, appliedTermDays: application.appliedTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(args.calculationStartDate))
-    if (await ruledRateRefusal(args.tenantId, terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays })) return { ok: false, reason: "changed" }
+    if (terms.versioned && !(await approvalInterestCapCheck(tx, args.tenantId, capApplicationFor(application, terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays }))).ok) return { ok: false, reason: "changed" }
     calculation = calculateLoan({
       principal: application.appliedAmount,
       termDays: application.appliedTermDays,
