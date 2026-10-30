@@ -207,9 +207,16 @@ jobs:
   quality:
     needs: [checks, unit]
     if: always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 5
     steps:
+      # Fail closed if a fork PR ever reaches this runner (see the header).
+      - name: Refuse fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::fork pull requests must not run on the self-hosted runner"
+          exit 1
+
       - name: Checks and every unit shard succeeded
         env:
           CHECKS: ${{ needs.checks.result }}
@@ -332,13 +339,20 @@ jobs:
   # job and let the PR through. Drafts and the conditions on the shards
   # still skip it, exactly as they skip the shards.
   integration:
-    # Seconds of work and no checkout: GitHub-hosted, so it never queues behind
-    # the heavy jobs on the two self-hosted runners.
+    # Seconds of work and no checkout. Self-hosted while GitHub-hosted runners
+    # are unavailable (account payment failure); it is a required check.
     needs: integration-shard
     if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 5
     steps:
+      # Fail closed if a fork PR ever reaches this runner (see the header).
+      - name: Refuse fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::fork pull requests must not run on the self-hosted runner"
+          exit 1
+
       - name: Every shard passed
         env:
           RESULT: ${{ needs.integration-shard.result }}
