@@ -39,7 +39,8 @@ model LoanDocumentIssuance {
   templateVersionNumber Int
   // SHA-256 of the version's bodyHtml when it was rendered: the gate recomputes it.
   templateContentSha256 String
-  clientDocumentId      String
+  // One issuance per stored document: a document cannot be issued for two applications (and a replaced one stays referenced).
+  clientDocumentId      String                  @unique
   clientDocument        ClientDocument          @relation(fields: [tenantId, clientDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   pdfSha256             String
   // SHA-256 of the application's commercial terms as printed (amount, term, rate, fees):
