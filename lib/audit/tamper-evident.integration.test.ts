@@ -387,6 +387,9 @@ suite("tamper-evident", () => {
       await write(K, 1)
       await chain(K) // the pass makes the chain's mutex row, committed, as it does in service
       await write(K, 2)
+      // Advisory locks other sessions of this database hold (another suite's, one still closing) are not the chainer's: count what this test adds.
+      const advisory = async () => (await db.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory'`)[0].n
+      const before = await advisory()
       let release!: () => void
       const gate = new Promise<void>((r) => { release = r })
       let held!: () => void
@@ -399,7 +402,7 @@ suite("tamper-evident", () => {
       await holding
       const second = await chain(K)
       expect(second).toMatchObject({ linked: 0, busy: 1 })
-      expect((await db.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory'`)[0].n).toBe(0)
+      expect(await advisory()).toBe(before)
       release()
       await first
       expect((await chain(K)).linked).toBe(1)
