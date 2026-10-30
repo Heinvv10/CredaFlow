@@ -21,7 +21,7 @@ vi.mock("./store", () => ({
     if (limit > (world.maxOk.get(key) ?? Infinity)) throw new Error("canceling statement due to statement timeout")
     const left = (world.rows.get(key) ?? 0) - (world.linked.get(key) ?? 0)
     return Array.from({ length: Math.min(limit, left) }, (_, i) => ({
-      auditLogId: `${key}-${(world.linked.get(key) ?? 0) + i}`, tenantId: key, userId: null, action: "X", entity: "E", entityId: null, createdAt: "2026-10-29T10:00:00.000",
+      auditLogId: `${key}-${(world.linked.get(key) ?? 0) + i}`, tenantId: key, userId: null, actionSha: "a".repeat(64), entitySha: "b".repeat(64), entityIdSha: null, createdAt: "2026-10-29T10:00:00.000",
       userEmailSha: null, ipAddressSha: null, oldValueSha: null, newValueSha: null, userEmailRed: null, ipAddressRed: null, oldValueRed: null, newValueRed: null,
     }))
   },

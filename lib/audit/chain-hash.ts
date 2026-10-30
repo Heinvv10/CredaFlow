@@ -35,8 +35,8 @@ export function auditChainKeyConfigured(): boolean {
 }
 
 /**
- * What the database hands the worker for an AuditLog row (audit_hash_inputs): the ids and time, the
- * SHA-256 of each personal-data column (jsonb as canonical text; NULL for a NULL column; computed in the
+ * What the database hands the worker for an AuditLog row (audit_hash_inputs): the ids (bounded by a CHECK) and
+ * time, the SHA-256 of action, entity, entityId and each personal-data column (jsonb as canonical text; NULL for a NULL column; computed in the
  * database so a row with a huge value costs the worker nothing to receive), and, for a column a
  * documented redaction removed, the keyed digest the redaction kept.
  */
@@ -44,9 +44,10 @@ export interface RowInputs {
   auditLogId: string
   tenantId: string | null
   userId: string | null
-  action: string
-  entity: string
-  entityId: string | null
+  /** SHA-256 of action, entity and entityId (NULL for a NULL entityId), computed in the database. */
+  actionSha: string
+  entitySha: string
+  entityIdSha: string | null
   /** "YYYY-MM-DDTHH:MI:SS.MS" (UTC), as audit_hash_inputs prints it. */
   createdAt: string
   userEmailSha: string | null
@@ -87,7 +88,7 @@ function digestOf(column: HashedColumn, sha: string | null, redacted: string | n
 
 export function linkHash(chainKey: string, seq: number, prevHash: string, r: RowInputs): string {
   const canonical = JSON.stringify([
-    "v3", chainKey, seq, prevHash, r.auditLogId, r.tenantId, r.userId, r.action, r.entity, r.entityId, r.createdAt,
+    "v4", chainKey, seq, prevHash, r.auditLogId, r.tenantId, r.userId, r.actionSha, r.entitySha, r.entityIdSha, r.createdAt,
     digestOf("userEmail", r.userEmailSha, r.userEmailRed), digestOf("ipAddress", r.ipAddressSha, r.ipAddressRed),
     digestOf("oldValue", r.oldValueSha, r.oldValueRed), digestOf("newValue", r.newValueSha, r.newValueRed),
   ])

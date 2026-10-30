@@ -261,8 +261,14 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   until done. Each chain is locked by a row only `audit_chain_lock` touches (FOR UPDATE SKIP
   LOCKED), not an advisory lock any login could take; the database hands the worker a SHA-256
   of each value (the worker keys it), so a huge row costs it nothing, and an insert trigger replaces
-  any `oldValue`/`newValue` over 1 MB with a stub (`{truncated, bytes}`), whoever writes it, so no
-  writer fails and none needs changing. A batch that fails (a timeout on rows slow to hash) is retried
+  any `oldValue`/`newValue` over 1 MB (always measured as text: a value copied in already compressed is small as
+  stored) with a stub (`{truncated, bytes}`), whoever writes it. The text columns carry a CHECK (ids 256 bytes;
+  action, entity, entityId, userEmail 1 KB; ipAddress 64), added NOT VALID so existing rows are not scanned, and
+  the database hashes every text column (`audit_hash_inputs`), so even an old oversized row can be linked
+  (a row can never be skipped: that would break the chain). To validate on a book you have looked at:
+  `ALTER TABLE "AuditLog" VALIDATE CONSTRAINT "AuditLog_text_bounded"`. A legacy row that violates it cannot be
+  redacted until it is fixed, since the update is checked.
+  No writer fails on a big value (it is stubbed); one that sends a text column past the CHECK is refused. A batch that fails (a timeout on rows slow to hash) is retried
   at half the size down to one row, within a 20 s retry budget per chain per pass and never past the pass
   deadline; a chain that still fails is logged and left alone with a doubling backoff (30 s to 15 min), and
   the size that last worked is remembered, so it never stops another lender being chained or burns a pass. `idle_in_transaction_session_timeout` is set on the application logins
@@ -312,7 +318,12 @@ it append-only and a keyed hash chain makes it tamper-evident; module rules in
   destination being left, writes the `AUDIT_POLICY_UPDATED` row itself (URL as origin only) and
   queues it, and an anchor, for the right destinations. The web functions refuse a session bound to no
   lender (the application binds `app.tenant_id` in the transaction that calls them; the platform chain is
-  not the web login's). A late-chained row made before a change
+  not the web login's). **What that binding is and is not:** it guards against route bugs (a handler that
+  forgets or mixes up the lender). It does not protect against a stolen web login: that login can set
+  `app.tenant_id` to any lender, and could already write business rows for every lender, so it can save
+  that lender's audit policy too. This is an accepted trade-off. The detection is the audit trail itself:
+  every policy change writes its `AUDIT_POLICY_UPDATED` row, and when forwarding was on that row is queued
+  for the OLD destination, so the bank's SOC sees a redirect or switch-off of its own trail. A late-chained row made before a change
   is stamped too. The tenant binding in `audit_policy_save` and `audit_chain_status` (the session's
   `app.tenant_id` must match the lender; the actor must be one of its users) stops cross-tenant mistakes and
   buggy routes. It does NOT stop a compromised web process, which sets that setting itself: the backstop

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { AuditChainKeyError, checkpointHmac, columnDigest, columnDigestOfSha, GENESIS_HASH, linkHash, repairHmac, sha256Hex, type RowInputs } from "./chain-hash"
 
 const row: RowInputs = {
-  auditLogId: "a1", tenantId: "t1", userId: "u1", action: "X", entity: "E", entityId: "e1", createdAt: "2026-10-29T12:00:00.123",
+  auditLogId: "a1", tenantId: "t1", userId: "u1", actionSha: sha256Hex("X"), entitySha: sha256Hex("E"), entityIdSha: sha256Hex("e1"), createdAt: "2026-10-29T12:00:00.123",
   userEmailSha: sha256Hex("p@it.invalid"), ipAddressSha: sha256Hex("10.0.0.1"), oldValueSha: sha256Hex('{"n": 1}'), newValueSha: sha256Hex('{"n": 2}'),
   userEmailRed: null, ipAddressRed: null, oldValueRed: null, newValueRed: null,
 }
@@ -18,7 +18,8 @@ describe("link hash", () => {
     expect(base).toMatch(/^[0-9a-f]{64}$/)
     for (const changed of [
       linkHash("t2", 1, GENESIS_HASH, row), linkHash("t1", 2, GENESIS_HASH, row), linkHash("t1", 1, "1".repeat(64), row),
-      linkHash("t1", 1, GENESIS_HASH, { ...row, action: "Y" }), linkHash("t1", 1, GENESIS_HASH, { ...row, tenantId: null }),
+      linkHash("t1", 1, GENESIS_HASH, { ...row, actionSha: sha256Hex("Y") }), linkHash("t1", 1, GENESIS_HASH, { ...row, entitySha: sha256Hex("F") }),
+      linkHash("t1", 1, GENESIS_HASH, { ...row, entityIdSha: sha256Hex("e2") }), linkHash("t1", 1, GENESIS_HASH, { ...row, entityIdSha: null }), linkHash("t1", 1, GENESIS_HASH, { ...row, tenantId: null }),
       linkHash("t1", 1, GENESIS_HASH, { ...row, userEmailSha: sha256Hex("q@it.invalid") }), linkHash("t1", 1, GENESIS_HASH, { ...row, ipAddressSha: sha256Hex("10.0.0.2") }),
       linkHash("t1", 1, GENESIS_HASH, { ...row, oldValueSha: sha256Hex('{"n": 3}') }), linkHash("t1", 1, GENESIS_HASH, { ...row, newValueSha: null }),
       linkHash("t1", 1, GENESIS_HASH, { ...row, createdAt: "2026-10-29T12:00:00.124" }),

@@ -202,6 +202,25 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_tenantId_fkey" FOREIGN KEY ("ten
 -- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE NOT VALID;
 
+-- ── Hand-written: bounds on the text columns of AuditLog ────────────────────
+-- The chainer and the SIEM read every row, and a text column of hundreds of MB (it compresses to a few MB on disk)
+-- would make its chain unlinkable for good, because a row cannot be skipped without breaking the chain's
+-- continuity. Generous limits no real writer comes near (ids are cuids, an ipAddress is an isIP-checked address,
+-- action and entity are constants). NOT VALID: new and updated rows are held to it, and the existing rows are not
+-- scanned here (audit_hash_inputs hashes each text column in the database, so an old oversized one is still safe).
+-- To validate once you have looked: SELECT count(*) FROM "AuditLog" WHERE NOT (<the condition>) and then
+-- ALTER TABLE "AuditLog" VALIDATE CONSTRAINT "AuditLog_text_bounded".
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_text_bounded" CHECK (
+  octet_length("id") <= 256
+  AND ("tenantId" IS NULL OR octet_length("tenantId") <= 256)
+  AND ("userId" IS NULL OR octet_length("userId") <= 256)
+  AND octet_length("action") <= 1024
+  AND octet_length("entity") <= 1024
+  AND ("entityId" IS NULL OR octet_length("entityId") <= 1024)
+  AND ("userEmail" IS NULL OR octet_length("userEmail") <= 1024)
+  AND ("ipAddress" IS NULL OR octet_length("ipAddress") <= 64)
+) NOT VALID;
+
 -- ── Hand-written: policy checks ─────────────────────────────────────────────
 
 ALTER TABLE "AuditPolicy" ADD CONSTRAINT "AuditPolicy_retention_floor" CHECK ("retentionMonths" >= 12);
@@ -271,11 +290,12 @@ BEGIN
   -- A value over 1 MB (as text) is replaced by a stub that says so, whoever wrote it: the chainer and the SIEM read
   -- every row, and a few hundred 30 MB values (cheap on disk: they compress) would stall them for every lender. No
   -- writer fails and none needs to know; the audit row still records what happened and how big the payload was.
-  -- (pg_column_size is the cheap pre-check, so a small value is never converted to text here.)
-  IF pg_column_size(NEW."oldValue") > 524288 AND octet_length(NEW."oldValue"::text) > 1048576 THEN
+  -- Always measured as text: a value copied in already compressed (INSERT ... SELECT from another table) is small as
+  -- stored and huge as text, so a size check on the stored datum can be walked around.
+  IF octet_length(NEW."oldValue"::text) > 1048576 THEN
     NEW."oldValue" := jsonb_build_object('truncated', true, 'bytes', octet_length(NEW."oldValue"::text));
   END IF;
-  IF pg_column_size(NEW."newValue") > 524288 AND octet_length(NEW."newValue"::text) > 1048576 THEN
+  IF octet_length(NEW."newValue"::text) > 1048576 THEN
     NEW."newValue" := jsonb_build_object('truncated', true, 'bytes', octet_length(NEW."newValue"::text));
   END IF;
   RETURN NEW;
@@ -452,17 +472,18 @@ CREATE POLICY "tenant_isolation" ON "AuditSiemDelivery" USING (public.cf_rls_unr
 -- evidence tables, FORCEd on the owner, do not hide rows from these functions.
 -- Not callable by PUBLIC: audit_grant_runtime() grants EXECUTE to the app role.
 
--- What the worker hashes of an AuditLog row: the ids and time, and the SHA-256 of each personal-data
--- column (jsonb as canonical text), computed here so that a row with a huge value costs the worker
--- nothing to receive, plus, per column, the keyed digest a documented redaction kept (non-NULL only
+-- What the worker hashes of an AuditLog row: the ids and time, and the SHA-256 of EVERY text column (action,
+-- entity, entityId and the personal-data columns; jsonb as canonical text), computed here so that a row with a
+-- huge value, old or new, costs the worker nothing to receive and can always be linked, plus, per column, the keyed digest a documented redaction kept (non-NULL only
 -- where the column was redacted). The worker (the only holder of AUDIT_CHAIN_KEY) turns each into the
 -- keyed digest that enters the link; the database never stores the plain SHA-256.
 CREATE FUNCTION public.audit_hash_inputs(a "AuditLog")
-RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
+RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "actionSha" text, "entitySha" text, "entityIdSha" text, "createdAt" text,
                "userEmailSha" text, "ipAddressSha" text, "oldValueSha" text, "newValueSha" text,
                "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
-  SELECT a."id", a."tenantId", a."userId", a."action", a."entity", a."entityId",
+  SELECT a."id", a."tenantId", a."userId",
+    encode(sha256(convert_to(a."action", 'UTF8')), 'hex'), encode(sha256(convert_to(a."entity", 'UTF8')), 'hex'), encode(sha256(convert_to(a."entityId", 'UTF8')), 'hex'),
     to_char(a."createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS'),
     encode(sha256(convert_to(a."userEmail", 'UTF8')), 'hex'), encode(sha256(convert_to(a."ipAddress", 'UTF8')), 'hex'),
     encode(sha256(convert_to(a."oldValue"::text, 'UTF8')), 'hex'), encode(sha256(convert_to(a."newValue"::text, 'UTF8')), 'hex'),
@@ -551,7 +572,7 @@ $$;
 -- where a pass of this mode looks (audit_chain_scan_floor): a backfill then continues from the mark, not
 -- from the start, so it is not quadratic.
 CREATE FUNCTION public.audit_chain_unlinked(p_key text, p_mode text, p_margin_seconds int, p_limit int)
-RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
+RETURNS TABLE ("auditLogId" text, "tenantId" text, "userId" text, "actionSha" text, "entitySha" text, "entityIdSha" text, "createdAt" text,
                "userEmailSha" text, "ipAddressSha" text, "oldValueSha" text, "newValueSha" text,
                "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
@@ -681,12 +702,12 @@ $$;
 -- row it names (present = false when that row is gone).
 CREATE FUNCTION public.audit_verify_links(p_key text, p_after int, p_limit int)
 RETURNS TABLE ("seq" int, "linkAuditLogId" text, "prevHash" text, "rowHash" text, "present" boolean,
-               "auditLogId" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "createdAt" text,
+               "auditLogId" text, "tenantId" text, "userId" text, "actionSha" text, "entitySha" text, "entityIdSha" text, "createdAt" text,
                "userEmailSha" text, "ipAddressSha" text, "oldValueSha" text, "newValueSha" text,
                "userEmailRed" text, "ipAddressRed" text, "oldValueRed" text, "newValueRed" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
   SELECT p."seq", p."auditLogId", p."prevHash", p."rowHash", (p."row")."id" IS NOT NULL,
-         h."auditLogId", h."tenantId", h."userId", h."action", h."entity", h."entityId", h."createdAt",
+         h."auditLogId", h."tenantId", h."userId", h."actionSha", h."entitySha", h."entityIdSha", h."createdAt",
          h."userEmailSha", h."ipAddressSha", h."oldValueSha", h."newValueSha",
          h."userEmailRed", h."ipAddressRed", h."oldValueRed", h."newValueRed"
   FROM (
@@ -819,10 +840,10 @@ CREATE FUNCTION public.audit_outbox_sources(p_ids text[])
 RETURNS TABLE ("id" text, "tenantId" text, "userId" text, "action" text, "entity" text, "entityId" text, "oldValue" jsonb, "newValue" jsonb,
                "ipAddress" text, "createdAt" timestamp, "linkSeq" int, "linkRowHash" text, "linkPrevHash" text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET app.rls_bypass = 'on' AS $$
-  SELECT a."id", a."tenantId", a."userId", a."action", a."entity", a."entityId",
+  SELECT a."id", a."tenantId", a."userId", left(a."action", 1024), left(a."entity", 1024), left(a."entityId", 1024),
          CASE WHEN octet_length(a."oldValue"::text) > 65536 THEN jsonb_build_object('truncated', true, 'bytes', octet_length(a."oldValue"::text)) ELSE a."oldValue" END,
          CASE WHEN octet_length(a."newValue"::text) > 65536 THEN jsonb_build_object('truncated', true, 'bytes', octet_length(a."newValue"::text)) ELSE a."newValue" END,
-         a."ipAddress", a."createdAt", l."seq", l."rowHash", l."prevHash"
+         left(a."ipAddress", 64), a."createdAt", l."seq", l."rowHash", l."prevHash"
   FROM "AuditLog" a JOIN "AuditChainLink" l ON l."auditLogId" = a."id" WHERE a."id" = ANY(p_ids)
 $$;
 

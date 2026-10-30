@@ -222,6 +222,54 @@ suite("tamper-evident", () => {
       expect(await verify(K)).toMatchObject({ ok: true })
     }, 120_000)
 
+    it("stubs a value copied in already compressed (INSERT ... SELECT from another table), whatever its stored size", async () => {
+      const K = await tenant("copied")
+      await db.$transaction(async (tx) => {
+        // 40 MB of text as jsonb, stored compressed in a scratch table: a few KB as stored, 40 MB as text.
+        await tx.$executeRawUnsafe(`CREATE TEMP TABLE cf_copy_src ON COMMIT DROP AS SELECT jsonb_build_object('k', repeat('x', 40000000)) AS v`)
+        await tx.$executeRawUnsafe(`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "oldValue", "newValue") SELECT 'copied-${token}', '${K}', 'AUDIT_IT', 'Thing', v, v FROM cf_copy_src`)
+        const [stored] = await tx.$queryRaw<Array<{ stored: number }>>`SELECT pg_column_size("newValue") AS stored FROM "AuditLog" WHERE id = ${`copied-${token}`}`
+        expect(stored.stored).toBeLessThan(1000) // the stub
+      }, { timeout: 120_000 })
+      const [row] = await db.$queryRaw<Array<{ newValue: { truncated?: boolean; bytes?: number } }>>`SELECT "newValue" FROM "AuditLog" WHERE id = ${`copied-${token}`}`
+      expect(row.newValue).toEqual({ truncated: true, bytes: expect.any(Number) })
+      expect(row.newValue.bytes).toBeGreaterThan(40_000_000)
+      expect((await chain(K)).linked).toBe(1)
+    }, 180_000)
+
+    it("refuses an oversized action, entity, entityId, email or address at insert, and the lender's next row still chains", async () => {
+      const K = await tenant("oversize")
+      const insert = (col: string, len: number) => {
+        const base: Record<string, string> = { id: `'big-${col}-${token}'`, tenantId: `'${K}'`, action: `'AUDIT_IT'`, entity: `'Thing'` }
+        base[col] = `repeat('x', ${len})`
+        return db.$executeRawUnsafe(`INSERT INTO "AuditLog" (${Object.keys(base).map((c) => `"${c}"`).join(", ")}) VALUES (${Object.values(base).join(", ")})`)
+      }
+      for (const [col, len] of [["action", 1025], ["entity", 1025], ["entityId", 1025], ["userEmail", 1025], ["ipAddress", 65]] as const) {
+        await expect(insert(col, len), col).rejects.toThrow(/AuditLog_text_bounded/)
+      }
+      await write(K, 1)
+      expect((await chain(K)).linked).toBe(1)
+      expect(await verify(K)).toMatchObject({ ok: true })
+    })
+
+    it("hashes every text column in the database: a legacy row whose action is tens of MB (a constraint cannot reach it) still links and the worker only ever gets 64-character hashes", async () => {
+      const K = await tenant("legacy")
+      await write(K, 1)
+      await db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+        await tx.$executeRawUnsafe(`ALTER TABLE "AuditLog" DROP CONSTRAINT "AuditLog_text_bounded"`) // DDL is transactional: rolled back below
+        await tx.$executeRawUnsafe(`INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "entityId") VALUES ('legacy-${token}', '${K}', repeat('a', 30000000), repeat('e', 5000), repeat('i', 5000))`)
+        const rows = await tx.$queryRaw<Array<Record<string, string>>>`SELECT * FROM audit_chain_unlinked(${K}, 'full', 3600, 500)`
+        expect(rows).toHaveLength(2)
+        for (const r of rows) for (const k of ["actionSha", "entitySha", "entityIdSha"]) expect(r[k] === null || r[k].length === 64, k).toBe(true)
+        const widest = Math.max(...rows.flatMap((r) => Object.values(r).map((v) => (typeof v === "string" ? v.length : 0))))
+        expect(widest).toBeLessThanOrEqual(64) // ids, times and hashes only: nothing the size of the row
+        throw new Error("rolled back")
+      }, { timeout: 180_000 }).catch((e) => { if (!/rolled back/.test(String(e))) throw e })
+      const [still] = await db.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'AuditLog_text_bounded'`
+      expect(still.n).toBe(1)
+    }, 240_000)
+
     it("chains a row with a huge, compressible value without the worker ever receiving it (the database hashes it)", async () => {
       const K = await tenant("huge")
       await write(K, 1)
