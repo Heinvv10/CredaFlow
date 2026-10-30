@@ -35,7 +35,7 @@ const refusal = async (promise: Promise<unknown>): Promise<string> => {
 const config = (over: Record<string, unknown> = {}) => ({
   minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.04, interestModel: "REDUCING_BALANCE",
   initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.05, initiationFeeMaxCents: 100_000, monthlyServiceFeeCents: 6_900,
-  repayment: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 },
+  repayment: null,
   collateral: [{ code: "PAYSLIP", description: "Latest payslip", required: true }],
   eligibility: { minAge: 18, maxAge: 65, minMonthlyIncomeCents: null, minEmploymentMonths: null },
   ...over,
@@ -69,7 +69,7 @@ suite("product engine (real Postgres)", () => {
     const request = await propose(versionPayload({ config: config({ interestRatePm: 0.04, maxAmountCents: 700_000 }) }))
     await approveRequest(request.id)
     const version = await db.productVersion.findFirstOrThrow({ where: { tenantId: lender.tenantId, productId, version: 1 } })
-    expect(version).toMatchObject({ interestRatePm: 0.04, maxAmount: 700_000, frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", changeRequestId: request.id })
+    expect(version).toMatchObject({ interestRatePm: 0.04, maxAmount: 700_000, frequency: null, structure: null, graceKind: null, changeRequestId: request.id })
     expect(version.appliedAt).not.toBeNull()
     expect(await db.loanProduct.findUniqueOrThrow({ where: { id: productId } })).toMatchObject({ interestRatePm: 0.04, maxAmount: 700_000, monthlyServiceFee: 6_900 })
     const audits = await db.auditLog.findMany({ where: { tenantId: lender.tenantId, action: { in: ["PRODUCT_VERSION_CREATED", "PRODUCT_VERSION_ACTIVATED"] } }, select: { action: true } })
@@ -83,13 +83,13 @@ suite("product engine (real Postgres)", () => {
     expect(v2.appliedAt).toBeNull()
     expect((await db.loanProduct.findUniqueOrThrow({ where: { id: productId } })).interestRatePm).toBe(0.04)
     // not due today
-    expect(await as(() => prisma.$transaction((tx) => activateDueVersions(tx, lender.tenantId, TODAY, null)))).toEqual([])
+    expect(await as(() => prisma.$transaction((tx) => activateDueVersions(tx, lender.tenantId, TODAY, null)))).toEqual({ activated: [], blocked: [] })
     // due tomorrow
     const activated = await as(() => prisma.$transaction((tx) => activateDueVersions(tx, lender.tenantId, TOMORROW, null)))
-    expect(activated).toEqual([expect.objectContaining({ productId, version: 2, skipped: [] })])
+    expect(activated.activated).toEqual([expect.objectContaining({ productId, version: 2, skipped: [] })])
     expect((await db.loanProduct.findUniqueOrThrow({ where: { id: productId } })).interestRatePm).toBe(0.035)
     // idempotent
-    expect(await as(() => prisma.$transaction((tx) => activateDueVersions(tx, lender.tenantId, TOMORROW, null)))).toEqual([])
+    expect(await as(() => prisma.$transaction((tx) => activateDueVersions(tx, lender.tenantId, TOMORROW, null)))).toEqual({ activated: [], blocked: [] })
   })
 
   it("approval prices on the version in effect that day, and the one pricing rule that matches", async () => {
@@ -140,8 +140,9 @@ suite("product engine (real Postgres)", () => {
     expect(await refusal(behindTriggers(row(60, "2033-02-01")))).toContain("version")
   })
 
-  it("an NCA lender may not approve a weekly structure, a grace, or a rate above the ceiling; a lender outside the NCA may approve the structure", async () => {
+  it("an NCA lender may not approve any repayment structure, or a rate above the ceiling; a lender outside the NCA may approve the structure", async () => {
     await expect(propose(versionPayload({ config: config({ repayment: weekly }) }, "2031-03-01"))).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
+    await expect(propose(versionPayload({ config: config({ repayment: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }) }, "2031-03-01"))).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
     await expect(propose(versionPayload({ config: config({ interestRatePm: 0.06 }) }, "2031-03-01"))).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
     await expect(propose(versionPayload({ config: config({ monthlyServiceFeeCents: 7_000 }) }, "2031-03-01"))).rejects.toMatchObject({ code: "INVALID_PAYLOAD" })
     setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })

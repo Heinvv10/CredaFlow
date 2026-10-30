@@ -117,7 +117,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
   const application = await prisma.loanApplication.findUnique({
     where: { id, tenantId: tenant.id },
     include: {
-      product: { select: { interestRatePm: true, productType: true, interestModel: true, initiationFeeModel: true, initiationFeePct: true, initiationFeeMax: true, monthlyServiceFee: true } },
+      product: { select: { code: true, interestRatePm: true, productType: true, interestModel: true, initiationFeeModel: true, initiationFeePct: true, initiationFeeMax: true, monthlyServiceFee: true } },
       loan: { select: { id: true } },
       client: {
         select: {
@@ -978,6 +978,11 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // The terms this application is approved on: its product's own, or, for a product under the product engine, the version
     // in effect today with the price its matching rule gives (lib/product-engine/approval-terms.ts).
     const terms = await approvalTermsFor(prisma, tenant.id, { id: application.id, productId: application.productId, appliedTermDays: approvalTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(decisionAt))
+    // A version approved while the process was configured otherwise (another jurisdiction, an older rule set) is not one an NCA
+    // lender may write loans on: its structure and fee are held to the NCA rules at every approval, not only when it was approved.
+    if (terms.ncaIssues.length > 0) {
+      return NextResponse.json({ error: `Approval blocked: the product version in effect is not one an NCA lender may use. ${terms.ncaIssues.join("; ")}`, productVersionRefused: true }, { status: 422 })
+    }
     // The cap above read the product row; the loan is written at the version's rate (and its rule's price), so check that.
     if (terms.versioned) {
       const versionedCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, capApplicationFor(application, terms, { principalCents: approvalPrincipal, termDays: approvalTermDays }))

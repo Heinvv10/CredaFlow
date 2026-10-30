@@ -3,6 +3,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import type { ChangeHandler, Tx } from "@/lib/maker-checker/types"
+import { MICRO30_CODE } from "@/lib/product-config/micro30"
 import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
 import { activateDueVersions } from "./activate"
 import { pricingRuleNcaIssue, versionNcaIssues } from "./nca"
@@ -44,11 +45,29 @@ export function parseProductVersionPayload(raw: unknown): ProductVersionPayload 
   return { productId: raw.productId as string, effectiveFrom: raw.effectiveFrom as string, reason: (raw.reason as string).trim(), config: config! }
 }
 
-/** Products a rule covers: its own, or every active non-asset-finance product. */
-async function productsInScope(tx: Tx, tenantId: string, productId: string | null) {
-  return tx.loanProduct.findMany({
-    where: { tenantId, ...(productId ? { id: productId } : { active: true, productType: { not: "ASSET_FINANCE" } }) },
+/**
+ * What a rule is checked against: for every product it covers, the version in effect and every scheduled one (its limits and
+ * rate are what loans will be priced from), or the product's own row when it has no version. A rule that covers every product
+ * leaves out MICRO30, whose contract is fixed; one that names it is refused in the handler.
+ */
+async function productsInScope(tx: Tx, tenantId: string, productId: string | null, today: string) {
+  const products = await tx.loanProduct.findMany({
+    where: { tenantId, ...(productId ? { id: productId } : { active: true, productType: { not: "ASSET_FINANCE" }, code: { not: MICRO30_CODE } }) },
     select: { id: true, code: true, productType: true, maxAmount: true, maxTermDays: true, interestRatePm: true, interestModel: true },
+  })
+  const versions = await tx.productVersion.findMany({
+    where: { tenantId, productId: { in: products.map((p) => p.id) } },
+    orderBy: { effectiveFrom: "asc" },
+    select: { productId: true, version: true, effectiveFrom: true, maxAmount: true, maxTermDays: true, interestRatePm: true, interestModel: true },
+  })
+  const todayDate = dbDate(today)
+  return products.flatMap((p) => {
+    const own = versions.filter((v) => v.productId === p.id)
+    const inEffect = own.filter((v) => v.effectiveFrom <= todayDate).at(-1)
+    const live = own.filter((v) => v === inEffect || v.effectiveFrom > todayDate)
+    return live.length === 0
+      ? [p]
+      : live.map((v) => ({ id: p.id, code: `${p.code} v${v.version}`, productType: p.productType, maxAmount: v.maxAmount, maxTermDays: v.maxTermDays, interestRatePm: v.interestRatePm, interestModel: v.interestModel }))
   })
 }
 
@@ -116,9 +135,10 @@ export const pricingRuleHandler: ChangeHandler<PricingRulePayload> = {
       if (rule.retiredAt) throw new InvalidPayloadError(["payload.ruleId: that rule is already retired"])
       return
     }
-    const products = await productsInScope(tx, tenantId, payload.rule.productId)
+    const products = await productsInScope(tx, tenantId, payload.rule.productId, sastCalendarDate(new Date()))
     if (payload.rule.productId && products.length === 0) throw new InvalidPayloadError(["payload.rule.productId: that product does not exist"])
     if (products.some((p) => p.productType === "ASSET_FINANCE")) throw new InvalidPayloadError(["payload.rule.productId: an asset-finance product is not priced here"])
+    if (products.some((p) => p.code === MICRO30_CODE || p.code.startsWith(`${MICRO30_CODE} v`))) throw new InvalidPayloadError(["payload.rule.productId: the MICRO30 product has an approved fixed contract; no rule prices it"])
     const issue = await pricingRuleNcaIssue(tenantId, payload.rule.rate, products)
     if (issue) throw new InvalidPayloadError([`payload.rule.${issue}`])
   },

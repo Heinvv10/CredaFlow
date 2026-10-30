@@ -97,6 +97,8 @@ export interface CurrentApprovalEvidenceApplication
   bureauOverrideAt: Date | string | null
   bureauReviewGeneration: string | null
   product: {
+    /** Optional: only the MICRO30 contract product is told apart by it (no pricing rule applies to it). */
+    code?: string
     interestRatePm: number
     interestModel: string
     initiationFeeModel: "FLAT_PCT" | "NCA_REG42"
@@ -120,6 +122,7 @@ export const approvalEvidenceApplicationInclude = Prisma.validator<Prisma.LoanAp
   loan: { select: { id: true } },
   product: {
     select: {
+      code: true,
       interestRatePm: true,
       interestModel: true,
       initiationFeeModel: true,
@@ -334,6 +337,19 @@ function approvedTerms(application: LockedApprovalApplication) {
   return { ...application, product: { ...application.product, interestRatePm: frozen ?? application.product.interestRatePm } }
 }
 
+/**
+ * A loan written at a product version's rate is paid out only while that rate is still within the NCA cap: a repo cut between the
+ * approval and the payout can leave an approved, frozen rate above the ceiling in force when the agreement is entered into. The
+ * loans of products with no version are unchanged: this reads only the frozen inputs of a versioned approval.
+ */
+async function frozenVersionedRateIsLawful(tx: ApprovalEvidenceTransaction, tenantId: string, application: LockedApprovalApplication): Promise<boolean> {
+  const frozen = readAffordabilitySnapshotStore(application.affordabilityResult).approval?.inputs
+  if (!frozen?.productVersion) return true
+  const written = approvedTerms(application)
+  const subject = { ...written, appliedAmount: frozen.principalCents, appliedTermDays: frozen.termDays, product: { ...written.product, interestModel: frozen.interestModel } }
+  return (await approvalInterestCapCheck(tx, tenantId, subject, new Date())).ok
+}
+
 export async function verifyLockedCurrentAffordabilityApproval(
   tx: ApprovalEvidenceTransaction,
   args: {
@@ -367,6 +383,7 @@ export async function verifyLockedCurrentAffordabilityApproval(
   // repeat rate), has appeared since.
   const raised = await ownLenderDebtIncreasedSinceApproval(tx, args.tenantId, args.applicationId, context.application)
     || !(await checkRepeatShortTermFor(tx, args.tenantId, approvedTerms(context.application), new Date())).ok
+    || !(await frozenVersionedRateIsLawful(tx, args.tenantId, context.application))
   return raised ? { ok: false, reason: "changed" } : { ...verified, application: context.application }
 }
 
@@ -482,6 +499,7 @@ export async function verifyLockedApprovalCandidate(
   let calculation: LoanCalcResult
   try {
     terms = await approvalTermsFor(tx, args.tenantId, { id: application.id, productId: application.productId, appliedTermDays: application.appliedTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(args.calculationStartDate))
+    if (terms.ncaIssues.length > 0) return { ok: false, reason: "changed" }
     if (terms.versioned && !(await approvalInterestCapCheck(tx, args.tenantId, capApplicationFor(application, terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays }))).ok) return { ok: false, reason: "changed" }
     calculation = calculateLoan({
       principal: application.appliedAmount,

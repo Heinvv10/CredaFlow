@@ -18,7 +18,12 @@ export async function GET(req: NextRequest) {
   const outcomes = await sweepActiveTenants("product-version-activate", (tenant) =>
     prisma.$transaction((tx) => activateDueVersions(tx, tenant.id, today, null)))
   const perTenant = outcomes.map((o) => (o.ok
-    ? { tenantId: o.tenant.id, activated: o.value.map((a) => ({ productId: a.productId, version: a.version, skipped: a.skipped })) }
+    ? {
+        tenantId: o.tenant.id,
+        activated: o.value.activated.map((a) => ({ productId: a.productId, version: a.version, skipped: a.skipped })),
+        // Versions an NCA lender may not use today (the cap moved): left unapplied, tried again tomorrow. A person has to propose another.
+        blocked: o.value.blocked.map((b) => ({ productId: b.productId, version: b.version, issues: b.issues })),
+      }
     : { tenantId: o.tenant.id, error: "failed; see the server log" }))
   const failedTenants = outcomes.filter((o) => !o.ok).length
   const { status, partial } = sweepStatus({ tenants: outcomes.length, failedTenants, otherErrors: 0 })

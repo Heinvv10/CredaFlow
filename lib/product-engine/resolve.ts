@@ -81,7 +81,7 @@ export interface PricedTerms {
 export async function priceApplication(
   db: Db,
   tenantId: string,
-  args: { productId: string; applicationId: string; riskRank: number | null; termDays: number; asOf: string },
+  args: { productId: string; applicationId: string; riskRank: number | null; termDays: number; asOf: string; /** False for a product under a fixed approved contract (MICRO30): no rule re-prices it. */ useRules?: boolean },
 ): Promise<PricedTerms | null> {
   const version = await loadEffectiveVersion(db, tenantId, args.productId, args.asOf)
   if (!version) return null
@@ -89,7 +89,8 @@ export async function priceApplication(
   const inputs = { segment: input?.segment ?? null, channel: input?.channel ?? null, campaignCode: input?.campaignCode ?? null, riskRank: args.riskRank }
   const ctx: PricingContext = { productId: args.productId, ...inputs, asOf: args.asOf }
   const base = { ratePm: version.config.interestRatePm, initiationFeePct: version.config.initiationFeePct }
-  const pricing = resolvePricing(await loadPricingRules(db, tenantId, args.productId, args.asOf), ctx, base)
+  const rules = args.useRules === false ? [] : await loadPricingRules(db, tenantId, args.productId, args.asOf)
+  const pricing = resolvePricing(rules, ctx, base)
   return {
     version, pricing, base, inputs,
     repayment: version.config.repayment ? repaymentTermsFor(version.config.repayment, args.termDays) : null,

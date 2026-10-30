@@ -7,7 +7,10 @@
  */
 import type { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { MICRO30_CODE } from "@/lib/product-config/micro30"
 import { priceApplication } from "./resolve"
+import { ncaStructureIssues } from "./terms"
 import type { RepaymentTerms } from "./types"
 
 type Db = Pick<typeof prisma, "productVersion" | "productPricingRule" | "applicationPricingInput">
@@ -35,6 +38,11 @@ export interface ApprovalTerms extends ProductPricing {
   repayment: RepaymentTerms | null
   /** Null for a product with no version in effect. */
   versioned: VersionedTerms | null
+  /**
+   * Why an NCA lender may not approve a loan on this version, or []: the structure and fee rules it was approved under, checked
+   * again now, because the process may have been configured differently when the version was approved (lib/product-engine/terms.ts).
+   */
+  ncaIssues: string[]
 }
 
 /** The terms of an application whose product row is `product`, on the SAST day `asOf`. */
@@ -42,16 +50,17 @@ export async function approvalTermsFor(
   db: Db,
   tenantId: string,
   application: { id: string; productId: string; appliedTermDays: number; riskGradeRank: number | null },
-  product: ProductPricing,
+  product: ProductPricing & { code?: string },
   asOf: string = sastCalendarDate(new Date()),
 ): Promise<ApprovalTerms> {
-  const priced = await priceApplication(db, tenantId, { productId: application.productId, applicationId: application.id, riskRank: application.riskGradeRank, termDays: application.appliedTermDays, asOf })
-  if (!priced) return { ...pickPricing(product), repayment: null, versioned: null }
+  const priced = await priceApplication(db, tenantId, { productId: application.productId, applicationId: application.id, riskRank: application.riskGradeRank, termDays: application.appliedTermDays, asOf, useRules: product.code !== MICRO30_CODE })
+  if (!priced) return { ...pickPricing(product), repayment: null, versioned: null, ncaIssues: [] }
   const c = priced.version.config
   return {
     interestRatePm: priced.pricing.ratePm, interestModel: c.interestModel, initiationFeeModel: c.initiationFeeModel, initiationFeePct: priced.pricing.initiationFeePct,
     initiationFeeMax: c.initiationFeeMaxCents, monthlyServiceFee: c.monthlyServiceFeeCents,
     repayment: priced.repayment,
+    ncaIssues: isNcaJurisdiction() ? ncaStructureIssues(c) : [],
     versioned: {
       productVersionId: priced.version.id, version: priced.version.version, baseRatePm: priced.base.ratePm,
       pricingRuleId: priced.pricing.ruleId, pricingRuleName: priced.pricing.ruleName, pricingInputs: priced.inputs,

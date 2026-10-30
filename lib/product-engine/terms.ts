@@ -159,21 +159,15 @@ export function parseProductConfig(raw: unknown): ProductConfig {
 }
 
 /**
- * What an NCA lender may configure for now. A monthly, amortising, reducing-balance structure (or none) is what the
- * existing schedules, PASQ and credit agreement describe and what the engine reproduces to the cent
- * (lib/product-engine/schedule.test.ts); every other structure would reach a consumer through documents the lender's
- * legal team has not signed off, so it is refused until they do. The monthly service fee may not exceed the Regulation 44
- * ceiling of R60 plus VAT.
+ * What an NCA lender may configure for now: no repayment structure at all. Its loans keep the existing instalment schedule
+ * (lib/loan-calculator.ts), which is what the PASQ, the credit agreement, the debit-order mandate and the NCA schedules
+ * describe to the cent, month-end dates included. Every engine structure, the monthly one too, would produce a schedule those
+ * documents have not been signed off for, so it is refused until the lender's legal team signs off the rendered documents.
+ * The monthly service fee may not exceed the Regulation 44 ceiling of R60 plus VAT.
  */
 export function ncaStructureIssues(config: ProductConfig): string[] {
   const issues: string[] = []
-  const r = config.repayment
-  if (r) {
-    if (r.frequency !== "MONTHLY") issues.push("repayment.frequency: an NCA lender's documents describe monthly instalments only; a weekly or fortnightly structure needs the lender's legal sign-off of the rendered documents first")
-    if (r.structure !== "AMORTISING") issues.push("repayment.structure: interest-only and bullet structures need the lender's legal sign-off of the rendered NCA documents first")
-    if (r.graceKind !== "NONE") issues.push("repayment.graceKind: a grace period needs the lender's legal sign-off of the rendered NCA documents first")
-    if (config.interestModel !== "REDUCING_BALANCE") issues.push("interestModel: an instalment structure for an NCA lender is reducing-balance, the basis the documents state")
-  }
+  if (config.repayment) issues.push("repayment: an NCA lender's schedules, agreement and debit mandate are the existing monthly ones; a repayment structure needs the lender's legal sign-off of the rendered documents first")
   const feeCeiling = Math.round(NCA_ASSET_CAPS.monthlyServiceFeeCents * 1.15)
   if (config.monthlyServiceFeeCents > feeCeiling) issues.push(`monthlyServiceFeeCents: above the Regulation 44 ceiling of ${feeCeiling} cents (R60 plus VAT)`)
   return issues

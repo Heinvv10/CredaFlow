@@ -117,22 +117,25 @@ describe("the monthly equivalent of an instalment (what affordability compares w
 })
 
 describe("what an NCA lender may configure", () => {
-  const config = (over: Partial<ProductConfig> = {}): ProductConfig => ({ ...parseProductConfig({ ...base, repayment: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }), ...over })
+  const config = (over: Partial<ProductConfig> = {}): ProductConfig => ({ ...parseProductConfig({ ...base, repayment: null }), ...over })
 
-  it("a monthly amortising reducing-balance structure, or none, is what the existing documents and schedules describe", () => {
+  it("no repayment structure: the existing monthly schedule, agreement and mandate are what it describes", () => {
     expect(ncaStructureIssues(config())).toEqual([])
-    expect(ncaStructureIssues(config({ repayment: null }))).toEqual([])
+    expect(ncaStructureIssues(config({ interestModel: "FLAT" }))).toEqual([])
   })
 
   it.each([
-    ["a weekly frequency", { repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }],
-    ["a fortnightly frequency", { repayment: { frequency: "FORTNIGHTLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 } }],
-    ["interest-only", { repayment: { frequency: "MONTHLY", structure: "INTEREST_ONLY", graceKind: "NONE", graceInstalments: 0 } }],
-    ["a bullet", { repayment: { frequency: "MONTHLY", structure: "BULLET", graceKind: "NONE", graceInstalments: 0 } }],
-    ["a grace period", { repayment: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "PRINCIPAL_ONLY", graceInstalments: 1 } }],
-    ["a flat-rate instalment loan", { interestModel: "FLAT" as const }],
-    ["a monthly service fee over the R69 ceiling", { monthlyServiceFeeCents: 6_901 }],
-  ])("refuses %s until the lender's legal team has signed off the rendered documents", (_label, over) => {
-    expect(ncaStructureIssues(config(over as Partial<ProductConfig>)).length).toBeGreaterThan(0)
+    ["a monthly amortising structure: the engine's dates and instalment would differ from the schedule the documents describe", { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 }],
+    ["a weekly frequency", { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 }],
+    ["a fortnightly frequency", { frequency: "FORTNIGHTLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 }],
+    ["interest-only", { frequency: "MONTHLY", structure: "INTEREST_ONLY", graceKind: "NONE", graceInstalments: 0 }],
+    ["a bullet", { frequency: "MONTHLY", structure: "BULLET", graceKind: "NONE", graceInstalments: 0 }],
+    ["a grace period", { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "PRINCIPAL_ONLY", graceInstalments: 1 }],
+  ])("refuses %s until the lender's legal team has signed off the rendered documents", (_label, repayment) => {
+    expect(ncaStructureIssues(config({ repayment } as Partial<ProductConfig>))).toEqual([expect.stringContaining("legal sign-off")])
+  })
+
+  it("refuses a monthly service fee over the R69 ceiling", () => {
+    expect(ncaStructureIssues(config({ monthlyServiceFeeCents: 6_901 }))).toEqual([expect.stringContaining("Regulation 44")])
   })
 })
