@@ -6,6 +6,7 @@ import { committeeProblems, type CommitteeDecisionInput } from "./committee-rule
 import { authorityLevel, roleLevel } from "./evaluate"
 import { delegatorLevels, loadDelegationsFor } from "./matrix-store"
 import { approversForLevel, notifyStaff } from "./notify"
+import { seatConflict, seatMap } from "./seats"
 import type { MatrixLevel } from "./types"
 
 export class CommitteeError extends Error {
@@ -41,14 +42,29 @@ export async function recordCommitteeDecision(input: {
     if (steps + 1 !== committee.level) throw new CommitteeError("NOT_AT_COMMITTEE", 409, `The committee decides at level ${committee.level}; the application is awaiting level ${steps + 1}.`)
     const application = await tx.loanApplication.findFirst({ where: { id: input.applicationId, tenantId: input.tenantId }, select: { appliedAmount: true, inputStaffIds: true } })
     if (!application) throw new CommitteeError("NO_CASE", 404, "Application not found.")
-    if (application.inputStaffIds.includes(input.actor.id)) throw new CommitteeError("MAKER", 403, "You captured this application or changed its figures, so you cannot record its committee decision.")
-    // Someone who approved a lower level on this case cannot also record what the committee decided.
-    if ((await tx.approvalStep.count({ where: { caseId: theCase.id, approverId: input.actor.id } })) > 0) {
-      throw new CommitteeError("APPROVER", 403, "You approved a level of this application, so you cannot record its committee decision.")
-    }
+    // One person, one seat (./seats.ts): not the maker, not anyone who approved a level or whose authority was used for one.
+    const stepRows = await tx.approvalStep.findMany({ where: { caseId: theCase.id }, select: { approverId: true, delegationId: true } })
+    const others = await tx.creditCommitteeDecision.findMany({ where: { caseId: theCase.id, level: committee.level, recordedById: { not: input.actor.id } }, select: { recordedById: true, delegationId: true } })
+    const delegationIds = [...stepRows, ...others].flatMap((r) => (r.delegationId ? [r.delegationId] : []))
+    const delegators = new Map((delegationIds.length === 0 ? [] : await tx.approvalDelegation.findMany({ where: { tenantId: input.tenantId, id: { in: delegationIds } }, select: { id: true, delegatorId: true } })).map((d) => [d.id, d.delegatorId]))
+    const holder = (id: string | null) => (id === null ? null : (delegators.get(id) ?? null))
+    const seats = seatMap({
+      makerIds: application.inputStaffIds,
+      steps: stepRows.map((r) => ({ actorId: r.approverId, authorityHolderId: holder(r.delegationId) })),
+      recorders: others.map((r) => ({ actorId: r.recordedById, authorityHolderId: holder(r.delegationId) })),
+    })
+    const own = seatConflict(seats, { actorId: input.actor.id, authorityHolderId: null })
+    if (own === "MAKER") throw new CommitteeError("MAKER", 403, "You captured this application or changed its figures, so you cannot record its committee decision.")
+    if (own !== null) throw new CommitteeError("APPROVER", 403, "You approved a level of this application, or your authority was used for one, so you cannot record its committee decision.")
+    // Authority from a delegation counts only when its delegator holds no seat; the one used is stored with the decision.
     const delegations = await loadDelegationsFor(tx, input.tenantId, input.actor.id, now)
-    const authority = authorityLevel({ role: input.actor.role, levels, delegations, amountCents: application.appliedAmount, now, delegatorLevels: await delegatorLevels(tx, input.tenantId, delegations, levels) })
-    if (authority.level < committee.level) throw new CommitteeError("FORBIDDEN", 403, `Recording the committee's decision needs level ${committee.level} authority (${committee.role}).`)
+    const caps = await delegatorLevels(tx, input.tenantId, delegations, levels)
+    const authorityOf = (list: typeof delegations) => authorityLevel({ role: input.actor.role, levels, delegations: list, amountCents: application.appliedAmount, now, delegatorLevels: caps })
+    const authority = authorityOf(delegations.filter((d) => !seats.has(d.delegatorId)))
+    if (authority.level < committee.level) {
+      if (authorityOf(delegations).level >= committee.level) throw new CommitteeError("APPROVER", 403, "Your committee authority is a delegation from someone who made this application or approved a level of it, so you cannot record its decision.")
+      throw new CommitteeError("FORBIDDEN", 403, `Recording the committee's decision needs level ${committee.level} authority (${committee.role}).`)
+    }
     if (input.decision.decision === "APPROVED") {
       // A decline stands until another member of the committee, by role and not by a borrowed delegation, hears the application again.
       const declines = await tx.creditCommitteeDecision.findMany({ where: { caseId: theCase.id, level: committee.level, decision: "DECLINED" }, select: { recordedById: true } })
@@ -61,7 +77,7 @@ export async function recordCommitteeDecision(input: {
       data: {
         tenantId: input.tenantId, caseId: theCase.id, applicationId: input.applicationId, level: committee.level, decision: input.decision.decision,
         meetingDate: new Date(`${input.decision.meetingDate}T00:00:00Z`), attendees: input.decision.attendees.map((a) => a.trim()),
-        conditions: input.decision.conditions.map((c) => c.trim()), rationale: input.decision.rationale.trim(), recordedById: input.actor.id,
+        conditions: input.decision.conditions.map((c) => c.trim()), rationale: input.decision.rationale.trim(), recordedById: input.actor.id, delegationId: authority.via === "DELEGATION" ? authority.delegationId : null,
       },
     })
     await logAuditStrict({

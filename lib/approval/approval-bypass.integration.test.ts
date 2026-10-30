@@ -68,9 +68,9 @@ suite("approval matrix: bypass attempts (real Postgres)", () => {
     await expect(committee(as.checker, "bp-decl", "APPROVED", "Changed my mind alone.")).rejects.toMatchObject({ code: "OVERTURN_NEEDS_ANOTHER_RECORDER" })
     await expect(committee(as.ad, "bp-decl", "APPROVED", "An administrator overturns it.")).rejects.toMatchObject({ code: "FORBIDDEN" })
     // Nor a delegate of the committee's level: a decline is overturned by a member who holds the role.
-    const deputy = await inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.checker, delegation: { delegateId: ids.la2, level: 3, maxAmountCents: 2_000_000_000, ...window(), reason: "Deputising for the committee chair" } }))
+    const deputy = await inTenant(() => grantDelegation({ tenantId: ids.tenant, actor: as.checker2, delegation: { delegateId: ids.la2, level: 3, maxAmountCents: 2_000_000_000, ...window(), reason: "Deputising for the committee chair" } }))
     await expect(committee(as.la2, "bp-decl", "APPROVED", "A delegate overturns it.")).rejects.toMatchObject({ code: "FORBIDDEN" })
-    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.checker, id: deputy.id }))
+    await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.checker2, id: deputy.id }))
     expect(await db.creditCommitteeDecision.count({ where: { applicationId: "bp-decl" } })).toBe(1)
     await committee(as.checker2, "bp-decl", "APPROVED", "A second member re-heard it.")
     expect(await db.creditCommitteeDecision.count({ where: { applicationId: "bp-decl" } })).toBe(2)
@@ -100,7 +100,7 @@ suite("approval matrix: bypass attempts (real Postgres)", () => {
     // The database refuses it too: a step on a delegation whose delegator already has a step on the case, and a delegation that is no delegation.
     const theCase = await caseOf("bp-deleg")
     const step = (approver: string, delegation: string) => sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-deleg',2,'${approver}','DELEGATION','${delegation}')`)
-    expect(await refusal(step(ids.la2, granted.id))).toContain("delegator")
+    expect(await refusal(step(ids.la2, granted.id))).toContain("one seat")
     expect(await refusal(step(ids.la2, "no-such-delegation"))).toMatch(/delegation|foreign key/i)
     await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id }))
   })
@@ -113,7 +113,7 @@ suite("approval matrix: bypass attempts (real Postgres)", () => {
     expect((await stepsOf("bp-reverse"))[1]).toMatchObject({ level: 2, approverId: ids.la2, via: "DELEGATION", delegationId: granted.id })
     expect(await approveAs("bm", "bp-reverse")).toMatchObject({ status: 403, body: { approvalMatrix: "DELEGATOR_ALREADY_ACTED" } })
     const theCase = await caseOf("bp-reverse")
-    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-reverse',3,'${ids.bm}','ROLE')`))).toContain("delegate already approved")
+    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-reverse',3,'${ids.bm}','ROLE')`))).toContain("one seat")
     await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: granted.id }))
   })
 
@@ -127,7 +127,7 @@ suite("approval matrix: bypass attempts (real Postgres)", () => {
     expect(await approveAs("la1", "bp-twice")).toMatchObject({ status: 403, body: { approvalMatrix: "DELEGATOR_ALREADY_ACTED" } })
     expect(await statusOf("bp-twice")).toBe("UNDER_REVIEW")
     const theCase = await caseOf("bp-twice")
-    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-twice',2,'${ids.la1}','DELEGATION','${toB.id}')`))).toContain("once per application")
+    expect(await refusal(sql(`INSERT INTO "ApprovalStep" ("id","tenantId","caseId","applicationId","level","approverId","via","delegationId") VALUES ('s-${randomUUID()}','${ids.tenant}','${theCase.id}','bp-twice',2,'${ids.la1}','DELEGATION','${toB.id}')`))).toContain("one seat")
     await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: toA.id }))
     await inTenant(() => revokeDelegation({ tenantId: ids.tenant, actor: as.bm, id: toB.id }))
   })

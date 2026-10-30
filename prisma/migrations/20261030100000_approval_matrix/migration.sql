@@ -111,6 +111,7 @@ CREATE TABLE "CreditCommitteeDecision" (
     "conditions" JSONB NOT NULL,
     "rationale" TEXT NOT NULL,
     "recordedById" TEXT NOT NULL,
+    "delegationId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CreditCommitteeDecision_pkey" PRIMARY KEY ("id")
@@ -319,6 +320,26 @@ $function$;
 CREATE TRIGGER "ApprovalCase_guard" BEFORE UPDATE OR DELETE ON "ApprovalCase" FOR EACH ROW EXECUTE FUNCTION public."guardApprovalCase"();
 CREATE TRIGGER "ApprovalCase_no_truncate" BEFORE TRUNCATE ON "ApprovalCase" FOR EACH STATEMENT EXECUTE FUNCTION public."guardApprovalAppendOnly"();
 
+-- One person, one seat: why a candidate's principals (the person, and the delegator whose authority they act on) cannot take a seat on a
+-- case, or NULL. A seat is taken by the maker, by each approver and the delegator behind a delegated approval, and by each committee
+-- recorder (and the delegator behind them). `recorder_id` is the candidate when they record a committee decision: their own earlier
+-- decisions do not conflict with them (one member may record several).
+CREATE OR REPLACE FUNCTION public."approvalSeatTaken"(case_id TEXT, tenant_id TEXT, application_id TEXT, principals TEXT[], recorder_id TEXT)
+RETURNS TEXT LANGUAGE sql STABLE AS $function$
+  SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM "LoanApplication" a WHERE a."id" = application_id AND a."tenantId" = tenant_id AND COALESCE(a."inputStaffIds", '{}') && principals) THEN 'MAKER'
+    WHEN EXISTS (
+      SELECT 1 FROM "CreditCommitteeDecision" d LEFT JOIN "ApprovalDelegation" g ON g."id" = d."delegationId"
+      WHERE d."caseId" = case_id AND d."recordedById" IS DISTINCT FROM recorder_id AND (d."recordedById" = ANY (principals) OR g."delegatorId" = ANY (principals))
+    ) THEN 'RECORDED'
+    WHEN EXISTS (
+      SELECT 1 FROM "ApprovalStep" s LEFT JOIN "ApprovalDelegation" g ON g."id" = s."delegationId"
+      WHERE s."caseId" = case_id AND (s."approverId" = ANY (principals) OR g."delegatorId" = ANY (principals))
+    ) THEN 'SEATED'
+    ELSE NULL
+  END;
+$function$;
+
 -- A step: on an open case, in order, by an active person who is not the system user and did not capture the application
 -- or change its inputs (the maker is never the approver). One person approves once per case, one approval per level.
 -- A delegated step names a real delegation of that approver, in its window, unrevoked, reaching the level and the amount; and
@@ -327,10 +348,11 @@ CREATE OR REPLACE FUNCTION public."guardApprovalStep"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
   c RECORD;
-  maker_ids TEXT[];
   done INTEGER;
   dg RECORD;
   amount BIGINT;
+  principals TEXT[];
+  seat TEXT;
 BEGIN
   SELECT * INTO c FROM "ApprovalCase" WHERE "id" = NEW."caseId" AND "tenantId" = NEW."tenantId";
   IF NOT FOUND OR c."status" <> 'OPEN' THEN
@@ -346,16 +368,10 @@ BEGIN
   IF NEW."level" <> done + 1 THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Approvals are recorded in order, one level after another';
   END IF;
-  SELECT COALESCE(a."inputStaffIds", '{}') INTO maker_ids FROM "LoanApplication" a WHERE a."id" = NEW."applicationId" AND a."tenantId" = NEW."tenantId";
-  IF NEW."approverId" = ANY (maker_ids) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Maker-checker: the staff member who captured the application or changed its inputs cannot approve it';
-  END IF;
   IF NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = NEW."approverId" AND u."tenantId" = NEW."tenantId" AND u."active" AND NOT u."isSystem") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval is recorded against an active staff member, never the automated decisioning account';
   END IF;
-  IF EXISTS (SELECT 1 FROM "CreditCommitteeDecision" d WHERE d."caseId" = NEW."caseId" AND d."level" = NEW."level" AND d."recordedById" = NEW."approverId") THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: whoever recorded the credit committee''s decision cannot give the committee level''s approval';
-  END IF;
+  principals := ARRAY[NEW."approverId"];
   IF NEW."via" = 'DELEGATION' THEN
     SELECT * INTO dg FROM "ApprovalDelegation" d WHERE d."id" = NEW."delegationId" AND d."tenantId" = NEW."tenantId";
     IF NOT FOUND THEN
@@ -366,37 +382,55 @@ BEGIN
       OR (dg."revokedAt" IS NOT NULL AND dg."revokedAt" <= now()) OR amount > dg."maxAmountCents" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A delegated approval names a delegation to the approver that is in force and reaches this level and amount';
     END IF;
-    IF dg."delegatorId" = ANY (maker_ids) OR EXISTS (SELECT 1 FROM "ApprovalStep" s WHERE s."caseId" = NEW."caseId" AND s."approverId" = dg."delegatorId") THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: a delegator who captured the application or already approved it cannot also approve through a delegate';
-    END IF;
-    IF EXISTS (SELECT 1 FROM "ApprovalStep" s JOIN "ApprovalDelegation" d ON d."id" = s."delegationId" WHERE s."caseId" = NEW."caseId" AND d."delegatorId" = dg."delegatorId") THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: one delegator''s authority is used once per application, not through a second delegate';
-    END IF;
+    principals := principals || dg."delegatorId";
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM "ApprovalStep" s JOIN "ApprovalDelegation" d ON d."id" = s."delegationId"
-    WHERE s."caseId" = NEW."caseId" AND d."delegatorId" = NEW."approverId"
-  ) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: a delegator whose delegate already approved this application cannot also approve it';
+  seat := public."approvalSeatTaken"(NEW."caseId", NEW."tenantId", NEW."applicationId", principals, NULL);
+  IF seat = 'MAKER' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Maker-checker: the staff member who captured the application or changed its inputs cannot approve it';
+  ELSIF seat = 'RECORDED' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: whoever recorded the credit committee''s decision, or whose authority it was recorded on, cannot give the committee level''s approval';
+  ELSIF seat IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: one person holds one seat on an application: an approver, or the authority a delegate acted on, appears once';
   END IF;
   RETURN NEW;
 END;
 $function$;
 CREATE TRIGGER "ApprovalStep_guard" BEFORE INSERT ON "ApprovalStep" FOR EACH ROW EXECUTE FUNCTION public."guardApprovalStep"();
 
--- A committee decision: not from someone who already approved a level of the case, and from the maker's side no more than anyone else.
+-- A committee decision: one person, one seat (see approvalSeatTaken): not from someone who made the application, approved a level, or whose
+-- authority was used for a level, and when the recorder acts on a delegation it is a live one that reaches the level.
 -- A decline is overturned (a later APPROVED) only by someone other than those who recorded a decline.
 CREATE OR REPLACE FUNCTION public."guardCreditCommitteeDecision"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
+DECLARE
+  dg RECORD;
+  amount BIGINT;
+  principals TEXT[];
+  seat TEXT;
 BEGIN
   IF NEW."decision" = 'APPROVED' AND EXISTS (SELECT 1 FROM "CreditCommitteeDecision" d WHERE d."caseId" = NEW."caseId" AND d."level" = NEW."level" AND d."decision" = 'DECLINED' AND d."recordedById" = NEW."recordedById") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A committee decline is overturned only by someone other than the member who recorded it';
   END IF;
-  IF EXISTS (SELECT 1 FROM "ApprovalStep" s WHERE s."caseId" = NEW."caseId" AND s."approverId" = NEW."recordedById") THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: someone who approved a level of the case cannot record its credit committee decision';
+  principals := ARRAY[NEW."recordedById"];
+  IF NEW."delegationId" IS NOT NULL THEN
+    SELECT * INTO dg FROM "ApprovalDelegation" d WHERE d."id" = NEW."delegationId" AND d."tenantId" = NEW."tenantId";
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A committee decision recorded on a delegation names a delegation that exists';
+    END IF;
+    SELECT a."appliedAmount" INTO amount FROM "LoanApplication" a WHERE a."id" = NEW."applicationId" AND a."tenantId" = NEW."tenantId";
+    IF dg."delegateId" <> NEW."recordedById" OR dg."level" < NEW."level" OR dg."validFrom" > now() OR dg."validTo" < now()
+      OR (dg."revokedAt" IS NOT NULL AND dg."revokedAt" <= now()) OR amount > dg."maxAmountCents" THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A committee decision recorded on a delegation names a delegation to the recorder that is in force and reaches this level and amount';
+    END IF;
+    principals := principals || dg."delegatorId";
   END IF;
-  IF EXISTS (SELECT 1 FROM "LoanApplication" a WHERE a."id" = NEW."applicationId" AND a."tenantId" = NEW."tenantId" AND NEW."recordedById" = ANY (COALESCE(a."inputStaffIds", '{}'))) THEN
+  seat := public."approvalSeatTaken"(NEW."caseId", NEW."tenantId", NEW."applicationId", principals, NEW."recordedById");
+  IF seat = 'MAKER' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Maker-checker: the staff member who captured the application or changed its inputs cannot record its credit committee decision';
+  ELSIF seat = 'SEATED' THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: someone who approved a level of the case, or whose authority was used for one, cannot record its credit committee decision';
+  ELSIF seat IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: another member has already recorded a decision on this case on this member''s authority';
   END IF;
   RETURN NEW;
 END;

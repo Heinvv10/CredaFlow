@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { planApproval } from "./plan"
+import type { SeatReason } from "./seats"
 import type { MatrixLevel } from "./types"
 
 const levels: MatrixLevel[] = [
@@ -8,9 +9,8 @@ const levels: MatrixLevel[] = [
   { level: 3, name: "Credit committee", role: "ADMIN", slaHours: 48, committee: true },
 ]
 const base = {
-  required: 2, levels, steps: [] as Array<{ level: number; approverId: string }>, userId: "u1", inputStaffIds: ["maker"],
-  authority: { level: 2, via: "ROLE" as const, delegationId: null }, blockedAuthorityLevel: 2, delegatorActed: false, automated: false, committeeDecision: null as null | { decision: "APPROVED" | "DECLINED" | "DEFERRED" },
-  committeeRecorderIds: [] as string[],
+  required: 2, levels, steps: [] as Array<{ level: number; approverId: string }>, seatedAs: null as null | SeatReason,
+  authority: { level: 2, via: "ROLE" as const, delegationId: null }, blockedAuthorityLevel: 2, automated: false, committeeDecision: null as null | { decision: "APPROVED" | "DECLINED" | "DEFERRED" },
 }
 
 describe("planApproval", () => {
@@ -20,7 +20,7 @@ describe("planApproval", () => {
     expect(planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: loanAdmin, blockedAuthorityLevel: 1 })).toMatchObject({ kind: "refuse", code: "LEVEL_AUTHORITY_REQUIRED" })
   })
   it("a delegator whose delegate already approved cannot approve as well", () => {
-    expect(planApproval({ ...base, delegatorActed: true })).toMatchObject({ kind: "refuse", status: 403, code: "DELEGATOR_ALREADY_ACTED" })
+    expect(planApproval({ ...base, seatedAs: "DELEGATOR_ACTED" })).toMatchObject({ kind: "refuse", status: 403, code: "DELEGATOR_ALREADY_ACTED" })
   })
   it("level 1 of 2 is recorded and leaves the application under review", () => {
     expect(planApproval(base)).toMatchObject({ kind: "record", level: 1, requiredLevels: 2 })
@@ -39,11 +39,11 @@ describe("planApproval", () => {
     expect(planApproval({ ...base, automated: true, required: 0 })).toMatchObject({ kind: "final" })
   })
   it("the maker (who captured it or changed its inputs) never approves, at any level", () => {
-    expect(planApproval({ ...base, userId: "maker" })).toMatchObject({ kind: "refuse", status: 403, code: "MAKER_CANNOT_APPROVE" })
-    expect(planApproval({ ...base, userId: "maker", required: 0 })).toMatchObject({ kind: "final" })
+    expect(planApproval({ ...base, seatedAs: "MAKER" })).toMatchObject({ kind: "refuse", status: 403, code: "MAKER_CANNOT_APPROVE" })
+    expect(planApproval({ ...base, seatedAs: "MAKER", required: 0 })).toMatchObject({ kind: "final" })
   })
   it("a person approves once: the next level needs someone else", () => {
-    expect(planApproval({ ...base, steps: [{ level: 1, approverId: "u1" }] })).toMatchObject({ kind: "refuse", status: 409, code: "ALREADY_APPROVED" })
+    expect(planApproval({ ...base, seatedAs: "APPROVED", steps: [{ level: 1, approverId: "u1" }] })).toMatchObject({ kind: "refuse", status: 409, code: "ALREADY_APPROVED" })
   })
   it("an approver without the authority for the next level is refused, naming the role it needs", () => {
     const refused = planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: { level: 1, via: "ROLE", delegationId: null }, blockedAuthorityLevel: 1 })
@@ -66,7 +66,7 @@ describe("planApproval", () => {
   })
   it("whoever recorded a committee decision cannot give the committee level's approval", () => {
     const atCommittee = { ...base, required: 3, steps: [{ level: 1, approverId: "u0" }, { level: 2, approverId: "u9" }], authority: { level: 3, via: "ROLE" as const, delegationId: null }, committeeDecision: { decision: "APPROVED" as const } }
-    expect(planApproval({ ...atCommittee, committeeRecorderIds: ["u1"] })).toMatchObject({ kind: "refuse", status: 409, code: "COMMITTEE_RECORDER_CANNOT_APPROVE" })
-    expect(planApproval({ ...atCommittee, committeeRecorderIds: ["someone-else"] })).toMatchObject({ kind: "final", level: 3 })
+    expect(planApproval({ ...atCommittee, seatedAs: "RECORDED" })).toMatchObject({ kind: "refuse", status: 409, code: "COMMITTEE_RECORDER_CANNOT_APPROVE" })
+    expect(planApproval({ ...atCommittee, seatedAs: null })).toMatchObject({ kind: "final", level: 3 })
   })
 })

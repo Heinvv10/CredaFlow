@@ -165,6 +165,8 @@ model CreditCommitteeDecision {
   rationale     String
   recordedById  String
   recordedBy    User                  @relation("CommitteeDecisionRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// The delegation whose authority the recorder used, when their own role did not reach the committee's level.
+  delegationId  String?
   createdAt     DateTime              @default(now())
 
   @@index([tenantId, applicationId])

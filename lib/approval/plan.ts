@@ -1,4 +1,5 @@
 import type { Authority } from "./evaluate"
+import type { SeatReason } from "./seats"
 import type { MatrixLevel } from "./types"
 
 export type ApprovalPlan =
@@ -13,23 +14,18 @@ export interface PlanInput {
   required: number
   levels: readonly MatrixLevel[]
   steps: ReadonlyArray<{ level: number; approverId: string }>
-  userId: string
-  /** The staff who captured the application or changed its inputs: the maker. */
-  inputStaffIds: readonly string[]
+  /** Why the user already holds a seat on this application (./seats.ts), or null: the maker, an approver, a delegator acted for, the recorder. */
+  seatedAs: SeatReason | null
   authority: Authority
   /**
    * The level the user would hold if the delegators who already acted on this application (made it, or approved it) could still
    * delegate: above `authority.level` only when such a delegation is being refused.
    */
   blockedAuthorityLevel: number
-  /** The user is the delegator of a delegate who already approved this application. */
-  delegatorActed: boolean
   /** The decision engine is asking. */
   automated: boolean
   /** The latest committee decision at the committee's level, if any. */
   committeeDecision: { decision: "APPROVED" | "DECLINED" | "DEFERRED" } | null
-  /** Everyone who recorded a committee decision at the committee's level: none of them gives that level's approval. */
-  committeeRecorderIds: readonly string[]
 }
 
 const refuse = (status: number, code: string, error: string): ApprovalPlan => ({ kind: "refuse", status, code, error })
@@ -46,14 +42,17 @@ export function planApproval(input: PlanInput): ApprovalPlan {
       : { kind: "final", level: 0, requiredLevels: 0, via: "ROLE", delegationId: null }
   }
   if (required === 0) return { kind: "final", level: 0, requiredLevels: 0, via: "ROLE", delegationId: null }
-  if (input.inputStaffIds.includes(input.userId)) {
+  if (input.seatedAs === "MAKER") {
     return refuse(403, "MAKER_CANNOT_APPROVE", "You captured this application or changed its figures, so you cannot approve it at any level.")
   }
-  if (input.steps.some((s) => s.approverId === input.userId)) {
+  if (input.seatedAs === "APPROVED") {
     return refuse(409, "ALREADY_APPROVED", "You have already approved this application at a lower level; the next level needs a different person.")
   }
-  if (input.delegatorActed) {
+  if (input.seatedAs === "DELEGATOR_ACTED") {
     return refuse(403, "DELEGATOR_ALREADY_ACTED", "Your delegate already approved this application on your authority, so you cannot also approve it.")
+  }
+  if (input.seatedAs === "RECORDED") {
+    return refuse(409, "COMMITTEE_RECORDER_CANNOT_APPROVE", "You recorded the committee's decision, or it was recorded on your authority, so another person must give the committee level's approval.")
   }
   const next = input.steps.length + 1
   if (next > required) return refuse(409, "CHAIN_COMPLETE", "Every required level has already approved this application.")
@@ -66,9 +65,6 @@ export function planApproval(input: PlanInput): ApprovalPlan {
     return refuse(403, "LEVEL_AUTHORITY_REQUIRED", `Level ${next} (${level.name}) needs the ${level.role} role or a delegation of that authority; yours reaches level ${authority.level}.`)
   }
   if (level.committee) {
-    if (input.committeeRecorderIds.includes(input.userId)) {
-      return refuse(409, "COMMITTEE_RECORDER_CANNOT_APPROVE", "You recorded the committee's decision, so another person must give the committee level's approval.")
-    }
     if (input.committeeDecision?.decision === "DECLINED") {
       return refuse(409, "COMMITTEE_DECLINED", "The credit committee declined this application. Decline it, or have the committee record a new decision.")
     }
