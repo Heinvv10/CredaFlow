@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 
 const requireApiRoleMock = vi.fn()
 const findUniqueMock = vi.fn()
+const calculateLoanMock = vi.fn((..._args: unknown[]) => undefined)
 const productVersionFindFirstMock = vi.fn(async (_a: unknown) => null as Record<string, unknown> | null)
 const updateManyMock = vi.fn()
 const auditLogCreateMock = vi.fn()
@@ -41,7 +42,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 vi.mock("@/lib/loan-calculator", () => ({
-  calculateLoan: () => ({
+  calculateLoan: (...args: unknown[]) => (calculateLoanMock(...args), {
     principal: 500_000,
     totalInterest: 30_000,
     initiationFee: 75_000,
@@ -372,8 +373,8 @@ describe("PATCH /api/applications/[id]/affordability", () => {
         interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", initiationFeePct: 0.1,
         repayment: expect.objectContaining({ frequency: "WEEKLY", structure: "AMORTISING" }),
       })
-      // 90 days is 13 weekly instalments, not the legacy single payment
-      expect(data.affordabilityResult.assessment.calculator.schedule).toHaveLength(13)
+      // the schedule is generated for the version's weekly structure over 90 days: 13 instalments, at the version's rate
+      expect(calculateLoanMock).toHaveBeenCalledWith(expect.objectContaining({ interestRatePm: 0.02, repayment: expect.objectContaining({ frequency: "WEEKLY", instalments: 13 }) }), expect.anything())
     } finally {
       resetActiveJurisdiction()
     }
