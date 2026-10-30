@@ -1,15 +1,27 @@
 import { isIP } from "node:net"
+import { classify, FAIL_CLOSED_RETRY_SECONDS } from "./rate-limit-groups"
+import { SharedStoreUnavailableError } from "./rate-limit-errors"
+import { checkSharedRateLimit } from "./rate-limit-store"
 
 /**
- * In-memory sliding-window rate limiter.
+ * Sliding-window rate limiter.
  *
- * Suitable for single-replica deployments only. When you scale to >1 web
- * replica, replace `store` with a Redis-backed implementation — the public
- * `checkRateLimit` API can stay the same.
+ * Two stores behind one async API. `postgres` (the default when DATABASE_URL is set)
+ * keeps the window in the RateLimitHit table, so a limit holds across every web
+ * replica and survives a restart (lib/rate-limit-store.ts). `memory` keeps it in this
+ * process: per-pod limits, for tests, local development and a database-less run.
+ * RATE_LIMIT_STORE=memory|postgres chooses explicitly; any other value throws.
  *
- * Each call records a timestamp under the given key and reports whether the
- * caller is currently over the limit. Old timestamps outside the window are
- * GC'd lazily on every check, so memory stays bounded by active keys.
+ * FAIL MODE (lib/rate-limit-groups.ts says which limits are authentication limits):
+ *  - A call whose pool has no free connection, or that TIMES OUT (a lock held on its key, SHARED_TIMEOUT_MS), concerns that call alone:
+ *    an authentication limit refuses it, any other is decided by the in-memory limiter. Nothing else changes.
+ *  - A database ERROR counts towards an outage: after FAILURES_TO_OPEN in a row the group's store is not asked for
+ *    BREAKER_MS, and meanwhile an authentication group refuses (sign-in needs the database anyway) while any other is
+ *    decided in memory (per pod, up to N times looser, never absent). The breaker is per group.
+ * An outage is logged once.
+ *
+ * Each call records a hit under the given key and reports whether the caller is
+ * over the limit. A refused call records nothing.
  */
 
 type Bucket = number[]
@@ -23,17 +35,11 @@ const allStores = new Set<Map<string, Bucket>>([store])
 // works for a rate limiter is "drop oldest insertion" — Map preserves order.
 const MAX_KEYS = 10_000
 
-/**
- * A limiter with its own store and cap. Use one where keys of different kinds
- * must not evict each other: a flood of unique keys of one kind (failed
- * attempts from random addresses) would otherwise push out the buckets of
- * another (a real API key already at its limit), lifting that limit.
- */
-export function createRateLimiter(maxKeys: number): (key: string, opts: RateLimitOptions) => RateLimitResult {
-  const own = new Map<string, Bucket>()
-  allStores.add(own)
-  return (key, opts) => checkIn(own, maxKeys, key, opts)
-}
+/** How long a shared-store call may take before it counts as a failure. */
+const SHARED_TIMEOUT_MS = 1500
+/** After this many failures in a row for a group, its shared store is not asked for BREAKER_MS. */
+const FAILURES_TO_OPEN = 3
+const BREAKER_MS = 30_000
 
 export interface RateLimitResult {
   allowed: boolean
@@ -48,8 +54,139 @@ export interface RateLimitOptions {
   windowMs: number
 }
 
-export function checkRateLimit(key: string, opts: RateLimitOptions): RateLimitResult {
-  return checkIn(store, MAX_KEYS, key, opts)
+type Mode = "memory" | "postgres"
+
+/** Throws on an unusable RATE_LIMIT_STORE. Called at boot (instrumentation.ts) so a typo stops the deploy, not each login. */
+export function assertRateLimitStoreConfig(): void {
+  storeMode()
+}
+
+function storeMode(): Mode {
+  const configured = process.env.RATE_LIMIT_STORE?.trim().toLowerCase()
+  if (configured === "memory" || configured === "postgres") return configured
+  if (configured) throw new Error(`RATE_LIMIT_STORE must be "memory" or "postgres", got "${configured}"`)
+  return process.env.DATABASE_URL?.trim() ? "postgres" : "memory"
+}
+
+/** Consecutive failures and the end of the open period, per group: one group's outage does not move the others. */
+const health = new Map<string, { failures: number; openUntil: number }>()
+
+function withTimeout<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SharedStoreUnavailableError(`shared rate-limit store did not answer in ${SHARED_TIMEOUT_MS} ms`, { kind: "timeout" })), SHARED_TIMEOUT_MS)
+    work.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
+const refusedWhileDown = (): RateLimitResult => ({ allowed: false, remaining: 0, retryAfterSeconds: FAIL_CLOSED_RETRY_SECONDS })
+
+/**
+ * Per key, per process: at most one store call in flight; the next caller for the same key runs when the one ahead
+ * has finished. A hot or stalled key can therefore hold one connection of the pool per pod, never the whole pool,
+ * so contention on one key cannot saturate the pool that authentication needs. Each caller still makes its own call
+ * (every hit is counted); a caller that gave up waiting (its own timeout) skips its turn instead of running late.
+ */
+const lanes = new Map<string, Promise<unknown>>()
+
+function inLane<T>(laneKey: string, run: () => Promise<T>): Promise<T> {
+  const ahead = lanes.get(laneKey) ?? Promise.resolve()
+  const mine = ahead.then(run, run)
+  const tail = mine.then(() => undefined, () => undefined)
+  lanes.set(laneKey, tail)
+  void tail.then(() => {
+    if (lanes.get(laneKey) === tail) lanes.delete(laneKey)
+  })
+  return mine
+}
+
+export interface CheckOptions {
+  /**
+   * For a key the caller chooses (an email typed into a form): the caller's address, as limiterAddress. When the key's
+   * authentication group is sealed (lib/rate-limit-cleanup.ts), a NEW key may still be created if this address has
+   * budget for it (lib/rate-limit-store.ts); without it a sealed group takes no new key.
+   */
+  newKeyAddress?: string
+}
+
+async function decide(
+  namespace: string,
+  key: string,
+  opts: RateLimitOptions,
+  memory: Map<string, Bucket>,
+  maxKeys: number,
+  extra: CheckOptions = {},
+): Promise<RateLimitResult> {
+  const { group, failClosed, podLocal } = classify(namespace, key)
+  if (podLocal || storeMode() === "memory") return checkIn(memory, maxKeys, key, opts)
+  const state = health.get(group)
+  if (state && Date.now() < state.openUntil) return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
+  let abandoned = false
+  try {
+    const result = await withTimeout(inLane(`${namespace}\0${key}`, async () => {
+      if (abandoned) throw new SharedStoreUnavailableError("gave up waiting for this key's turn", { kind: "timeout" })
+      return checkSharedRateLimit(namespace, key, opts, group, extra.newKeyAddress)
+    }))
+    health.delete(group)
+    return result
+  } catch (error) {
+    abandoned = true
+    // Only the store being unavailable degrades (to a refusal, or the in-memory limiter, by group). Anything else is
+    // a bug (a TypeError, a bad argument) and is thrown to the caller: it must not be hidden as an outage.
+    if (!(error instanceof SharedStoreUnavailableError)) throw error
+    // A full pool is local congestion, not the database being down, and opens nothing. This call is refused (an
+    // authentication limit) or decided in memory (any other): never an authentication call in memory.
+    if (error.kind === "saturated") return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
+    // A timeout concerns this call alone (a lock held on this one key, a busy pool): it is refused, or served from memory,
+    // and no other key is affected. Whoever can stall one key must not be able to refuse the rest.
+    if (error.kind === "timeout") return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
+    // A database error is an outage once it repeats: then the group is not asked for a while, and an authentication group
+    // refuses meanwhile (sign-in needs the database too, so nothing that would have worked is lost).
+    const failures = (state?.failures ?? 0) + 1
+    const opens = failures >= FAILURES_TO_OPEN
+    health.set(group, { failures, openUntil: opens ? Date.now() + BREAKER_MS : 0 })
+    // First failure of an outage, and when the breaker opens: not one line per request.
+    if (failures === 1 || failures === FAILURES_TO_OPEN) {
+      console.error(`[rate-limit] shared store unavailable for "${group}" (${failures} in a row); ${failClosed ? "refusing these attempts" : "limits are per pod"} until it answers again:`, error)
+    }
+    return failClosed ? refusedWhileDown() : checkIn(memory, maxKeys, key, opts)
+  }
+}
+
+/**
+ * A limiter with its own in-memory store and cap, and its own key namespace in the
+ * shared store. Use one where keys of different kinds must not evict each other: a
+ * flood of unique keys of one kind (failed attempts from random addresses) would
+ * otherwise push out the buckets of another (a real API key already at its limit),
+ * lifting that limit. `namespace` must be stable across replicas and releases.
+ */
+export function createRateLimiter(maxKeys: number, namespace: string): (key: string, opts: RateLimitOptions) => Promise<RateLimitResult> {
+  const own = new Map<string, Bucket>()
+  allStores.add(own)
+  return (key, opts) => decide(namespace, key, opts, own, maxKeys)
+}
+
+/**
+ * A limiter that is per process on purpose, whatever RATE_LIMIT_STORE says: for a
+ * sampling decision (how many log rows to write) where a database round trip per
+ * call would cost more than the limit protects.
+ */
+export function createLocalRateLimiter(maxKeys: number): (key: string, opts: RateLimitOptions) => RateLimitResult {
+  const own = new Map<string, Bucket>()
+  allStores.add(own)
+  return (key, opts) => checkIn(own, maxKeys, key, opts)
+}
+
+export function checkRateLimit(key: string, opts: RateLimitOptions, extra?: CheckOptions): Promise<RateLimitResult> {
+  return decide("", key, opts, store, MAX_KEYS, extra)
 }
 
 function checkIn(store: Map<string, Bucket>, maxKeys: number, key: string, opts: RateLimitOptions): RateLimitResult {
@@ -73,7 +210,7 @@ function checkIn(store: Map<string, Bucket>, maxKeys: number, key: string, opts:
   }
 
   if (bucket.length >= opts.limit) {
-    const retryAfterMs = bucket[0] + opts.windowMs - now
+    const retryAfterMs = (bucket[0] ?? now) + opts.windowMs - now
     return {
       allowed: false,
       remaining: 0,
@@ -89,9 +226,11 @@ function checkIn(store: Map<string, Bucket>, maxKeys: number, key: string, opts:
   }
 }
 
-/** Clear all rate-limit state. Test helper; do not call from request paths. */
+/** Clear all in-memory rate-limit state and close the breaker. Test helper; do not call from request paths. */
 export function _resetRateLimitStore(): void {
   for (const s of allStores) s.clear()
+  health.clear()
+  lanes.clear()
 }
 
 /**

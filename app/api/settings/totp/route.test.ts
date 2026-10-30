@@ -44,7 +44,7 @@ beforeEach(() => {
   h.auditCreate.mockReset().mockResolvedValue({})
   h.required.mockReset().mockResolvedValue(false)
   h.claim.mockReset().mockResolvedValue(true)
-  h.rate.mockReset().mockReturnValue({ allowed: true, remaining: 4, retryAfterSeconds: 0 })
+  h.rate.mockReset().mockResolvedValue({ allowed: true, remaining: 4, retryAfterSeconds: 0 })
 })
 
 describe("DELETE /api/settings/totp — turning off your own 2FA", () => {
@@ -123,7 +123,7 @@ describe("DELETE /api/settings/totp — turning off your own 2FA", () => {
   })
 
   it("answers 429 once the caller has guessed too often, before it looks at the code", async () => {
-    h.rate.mockReturnValue({ allowed: false, remaining: 0, retryAfterSeconds: 60 })
+    h.rate.mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 60 })
     const res = await DELETE(req("DELETE", { code: generateTotpCode(secret) }))
     expect(res.status).toBe(429)
     expect(h.claim).not.toHaveBeenCalled()
@@ -222,7 +222,7 @@ describe("POST /api/settings/totp — enrolling", () => {
     })
 
     it("counts current-code guesses against the same limit as turning 2FA off", async () => {
-      h.rate.mockReturnValue({ allowed: false, remaining: 0, retryAfterSeconds: 60 })
+      h.rate.mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 60 })
       expect((await replace({ currentCode: generateTotpCode(old) })).status).toBe(429)
       expect(h.updateManyUser).not.toHaveBeenCalled()
     })

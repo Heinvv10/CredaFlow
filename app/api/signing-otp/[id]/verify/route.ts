@@ -6,6 +6,7 @@ import { AuditAction, logAudit } from "@/lib/audit"
 import { callerIp, checkRateLimit, recordedCallerIp } from "@/lib/rate-limit"
 import { signingOtpCaller } from "@/lib/signing-otp/caller"
 import { SIGNING_OTP_REFUSAL_MESSAGES, verifySigningOtp, type VerifyRefusal } from "@/lib/signing-otp/challenge"
+import { limiterAddress } from "@/lib/limiter-address"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
   if ("error" in resolved) return resolved.error
   const { caller } = resolved
 
-  const gate = checkRateLimit(`signing-otp:verify:ip:${callerIp(req)}`, IP_LIMIT)
+  const gate = await checkRateLimit(`signing-otp:verify:ip:${limiterAddress(callerIp(req))}`, IP_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

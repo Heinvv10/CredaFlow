@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  const gate = checkRateLimit(`portal:payment-notify:${session.user.email}`, NOTIFY_RATE_LIMIT)
+  const gate = await checkRateLimit(`portal:payment-notify:${session.user.email}`, NOTIFY_RATE_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many payment notifications. Please try again later or contact us." },

@@ -474,7 +474,7 @@ describe("POST /api/portal/register — preserved gates (SIGN-04/04b/07)", () =>
     expect(createClientOtp).toHaveBeenCalledTimes(5)
 
     const identityKeyCalls = checkRateLimit.mock.calls.filter(
-      ([key]) => key === "register:jane@example.com"
+      ([key]) => key === "register:identity:jane@example.com"
     )
     expect(identityKeyCalls).toHaveLength(6)
   })
@@ -491,7 +491,7 @@ describe("POST /api/portal/register — preserved gates (SIGN-04/04b/07)", () =>
     // The identity-gate key is lower-cased + trimmed identically to the DB
     // client lookup, so "  JANE@Example.COM " cannot dodge the throttle by
     // varying case/whitespace against the same account.
-    expect(keys).toContain("register:jane@example.com")
+    expect(keys).toContain("register:identity:jane@example.com")
   })
 })
 

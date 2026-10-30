@@ -131,6 +131,12 @@ describe("SSO sign-in, end to end against a local OIDC provider", () => {
     expect(line).toMatch(/Secure/i)
   })
 
+  it("sends an address to the login page with rate_limited after 30 starts in the window", async () => {
+    for (let i = 0; i < 30; i++) expect((await handleSsoStart(req("/api/auth/sso/start"), TEST)).headers.get("location")).not.toContain("rate_limited")
+    const refused = await handleSsoStart(req("/api/auth/sso/start"), TEST)
+    expect(refused.headers.get("location")).toContain("sso_error=rate_limited")
+  })
+
   it("signs a mapped user in: ticket cookie, then a session whose role follows the group", async () => {
     const { cb } = await signInVia({ email: "ann@bank.example.test", groups: ["admins"], amr: ["pwd", "mfa"] })
     expect(cb.status).toBe(303)

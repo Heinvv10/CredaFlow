@@ -44,7 +44,7 @@ async function auditDecision(
   if (!reason) return
   const action = decision.allowed ? AuditAction.STAFF_ACCESS_BYPASSED : AuditAction.STAFF_ACCESS_REFUSED
   if (stage === "session") {
-    const gate = checkRateLimit(`staff-access-audit:${principal.userId}:${action}:${reason}`, SESSION_AUDIT_DEDUPE)
+    const gate = await checkRateLimit(`staff-access-audit:${principal.userId}:${action}:${reason}`, SESSION_AUDIT_DEDUPE)
     if (!gate.allowed) return
   }
   await logAudit({

@@ -8,6 +8,7 @@ import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import crypto from "crypto"
 import { STAFF_RESET_LINK_MINUTES } from "@/lib/password-reset"
 import { SSO_BOUND_SELECT, passwordBlockedBySso } from "@/lib/sso/password-policy"
+import { limiterAddress } from "@/lib/limiter-address"
 
 const EXPIRY_MINUTES = STAFF_RESET_LINK_MINUTES
 
@@ -17,7 +18,7 @@ const RESET_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 
 export async function POST(req: NextRequest) {
   const ip = callerIp(req)
-  const gate = checkRateLimit(`forgot:staff:${ip}`, RESET_RATE_LIMIT)
+  const gate = await checkRateLimit(`forgot:staff:${limiterAddress(ip)}`, RESET_RATE_LIMIT)
   if (!gate.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

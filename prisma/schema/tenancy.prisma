@@ -576,6 +576,33 @@ model CronHeartbeat {
   lastError       String?
 }
 
+// Shared rate-limit state (lib/rate-limit-store.ts): one row per limited key, the
+// timestamps of its hits inside the current window, on the DATABASE clock so
+// replicas with skewed clocks agree. `keyHash` is sha256(key): keys name emails and
+// addresses, and a limit has no need to be readable. Not tenant-scoped on purpose:
+// a key already carries whatever scope it needs. Rows past `expiresAt` are purged
+// by /api/cron/rate-limit-cleanup.
+model RateLimitHit {
+  keyHash   String     @id
+  // The limiter group the key belongs to (lib/rate-limit.ts): the cleanup cron caps the rows of each group.
+  ns        String     @default("")
+  // The limit the key was last checked against: the cleanup never evicts a row still holding a full window.
+  maxHits   Int        @default(0)
+  hits      DateTime[] @db.Timestamptz(3)
+  expiresAt DateTime   @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@index([ns, expiresAt])
+}
+
+// An authentication limiter group (lib/rate-limit-groups.ts) that has reached its hard row ceiling: while its name is
+// here the shared store takes no NEW key in that group (a call whose key has no row is refused); keys with a row keep
+// working. Written by /api/cron/rate-limit-cleanup, which lifts it when the group is under the ceiling again.
+model RateLimitSealedGroup {
+  ns       String   @id
+  sealedAt DateTime @default(now()) @db.Timestamptz(3)
+}
+
 // One row per (single-run in-process job, SAST day): the replica that inserts it
 // runs the job, and the row records how the run ended (lib/ops/cron-run-claim.ts).
 // A later firing the same day proceeds only over a FAILED row, or a RUNNING one
