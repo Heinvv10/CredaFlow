@@ -3,7 +3,7 @@ import type { GraceKind, RepaymentStructure } from "./types"
 /**
  * The rules that bind a grace to a structure, in one place: the configuration parser (terms.ts) reports every problem, the
  * generator (schedule.ts) throws on the first. The database holds the same rules as CHECK constraints on ProductVersion and
- * LoanTerms (migration 20261030010000_product_engine), which an integration test keeps in step.
+ * LoanTerms (migration 20261031120000_product_engine), which an integration test keeps in step.
  */
 export function graceRuleProblems(structure: RepaymentStructure, graceKind: GraceKind, graceInstalments: number): Array<{ path: string; message: string }> {
   const problems: Array<{ path: string; message: string }> = []

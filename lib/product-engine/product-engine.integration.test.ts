@@ -1,5 +1,5 @@
 /**
- * Real-Postgres proof of the product engine (migration 20261030010000_product_engine): a version or a pricing rule exists
+ * Real-Postgres proof of the product engine (migration 20261031120000_product_engine): a version or a pricing rule exists
  * only because a second person approved it and is exactly what they approved; versions never change; a version in effect
  * makes LoanProduct equal to it; a loan keeps the terms it was written on; an NCA lender is held to its caps.
  *
