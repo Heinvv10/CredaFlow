@@ -1,5 +1,7 @@
 import type { LoanCalcResult } from "@/lib/loan-calculator"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { approvalTermsFor, capApplicationFor, versionLimitRefusal } from "@/lib/product-engine/approval-terms"
 import { Prisma } from "@prisma/client"
 import {
   lockAffordabilityApplicationEvidence,
@@ -53,7 +55,7 @@ import {
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
 import { liveOwnAwareDebtInputs, ownLenderDebtIncreasedSinceApproval, recordedOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
-import { checkRepeatShortTermFor } from "@/lib/loan/nca-interest-cap.server"
+import { approvalInterestCapCheck, checkRepeatShortTermFor } from "@/lib/loan/nca-interest-cap.server"
 import {
   requireClientBorrowerId,
   requireClientBorrowerRow,
@@ -95,6 +97,8 @@ export interface CurrentApprovalEvidenceApplication
   bureauOverrideAt: Date | string | null
   bureauReviewGeneration: string | null
   product: {
+    /** Optional: only the MICRO30 contract product is told apart by it (no pricing rule applies to it). */
+    code?: string
     interestRatePm: number
     interestModel: string
     initiationFeeModel: "FLAT_PCT" | "NCA_REG42"
@@ -118,6 +122,7 @@ export const approvalEvidenceApplicationInclude = Prisma.validator<Prisma.LoanAp
   loan: { select: { id: true } },
   product: {
     select: {
+      code: true,
       interestRatePm: true,
       interestModel: true,
       initiationFeeModel: true,
@@ -332,6 +337,19 @@ function approvedTerms(application: LockedApprovalApplication) {
   return { ...application, product: { ...application.product, interestRatePm: frozen ?? application.product.interestRatePm } }
 }
 
+/**
+ * A loan written at a product version's rate is paid out only while that rate is still within the NCA cap: a repo cut between the
+ * approval and the payout can leave an approved, frozen rate above the ceiling in force when the agreement is entered into. The
+ * loans of products with no version are unchanged: this reads only the frozen inputs of a versioned approval.
+ */
+async function frozenVersionedRateIsLawful(tx: ApprovalEvidenceTransaction, tenantId: string, application: LockedApprovalApplication): Promise<boolean> {
+  const frozen = readAffordabilitySnapshotStore(application.affordabilityResult).approval?.inputs
+  if (!frozen?.productVersion) return true
+  const written = approvedTerms(application)
+  const subject = { ...written, appliedAmount: frozen.principalCents, appliedTermDays: frozen.termDays, product: { ...written.product, interestModel: frozen.interestModel } }
+  return (await approvalInterestCapCheck(tx, tenantId, subject, new Date())).ok
+}
+
 export async function verifyLockedCurrentAffordabilityApproval(
   tx: ApprovalEvidenceTransaction,
   args: {
@@ -365,6 +383,7 @@ export async function verifyLockedCurrentAffordabilityApproval(
   // repeat rate), has appeared since.
   const raised = await ownLenderDebtIncreasedSinceApproval(tx, args.tenantId, args.applicationId, context.application)
     || !(await checkRepeatShortTermFor(tx, args.tenantId, approvedTerms(context.application), new Date())).ok
+    || !(await frozenVersionedRateIsLawful(tx, args.tenantId, context.application))
   return raised ? { ok: false, reason: "changed" } : { ...verified, application: context.application }
 }
 
@@ -474,19 +493,27 @@ export async function verifyLockedApprovalCandidate(
     return { ok: false, reason: "expense_evidence_invalid" }
   }
 
+  // The same terms decide-application approved on (lib/product-engine/approval-terms.ts): the product's own, or the version
+  // in effect that day with the price its rule gives. The rate it prices at, above the NCA ceiling, is refused, never re-priced.
+  let terms: Awaited<ReturnType<typeof approvalTermsFor>>
   let calculation: LoanCalcResult
   try {
+    terms = await approvalTermsFor(tx, args.tenantId, { id: application.id, productId: application.productId, appliedTermDays: application.appliedTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(args.calculationStartDate))
+    if (terms.repayment && terms.repayment.frequency !== "MONTHLY" && application.creditLifeElection === "ACCEPTED") return { ok: false, reason: "changed" }
+    if (terms.ncaIssues.length > 0 || versionLimitRefusal(terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays })) return { ok: false, reason: "changed" }
+    if (terms.versioned && !(await approvalInterestCapCheck(tx, args.tenantId, capApplicationFor(application, terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays }))).ok) return { ok: false, reason: "changed" }
     calculation = calculateLoan({
       principal: application.appliedAmount,
       termDays: application.appliedTermDays,
-      interestRatePm: application.product.interestRatePm,
+      interestRatePm: terms.interestRatePm,
       productType: application.product.productType,
-      interestModel: application.product.interestModel,
-      initiationFeeModel: application.product.initiationFeeModel,
-      initiationFeePct: application.product.initiationFeePct,
-      initiationFeeMax: application.product.initiationFeeMax,
-      monthlyServiceFee: application.product.monthlyServiceFee,
+      interestModel: terms.interestModel,
+      initiationFeeModel: terms.initiationFeeModel,
+      initiationFeePct: terms.initiationFeePct,
+      initiationFeeMax: terms.initiationFeeMax,
+      monthlyServiceFee: terms.monthlyServiceFee,
       initiationFeePayment: application.initiationFeePayment,
+      ...(terms.repayment ? { repayment: terms.repayment } : {}),
     }, args.calculationStartDate)
   } catch {
     return { ok: false, reason: "changed" }
@@ -570,15 +597,17 @@ export async function verifyLockedApprovalCandidate(
     principalCents: application.appliedAmount,
     termDays: application.appliedTermDays,
     productId: application.productId,
-    interestRatePm: application.product.interestRatePm,
-    interestModel: application.product.interestModel,
-    initiationFeeModel: application.product.initiationFeeModel,
-    initiationFeePct: application.product.initiationFeePct,
-    initiationFeeMaxCents: application.product.initiationFeeMax,
-    monthlyServiceFeeCents: application.product.monthlyServiceFee,
+    interestRatePm: terms.interestRatePm,
+    interestModel: terms.interestModel,
+    initiationFeeModel: terms.initiationFeeModel,
+    initiationFeePct: terms.initiationFeePct,
+    initiationFeeMaxCents: terms.initiationFeeMax,
+    monthlyServiceFeeCents: terms.monthlyServiceFee,
     productType: application.product.productType,
     initiationFeePayment: application.initiationFeePayment,
     ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+    ...(terms.repayment ? { repayment: terms.repayment } : {}),
+    ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
   }
   const affordability = evaluateAffordabilityGate(inputs)
   if (affordability.blocked) return { ok: false, reason: "affordability_failed" }
@@ -766,6 +795,8 @@ export function verifyCurrentAffordabilityApproval(args: {
       monthlyServiceFeeCents: frozen.monthlyServiceFeeCents,
       initiationFeePayment: frozen.initiationFeePayment,
       ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+      ...(frozen.repayment ? { repayment: frozen.repayment } : {}),
+      ...(frozen.productVersion ? { productVersion: frozen.productVersion } : {}),
     },
     applicationDebts,
     clientDebts,

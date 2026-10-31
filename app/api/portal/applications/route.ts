@@ -42,7 +42,7 @@ import {
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
 import { loadOwnLenderArrears, OWN_LENDER_ARREARS_CODE, OWN_LENDER_ARREARS_REASON } from "@/lib/affordability/own-lender-arrears-gate"
 import { creditBlock } from "@/lib/clients/status"
-import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
+import { CUSTOMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 // Client-portal application submission. Distinct from /api/applications
 // (staff-only) and /api/website/apply (anonymous lead capture, creates a
@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
     // unique code. Type-based resolution with creation-order tiebreak is
     // correct only by accident while each productType has one row.
     const product = await prisma.loanProduct.findFirst({
-      where: { tenantId: tenant.id, code: productCode, active: true, ...CONSUMER_PRODUCT_WHERE },
+      where: { tenantId: tenant.id, code: productCode, active: true, ...CUSTOMER_PRODUCT_WHERE },
     })
     if (!product) {
       return NextResponse.json(
@@ -399,7 +399,7 @@ export async function POST(req: NextRequest) {
             include: { debtObligations: true, expenseBreakdown: true },
           }),
           tx.loanProduct.findFirst({
-            where: { id: product.id, tenantId: tenant.id, code: productCode, active: true, ...CONSUMER_PRODUCT_WHERE },
+            where: { id: product.id, tenantId: tenant.id, code: productCode, active: true, ...CUSTOMER_PRODUCT_WHERE },
           }),
         ])
         if (!currentClient || !currentProduct) {
@@ -727,6 +727,7 @@ export async function POST(req: NextRequest) {
         const created = await tx.loanApplication.create({
           data: {
             tenantId: tenant.id,
+            pricingInput: { create: { tenant: { connect: { id: tenant.id } }, channel: "DIGITAL" } },
             reference: generateReference("APP"),
             clientId: currentClient.id,
             productId: currentProduct.id,

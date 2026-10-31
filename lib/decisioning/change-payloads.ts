@@ -1,6 +1,6 @@
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import { CHANNELS } from "./facts"
-import { Problems, isObject, rejectUnknownKeys } from "./validate-common"
+import { Problems, isDay, isObject, rejectUnknownKeys } from "./validate-common"
 import { parseRules } from "./validate-rules"
 import { parseScorecard } from "./validate-scorecard"
 import type { RuleDef, Scorecard } from "./types"
@@ -45,12 +45,6 @@ export const NOTICE_MIN_LENGTH = 20
  */
 export const NOTICE_MAX_LENGTH = 700
 const WHATSAPP_UNSAFE_NOTICE = /[\n\r\t]| {4,}/
-
-const isDay = (v: unknown): v is string => {
-  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
-  const d = new Date(`${v}T00:00:00Z`)
-  return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(v)
-}
 
 export function parseRuleSetPayload(raw: unknown): RuleSetPayload {
   if (!isObject(raw)) throw new InvalidPayloadError(["payload: expected an object"])

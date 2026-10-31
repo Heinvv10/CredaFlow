@@ -46,12 +46,15 @@ export async function createDebitMandate(tenantId: string, actor: Actor & { user
     where: { id: input.loanId, tenantId },
     select: {
       id: true, reference: true, status: true, clientId: true,
+      terms: { select: { structure: true }, where: { structure: { not: null } }, take: 1 },
       client: { select: { firstName: true, lastName: true, idNumber: true, phone: true, bankName: true, bankAccountNumber: true, bankBranchCode: true, accountType: true } },
       repaymentSchedule: { select: { dueDate: true, totalDue: true, totalPaid: true, status: true }, orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }] },
     },
   })
   if (!loan) throw new MandateError("NOT_FOUND", "Loan not found")
   if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED") throw new MandateError("NOT_ELIGIBLE", "Only an active or defaulted loan can be collected")
+  // The mandate is monthly with one recurring amount: a loan on a repayment structure (weekly, fortnightly, interest-only, graced, bullet) has no such schedule.
+  if (loan.terms.length > 0) throw new MandateError("NOT_ELIGIBLE", "A debit-order mandate cannot follow this loan's repayment structure yet: collect by EFT")
   const client = loan.client
   if (!client || !loan.clientId) throw new MandateError("NOT_ELIGIBLE", "DebiCheck for an entity borrower is not supported yet")
   if (!client.bankName || !client.bankAccountNumber || !client.bankBranchCode || !client.accountType) {

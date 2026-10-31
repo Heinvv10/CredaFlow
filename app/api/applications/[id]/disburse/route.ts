@@ -28,6 +28,7 @@ import {
   verifyLockedCurrentAffordabilityApproval,
 } from "@/lib/affordability/current-approval"
 import { verifyCurrentDisbursementEvidence } from "@/lib/affordability/current-disbursement"
+import { graceDeferredInterest } from "@/lib/product-engine/schedule"
 import { Prisma } from "@prisma/client"
 import { disbursementGuardViolation } from "@/lib/disbursement/guard-violation"
 import { databaseGuardRefusal } from "@/lib/db-guard-refusal"
@@ -1082,6 +1083,10 @@ export async function POST(
         if (!lockedApprovalEvidence.ok) {
           throw new DisbursementEvidenceChangedError(lockedApprovalEvidence.reason)
         }
+        // The same refusal as at approval, held here too: no mandate is registered for a structured schedule (lib/collections-engine/mandates.ts).
+        if (lockedApprovalEvidence.approval.inputs.repayment && (txApplication.repaymentMethod ?? "DEBIT_ORDER") === "DEBIT_ORDER") {
+          throw new DisbursementEvidenceChangedError("structure_not_debit_orderable")
+        }
         const lockedCreditLife = verifyStoredCreditLifeDisclosure(txApplication, {
           principalCents: lockedApprovalEvidence.approval.inputs.principalCents,
           termDays: lockedApprovalEvidence.approval.inputs.termDays,
@@ -1398,6 +1403,22 @@ export async function POST(
           })),
         })
 
+        // A loan priced by the product engine keeps the version it was written on, the rule that priced it and the repayment
+        // structure it was scheduled with (lib/product-engine); a later version never reaches it. Written with the loan, or not at all.
+        const writtenTerms = lockedApprovalEvidence.approval.inputs
+        if (writtenTerms.productVersion) {
+          const v = writtenTerms.productVersion
+          await tx.loanTerms.create({
+            data: {
+              loanId: newLoan.id, tenantId: tenant.id, sequence: 1, productVersionId: v.id,
+              deferredInterest: writtenTerms.interestModel === "DAILY_ACCRUAL" ? 0 : graceDeferredInterest({ principalCents: writtenTerms.principalCents, interestRatePm: writtenTerms.interestRatePm, interestModel: writtenTerms.interestModel, startDate: lockedStartDate, repayment: writtenTerms.repayment }),
+              frequency: writtenTerms.repayment?.frequency ?? null, structure: writtenTerms.repayment?.structure ?? null, graceKind: writtenTerms.repayment?.graceKind ?? null,
+              graceInstalments: writtenTerms.repayment?.graceInstalments ?? 0, instalments: writtenTerms.repayment?.instalments ?? null,
+              baseRatePm: v.baseRatePm, interestRatePm: writtenTerms.interestRatePm, pricingRuleId: v.pricingRuleId, pricingRuleName: v.pricingRuleName, pricingInputs: v.pricingInputs,
+            },
+          })
+        }
+
         // Referral agent commission — accrue for a referred, active-agent loan.
         // No-ops unless the borrower is attributed to an active code+agent with a
         // rate > 0. Runs in-tx so a real DB error rolls back the disbursement.
@@ -1692,6 +1713,7 @@ export async function POST(
               termDays: lockedApprovalEvidence.approval.inputs.termDays,
               interestRatePm: lockedApprovalEvidence.approval.inputs.interestRatePm,
               interestModel: lockedApprovalEvidence.approval.inputs.interestModel,
+              ...(writtenTerms.productVersion ? { productVersionId: writtenTerms.productVersion.id, productVersion: writtenTerms.productVersion.version, pricingRuleId: writtenTerms.productVersion.pricingRuleId, repayment: writtenTerms.repayment ?? null } : {}),
               signedScheduleStartDate: lockedStartDate.toISOString(),
               startDate: disbursedAt.toISOString(),
               agreementScheduleOffsetMs,

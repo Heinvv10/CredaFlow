@@ -1,8 +1,11 @@
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 const requireApiRoleMock = vi.fn()
 const findUniqueMock = vi.fn()
+const calculateLoanMock = vi.fn((..._args: unknown[]) => undefined)
+const productVersionFindFirstMock = vi.fn(async (_a: unknown) => null as Record<string, unknown> | null)
 const updateManyMock = vi.fn()
 const auditLogCreateMock = vi.fn()
 const queryRawMock = vi.fn()
@@ -39,7 +42,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 vi.mock("@/lib/loan-calculator", () => ({
-  calculateLoan: () => ({
+  calculateLoan: (...args: unknown[]) => (calculateLoanMock(...args), {
     principal: 500_000,
     totalInterest: 30_000,
     initiationFee: 75_000,
@@ -112,6 +115,7 @@ const application = {
 }
 
 beforeEach(() => {
+  productVersionFindFirstMock.mockReset().mockResolvedValue(null)
   vi.clearAllMocks()
   requireApiRoleMock.mockResolvedValue({
     user: { id: "officer-1", email: "officer@example.test", role: "CREDIT_OFFICER" },
@@ -132,6 +136,10 @@ beforeEach(() => {
       updateMany: updateManyMock,
     },
     auditLog: { create: auditLogCreateMock },
+    // No product under the product engine: the product's own terms apply.
+    productVersion: { findFirst: (a: unknown) => productVersionFindFirstMock(a) },
+    productPricingRule: { findMany: async () => [] },
+    applicationPricingInput: { findFirst: async () => null },
   }))
 })
 
@@ -347,6 +355,29 @@ describe("PATCH /api/applications/[id]/affordability", () => {
     })
     expect(findUniqueMock).not.toHaveBeenCalled()
     expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("assesses a versioned product on the version's price, fees and structure, not the product row's legacy schedule", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    productVersionFindFirstMock.mockResolvedValue({
+      id: "pv-9", productId: "product-1", version: 4, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+      minAmount: 1, maxAmount: 100_000_000, minTermDays: 1, maxTermDays: 3000, interestRatePm: 0.02, interestModel: "REDUCING_BALANCE",
+      initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.1, initiationFeeMax: 50_000, monthlyServiceFee: 0,
+      frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, collateral: [], eligibility: {},
+    })
+    try {
+      const response = await PATCH(request(), context)
+      expect(response.status).toBe(200)
+      const data = updateManyMock.mock.calls[0]![0].data as { affordabilityResult: { assessment: { inputs: Record<string, unknown>; calculator: { schedule: unknown[] } } } }
+      expect(data.affordabilityResult.assessment.inputs).toMatchObject({
+        interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", initiationFeePct: 0.1,
+        repayment: expect.objectContaining({ frequency: "WEEKLY", structure: "AMORTISING" }),
+      })
+      // the schedule is generated for the version's weekly structure over 90 days: 13 instalments, at the version's rate
+      expect(calculateLoanMock).toHaveBeenCalledWith(expect.objectContaining({ interestRatePm: 0.02, repayment: expect.objectContaining({ frequency: "WEEKLY", instalments: 13 }) }), expect.anything())
+    } finally {
+      resetActiveJurisdiction()
+    }
   })
 
   it("captures the client and product values re-read under the evidence locks", async () => {

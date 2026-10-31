@@ -79,11 +79,11 @@ describe("the server pricing read carries EVERY selected column", () => {
 })
 
 describe("consumer products only (Fair Score E4)", () => {
-  it("never reads an asset-finance product into the public pricing", async () => {
+  it("never reads an asset-finance product, or one on a repayment structure, into the public pricing", async () => {
     findMany.mockResolvedValue([MICRO30_ROW])
     await getLivePricingServer("tenant-1")
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", active: true, productType: { not: "ASSET_FINANCE" } },
+      where: { tenantId: "tenant-1", active: true, productType: { not: "ASSET_FINANCE" }, repaymentStructured: false },
     }))
   })
 })

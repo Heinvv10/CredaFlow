@@ -14,7 +14,7 @@ export const SIMULATION_DEFAULT_DAYS = 180
 export const SIMULATION_MAX_DAYS = 730
 const BATCH = 10
 
-type Db = Pick<typeof prisma, "loanApplication" | "autoDecisionRun" | "decisionRuleSetVersion" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant">
+type Db = Pick<typeof prisma, "loanApplication" | "autoDecisionRun" | "decisionRuleSetVersion" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput">
 
 export interface SimulationInput {
   tenantId: string

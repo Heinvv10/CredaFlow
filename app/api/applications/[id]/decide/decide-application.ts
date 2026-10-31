@@ -9,7 +9,9 @@ import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bur
 import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-gate"
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { approvalTermsFor, capApplicationFor, versionLimitRefusal } from "@/lib/product-engine/approval-terms"
 import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
 import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
@@ -118,7 +120,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
   const application = await prisma.loanApplication.findUnique({
     where: { id, tenantId: tenant.id },
     include: {
-      product: { select: { interestRatePm: true, productType: true, interestModel: true, initiationFeeModel: true, initiationFeePct: true, initiationFeeMax: true, monthlyServiceFee: true } },
+      product: { select: { code: true, interestRatePm: true, productType: true, interestModel: true, initiationFeeModel: true, initiationFeePct: true, initiationFeeMax: true, monthlyServiceFee: true } },
       loan: { select: { id: true } },
       client: {
         select: {
@@ -979,17 +981,58 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // immediately before the agreement is signed. See app/api/applications
     // /[id]/pasq/route.ts, which now runs against an APPROVED application.
     const calculationStartDate = decisionAt
+    // The terms this application is approved on: its product's own, or, for a product under the product engine, the version
+    // in effect today with the price its matching rule gives (lib/product-engine/approval-terms.ts).
+    const terms = await approvalTermsFor(prisma, tenant.id, { id: application.id, productId: application.productId, appliedTermDays: approvalTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(decisionAt))
+    // A version approved while the process was configured otherwise (another jurisdiction, an older rule set) is not one an NCA
+    // lender may write loans on: its structure and fee are held to the NCA rules at every approval, not only when it was approved.
+    if (terms.ncaIssues.length > 0) {
+      return NextResponse.json({ error: `Approval blocked: the product version in effect is not one an NCA lender may use. ${terms.ncaIssues.join("; ")}`, productVersionRefused: true }, { status: 422 })
+    }
+    const limitRefusal = versionLimitRefusal(terms, { principalCents: approvalPrincipal, termDays: approvalTermDays })
+    if (limitRefusal) return NextResponse.json({ error: `Approval blocked: ${limitRefusal}.`, productVersionRefused: true }, { status: 422 })
+    // Staff set the application's pricing inputs, which a pricing rule prices on: whoever set them does not approve the loan, whether or
+    // not a rule ended up pricing it (inputs that match no rule today are still a way to steer the price). The audit trail names every
+    // setter, not only the last to update (A sets, B touches, A approves); each is also input staff of the application (inputStaffIds),
+    // which the segregation-of-duties rules of an engine approval and its disbursement cover.
+    const inputsSetByApprover = await prisma.auditLog.count({
+      where: { tenantId: tenant.id, entity: "LoanApplication", entityId: id, action: AuditAction.APPLICATION_PRICING_INPUT_SET, userId: user.id },
+    })
+    if (inputsSetByApprover > 0) {
+      return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
+    }
+    // Credit life is billed a premium per month of cover, bound to repayment rows (lib/insurance/credit-life-billing.ts): a weekly or
+    // fortnightly schedule has several rows to a month, so the premium periods would be counted per row. Until that is right, no
+    // cover is added to such a loan.
+    if (terms.repayment && terms.repayment.frequency !== "MONTHLY" && application.creditLifeElection === "ACCEPTED") {
+      return NextResponse.json({ error: "Approval blocked: credit life cannot be added to a weekly or fortnightly repayment schedule yet. Decline the cover, or choose a monthly product.", creditLifeEvidence: "structure_not_supported" }, { status: 422 })
+    }
+    // A debit-order mandate (DebiCheck) is registered monthly, one recurring amount, one debit day. A weekly or fortnightly loan
+    // would fall into arrears the first week, and an interest-only, graced or bullet schedule has no one recurring amount. Until
+    // the mandate follows the schedule, such a loan is collected by EFT.
+    if (terms.repayment && repaymentMethod === "DEBIT_ORDER") {
+      return NextResponse.json(
+        { error: "This product's repayment structure cannot be collected by debit order yet: approve for EFT.", repaymentMethod: "structure_not_debit_orderable" },
+        { status: 400 },
+      )
+    }
+    // The cap above read the product row; the loan is written at the version's rate (and its rule's price), so check that.
+    if (terms.versioned) {
+      const versionedCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, capApplicationFor(application, terms, { principalCents: approvalPrincipal, termDays: approvalTermDays }))
+      if (versionedCapRefusal) return versionedCapRefusal
+    }
     const loanCalc = calculateLoan({
       principal: approvalPrincipal,
       termDays: approvalTermDays,
-      interestRatePm: application.product.interestRatePm,
+      interestRatePm: terms.interestRatePm,
       productType: application.product.productType,
-      interestModel: application.product.interestModel as "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL",
-      initiationFeeModel: application.product.initiationFeeModel,
-      initiationFeePct: application.product.initiationFeePct,
-      initiationFeeMax: application.product.initiationFeeMax,
-      monthlyServiceFee: application.product.monthlyServiceFee,
+      interestModel: terms.interestModel,
+      initiationFeeModel: terms.initiationFeeModel,
+      initiationFeePct: terms.initiationFeePct,
+      initiationFeeMax: terms.initiationFeeMax,
+      monthlyServiceFee: terms.monthlyServiceFee,
       initiationFeePayment: application.initiationFeePayment,
+      ...(terms.repayment ? { repayment: terms.repayment } : {}),
     }, calculationStartDate)
     const approvalCalculatorEvidence = createAffordabilityCalculatorEvidence(
       loanCalc,
@@ -1091,13 +1134,15 @@ export async function decideApplication({ tenant, user, id, formData, automation
       principalCents: approvalPrincipal,
       termDays: approvalTermDays,
       productId: application.productId,
-      interestRatePm: application.product.interestRatePm,
+      interestRatePm: terms.interestRatePm,
       productType: application.product.productType,
-      interestModel: application.product.interestModel as "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL",
-      initiationFeeModel: application.product.initiationFeeModel,
-      initiationFeePct: application.product.initiationFeePct,
-      initiationFeeMaxCents: application.product.initiationFeeMax,
-      monthlyServiceFeeCents: application.product.monthlyServiceFee,
+      interestModel: terms.interestModel,
+      initiationFeeModel: terms.initiationFeeModel,
+      initiationFeePct: terms.initiationFeePct,
+      initiationFeeMaxCents: terms.initiationFeeMax,
+      monthlyServiceFeeCents: terms.monthlyServiceFee,
+      ...(terms.repayment ? { repayment: terms.repayment } : {}),
+      ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
       initiationFeePayment: application.initiationFeePayment,
       ndiBufferPct,
     }
@@ -1331,7 +1376,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
             approvedAt: decisionAt,
             approvedAmount: approvalPrincipal,
             approvedTermDays: approvalTermDays,
-            approvedRate: locked.application.product.interestRatePm,
+            approvedRate: terms.interestRatePm,
             decisionReason: reason || "Approved",
             // Re-approval always starts a new agreement lifecycle. Clear any
             // stale artefacts defensively even if this UNDER_REVIEW row came
@@ -1460,7 +1505,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
               reason: reason || "Approved",
               approvedAmount: approvalPrincipal,
               approvedTermDays: approvalTermDays,
-              approvedRate: locked.application.product.interestRatePm,
+              approvedRate: terms.interestRatePm,
               // The quotation is issued at the signing ceremony, so an
               // approval records the instalment it actually gated on rather
               // than a PASQ digest. PASQ_GENERATED / PASQ_ACKNOWLEDGED audit
@@ -1481,7 +1526,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
           automation,
           decidedAt: decisionAt,
           productType: application.product.productType,
-          interestRatePm: locked.application.product.interestRatePm,
+          interestRatePm: terms.interestRatePm,
           principalCents: approvalPrincipal,
           termDays: approvalTermDays,
           instalmentCents: instalment,

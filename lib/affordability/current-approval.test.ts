@@ -3,6 +3,7 @@ import {
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
 } from "@/lib/insurance/credit-life-election"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import {
@@ -127,6 +128,10 @@ function transactionFor(
     tenantConfig: { findUnique: vi.fn().mockResolvedValue(tenantConfig) },
     // No own loans with this lender (lib/affordability/own-lender-debt.ts).
     loan: { findMany: vi.fn().mockResolvedValue([]) },
+    // No product under the product engine: the product's own terms apply.
+    productVersion: { findFirst: vi.fn().mockResolvedValue(null) },
+    productPricingRule: { findMany: vi.fn().mockResolvedValue([]) },
+    applicationPricingInput: { findFirst: vi.fn().mockResolvedValue(null) },
     loanApplication: { findUnique: vi.fn().mockResolvedValue(application), findMany: vi.fn().mockResolvedValue([]) },
     tenant: { findUnique: vi.fn().mockResolvedValue({ name: "Acme Lending" }) },
     clientDocument: {
@@ -203,6 +208,99 @@ describe("locked affordability approval verification", () => {
         reviewGeneration: "review-generation-1",
       }),
     }))
+  })
+
+  it("refuses a candidate whose product version in effect prices it over the NCA cap, though the product row does not", async () => {
+    // R5,000 over 90 days is short-term: capped at 5% a month. The product row (3%) is under it; the version the loan is written at is not.
+    const application = applicationFixture("UNDER_REVIEW")
+    const tx = transactionFor(application)
+    tx.productVersion.findFirst.mockResolvedValue({
+      id: "pv1", productId: "product-1", version: 2, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+      minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.06, interestModel: "REDUCING_BALANCE",
+      initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900,
+      frequency: null, structure: null, graceKind: null, graceInstalments: 0, collateral: [], eligibility: {},
+    })
+    const { approval } = buildEvidence()
+    expect(await verifyLockedApprovalCandidate(tx as never, {
+      tenantId: "tenant-1", applicationId: "application-1", expectedApplicationUpdatedAt: applicationUpdatedAt, expectedApproval: approval,
+      capturedAt, calculationStartDate: pasqGeneratedAt, capturedById: "officer-1", bureauOverrideReason: null, expectedPasqDocumentSha256: pasqDocumentSha256,
+    })).toEqual({ ok: false, reason: "changed" })
+  })
+
+  describe("an approval on a product version with a repayment structure (lib/product-engine)", () => {
+    afterEach(() => resetActiveJurisdiction())
+    const weekly = { frequency: "WEEKLY" as const, structure: "AMORTISING" as const, graceKind: "NONE" as const, graceInstalments: 0, instalments: 13 }
+    const reference = { id: "pv1", version: 2, baseRatePm: 0.03, pricingRuleId: null, pricingRuleName: null, pricingInputs: { segment: null, channel: null, campaignCode: null, riskRank: null } }
+    const versionRow = (over: Record<string, unknown> = {}) => ({
+      id: "pv1", productId: "product-1", version: 2, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+      minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE",
+      initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900,
+      frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, collateral: [], eligibility: {}, ...over,
+    })
+    const candidate = (tx: ReturnType<typeof transactionFor>, approval: ReturnType<typeof buildEvidence>["approval"]) => verifyLockedApprovalCandidate(tx as never, {
+      tenantId: "tenant-1", applicationId: "application-1", expectedApplicationUpdatedAt: applicationUpdatedAt, expectedApproval: approval,
+      capturedAt, calculationStartDate: pasqGeneratedAt, capturedById: "officer-1", bureauOverrideReason: null, expectedPasqDocumentSha256: null,
+    })
+
+    it("accepts the candidate whose frozen inputs carry the version's structure and the schedule generated for it", async () => {
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      const application = applicationFixture("UNDER_REVIEW")
+      const tx = transactionFor(application)
+      tx.productVersion.findFirst.mockResolvedValue(versionRow())
+      const { approval } = buildEvidence(null, undefined, { repayment: weekly, productVersion: reference })
+
+      expect(await candidate(tx, approval)).toEqual({ ok: true, application })
+      expect(approval.inputs).toMatchObject({ repayment: weekly, productVersion: reference })
+      // 13 weekly instalments, not the 3 monthly ones of the legacy schedule
+      expect(approval.calculator.schedule).toHaveLength(13)
+    })
+
+    it("refuses a candidate that was priced on the legacy monthly schedule while the version in effect is weekly", async () => {
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      const application = applicationFixture("UNDER_REVIEW")
+      const tx = transactionFor(application)
+      tx.productVersion.findFirst.mockResolvedValue(versionRow())
+
+      expect(await candidate(tx, buildEvidence().approval)).toMatchObject({ ok: false })
+    })
+
+    it("refuses the same candidate for an NCA lender: a version approved elsewhere is not one it may write loans on", async () => {
+      const application = applicationFixture("UNDER_REVIEW")
+      const tx = transactionFor(application)
+      tx.productVersion.findFirst.mockResolvedValue(versionRow())
+
+      expect(await candidate(tx, buildEvidence(null, undefined, { repayment: weekly, productVersion: reference }).approval)).toEqual({ ok: false, reason: "changed" })
+    })
+
+    it("refuses a structured candidate for an application that came in through a customer channel", async () => {
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      const tx = transactionFor(applicationFixture("UNDER_REVIEW"))
+      tx.productVersion.findFirst.mockResolvedValue(versionRow())
+      tx.applicationPricingInput.findFirst.mockResolvedValue({ segment: null, channel: "DIGITAL", campaignCode: null })
+
+      expect(await candidate(tx, buildEvidence(null, undefined, { repayment: weekly, productVersion: { ...reference, pricingInputs: { ...reference.pricingInputs, channel: "DIGITAL" } } }).approval)).toEqual({ ok: false, reason: "changed" })
+    })
+
+    it("refuses an amount or term outside the version's limits", async () => {
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      const tx = transactionFor(applicationFixture("UNDER_REVIEW"))
+      tx.productVersion.findFirst.mockResolvedValue(versionRow({ maxAmount: 400_000 }))
+
+      expect(await candidate(tx, buildEvidence(null, undefined, { repayment: weekly, productVersion: reference }).approval)).toEqual({ ok: false, reason: "changed" })
+    })
+
+    it("pays out only while the frozen version rate is within the NCA cap: a repo cut after the approval stops it", async () => {
+      // R5,000 over 90 days is a short-term loan, capped at 5% a month: approved by the version (non-NCA then) at 6%, back under the NCA now
+      const payout = (rate: number) => {
+        const application = applicationFixture("APPROVED", null, undefined, { repayment: weekly, productVersion: { ...reference, baseRatePm: rate }, interestRatePm: rate })
+        return verifyLockedCurrentAffordabilityApproval(transactionFor(application) as never, { tenantId: "tenant-1", applicationId: "application-1" })
+      }
+      expect(await payout(0.06)).toEqual({ ok: false, reason: "changed" })
+      expect(await payout(0.03)).toEqual(expect.objectContaining({ ok: true }))
+      // an approval with no version is not held to the cap again here: only a versioned one is
+      const legacy = await verifyLockedCurrentAffordabilityApproval(transactionFor(applicationFixture("APPROVED")) as never, { tenantId: "tenant-1", applicationId: "application-1" })
+      expect(legacy).toEqual(expect.objectContaining({ ok: true }))
+    })
   })
 
   // NCA s.81 requires the affordability assessment to test what the consumer

@@ -230,7 +230,7 @@ export async function POST(req: NextRequest) {
     // outside the product range) are still accepted without one.
     if (email && idNumber && productTypeNormalised && requestedAmountCents > 0) {
       const termProduct = await prisma.loanProduct.findFirst({
-        where: { tenantId: tenant.id, productType: productTypeNormalised, active: true },
+        where: { tenantId: tenant.id, productType: productTypeNormalised, active: true, repaymentStructured: false },
         orderBy: { createdAt: "asc" },
       })
       if (
@@ -756,7 +756,7 @@ export async function POST(req: NextRequest) {
         !creditBlock(confirmedExistingClient).blocked
       ) {
         const existingProduct = await prisma.loanProduct.findFirst({
-          where: { tenantId: tenant.id, productType: productTypeNormalised, active: true },
+          where: { tenantId: tenant.id, productType: productTypeNormalised, active: true, repaymentStructured: false },
           orderBy: { createdAt: "asc" },
         })
         if (
@@ -813,7 +813,7 @@ export async function POST(req: NextRequest) {
           }, { tenantId: tenant.id, channel: "WEBSITE", reason, subject: { clientId: confirmedExistingClient.id } })
         } else {
           const product = await prisma.loanProduct.findFirst({
-            where: { tenantId: tenant.id, productType: productTypeNormalised, active: true },
+            where: { tenantId: tenant.id, productType: productTypeNormalised, active: true, repaymentStructured: false },
             orderBy: { createdAt: "asc" },
           })
 
@@ -949,6 +949,7 @@ export async function POST(req: NextRequest) {
                       tenantId: tenant.id,
                       productType: productTypeNormalised,
                       active: true,
+                      repaymentStructured: false,
                     },
                   }),
                 ])
@@ -1167,6 +1168,7 @@ export async function POST(req: NextRequest) {
                 const created = await tx.loanApplication.create({
                   data: {
                     tenantId: tenant.id,
+                    pricingInput: { create: { tenant: { connect: { id: tenant.id } }, channel: "DIGITAL" } },
                     reference: responseReference,
                     clientId: snapshotClient.id,
                     productId: snapshotProduct.id,

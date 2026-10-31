@@ -14,10 +14,11 @@ import { approvalBureauCheckUsableWhere, approvalBureauCheckWhere, bureauMaxAgeD
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { calculateLoan } from "@/lib/loan-calculator"
 import type { prisma } from "@/lib/prisma"
+import { previewCalcInput } from "@/lib/product-engine/approval-terms"
 import { liveAffordability, snapshotAffordability, type AffordabilityFacts } from "./affordability-facts"
 import type { DecisionFacts } from "./facts"
 
-type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant">
+type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput">
 
 export interface LoadedFacts {
   facts: DecisionFacts
@@ -57,20 +58,9 @@ type ApplicationRow = NonNullable<Awaited<ReturnType<Db["loanApplication"]["find
 }
 
 /** The instalment the consumer will actually be billed (credit-life premium included), by the approval's own billing helper; null where it cannot be priced. */
-function approvalInstalment(application: ApplicationRow, now: Date): { instalmentCents: number | null } {
+async function approvalInstalment(db: Db, tenantId: string, application: ApplicationRow, now: Date): Promise<{ instalmentCents: number | null }> {
   try {
-    const loanCalc = calculateLoan({
-      principal: application.appliedAmount,
-      termDays: application.appliedTermDays,
-      interestRatePm: application.product.interestRatePm,
-      productType: application.product.productType as never,
-      interestModel: application.product.interestModel as "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL",
-      initiationFeeModel: application.product.initiationFeeModel,
-      initiationFeePct: application.product.initiationFeePct,
-      initiationFeeMax: application.product.initiationFeeMax,
-      monthlyServiceFee: application.product.monthlyServiceFee,
-      initiationFeePayment: application.initiationFeePayment,
-    }, now)
+    const loanCalc = calculateLoan(await previewCalcInput(db, tenantId, application, application.product as never), now)
     const calculator = createAffordabilityCalculatorEvidence(loanCalc, now)
     const disclosure = verifyAppliedCreditLifeDisclosure(application)
     if (!disclosure.ok) return { instalmentCents: loanCalc.monthlyInstalment }
@@ -156,7 +146,7 @@ export async function loadDecisionFacts(db: Db, tenantId: string, applicationId:
       monthlyExpensesCents: client.monthlyExpenses,
       declaredDebtCents,
       bureauObligationsCents: bureau ? bureauMonthlyObligations(bureau.obligations) : 0,
-      proposedInstalmentCents: approvalInstalment(application as ApplicationRow, now).instalmentCents,
+      proposedInstalmentCents: (await approvalInstalment(db, tenantId, application as ApplicationRow, now)).instalmentCents,
       ndiBufferPct: config?.ndiBufferPct ?? 110,
       expensesBelowMinimum: affordabilityExpenseEvidenceNeedsMleJustification(expenseEvidence),
     })

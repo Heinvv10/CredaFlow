@@ -122,6 +122,7 @@ describe("PUT /api/products/loan/[id] bounds validation", () => {
         $queryRaw: queryRaw,
         loanProduct: { findUnique, update },
         loanApplication: { count },
+        productVersion: { count: async () => 0 },
         auditLog: { create: auditCreate },
       }),
     )
