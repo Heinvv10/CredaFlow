@@ -4,6 +4,6 @@
 # CI runs the same gitleaks version on the full tree and history (.github/workflows/security.yml).
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.1
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
     hooks:
       - id: gitleaks
