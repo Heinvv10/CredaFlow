@@ -52,6 +52,22 @@ seed refuses to run with `NODE_ENV=production`.
 
 Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.
 
+### Secret scan before you commit
+
+A [pre-commit](https://pre-commit.com) hook runs gitleaks v8.30.1 on staged
+changes, the same version CI's `secrets` job uses. Install it once per clone:
+
+```bash
+pipx install pre-commit    # or: pip install pre-commit
+pre-commit install         # adds .git/hooks/pre-commit
+pre-commit run gitleaks --all-files   # optional: scan the whole tree now
+```
+
+Rules are gitleaks' defaults (`.gitleaks.toml`). Its allowlist covers only named
+test files with synthetic values, and only for `generic-api-key`. History
+fingerprints live in `.gitleaksignore`. If the hook flags a real secret, remove
+it and rotate it. Don't add it to the allowlist.
+
 ## Scripts
 
 | Command | What it does |

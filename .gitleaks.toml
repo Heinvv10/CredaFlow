@@ -1,0 +1,23 @@
+# gitleaks configuration (v8.30.1). Used by the pre-commit hook and by CI.
+title = "CredaFlow gitleaks config"
+
+[extend]
+useDefault = true
+
+# Synthetic test-fixture values that trip the generic-api-key rule in a working-tree
+# scan (`gitleaks dir .`). This file is loaded by the pre-commit hook AND by CI's
+# `gitleaks detect` (.github/workflows/security.yml), so this allowlist applies to
+# CI scans too. It is limited to generic-api-key in these 5 test files: any other
+# secret type in them, and anything anywhere else, is still reported. History
+# fingerprints stay in .gitleaksignore.
+# Do NOT add .claude/handoffs/ or any non-test path here.
+[[allowlists]]
+description = "Synthetic test fixtures (generic-api-key only)"
+targetRules = ["generic-api-key"]
+paths = [
+  '''^app/api/health/route\.test\.ts$''',
+  '''^app/api/integrations/isaflow/route\.test\.ts$''',
+  '''^app/api/website/apply/route\.test\.ts$''',
+  '''^lib/crm/lead-outreach\.test\.ts$''',
+  '''^prisma/seed\.integration\.test\.ts$''',
+]
