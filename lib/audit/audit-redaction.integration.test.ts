@@ -46,6 +46,21 @@ suite("audit-redaction", () => {
       await redact(messageAudit.id, ["newValue"])
       expect(await db.auditLog.findUniqueOrThrow({ where: { id: messageAudit.id } })).toMatchObject({ newValue: null })
 
+      // Deterministically, whatever the session's plan-cache history: a generic plan keeps
+      // the guards' EXISTS on "Message" in the plan, so Postgres checks SELECT on Message
+      // when the redaction writes its own AUDIT_ROW_REDACTED row as audit_redactor. The
+      // guards must not run for that row at all (this failed in a long CI shard only).
+      for (const entity of ["Thing", "Message"]) {
+        const row = await db.auditLog.create({
+          data: { tenantId: N, action: "AUDIT_IT", entity, entityId: `generic-plan-${entity}-${token}`, newValue: { personal: "erase me" } },
+        })
+        await db.$transaction(async (tx) => {
+          await tx.$executeRaw`SET LOCAL plan_cache_mode = force_generic_plan`
+          await redact(row.id, ["newValue"], undefined, undefined, tx)
+        })
+        expect(await db.auditLog.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ newValue: null })
+      }
+
       // Another column later; the same column twice is refused.
       await redact(target.id, ["ipAddress"])
       expect((await verify(N)).ok).toBe(true)
