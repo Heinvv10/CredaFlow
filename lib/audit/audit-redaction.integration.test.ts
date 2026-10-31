@@ -31,6 +31,21 @@ suite("audit-redaction", () => {
       await chain(N)
       expect(await verify(N)).toMatchObject({ ok: true, rowsChecked: 5 })
 
+      // The legacy message-evidence guards validate new audit rows. They must not
+      // re-read Message as the restricted audit_redactor role during a later POPIA
+      // redaction (and must not reconstruct the value being erased).
+      const messageAudit = await db.auditLog.create({
+        data: {
+          tenantId: N,
+          action: "AUDIT_IT",
+          entity: "Message",
+          entityId: `missing-message-${token}`,
+          newValue: { personal: "erase me" },
+        },
+      })
+      await redact(messageAudit.id, ["newValue"])
+      expect(await db.auditLog.findUniqueOrThrow({ where: { id: messageAudit.id } })).toMatchObject({ newValue: null })
+
       // Another column later; the same column twice is refused.
       await redact(target.id, ["ipAddress"])
       expect((await verify(N)).ok).toBe(true)
