@@ -26,6 +26,10 @@ const db = {
   creditBureauCheck: { findFirst: vi.fn(async () => state.bureau) },
   auditLog: { findFirst: vi.fn(async () => (state.submittedByClient ? { id: "x" } : null)) },
   loan: { findMany: vi.fn(async () => state.loans) },
+  // No product under the product engine: the product's own terms apply.
+  productVersion: { findFirst: vi.fn(async () => null) },
+  productPricingRule: { findMany: vi.fn(async () => []) },
+  applicationPricingInput: { findFirst: vi.fn(async () => null) },
 }
 const load = (options = {}) => loadDecisionFacts(db as never, "t", "a1", NOW, options)
 

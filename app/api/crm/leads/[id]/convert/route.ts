@@ -634,6 +634,7 @@ export async function POST(
         const application = await tx.loanApplication.create({
           data: {
             tenantId: tenant.id,
+            pricingInput: { create: { tenant: { connect: { id: tenant.id } }, channel: "BRANCH" } },
             reference: generateReference("APP"),
             clientId: client.id,
             productId: lockedProduct.id,

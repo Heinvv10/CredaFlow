@@ -8,6 +8,7 @@
  * discounting and no forward-looking overlay: a lender folds those into its PD
  * and LGD figures.
  */
+import { evenly } from "@/lib/product-engine/evenly"
 
 export interface ScheduleRow {
   /** SAST calendar date, yyyy-mm-dd. */
@@ -67,19 +68,42 @@ export function interestRaisedBetween(rows: readonly ScheduleRow[], from: string
 const dayNumber = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86_400_000)
 
 /**
+ * The simple interest a full grace (lib/product-engine) defers: nothing is due for the grace, so no row carries it, but it is
+ * earned in the grace. `cents` is spread evenly over the rows that follow (the generator's own split), `endDate` is the day
+ * the grace ends (yyyy-mm-dd).
+ */
+export interface GraceDeferral {
+  endDate: string
+  cents: number
+}
+
+/**
  * Interest earned since the last due date on the next instalment, pro rata by
  * day, less what was already paid ahead on that instalment. Not yet in the
  * ledger (income is booked when an instalment falls due); memo for EAD.
+ *
+ * A loan with a full grace (`deferral`) earns the deferred interest through the grace, not through the first period after it:
+ * by the end of the grace all of it is earned, and what is earned of it and not yet raised in a row is accrued, on top of the
+ * own interest of the period running now.
  */
-export function accruedInterestCents(rows: readonly ScheduleRow[], runDate: string, startDate: string): number {
+export function accruedInterestCents(rows: readonly ScheduleRow[], runDate: string, startDate: string, deferral?: GraceDeferral): number {
   const index = rows.findIndex((row) => row.dueDate > runDate)
   if (index < 0) return 0
   const next = rows[index]
-  const from = index === 0 ? startDate : rows[index - 1].dueDate
-  const period = dayNumber(next.dueDate) - dayNumber(from)
-  const elapsed = Math.min(Math.max(dayNumber(runDate) - dayNumber(from), 0), period)
+  const shares = deferral && deferral.cents > 0 ? evenly(deferral.cents, rows.length) : null
+  // The period the instalment's own interest runs over: after a full grace it starts when the grace ends.
+  const periodStart = index > 0 ? rows[index - 1].dueDate : shares && deferral!.endDate > startDate ? deferral!.endDate : startDate
+  const period = dayNumber(next.dueDate) - dayNumber(periodStart)
+  const elapsed = Math.min(Math.max(dayNumber(runDate) - dayNumber(periodStart), 0), period)
   if (period <= 0) return 0
-  const earned = Math.round((next.interestDue * elapsed) / period)
+  const own = next.interestDue - (shares?.[index] ?? 0)
+  let earned = Math.round((own * elapsed) / period)
+  if (shares && deferral) {
+    const graceDays = dayNumber(deferral.endDate) - dayNumber(startDate)
+    const earnedDeferred = graceDays <= 0 ? deferral.cents : Math.round((deferral.cents * Math.min(Math.max(dayNumber(runDate) - dayNumber(startDate), 0), graceDays)) / graceDays)
+    const raisedDeferred = rows.slice(0, index).reduce((sum, _row, i) => sum + shares[i]!, 0)
+    earned += Math.max(earnedDeferred - raisedDeferred, 0)
+  }
   return Math.max(earned - next.totalPaid, 0)
 }
 

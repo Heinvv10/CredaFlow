@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { LOAN_PRODUCT_DB_CODE, type PublicLoanProductCode, type LivePricing } from "@/lib/public-loan-products"
-import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
+import { CUSTOMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 export const dynamic = "force-dynamic"
 
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     if (!tenant) return NextResponse.json({ pricing: {} })
 
     const rows = await prisma.loanProduct.findMany({
-      where: { tenantId: tenant.id, active: true, ...CONSUMER_PRODUCT_WHERE },
+      where: { tenantId: tenant.id, active: true, ...CUSTOMER_PRODUCT_WHERE },
       select: {
         code: true,
         interestRatePm: true,

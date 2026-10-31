@@ -1,5 +1,7 @@
 import { calculateLoan } from "@/lib/loan-calculator"
+import type { RepaymentTerms } from "@/lib/product-engine/types"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
+import type { AffordabilityDecisionInputs } from "@/lib/affordability/snapshot"
 import {
   APPROVAL_AFFORDABILITY_POLICY_VERSION,
   createAffordabilityExpenseEvidence,
@@ -146,12 +148,16 @@ export const creditLifeDisclosure = {
 export function buildEvidence(
   override: { reason: string; byId: string; at: Date } | null = null,
   ownLenderDebts: OwnLenderDebts = { lenderNames: [], loans: [] },
+  /** A product under the product engine: the structure the schedule is generated for and the version reference frozen with the approval. */
+  engine: { repayment: RepaymentTerms; productVersion: NonNullable<AffordabilityDecisionInputs["productVersion"]>; interestRatePm?: number } | null = null,
 ) {
   const calculation = calculateLoan({
     principal: 500_000,
     termDays: 90,
     ...product,
+    ...(engine?.interestRatePm !== undefined ? { interestRatePm: engine.interestRatePm } : {}),
     initiationFeePayment: "DEFERRED",
+    ...(engine ? { repayment: engine.repayment } : {}),
   }, pasqGeneratedAt)
   const applicationDebts = normaliseAffordabilityDebts(withOwnLenderDebts([applicationDebt], ownLenderDebts))
   const clientDebts = normaliseAffordabilityDebts(withOwnLenderDebts([debt], ownLenderDebts))
@@ -169,7 +175,7 @@ export function buildEvidence(
     principalCents: 500_000,
     termDays: 90,
     productId: "product-1",
-    interestRatePm: product.interestRatePm,
+    interestRatePm: engine?.interestRatePm ?? product.interestRatePm,
     productType: product.productType,
     interestModel: product.interestModel,
     initiationFeeModel: product.initiationFeeModel,
@@ -178,6 +184,7 @@ export function buildEvidence(
     monthlyServiceFeeCents: product.monthlyServiceFee,
     initiationFeePayment: "DEFERRED" as const,
     ndiBufferPct: tenantConfig.ndiBufferPct,
+    ...(engine ? { repayment: engine.repayment, productVersion: engine.productVersion } : {}),
   }
   const affordability = evaluateAffordabilityGate(inputs)
   const approval = createAffordabilitySnapshot({
@@ -227,11 +234,12 @@ export function applicationFixture(
   status: "UNDER_REVIEW" | "APPROVED",
   bureauOverrideReason: string | null = null,
   ownLenderDebts?: OwnLenderDebts,
+  engine?: Parameters<typeof buildEvidence>[2],
 ) {
   const override = bureauOverrideReason
     ? { reason: bureauOverrideReason, byId: "officer-1", at: capturedAt }
     : null
-  const { approval, submission } = buildEvidence(override, ownLenderDebts)
+  const { approval, submission } = buildEvidence(override, ownLenderDebts, engine ?? null)
   let affordabilityResult = withAffordabilitySnapshot(null, submission)
   if (status === "APPROVED") {
     affordabilityResult = withAffordabilitySnapshot(affordabilityResult, approval)
@@ -248,7 +256,9 @@ export function applicationFixture(
         principal: 500_000,
         termDays: 90,
         ...product,
+        ...(engine?.interestRatePm !== undefined ? { interestRatePm: engine.interestRatePm } : {}),
         initiationFeePayment: "DEFERRED",
+        ...(engine ? { repayment: engine.repayment } : {}),
       }, pasqGeneratedAt),
       pasqGeneratedAt,
     ),

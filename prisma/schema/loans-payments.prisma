@@ -22,12 +22,17 @@ model LoanProduct {
   nonNcaDefaultInterestMargin Decimal?           @db.Decimal(9, 6)
   nonNcaCollectionFeeCents    Int?
   active                      Boolean            @default(true)
+  // True while the product version in effect has a repayment structure (lib/product-engine): the portal, the website and the
+  // lender API, which show and schedule monthly instalments only, do not offer it. Written by the activation, never by hand.
+  repaymentStructured         Boolean            @default(false)
   createdAt                   DateTime           @default(now())
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   applications            LoanApplication[]
   decisionRuleSetVersions DecisionRuleSetVersion[]
   loans                   Loan[]
+  productPricingRules ProductPricingRule[]
+  productVersions ProductVersion[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, id])
@@ -231,6 +236,7 @@ model Loan {
   telematicsAlerts           TelematicsAlert[]
   telematicsHeldReadings     TelematicsHeldReading[]
   telematicsPositionAccesses TelematicsPositionAccess[]
+  terms LoanTerms[]
   trackerClosures            TrackerClosure[]
 
   @@unique([tenantId, id])

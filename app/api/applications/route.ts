@@ -57,6 +57,8 @@ export async function POST(req: NextRequest) {
               ...prepared.fields,
               // Staff capture: the SoD rule for an engine approval names whoever captured it (lib/applications/input-staff.ts).
               inputStaffIds: [guard.user.id],
+              // The channel the pricing rules may name (lib/product-engine/channels.ts): staff capture is the branch.
+              pricingInput: { create: { tenant: { connect: { id: tenant.id } }, channel: "BRANCH" } },
             },
           })
           if (prepared.fields.status === "SUBMITTED") {

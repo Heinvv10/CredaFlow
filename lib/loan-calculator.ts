@@ -1,5 +1,8 @@
 import { capInitiationFee, ncaInitiationFeeCap } from "./loan/nca-fee-cap"
 import { isNcaJurisdiction } from "./jurisdiction/active"
+import { monthlyEquivalentInstalment } from "./product-engine/instalment"
+import { generateSchedule } from "./product-engine/schedule"
+import type { RepaymentTerms } from "./product-engine/types"
 
 // All amounts in CENTS (integers)
 
@@ -52,6 +55,13 @@ export interface LoanCalcInput {
    * missing category impossible to overlook.
    */
   productType: string | null
+  /**
+   * The repayment structure of a product the engine schedules (lib/product-engine): frequency, bullet / interest-only /
+   * amortising, grace. Absent for every product that has none, which then behaves exactly as it always has. With it,
+   * `interestModel` is FLAT or REDUCING_BALANCE (never DAILY_ACCRUAL) and `termDays` is not read: the term is
+   * `repayment.instalments` periods.
+   */
+  repayment?: RepaymentTerms
 }
 
 export interface LoanCalcResult {
@@ -91,6 +101,7 @@ export function calculateLoan(
     monthlyServiceFee,
     initiationFeePayment = "DEFERRED",
     productType,
+    repayment,
   } = input
 
   // Initiation fee: the configured price, then the product's own commercial cap,
@@ -113,7 +124,15 @@ export function calculateLoan(
   let totalInterest = 0
   let serviceFees = 0
 
-  if (interestModel === "FLAT") {
+  if (repayment) {
+    if (interestModel === "DAILY_ACCRUAL") throw new Error("A repayment structure needs a FLAT or REDUCING_BALANCE interest model")
+    const generated = generateSchedule({
+      principalCents: principal, interestRatePm, interestModel, monthlyServiceFeeCents: monthlyServiceFee, startDate, terms: repayment,
+    })
+    schedule.push(...generated.schedule)
+    totalInterest = generated.totalInterest
+    serviceFees = generated.serviceFees
+  } else if (interestModel === "FLAT") {
     // Flat: interestRatePm is monthly decimal (e.g. 0.05 = 5%/month)
     const interestRatePerDay = interestRatePm / 30
     totalInterest = Math.round(principal * interestRatePerDay * termDays)
@@ -195,7 +214,7 @@ export function calculateLoan(
   // thereof" vs "completed months" basis must be confirmed with legal before it is
   // configured — Math.round would bill 2 fees from day 45, which is a legal call,
   // not an engineering one.
-  if (interestModel !== "REDUCING_BALANCE" && monthlyServiceFee > 0 && schedule.length > 0) {
+  if (!repayment && interestModel !== "REDUCING_BALANCE" && monthlyServiceFee > 0 && schedule.length > 0) {
     const serviceFeeMonths = Math.max(1, Math.round(termDays / 30))
     const bulletServiceFee = monthlyServiceFee * serviceFeeMonths
     serviceFees += bulletServiceFee
@@ -222,9 +241,13 @@ export function calculateLoan(
   // The regular recurring instalment. For a multi-instalment loan that is a
   // later instalment (the one-time fee sits on instalment 1 only); for a
   // single-instalment loan it is the one payment, including any deferred fee.
-  const monthlyInstalment = schedule.length > 1
-    ? (schedule[1]?.totalDue ?? schedule[0]?.totalDue ?? 0)
-    : (schedule[0]?.totalDue ?? 0)
+  // With a repayment structure it is the monthly equivalent of the regular instalment (weekly x 52 / 12, ...), which is what
+  // affordability sets against monthly income.
+  const monthlyInstalment = repayment
+    ? monthlyEquivalentInstalment(schedule, repayment, monthlyServiceFee)
+    : schedule.length > 1
+      ? (schedule[1]?.totalDue ?? schedule[0]?.totalDue ?? 0)
+      : (schedule[0]?.totalDue ?? 0)
 
   return {
     principal,

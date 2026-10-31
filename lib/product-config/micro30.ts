@@ -1,6 +1,11 @@
 import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 
 export const MICRO30_CODE = "MICRO30"
+
+/** Whether a product code is the MICRO30 contract product: the one rule everywhere, case and surrounding whitespace aside. */
+export function isMicro30Code(code: unknown): boolean {
+  return typeof code === "string" && code.trim().toUpperCase() === MICRO30_CODE
+}
 export const MICRO30_PROTECTED_APPLICATION_STATUSES = [
   "DRAFT",
   "SUBMITTED",
@@ -38,10 +43,7 @@ export function micro30ContractIssues(
 ): string[] {
   // The contract is the NCA-prescribed micro-loan price (Regulation 42).
   if (!isNcaJurisdiction()) return []
-  if (
-    typeof candidate.code !== "string"
-    || candidate.code.trim().toUpperCase() !== MICRO30_CODE
-  ) {
+  if (!isMicro30Code(candidate.code)) {
     return []
   }
   const issues: string[] = []

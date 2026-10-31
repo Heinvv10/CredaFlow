@@ -4,7 +4,7 @@
  */
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { accruedInterestCents, eclCents, exposureAtDefault, interestRaisedBetween, proportionCents, unpaidScheduleAmounts, type ScheduleRow } from "./ecl"
+import { accruedInterestCents, eclCents, exposureAtDefault, interestRaisedBetween, proportionCents, unpaidScheduleAmounts, type GraceDeferral, type ScheduleRow } from "./ecl"
 import { resolveParameter } from "./parameters"
 import { classifyStage, type PriorStaging, type StagingResult } from "./staging"
 import { suspensionApplies } from "./suspension"
@@ -24,6 +24,8 @@ export interface RunLoan {
   chargesOutstanding: number
   flags: SicrFlagKind[]
   schedule: Array<{ dueDate: Date; principalDue: number; interestDue: number; feesDue: number; totalDue: number; totalPaid: number }>
+  /** The interest a full grace deferred (lib/product-engine), earned in the grace although no row carries it. */
+  graceDeferral?: GraceDeferral
 }
 
 export interface RunContext {
@@ -109,7 +111,7 @@ export function buildSnapshot(loan: RunLoan, ctx: RunContext, a: Assessment, def
   const net = a.suspended && basis === "NET_BASIS" && ctx.periodStart != null
   const defaultInterest = full && ctx.chargesLive ? Math.min(Math.max(defaultInterestOutstanding, 0), charges) : 0
   // On the full basis no further interest accrues into exposure while it is suspended.
-  const accrued = full ? 0 : accruedInterestCents(rows, runDate, sastCalendarDate(loan.startDate))
+  const accrued = full ? 0 : accruedInterestCents(rows, runDate, sastCalendarDate(loan.startDate), loan.graceDeferral)
   const ead = exposureAtDefault({
     outstandingPrincipalCents: loan.outstandingPrincipal, unpaidInterestCents: unpaid.interestCents, unpaidFeesCents: unpaid.feesCents,
     chargesOutstandingCents: charges, accruedInterestCents: accrued,
