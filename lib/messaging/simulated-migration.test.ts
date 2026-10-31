@@ -13,8 +13,13 @@ describe("SIMULATED message database guards", () => {
     expect(baselineTriggerSql("Conversation_truthful_last_outbound")).toContain(
       `ON "Conversation" FOR EACH ROW`,
     )
+    // INSERT only, and only for Message rows (20261031130000): the restricted audit_redactor
+    // must never enter these functions, which read "Message".
     expect(baselineTriggerSql("AuditLog_truthful_dry_run")).toContain(
-      `ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION truthful_dry_run_audit()`,
+      `BEFORE INSERT ON "AuditLog" FOR EACH ROW WHEN (NEW."entity" = 'Message') EXECUTE FUNCTION truthful_dry_run_audit()`,
+    )
+    expect(baselineTriggerSql("AuditLog_legacy_placeholder_guard")).toContain(
+      `BEFORE INSERT ON "AuditLog" FOR EACH ROW WHEN (NEW."entity" = 'Message') EXECUTE FUNCTION guard_legacy_placeholder_audit()`,
     )
     expect(dryRunMessage).toContain(`"status" = 'SIMULATED'`)
     expect(lastOutbound).toContain(`MAX(message."sentAt")`)
