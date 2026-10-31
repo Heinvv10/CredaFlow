@@ -114,7 +114,7 @@ export function CreditPolicyForm() {
         <CardHeader>
           <CardTitle>Bureau score gate</CardTitle>
           <CardDescription>
-            Minimum Experian Sigma score required before staff can approve an application. Below it, approval is blocked unless the approver records a bureau override reason. The Sigma band is{" "}
+            Minimum Experian Sigma score required to approve an application (by staff or the decision engine). Below it, approval is blocked unless a staff approver records a bureau override reason; the engine refers instead. The Sigma band is{" "}
             {SIGMA_MIN}–{SIGMA_MAX}.
           </CardDescription>
         </CardHeader>
