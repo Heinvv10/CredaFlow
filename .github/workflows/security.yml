@@ -4,8 +4,8 @@ name: security
 # required `quality` and `integration` checks. Every third-party action is pinned
 # to a full commit SHA; scanner binaries are pinned by version AND sha256, and
 # the Semgrep image by digest, so a moved tag cannot change what runs here.
-# Not wired into branch protection: add `sast`, `dependencies`, `secrets` and
-# `image` as required checks when the first runs are green.
+# `sast`, `dependencies` and `secrets` are required checks in main's branch
+# protection (alongside `quality` and `integration`); `image` is not required.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
