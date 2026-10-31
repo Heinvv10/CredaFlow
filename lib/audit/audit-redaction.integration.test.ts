@@ -14,6 +14,12 @@ suite("audit-redaction", () => {
   beforeAll(fx.setup)
   afterAll(fx.teardown)
 
+  /** The row now equals `before` with exactly `cols` set to null, and nothing else changed. */
+  const expectOnlyNulled = async (before: Awaited<ReturnType<typeof db.auditLog.create>>, cols: Array<"userEmail" | "ipAddress" | "oldValue" | "newValue">) => {
+    const after = await db.auditLog.findUniqueOrThrow({ where: { id: before.id } })
+    expect(after).toEqual({ ...before, ...Object.fromEntries(cols.map((c) => [c, null])) })
+  }
+
   describe("documented redaction (POPIA)", () => {
     let N = ""
     it("nulls the personal data, keeps the chain verifiable, records the digests and writes its own audit row", async () => {
@@ -30,6 +36,41 @@ suite("audit-redaction", () => {
       expect(audit).toMatchObject({ entityId: target.id, newValue: expect.objectContaining({ columns: ["userEmail", "newValue"], operator: "it-operator" }) })
       await chain(N)
       expect(await verify(N)).toMatchObject({ ok: true, rowsChecked: 5 })
+
+      // The legacy message-evidence guards validate new audit rows. They must not
+      // re-read Message as the restricted audit_redactor role during a later POPIA
+      // redaction (and must not reconstruct the value being erased).
+      const messageAudit = await db.auditLog.create({
+        data: {
+          tenantId: N,
+          action: "AUDIT_IT",
+          entity: "Message",
+          entityId: `missing-message-${token}`,
+          userEmail: "m@it.invalid",
+          ipAddress: "10.0.0.2",
+          oldValue: { personal: "kept" },
+          newValue: { personal: "erase me" },
+        },
+      })
+      await redact(messageAudit.id, ["newValue"])
+      // Only the redacted column changed: action, entity, entityId, tenant, user, the other
+      // personal-data columns and createdAt are exactly as inserted.
+      await expectOnlyNulled(messageAudit, ["newValue"])
+
+      // Deterministically, whatever the session's plan-cache history: a generic plan keeps
+      // the guards' EXISTS on "Message" in the plan, so Postgres checks SELECT on Message
+      // when the redaction writes its own AUDIT_ROW_REDACTED row as audit_redactor. The
+      // guards must not run for that row at all (this failed in a long CI shard only).
+      for (const entity of ["Thing", "Message"]) {
+        const row = await db.auditLog.create({
+          data: { tenantId: N, action: "AUDIT_IT", entity, entityId: `generic-plan-${entity}-${token}`, newValue: { personal: "erase me" } },
+        })
+        await db.$transaction(async (tx) => {
+          await tx.$executeRaw`SET LOCAL plan_cache_mode = force_generic_plan`
+          await redact(row.id, ["newValue"], undefined, undefined, tx)
+        })
+        await expectOnlyNulled(row, ["newValue"])
+      }
 
       // Another column later; the same column twice is refused.
       await redact(target.id, ["ipAddress"])

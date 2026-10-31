@@ -5,7 +5,7 @@
  */
 import { randomUUID } from "node:crypto"
 import { describe } from "vitest"
-import { PrismaClient } from "@prisma/client"
+import { PrismaClient, type Prisma } from "@prisma/client"
 import { logAuditStrict } from "@/lib/audit"
 import { columnDigest, type HashedColumn } from "./chain-hash"
 import { verifyAuditChains } from "./chain-verify"
@@ -37,11 +37,11 @@ export function auditFixture(labels: readonly string[]) {
     return id
   }
   /** What scripts/audit-redact.ts does: keyed digests of the values being removed, then audit_log_redact. */
-  const redact = async (id: string, cols: HashedColumn[], reason = "POPIA erasure request ref 42", op = "it-operator") => {
-    const [row] = await db.$queryRaw<Array<Record<HashedColumn, string | null>>>`
+  const redact = async (id: string, cols: HashedColumn[], reason = "POPIA erasure request ref 42", op = "it-operator", client: PrismaClient | Prisma.TransactionClient = db) => {
+    const [row] = await client.$queryRaw<Array<Record<HashedColumn, string | null>>>`
       SELECT "userEmail", "ipAddress", "oldValue"::text AS "oldValue", "newValue"::text AS "newValue" FROM "AuditLog" WHERE "id" = ${id}`
     const digests = Object.fromEntries(cols.map((c) => [c, columnDigest(c, (row ? row[c] : "") ?? null)]))
-    return db.$executeRaw`SELECT public.audit_log_redact(${id}, ${cols}::text[], ${reason}, ${op}, ${JSON.stringify(digests)}::jsonb)`
+    return client.$executeRaw`SELECT public.audit_log_redact(${id}, ${cols}::text[], ${reason}, ${op}, ${JSON.stringify(digests)}::jsonb)`
   }
   const setup = async () => { await db.tenant.createMany({ data: tenantIds.map((id) => ({ id, slug: id, name: id })) }) }
   const teardown = async () => {
