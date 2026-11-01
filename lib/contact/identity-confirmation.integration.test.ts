@@ -164,7 +164,8 @@ function regime(jurisdiction: StackJurisdiction) {
       const spend = runWithTenant(stack.tenant, () => (holder.app as typeof import("@/lib/prisma").prisma).$transaction((tx) => consumeSigningOtp(tx, {
         tenantId: stack.tenant, clientId, purpose: "AGREEMENT", subjectId: `app-${clientId}`, documentSha256: "a".repeat(64), challengeId: issued.challenge.challengeId, method: "branch", now: new Date(), witnessUserId: stack.senior,
       })))
-      await expect(spend).rejects.toThrow(SigningOtpRefusedError)
+      await expect(spend).rejects.toBeInstanceOf(SigningOtpRefusedError)
+      await expect(spend).rejects.toMatchObject({ reason: "identity_confirmed_by_witness" })
     })
 
     it("the borrower can confirm it in their own session, and their own change needs no one", async () => {

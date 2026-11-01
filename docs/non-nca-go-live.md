@@ -60,6 +60,10 @@ segregation-of-duties setting. The borrower's email and WhatsApp number are froz
 before payout refuses until the application is returned to review and approved again. A borrower with no email or
 WhatsApp on file cannot sign this way: capture one first, or the bank chooses a wet-ink route (not built).
 
+If staff correct a borrower's email or WhatsApp number, ordinary mail follows at once, but no signing code goes there until someone
+else vouches for it: a different staff member on the client record, with a note, or the borrower under Profile in the portal. The one who
+confirmed it does not witness that signature. A number the borrower changed themselves needs nobody. An address captured when the client was created counts as verified.
+
 ## Paying out
 
 The disburse route books a signed key-facts loan (`lib/non-nca-documents/disburse.ts`). What the bank should know:
