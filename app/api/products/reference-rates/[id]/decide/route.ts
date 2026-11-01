@@ -8,6 +8,7 @@ import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 import { canDo } from "@/lib/permissions"
 import { VARIABLE_RATE_BASES } from "@/lib/product-engine/types"
 import { prisma } from "@/lib/prisma"
+import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { withTenantContext } from "@/lib/tenant"
 
 /** A second person's decision on a PENDING value: { decision: "APPROVE" | "REJECT" }. CHECK ReferenceRate_four_eyes holds the rule as well. */
@@ -18,6 +19,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (isNcaJurisdiction()) return NextResponse.json({ error: "Reference rates do not apply here." }, { status: 404 })
   if (!canDo(guard.user.role, "approve_product_versions")) return NextResponse.json({ error: "Deciding a reference rate needs the approve_product_versions permission" }, { status: 403 })
   return withTenantContext(req, async (tenant) => {
+    // A value reprices loans: deciding one is as privileged as approving a product change, and needs the session's own second factor.
+    if (guard.user.totpVerified !== true && (await isStaffTotpRequired(tenant.id))) return NextResponse.json({ error: "Sign in with two-factor authentication to decide a reference rate.", code: "TOTP_REQUIRED" }, { status: 403 })
     const { id } = await params
     const body = (await req.json().catch(() => null)) as { decision?: unknown } | null
     if (body?.decision !== "APPROVE" && body?.decision !== "REJECT") return NextResponse.json({ error: "decision must be APPROVE or REJECT" }, { status: 400 })

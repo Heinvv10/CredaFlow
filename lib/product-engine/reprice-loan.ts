@@ -4,9 +4,9 @@
  * appended to LoanTerms (never changed, sequence + 1), the untouched rows are regenerated in place, and the loan's totals move
  * by the change in interest: the agreed baseline too, so a repriced loan settles on the repriced schedule.
  *
- * IDEMPOTENT per (loan, effective date): a loan already on that date or a later one answers already_repriced, and the partial
- * unique index LoanTerms_reference_effective_key is the backstop. A change that leaves the rate where it was, or finds no row
- * to regenerate, writes nothing, and is looked at again on the next run.
+ * IDEMPOTENT per (loan, effective date): a loan already on that date or a later one answers already_repriced, read under the
+ * lock; the unique (loan, sequence) and guardLoanTerms are the backstop. A change that leaves the rate where it was, or finds
+ * no row to regenerate, writes nothing, and is looked at again on the next run.
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { dbDate, isoOfDbDate } from "@/lib/asset-finance/dates"

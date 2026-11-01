@@ -11,6 +11,7 @@ import { formatZAR, formatDate, SAST_TIME_ZONE } from "@/lib/utils"
 import { getAvatarColor, getInitials } from "@/lib/avatar"
 import { LoanNotes } from "@/components/loans/LoanNotes"
 import { Button } from "@/components/ui/button"
+import { LoanRateHistory } from "@/components/loans/LoanRateHistory"
 import { RepaymentScheduleTable } from "@/components/loans/RepaymentScheduleTable"
 import { PaymentForm } from "@/components/loans/PaymentForm"
 import { LoanDocumentActions } from "@/components/loans/LoanDocumentActions"
@@ -48,6 +49,7 @@ async function getLoan(id: string, tenantId: string) {
       repaymentSchedule: {
         orderBy: { installmentNo: "asc" },
       },
+      terms: { orderBy: { sequence: "asc" } },
       payments: {
         // Sorted by the field the row displays, or the staff list reads as out
         // of order against the client's own statement.
@@ -206,6 +208,8 @@ export default async function LoanDetailPage(
           </DataPanel>
 
           {payout && <PayoutStatusPanel view={payout} canAct={canManageCharges} />}
+
+          <LoanRateHistory terms={loan.terms} />
 
           <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={loan.status === "ACTIVE"} />
         </div>

@@ -310,22 +310,37 @@ suite("A5b product types, maker-checker and repricing (real Postgres, real route
       expect((await scheduleOf(loanId)).map((r) => r.totalDue)).toEqual(after.map((r) => r.totalDue))
     })
 
-    it("two racing runs reprice once: the lock, then the unique index", async () => {
+    it("two racing runs reprice once: the second waits on the loan lock and finds it done", async () => {
       const { loanId } = await book()
-      const reference = { rate: 0.12, effectiveDate: day(-1) }
+      await approveRate(day(-2), "0.12", "LENDER_BASE")
+      const reference = { rate: 0.12, effectiveDate: day(-2) }
       const go = () => prisma.$transaction((tx) => repriceLoan(tx, { tenantId, loanId, basis: "LENDER_BASE", reference, today: TODAY }))
       const outcomes = await Promise.all([go(), go()])
       expect(outcomes.map((o) => o.kind).sort()).toEqual(["already_repriced", "repriced"])
       expect(await db.loanTerms.count({ where: { loanId } })).toBe(2)
     })
 
-    it("the database refuses a second row for the same reference day, a gap in the sequence, and any change to a row", async () => {
+    it("the database refuses a gap in the sequence, a repeated sequence, and any change to a row", async () => {
       const { loanId } = await book()
       const first = await db.loanTerms.findFirstOrThrow({ where: { loanId } })
       const { id: _id, createdAt: _at, pricingInputs: _inputs, ...row } = first
-      expect(await db.loanTerms.create({ data: { ...row, sequence: 2 } }).then(() => "written", (e: unknown) => String(e))).toContain("Unique constraint")
-      expect(await db.loanTerms.create({ data: { ...row, sequence: 3, referenceEffectiveDate: dbDate(day(-2)) } }).then(() => "written", (e: unknown) => String(e))).toContain("next row")
+      expect(await db.loanTerms.create({ data: { ...row, sequence: 1 } }).then(() => "written", (e: unknown) => String(e))).toContain("next row")
+      expect(await db.loanTerms.create({ data: { ...row, sequence: 3 } }).then(() => "written", (e: unknown) => String(e))).toContain("next row")
       expect(await db.loanTerms.update({ where: { id: first.id }, data: { interestRatePm: 0.02 } }).then(() => "written", (e: unknown) => String(e))).toContain("never change")
+    })
+
+    it("the database refuses a repricing row no approved reference value backs, or one that changes the loan's margin", async () => {
+      const { loanId } = await book()
+      const effective = day(-3)
+      await approveRate(effective, "0.115", "LENDER_BASE")
+      const first = await db.loanTerms.findFirstOrThrow({ where: { loanId } })
+      const { id: _id, createdAt: _at, pricingInputs: _inputs, ...row } = first
+      const write = (over: Record<string, unknown>) => db.loanTerms.create({ data: { ...row, sequence: 2, referenceEffectiveDate: dbDate(effective), referenceRate: 0.115, ...over } }).then(() => "written", (e: unknown) => String(e))
+      expect(await write({ referenceRate: 0.2 })).toContain("approved reference rate")
+      expect(await write({ referenceEffectiveDate: dbDate(day(-4)) })).toContain("approved reference rate")
+      expect(await write({ rateMarginPa: 0.01 })).toContain("approved reference rate")
+      expect(await write({ rateBasis: "PRIME" })).toContain("approved reference rate")
+      expect(await write({})).toBe("written")
     })
 
     it("does nothing to a loan that is not active, or for an NCA lender", async () => {
@@ -335,6 +350,52 @@ suite("A5b product types, maker-checker and repricing (real Postgres, real route
       expect(await db.loanTerms.count({ where: { loanId } })).toBe(1)
       resetActiveJurisdiction()
       expect(await (await sweep()).json()).toMatchObject({ skipped: expect.stringContaining("NCA") })
+    })
+  })
+
+  describe("reference rates outside the NCA", () => {
+    const decide = (id: string, decision = "APPROVE") => decideRate(request(`/api/products/reference-rates/${id}/decide`, "POST", { decision }), { params: Promise.resolve({ id }) })
+    const record = async (who: keyof typeof staff, effectiveDate: string, basis = "PRIME") => {
+      signIn(who)
+      return recordRate(request("/api/products/reference-rates", "POST", { basis, effectiveDate, rate: "0.1" }))
+    }
+
+    it("takes two people, and only the bases a variable rate may follow", async () => {
+      expect((await record("officer", day(30))).status).toBe(403)
+      expect((await record("maker", day(31), "JIBAR")).status).toBe(400)
+      const recorded = await record("maker", day(32))
+      expect(recorded.status).toBe(201)
+      const { id, status } = await recorded.json()
+      expect(status).toBe("PENDING")
+      expect((await decide(id)).status).toBe(403)
+      signIn("maker2")
+      expect((await decide(id)).status).toBe(403)
+      signIn("checker")
+      expect((await decide(id, "MAYBE")).status).toBe(400)
+      expect((await decide(id)).status).toBe(200)
+      expect((await decide(id)).status).toBe(409)
+    })
+
+    it("refuses the person who recorded it, even with the authority to decide", async () => {
+      const recorded = await record("checker", day(33))
+      const { id } = await recorded.json()
+      expect((await decide(id)).status).toBe(403)
+      expect((await db.referenceRate.findUniqueOrThrow({ where: { id } })).status).toBe("PENDING")
+    })
+
+    it("needs the session's second factor where the lender requires one", async () => {
+      const { id } = await (await record("maker", day(34))).json()
+      await db.tenantConfig.update({ where: { tenantId }, data: { requireStaffTotp: true } })
+      session.current = { user: { id: staff.checker, email: `${staff.checker}@a5b-it.test`, role: "ADMIN", tenantId, totpVerified: false } }
+      const refused = await decide(id)
+      await db.tenantConfig.update({ where: { tenantId }, data: { requireStaffTotp: false } })
+      expect(refused.status).toBe(403)
+      expect((await refused.json()).code).toBe("TOTP_REQUIRED")
+    })
+
+    it("does not exist for an NCA lender", async () => {
+      resetActiveJurisdiction()
+      expect((await record("maker", day(35))).status).toBe(404)
     })
   })
 

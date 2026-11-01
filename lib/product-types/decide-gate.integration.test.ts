@@ -1,0 +1,57 @@
+/**
+ * The product types' gate through the real decide path (real Postgres, the approval matrix's fixture): an application on a new
+ * type stops at it, says why, and moves on once its facts are set; whoever set them does not approve it.
+ *
+ *   RUN_APPROVAL_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/product-types/decide-gate.integration.test.ts
+ */
+import { afterEach, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/prisma", async (importOriginal) => (await import("@/lib/approval/approval.integration-prisma")).mockPrisma(await importOriginal<typeof import("@/lib/prisma")>()))
+vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
+vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/notifications")>()), triggerNotification: vi.fn(async () => undefined) }))
+
+import { A, approveAs, as, db, ids, registerApprovalFixture, suite, underReview } from "@/lib/approval/approval.integration-fixture"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+const retype = (productType: "SALARY_BACKED" | "MICRO") => db.loanProduct.update({ where: { id: ids.product }, data: { productType } })
+
+suite("the product types at the decide route (real Postgres)", () => {
+  registerApprovalFixture()
+  afterEach(async () => {
+    resetActiveJurisdiction()
+    await retype("MICRO")
+  })
+
+  it("refuses a new type outright to an NCA lender", async () => {
+    await retype("SALARY_BACKED")
+    const id = A("pt-nca")
+    await underReview(id, { amount: 300_000 })
+    const result = await approveAs("la1", id)
+    expect(result).toMatchObject({ status: 422, body: { productTypeRefused: true } })
+    expect(String(result.body.error)).toContain("NCA lender")
+  })
+
+  it("outside the NCA stops a salary-backed application until its facts are there, and then lets it past this gate", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    await retype("SALARY_BACKED")
+    const id = A("pt-ls")
+    await underReview(id, { amount: 300_000 })
+    const refused = await approveAs("la1", id)
+    expect(refused).toMatchObject({ status: 422, body: { productTypeRefused: true } })
+    expect(String(refused.body.error)).toContain("employer")
+    await db.applicationProductFacts.create({ data: { applicationId: id, tenantId: ids.tenant, employerName: "Maluti Mining", payrollNumber: "P-7", updatedById: ids.officer } })
+    const past = await approveAs("la1", id)
+    expect(past.body.productTypeRefused).toBeUndefined()
+  })
+
+  it("whoever set the facts does not approve the application", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    await retype("SALARY_BACKED")
+    const id = A("pt-sod")
+    await underReview(id, { amount: 300_000 })
+    await db.applicationProductFacts.create({ data: { applicationId: id, tenantId: ids.tenant, employerName: "Maluti Mining", payrollNumber: "P-7", updatedById: as.la1.id } })
+    await db.auditLog.create({ data: { tenantId: ids.tenant, userId: as.la1.id, userEmail: as.la1.email, action: "APPLICATION_PRODUCT_FACTS_SET", entity: "LoanApplication", entityId: id } })
+    const refused = await approveAs("la1", id)
+    expect(refused).toMatchObject({ status: 403, body: { pricingInputsSetByApprover: true } })
+  })
+})

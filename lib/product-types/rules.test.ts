@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { CONSUMER_PRODUCT_WHERE, CUSTOMER_PRODUCT_WHERE, NON_NCA_PRODUCT_TYPES } from "@/lib/product-config/product-kind"
 import { productTypeRefusal, salaryBackedRefusal, smeRefusal, type TypeFacts } from "./rules"
 
 const none: TypeFacts = { employerName: null, payrollNumber: null, businessName: null, businessRegistrationNumber: null, annualTurnoverCents: null, borrowerGroupId: null }
@@ -15,6 +16,17 @@ function db(over: { facts?: TypeFacts | null; employment?: string | null; member
   } as never
 }
 const lesotho = () => setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+
+describe("where the new types are offered", () => {
+  it("no customer channel offers one; staff still see them", () => {
+    for (const type of NON_NCA_PRODUCT_TYPES) {
+      expect(CUSTOMER_PRODUCT_WHERE.productType.notIn).toContain(type)
+      expect(CONSUMER_PRODUCT_WHERE.productType.not).not.toBe(type)
+    }
+    expect(CUSTOMER_PRODUCT_WHERE.productType.notIn).toContain("ASSET_FINANCE")
+    expect(CUSTOMER_PRODUCT_WHERE.repaymentStructured).toBe(false)
+  })
+})
 
 describe("productTypeRefusal", () => {
   it("reads nothing and refuses nothing for an existing product type, in any jurisdiction", async () => {

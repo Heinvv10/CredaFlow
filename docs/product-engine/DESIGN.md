@@ -15,7 +15,7 @@ rows that sum exactly to principal + interest + fees.
 - Monthly dates use SAST calendar months with the day clamped to month end. The legacy path keeps `setMonth`.
 - A row's principal is what the instalment leaves after its own interest, never more than the balance and never negative; the final row clears the balance. Rows with a zero total are dropped and renumbered.
 - The instalment affordability sets against monthly income is the second row (the first carries the initiation fee), the first row that repays principal after a principal-only grace, the interest-and-fee row of an interest-only loan, the one payment of a bullet; weekly and fortnightly scale the row's principal and interest by 52/12 and 26/12 and add the monthly service fee once (it is a monthly charge, not a per-instalment one); a bullet is not scaled.
-- Structures: AMORTISING, INTEREST_ONLY (principal at the end), BULLET (everything at the end).
+- Structures: AMORTISING, INTEREST_ONLY (principal at the end), BULLET (everything at the end), BALLOON (the annuity of the principal less the balloon's present value, the balloon, a share of the principal, on the last row; a flat rate spreads the principal less the balloon evenly). A balloon takes no grace and needs two instalments.
 - Grace: PRINCIPAL_ONLY emits interest-only rows. FULL emits no rows; the interest accrued, and the service fees of the grace months, are deferred (interest as simple interest, no compounding) and spread evenly over the later instalments, so the first payment is no heavier than the rest. BULLET with FULL grace is refused.
 
 ## Versioning
@@ -46,6 +46,20 @@ Engine schedules are plain `RepaymentSchedule` rows. The interest a full grace d
 
 The portal, the website and the lender API show and schedule monthly instalments only, so a product whose version in effect has a structure is hidden from them (`LoanProduct.repaymentStructured`, written by the activation; `CUSTOMER_PRODUCT_WHERE`) and originated by staff. Staff previews, the affordability assessment and the decision engine's facts use the version's terms (`previewCalcInput`). A DebiCheck mandate is monthly with one recurring amount, so a structured loan is collected by EFT: approval, disbursement and staff mandate creation refuse a debit order for it. Credit life is billed a premium per month of cover bound to schedule rows, which a weekly or fortnightly schedule has several of in a month: approval refuses an accepted election on one.
 
+## Variable rates and repricing
+
+A version may name a reference (`variableRate`: PRIME or LENDER_BASE, and an annual margin). A loan on it is priced at the approved reference value on the approval day + margin, divided by 12, and a pricing rule moves that as it moves any base rate. The loan keeps its own margin, the rate it was priced at x 12 less that reference value, frozen in `AffordabilityDecisionInputs.variableRate` (in the fingerprint when present) and written on `LoanTerms` sequence 1. A variable rate needs a reducing balance and a repayment structure, so it is BRANCH-only like every structure, and neither a bullet nor a full grace: nothing could be regenerated, or deferred interest sits in the rows. With no approved reference value on the day, approval is refused. An NCA lender may have none (`ncaStructureIssues`).
+
+The lender records values at Settings, Products, Reference rates (`/api/products/reference-rates`, non-NCA only: `ReferenceRate`, with the table's own four-eyes rules; deciding one needs the session's second factor). The nightly `loan-rate-reprice` job takes each approved value after the one a loan is on, oldest first, and for each: locks the loan, plans the tail (`reprice.ts`), appends a `LoanTerms` row, rewrites the tail rows in place, and moves the loan's rate, total interest and total repayable, and the agreed baseline when set, by the change in interest. The rate applies from the first period starting on or after the effective date, so no period is split and an instalment already running keeps its amount. `guardLoanTerms` refuses a repricing row that no approved value backs or that changes the loan's basis or margin.
+
+## Maker-checker on a product
+
+Creating, editing and deactivating a `LoanProduct` is a `LOAN_PRODUCT` change request (`lib/product-config/change-handler.ts`): the product routes answer 202 with the request and write nothing, the same rules are checked when proposing and again inside the approval, and a change is STALE if the row moved after it was submitted. A LOAN_ADMIN proposes, an ADMIN approves. The table has no provenance trigger: the seed, the fixtures and a version's activation write it too. The operator CLI `scripts/set-micro30-pricing.ts` and the insurance products are outside this.
+
+## Product types
+
+SALARY_BACKED, SME, GROUP and REVOLVING are refused to an NCA lender, offered by no customer channel, and each is gated at approval (`lib/product-types/rules.ts`). `lib/product-types/.claude.md` says what each does and does not do. Mortgage is out of scope.
+
 ## Pricing inputs
 
 The channel is `PRICING_CHANNELS` (DIGITAL, BRANCH, API), recorded by the code that creates the application (the portal and website DIGITAL, staff and the CRM BRANCH, the lender API API) and never typed or changed by a person: the pricing-inputs PUT refuses a different channel. Segment and campaign code are chosen from those the lender's approved pricing rules name. Whoever ever sets them (the audit trail names every setter) does not approve the application, whether or not a rule priced it, and each setter is recorded in the application's grow-only `inputStaffIds`, so the segregation-of-duties rules of an engine approval and its disbursement cover them. The status is read under the application's row lock. An application that came in through a customer channel (DIGITAL, API) is not approved on a structured schedule, even if a version took effect after the customer applied.
@@ -59,4 +73,6 @@ A product's type, and whether it is the MICRO30 contract product, are locked onc
 - The staff loan calculator and the wizard's affordability step still read the base `LoanProduct`; the application page, the assessment and the decision facts use the version.
 - Monthly dates of a structured (non-NCA) schedule are SAST calendar months clamped to month end (31 Jan, 28 Feb), unlike the legacy `setMonth` (3 Mar); the legacy schedule, used by every NCA lender, is untouched.
 - Collateral and eligibility are stored and shown but not enforced at origination.
-- Balloon and variable/reference-rate repricing (2.6.1) are not built.
+- A rate change sends the borrower no notice: the wording is the lender's, and none is invented here.
+- A repricing does not reach back: a reference approved late changes only rows not yet due, and paid rows keep the rate they were paid at. A value older than the one a loan is already on is ignored.
+- Affordability is set against the recurring instalment: the balloon is on the schedule and in the totals, not in the instalment test.
