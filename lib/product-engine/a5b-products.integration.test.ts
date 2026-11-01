@@ -4,8 +4,7 @@
  *   RUN_A5B_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/product-engine/a5b-products.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { NextRequest } from "next/server"
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/auth", async () => {
   const { session } = await import("./a5b-session.integration-fixture")
@@ -18,7 +17,7 @@ import { POST as createProduct } from "@/app/api/products/loan/route"
 import { POST as act } from "@/app/api/maker-checker/[id]/[action]/route"
 import { POST as draftChange } from "@/app/api/maker-checker/route"
 import { dbDate } from "@/lib/asset-finance/dates"
-import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { TODAY, approveRate, approveRequest, config, created, day, db, form, proposeVersion, registerA5bLender, request, signIn, staff, suite, t, tenantId } from "./a5b.integration-fixture"
 
 suite("A5b products (real Postgres, real routes)", () => {

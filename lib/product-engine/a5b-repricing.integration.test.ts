@@ -3,8 +3,6 @@
  *
  *   RUN_A5B_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/product-engine/a5b-repricing.integration.test.ts
  */
-import { randomUUID } from "node:crypto"
-import { NextRequest } from "next/server"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/auth", async () => {
