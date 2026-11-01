@@ -16,6 +16,7 @@ const assetFinanceDealCountMock = vi.fn()
 const clientDocumentFindFirstMock = vi.fn()
 
 const tx = {
+  clientDocument: { update: vi.fn(async () => ({})) },
   assetFinanceDeal: { count: (a: unknown) => assetFinanceDealCountMock(a) },
   $queryRaw: (query: unknown) => queryRawMock(query),
   loanApplication: {
@@ -68,6 +69,7 @@ import {
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
 import { PATCH, DELETE } from "./route"
+import * as preSubmission from "@/lib/non-nca-documents/pre-submission"
 
 const ctx = { params: Promise.resolve({ id: "app-1" }) }
 const draftForSubmission = {
@@ -245,11 +247,25 @@ const noCreditLife = {
 
 it("submits a key-facts draft that has no credit-life election: the page no longer asks for one outside the NCA's jurisdiction", async () => {
   findUniqueMock.mockResolvedValue({ ...draftForSubmission, ...noCreditLife, disclosureRegime: "KEY_FACTS" })
+  const shown = vi.spyOn(preSubmission, "indicativeKeyFactsShown").mockResolvedValue("kfs-doc")
 
-  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+  const res = await PATCH(patchReq({ status: "SUBMITTED", keyFactsDocumentSha256: "a".repeat(64) }), ctx)
 
   expect(res.status).toBe(200)
   expect(updateManyMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "SUBMITTED" }) }))
+  shown.mockRestore()
+})
+
+it("refuses a key-facts draft whose borrower was not shown the statement for its terms", async () => {
+  findUniqueMock.mockResolvedValue({ ...draftForSubmission, ...noCreditLife, disclosureRegime: "KEY_FACTS" })
+  const shown = vi.spyOn(preSubmission, "indicativeKeyFactsShown").mockResolvedValue(null)
+
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+  expect(res.status).toBe(422)
+  expect(await res.json()).toMatchObject({ keyFacts: "required" })
+  expect(updateManyMock).not.toHaveBeenCalled()
+  shown.mockRestore()
 })
 
 it("still refuses an NCA draft with no credit-life election (the regime, or none recorded, fails closed)", async () => {
