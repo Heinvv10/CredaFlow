@@ -15,7 +15,7 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "clearing a committee condition", file: "lib/approval/conditions.ts" },
   { control: "disbursing an approved application (segregation of duties)", file: "app/api/applications/[id]/disburse/route.ts" },
   { control: "paying out a key-facts loan (segregation of duties, and against whoever confirmed the account)", file: "lib/non-nca-documents/payout-gates.ts" },
-  { control: "confirming a key-facts payout account", file: "lib/non-nca-documents/payout-account.ts" },
+  { control: "confirming a key-facts payout account (the shared list of the people behind the payout)", file: "lib/non-nca-documents/payout-people.ts" },
   { control: "countersigning an in-branch signature (segregation of duties)", file: "app/api/applications/[id]/agreement/countersign/route.ts" },
   { control: "document template approval", file: "app/api/documents/templates/[id]/versions/[versionId]/approve/route.ts" },
   { control: "lender legal template approval and publishing", file: "lib/asset-finance/documents/templates/store.ts" },

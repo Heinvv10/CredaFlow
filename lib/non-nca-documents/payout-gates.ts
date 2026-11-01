@@ -35,7 +35,8 @@ import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/docume
 import { lockedBorrowerScreeningAllows, readBorrowerScreening } from "@/lib/screening/gate"
 import { CLEARER_REFUSAL, clearedConditions, committeeConditionsRefusal } from "@/lib/approval/conditions"
 import { accountControlRefusal } from "@/lib/security/account-control"
-import { SEGREGATION_OF_DUTIES_REFUSALS, isSegregationOfDutiesRequired, segregationOfDutiesConflict, segregationOfDutiesMakers } from "@/lib/security/segregation-of-duties"
+import { SEGREGATION_OF_DUTIES_REFUSALS, isSegregationOfDutiesRequired, segregationOfDutiesConflict } from "@/lib/security/segregation-of-duties"
+import { confirmerRefusal, payoutPeople } from "./payout-people"
 import { databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 import { currentPayoutVerification } from "./payout-account"
 import { agreementPayableOn } from "./payout-terms"
@@ -83,10 +84,9 @@ export async function payoutPreconditions(subject: PayoutSubject): Promise<Payou
   if (!clientId) return refuse(409, "borrower", "A key-facts loan is made to a client")
 
   const segregation = await isSegregationOfDutiesRequired(tenantId)
-  const segregationFacts = {
+  const conflict = segregationOfDutiesConflict("disburse", user.id, {
     ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenantId, applicationId),
-  }
-  const conflict = segregationOfDutiesConflict("disburse", user.id, segregationFacts)
+  })
   if (conflict && segregation) return refuse(422, "segregation_of_duties", SEGREGATION_OF_DUTIES_REFUSALS[conflict])
 
   // The credit committee's conditions (the database refuses the DISBURSED write too). With segregation of duties on, whoever cleared one is out
@@ -96,7 +96,7 @@ export async function payoutPreconditions(subject: PayoutSubject): Promise<Payou
   if (segregation) {
     const clearers = await clearedConditions(prisma, tenantId, applicationId)
     if (clearers.includes(user.id)) return refuse(422, "segregation_of_duties", CLEARER_REFUSAL)
-    const controlled = await accountControlRefusal(prisma, { tenantId, makerIds: [...segregationOfDutiesMakers("disburse", segregationFacts), ...clearers], checkerId: user.id })
+    const controlled = await accountControlRefusal(prisma, { tenantId, makerIds: await payoutPeople(prisma, tenantId, applicationId, application), checkerId: user.id })
     if (controlled) return refuse(422, "segregation_of_duties", controlled)
   }
 
@@ -122,7 +122,7 @@ export async function payoutGates(tx: PayoutTransaction, scope: PayoutScope) {
   await lockKycDocuments(tx, tenantId, clientId)
 
   // From here on every gate reads this: the row as it stands under the locks, not the one read before them.
-  const current = await tx.loanApplication.findFirst({ where: { id: applicationId, tenantId, status: "APPROVED", clientId }, include: { client: true } })
+  const current = await tx.loanApplication.findFirst({ where: { id: applicationId, tenantId, status: "APPROVED", clientId }, include: { client: true, approvedBy: { select: { isSystem: true } } } })
   if (!current?.client) throw new Refused(CHANGED)
   const { client } = current
   if (!(await lockedBorrowerScreeningAllows(tx, tenantId, { clientId, entityId: null }, current.approvedById ?? user.id, { providerRequired: true }))) {
@@ -150,9 +150,12 @@ export async function payoutGates(tx: PayoutTransaction, scope: PayoutScope) {
   if (!statement.ok) throw new Refused(refuse(422, statement.reason, "Cannot disburse: no verified bank statement matches the payout account."))
   const verification = await currentPayoutVerification(tx, { tenantId, applicationId, client, disburserId: user.id })
   if (!verification.ok) throw new Refused(refuse(422, "payout_account_verification", verification.error))
+  // Read again under the locks: a step or a clearance since the confirmation can have put the confirmer behind this payout.
   if (scope.segregation) {
-    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [verification.verifiedById], checkerId: user.id })
-    if (controlled) throw new Refused(refuse(422, "payout_account_verification", controlled))
+    const people = await payoutPeople(tx, tenantId, applicationId, current)
+    const refused = await confirmerRefusal(tx, tenantId, people, verification.verifiedById)
+      ?? await accountControlRefusal(tx, { tenantId, makerIds: [...people, verification.verifiedById], checkerId: user.id })
+    if (refused) throw new Refused(refuse(422, "payout_account_verification", refused))
   }
 
   // The one instant of this payout: stamped under the locks, used for every judgement and row that follows.

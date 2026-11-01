@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ application: vi.fn(), verifyLocked: vi.fn(), kyc: vi.fn(), statement: vi.fn(), verification: vi.fn(), problem: vi.fn(), screening: vi.fn(), conditions: vi.fn(), cleared: vi.fn(), twoPeople: vi.fn() }))
+const h = vi.hoisted(() => ({ application: vi.fn(), verifyLocked: vi.fn(), kyc: vi.fn(), statement: vi.fn(), verification: vi.fn(), problem: vi.fn(), screening: vi.fn(), conditions: vi.fn(), cleared: vi.fn(), twoPeople: vi.fn(), people: vi.fn(), confirmer: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({ prisma: { loanApplication: { findFirst: h.application } } }))
 vi.mock("@/lib/approval/progress", () => ({ approvalStepApproverIds: async () => [] }))
 vi.mock("@/lib/affordability/current-approval", () => ({ verifyLockedCurrentAffordabilityApproval: h.verifyLocked }))
@@ -9,6 +9,7 @@ vi.mock("@/lib/compliance/debit-mandate.server", async (original) => ({ ...(awai
 vi.mock("@/lib/kyc/document-state", () => ({ readCompositeKycState: h.kyc }))
 vi.mock("@/lib/screening/gate", () => ({ readBorrowerScreening: async () => ({ allowed: true }), lockedBorrowerScreeningAllows: h.screening }))
 vi.mock("@/lib/approval/conditions", () => ({ CLEARER_REFUSAL: "you cleared a committee condition", clearedConditions: h.cleared, committeeConditionsRefusal: h.conditions }))
+vi.mock("./payout-people", () => ({ payoutPeople: h.people, confirmerRefusal: h.confirmer }))
 vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: h.twoPeople }))
 vi.mock("@/lib/security/segregation-of-duties", () => ({ segregationOfDutiesMakers: () => ["approver"], SEGREGATION_OF_DUTIES_REFUSALS: {}, isSegregationOfDutiesRequired: async () => true, segregationOfDutiesConflict: () => null }))
 vi.mock("./payout-account", () => ({ currentPayoutVerification: h.verification }))
@@ -34,6 +35,8 @@ describe("the gates a real row cannot reach, held anyway", () => {
     h.conditions.mockResolvedValue(null)
     h.cleared.mockResolvedValue([])
     h.twoPeople.mockResolvedValue(null)
+    h.people.mockResolvedValue(["approver", "clearer"])
+    h.confirmer.mockResolvedValue(null)
     h.verifyLocked.mockResolvedValue({ ok: true, approval: today, calculation: { schedule: [] } })
     h.screening.mockResolvedValue(true)
     h.problem.mockResolvedValue(null)
@@ -58,13 +61,17 @@ describe("the gates a real row cannot reach, held anyway", () => {
     expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["approver", "clearer"], checkerId: "u1" }))
   })
 
-  it("reads the two-people rule against whoever confirmed the account, while segregation of duties is on (F12)", async () => {
+  it("re-reads the confirmer and the payer against the people behind the payout, under the locks, while segregation of duties is on (F12)", async () => {
+    h.confirmer.mockResolvedValueOnce("took no part")
+    expect(await refusal(payoutGates(tx(), scope))).toMatchObject({ precondition: "payout_account_verification", error: "took no part" })
     h.twoPeople.mockResolvedValueOnce("Two people")
     expect(await refusal(payoutGates(tx(), scope))).toMatchObject({ precondition: "payout_account_verification", error: "Two people" })
-    expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["second"], checkerId: "u1" }))
+    expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["approver", "clearer", "second"], checkerId: "u1" }))
     h.twoPeople.mockClear()
+    h.confirmer.mockClear()
     await payoutGates(tx(), { ...scope, segregation: false })
     expect(h.twoPeople).not.toHaveBeenCalled()
+    expect(h.confirmer).not.toHaveBeenCalled()
   })
 
   it("passes a complete row", async () => {

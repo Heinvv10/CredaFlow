@@ -3,8 +3,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { evaluateAvsGate } from "@/lib/avs"
 import { lockAffordabilityApplicationEvidence, lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { avsSubjectFingerprint, type AvsSubjectClient } from "@/lib/compliance/avs-subject"
-import { accountControlRefusal } from "@/lib/security/account-control"
-import { isSegregationOfDutiesRequired, segregationOfDutiesMakers } from "@/lib/security/segregation-of-duties"
+import { isSegregationOfDutiesRequired } from "@/lib/security/segregation-of-duties"
+import { confirmerRefusal, PAYOUT_PEOPLE_COLUMNS, payoutPeople } from "./payout-people"
 import { payoutVerificationNote, PAYOUT_VERIFICATION_NOTE_MAX, PAYOUT_VERIFICATION_NOTE_MIN, SECOND_PERSON_VERIFICATION_PROVIDER } from "./payout-terms"
 
 /**
@@ -37,18 +37,15 @@ export async function recordPayoutAccountVerification(args: {
     const application = await tx.loanApplication.findFirst({
       where: { id: applicationId, tenantId },
       select: {
-        status: true, disclosureRegime: true, inputStaffIds: true, approvedById: true, recklessLendingAssessedById: true, incomeVerifiedById: true, bureauOverrideById: true,
-        approvedBy: { select: { isSystem: true } }, client: { select: { id: true, idNumber: true, firstName: true, lastName: true, bankName: true, bankBranchCode: true, bankAccountNumber: true, accountType: true } } },
+        status: true, disclosureRegime: true, ...PAYOUT_PEOPLE_COLUMNS, client: { select: { id: true, idNumber: true, firstName: true, lastName: true, bankName: true, bankBranchCode: true, bankAccountNumber: true, accountType: true } } },
     })
     if (!application?.client) return { ok: false, status: 404, error: "Application not found" }
     if (application.disclosureRegime !== "KEY_FACTS") return { ok: false, status: 409, error: "This application verifies its payout account through AVS" }
     if (application.status !== "APPROVED") return { ok: false, status: 409, error: "Only an approved application has a payout to verify" }
     // The confirmer is a second person, not a second account of someone who made or approved this application.
     if (await isSegregationOfDutiesRequired(tenantId, tx)) {
-      const steps = await tx.approvalStep.findMany({ where: { tenantId, applicationId }, select: { approverId: true } })
-      const facts = { ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: steps.map((s) => s.approverId) }
-      const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [...segregationOfDutiesMakers("disburse", facts), ...application.inputStaffIds], checkerId: user.id })
-      if (controlled) return { ok: false, status: 409, error: controlled }
+      const refused = await confirmerRefusal(tx, tenantId, await payoutPeople(tx, tenantId, applicationId, application), user.id)
+      if (refused) return { ok: false, status: 409, error: refused }
     }
     const { client } = application
     if (!client.bankName || !client.bankBranchCode || !client.bankAccountNumber || !client.accountType) {

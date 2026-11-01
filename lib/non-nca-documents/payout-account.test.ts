@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => ({ application: vi.fn(), create: vi.fn(), audit: vi.fn(), queryRaw: vi.fn(), twoPeople: vi.fn(async (): Promise<string | null> => null) }))
 vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: h.twoPeople }))
+vi.mock("@/lib/approval/conditions", () => ({ clearedConditions: async () => ["clearer"] }))
 vi.mock("@/lib/security/segregation-of-duties", async (original) => ({ ...(await original<typeof import("@/lib/security/segregation-of-duties")>()), isSegregationOfDutiesRequired: async () => true }))
 vi.mock("@/lib/prisma", () => {
   const tx = { $queryRaw: h.queryRaw, loanApplication: { findFirst: h.application }, avsCheck: { create: h.create }, auditLog: { create: h.audit }, approvalStep: { findMany: async () => [{ approverId: "step-approver" }] } }
@@ -21,7 +22,7 @@ describe("recording the second person's confirmation", () => {
     h.application.mockResolvedValue({ status: "APPROVED", disclosureRegime: "KEY_FACTS", clientId: "client-1", client, approvedById: "approver", inputStaffIds: ["capturer"] })
     h.create.mockClear()
     expect(await recordPayoutAccountVerification(args)).toEqual({ ok: false, status: 409, error: "Two people" })
-    expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: expect.arrayContaining(["approver", "step-approver", "capturer"]), checkerId: "second" }))
+    expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: expect.arrayContaining(["approver", "step-approver", "capturer", "clearer"]), checkerId: "second" }))
     expect(h.create).not.toHaveBeenCalled()
   })
 
