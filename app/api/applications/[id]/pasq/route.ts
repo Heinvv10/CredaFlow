@@ -17,7 +17,7 @@ import {
 } from "@/lib/kyc/document-state"
 import { verifyStoredCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION, creditLifeOfferedFor } from "@/lib/insurance/credit-life-election"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
 import {
   createPasqEvidence,
@@ -142,11 +142,9 @@ async function creditLifeOfferIsCurrentlyAvailable(
   // below the threshold a configured product is no offer (B6); the approval
   // trigger checks the larger of the applied and approved amounts, so do too.
   if (application.creditLifeDisclosureVersion === CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION) {
-    const nowConfigured = await prisma.insuranceProduct.findFirst(
-      creditLifeOfferFindFirstArgs(tenantId),
-    )
+    const nowConfigured = await loadCreditLifeOffer(prisma, tenantId, application.disclosureRegime)
     const principalCents = Math.max(application.appliedAmount, application.approvedAmount ?? 0)
-    return !creditLifeOfferedFor(nowConfigured !== null, principalCents)
+    return !creditLifeOfferedFor(nowConfigured !== null, principalCents, application.disclosureRegime)
   }
   if (
     !application.creditLifeProductId

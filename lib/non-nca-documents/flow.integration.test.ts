@@ -27,6 +27,7 @@ vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) 
 vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<typeof import("@/lib/signing-otp/policy")>()), isSigningOtpRequired: async () => false }))
 vi.mock("@/lib/config/identity", () => ({ findLenderIdentity: async () => ({ legalName: "Demo Basotho Lending (Pty) Ltd", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"] }) }))
 
+import { BORROWER_REFUSAL, STAFF_REFUSAL } from "./borrower-gate"
 import { issueLoanDocuments } from "./issue"
 import { acknowledgeKeyFacts } from "./acknowledge"
 import { signKeyFactsAgreement } from "./sign"
@@ -76,6 +77,61 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     return { tenantId: t.tenantId, userId: t.userId, clientId, applicationId: app.id, kfs, agreement, email: `${n}@client.invalid` }
   }
   const staff = (fx: { userId: string }) => ({ id: fx.userId, email: "officer@test.invalid" })
+
+  it("a borrower recorded as deceased after approval is issued nothing, and leaves no row and no file behind", async () => {
+    const fx = await approvedApplication()
+    const filesBefore = holder.files.size
+    await db().client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    expect(await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })).toMatchObject({ ok: false, status: 409, error: STAFF_REFUSAL })
+    expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId } })).toBe(0)
+    expect(holder.files.size).toBe(filesBefore)
+  })
+
+  it("a borrower recorded as deceased after the issue cannot acknowledge", async () => {
+    const fx = await approvedApplication()
+    await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
+    const kfs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents.find((d) => d.kind === "KEY_FACTS_STATEMENT")!
+    await db().client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    expect(await acknowledgeKeyFacts({ ...base, shown: kfs.pdfSha256 })).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId, acknowledgedAt: { not: null } } })).toBe(0)
+  })
+
+  it("a borrower recorded as deceased after acknowledging cannot be bound", async () => {
+    const fx = await approvedApplication()
+    await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
+    const docs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents
+    const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    await acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 })
+    await db().client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    const signed = await signKeyFactsAgreement({ ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Thabo Synthetic", signingOtpChallengeId: null, ipAddress: "203.0.113.5" })
+    expect(signed).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })).agreementSignedAt).toBeNull()
+  })
+
+  it("a record of death still uncommitted when the borrower signs is waited for and seen: the read is under the client row lock", async () => {
+    const fx = await approvedApplication()
+    await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
+    const docs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents
+    const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    await acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 })
+    let commit = () => {}
+    const held = new Promise<void>((resolve) => { commit = resolve })
+    let written = () => {}
+    const wrote = new Promise<void>((resolve) => { written = resolve })
+    const recording = db().$transaction(async (tx) => {
+      await tx.client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+      written()
+      await held
+    })
+    await wrote
+    const signing = signKeyFactsAgreement({ ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Thabo Synthetic", signingOtpChallengeId: null, ipAddress: "203.0.113.5" })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    commit()
+    await recording
+    expect(await signing).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })).agreementSignedAt).toBeNull()
+  })
 
   it("issues both documents from the current approved versions, binds the agreement, and audits it", async () => {
     const fx = await approvedApplication()

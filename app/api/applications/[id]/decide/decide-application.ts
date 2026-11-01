@@ -41,7 +41,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { clientDeclineReason, parseDeclineCategory } from "@/lib/applications/decline-category"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
@@ -56,6 +56,7 @@ import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllow
 import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
+import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
 // 20261021090000_credit_decision_record) holds the same 10-code-point floor:
@@ -133,6 +134,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
           lastName: true,
           gender: true,
           dateOfBirth: true,
+          deceasedAt: true,
           kycStatus: true,
           kycVerifiedAt: true,
           kycVerifiedById: true,
@@ -309,9 +311,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
       // do, and reaching the wizard also discards the bureau enquiry, so
       // correcting one unrelated field cost the consumer a second bureau
       // footprint to re-record byte-identical evidence.
-      const currentCreditLifeProduct = await tx.insuranceProduct.findFirst(
-        creditLifeOfferFindFirstArgs(tenant.id),
-      )
+      const currentCreditLifeProduct = await loadCreditLifeOffer(tx, tenant.id, application.disclosureRegime)
       const currentCreditLifeOffer =
         currentCreditLifeProduct
         && currentCreditLifeProduct.insurerId
@@ -844,25 +844,34 @@ export async function decideApplication({ tenant, user, id, formData, automation
       )
     }
 
-    const creditLifeDisclosure = verifyAppliedCreditLifeDisclosure(application)
-    if (!creditLifeDisclosure.ok) {
+    // What an approval needs of the South African consumer evidence depends on the application's disclosure regime
+    // (lib/non-nca-documents/regime-evidence.ts): a key-facts application in a jurisdiction without the NCA needs none of it,
+    // and is priced with no credit life. Everything below this block applies to both.
+    const evidenceRules = approvalEvidenceRules(application)
+    const keyFactsCoverRefusal = keyFactsCreditLifeRefusal(application)
+    if (keyFactsCoverRefusal) {
+      return NextResponse.json({ error: keyFactsCoverRefusal, creditLifeEvidence: "not_offered" }, { status: 422 })
+    }
+    const ncaCreditLife = evidenceRules.creditLifeElection ? verifyAppliedCreditLifeDisclosure(application) : null
+    if (ncaCreditLife && !ncaCreditLife.ok) {
       return NextResponse.json(
         {
           error: "Approval requires an intact credit-life election and exact-premium disclosure captured before the PASQ.",
           missingComplianceEvidence: ["credit-life election"],
-          creditLifeEvidence: creditLifeDisclosure.reason,
+          creditLifeEvidence: ncaCreditLife.reason,
         },
         { status: 422 },
       )
     }
+    const creditLifeBilling = ncaCreditLife?.ok ? ncaCreditLife.evidence : KEY_FACTS_CREDIT_LIFE
 
     const missingComplianceEvidence = [
-      ...(!application.clientAffordabilityDeclaredAt
+      ...(evidenceRules.affordabilityDeclaration && !application.clientAffordabilityDeclaredAt
         ? ["client affordability declaration"]
         : []),
-      ...(!application.recklessLendingAssessed ||
+      ...(evidenceRules.recklessLendingAssessment && (!application.recklessLendingAssessed ||
         !application.recklessLendingAssessedAt ||
-        !application.recklessLendingAssessedById
+        !application.recklessLendingAssessedById)
         ? ["reckless-lending assessment"]
         : []),
     ]
@@ -902,7 +911,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // Deceased is a NON-OVERRIDABLE hard stop — an audited override reason
     // cannot approve a consumer the bureau reports as deceased (owner
     // decision). Checked before the override bypass below.
-    const hardStop = nonOverridableBlock({ deceased: bureauCheck?.deceased ?? false })
+    // The lender's own record counts too: a key-facts loan has no bureau, and a bureau can miss a death the lender knows of.
+    const hardStop = nonOverridableBlock({ deceased: (bureauCheck?.deceased ?? false) || !!application.client.deceasedAt })
     if (hardStop.blocked) {
       return NextResponse.json(
         {
@@ -934,7 +944,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // (integration error), or have gone stale (>90 days). Refuse to
     // approve without either a successful current pull or a documented,
     // audited override persisted to `recklessLendingNote`.
-    if (!bureauCheck && !bureauOverrideReason) {
+    if (evidenceRules.bureauCheck && !bureauCheck && !bureauOverrideReason) {
       return NextResponse.json(
         {
           error: "Bureau enquiry required: cannot approve without a current credit bureau check.",
@@ -942,6 +952,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
           requiresOverride: true,
         },
         { status: 422 }
+      )
+    }
+
+    // A key-facts application with no bureau check has no gate to override: a reason here would record an exception nobody needed.
+    if (!evidenceRules.bureauCheck && !bureauCheck && bureauOverrideReason) {
+      return NextResponse.json(
+        { error: "There is no bureau check on this application to override.", requiresOverride: false },
+        { status: 422 },
       )
     }
 
@@ -1074,14 +1092,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
     try {
       approvalBilling = createPasqBillingEvidence({
         calculator: approvalCalculatorEvidence,
-        election: creditLifeDisclosure.evidence.election,
+        election: creditLifeBilling.election,
         // No-offer disclosures carry DECLINED + premium exactly 0; the
         // billing helper's validation branches on `offered` and REJECTS a
         // zero premium when it defaults to true. Omitting this made every
         // no-offer application unapprovable — the same failure that a zero
         // premium causes anywhere else the helper runs.
-        offered: creditLifeDisclosure.evidence.offered,
-        monthlyPremiumCents: creditLifeDisclosure.evidence.monthlyPremiumCents,
+        offered: creditLifeBilling.offered,
+        monthlyPremiumCents: creditLifeBilling.monthlyPremiumCents,
         premiumPeriods: calculateCreditLifePremiumPeriods(
           approvalCalculatorEvidence,
           approvalTermDays,
@@ -1222,6 +1240,28 @@ export async function decideApplication({ tenant, user, id, formData, automation
         { status: 422 },
       )
     }
+    // A key-facts loan has no bureau check, so screening is its only identity-risk check: no provider, no approval.
+    if (screening.allowed && evidenceRules.screeningProvider && screening.state.state === "NOT_CONFIGURED") {
+      await auditRefusal({
+        action: AuditAction.SCREENING_APPROVAL_REFUSED,
+        entity: "LoanApplication",
+        entityId: id,
+        tenantId: tenant.id,
+        userId: user.id,
+        userEmail: user.email,
+        reason: "screening_provider_required",
+        status: 422,
+      })
+      return NextResponse.json(
+        {
+          error: "Approval blocked: no screening provider is configured. A key-facts loan has no bureau check, so PEP and sanctions screening must run before it is approved.",
+          screening: screening.state,
+          screeningProviderRequired: true,
+          requiresOverride: false,
+        },
+        { status: 422 },
+      )
+    }
     if (!screening.allowed) {
       await auditRefusal({
         action: AuditAction.SCREENING_APPROVAL_REFUSED,
@@ -1314,7 +1354,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
         if (openFlags > 0) {
           return { ok: false as const, reason: "checks_open" as const }
         }
-        if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, user.id))) {
+        if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, user.id, { providerRequired: evidenceRules.screeningProvider }))) {
           return { ok: false as const, reason: "screening_changed" as const }
         }
         // Evidence that arrived after the recompute read it has not been
@@ -1457,7 +1497,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
             // freely via `/api/applications/[id]/compliance`). Also stamp
             // the broader reckless-lending assessment columns for ops
             // dashboards and NCR audit queries.
-            ...(bureauOverrideReason && {
+            // An s81 assessment is stamped only where the NCA asks for one: a key-facts loan has none to attest.
+            ...(bureauOverrideReason && evidenceRules.recklessLendingAssessment && {
               recklessLendingAssessed: true,
               recklessLendingAssessedById: user.id,
               recklessLendingAssessedAt: decisionAt,

@@ -31,8 +31,7 @@ import { Step3Affordability } from "./Step3Affordability"
 import { Step4Review } from "./Step4Review"
 import type { ClientForAffordability } from "./Step3Affordability"
 import {
-  CREDIT_LIFE_DISCLOSURE_VERSION,
-  calculateCreditLifeMonthlyPremiumCents,
+  creditLifeOfferFields,
   creditLifePrincipalIsEligible,
   type CreditLifePresentedOffer,
 } from "@/lib/insurance/credit-life-election"
@@ -53,9 +52,11 @@ interface Props {
   applicationId?: string
   initialData?: ApplicationWizardData
   creditLifeOffer: CreditLifePresentedOffer | null
+  /** False for a key-facts application: no PASQ notice and no NCA s81 declaration to confirm. */
+  ncaDeclarations?: boolean
 }
 
-export function ApplicationWizard({ mode, clients, products, applicationId, initialData, creditLifeOffer }: Props) {
+export function ApplicationWizard({ mode, clients, products, applicationId, initialData, creditLifeOffer, ncaDeclarations = true }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -163,16 +164,7 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
         appliedAmount: Math.round(Number(data.appliedAmount) * 100),
         appliedTermDays: Number(data.appliedTermDays),
         submitForReview: !asDraft,
-        ...(creditLifeOffer && {
-          creditLifeProductId: creditLifeOffer.productId,
-          creditLifeProductName: creditLifeOffer.productName,
-          creditLifeInsurerId: creditLifeOffer.insurerId,
-          creditLifeInsurerName: creditLifeOffer.insurerName,
-          creditLifeMonthlyPremiumCents: calculateCreditLifeMonthlyPremiumCents(
-            Math.round(Number(data.appliedAmount) * 100),
-          ),
-          creditLifeDisclosureVersion: CREDIT_LIFE_DISCLOSURE_VERSION,
-        }),
+        ...creditLifeOfferFields(creditLifeOffer, Math.round(Number(data.appliedAmount) * 100)),
         // Save-as-draft path zeros the Step-4 ack booleans (PASQ + §81) so
         // an audit column on the row implies the corresponding boolean was
         // true at submit-for-review time. recklessLendingConfirmed stays as
@@ -241,9 +233,8 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
     )
 
   const canSubmitForReview =
-    data.pasqAcknowledged &&
+    (!ncaDeclarations || (data.pasqAcknowledged && data.affordabilityDeclared)) &&
     creditLifeReady &&
-    data.affordabilityDeclared &&
     (data.affordabilityFlag !== "FAIL" || data.recklessLendingConfirmed)
 
   // Stable identity for the Step 3 useEffect dep array. Without useMemo, a
@@ -291,6 +282,7 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
           clients={clients}
           products={products}
           creditLifeOffer={creditLifeOffer}
+          ncaDeclarations={ncaDeclarations}
         />
       )}
 
