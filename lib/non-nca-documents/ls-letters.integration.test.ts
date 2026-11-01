@@ -70,6 +70,7 @@ import { POST as acknowledge } from "@/app/api/applications/[id]/loan-documents/
 import { POST as sign } from "@/app/api/applications/[id]/loan-documents/sign/route"
 import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { confirmContactIdentity } from "@/lib/contact/identity-confirmation"
 import { deliverToBorrower, operationIdFor } from "./deliver"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { signKeyFactsAgreement } from "./sign"
@@ -311,6 +312,11 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       expect(holder.sendEmail.mock.calls.map((call) => (call[0] as { to: string }).to)).toEqual([moved])
       const { agreement } = await digests(id)
       asStaff()
+      // The officer typed that address: it takes someone else's confirmation before a code goes there.
+      const unconfirmed = await requestCode(post({ purpose: "AGREEMENT", subjectId: id, documentSha256: agreement, channel: "EMAIL" }))
+      expect(unconfirmed.status).toBe(409)
+      expect(await unconfirmed.json()).toMatchObject({ signingOtp: "identity_unconfirmed" })
+      await confirmContactIdentity({ tenantId: stack.tenant, clientId, channel: "EMAIL", by: { type: "staff", id: stack.senior, email: "s@test.invalid", note: "Called the borrower back." } })
       const code = await requestCode(post({ purpose: "AGREEMENT", subjectId: id, documentSha256: agreement, channel: "EMAIL" }))
       expect(code.status, await code.clone().text()).toBe(200)
       expect((holder.sendEmail.mock.calls.at(-1)![0] as { to: string }).to).toBe(moved)

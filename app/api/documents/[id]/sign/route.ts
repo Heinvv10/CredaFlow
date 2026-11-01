@@ -134,6 +134,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
               challengeId: signingOtpChallengeId!,
               method: otpMethod,
               now: signedAt,
+              ...(caller.type === "staff" ? { witnessUserId: caller.userId } : {}),
             })
           : null
         // Claimed only while still unsigned and still the bytes that were

@@ -14,6 +14,7 @@ const waJidOf = (client: ClientChannels) => (client.whatsapp ? toWaJid(client.wh
  * resolves its recipient through ContactIdentity and Contact.primary*, so a stale row sends the next message to the replaced
  * address, or fails the send outright.
  *
+ * Ordinary mail follows at once; a signing code does not, if staff made the change (identity-confirmation.ts).
  * The replaced identity goes: it is no longer theirs, and if it stayed it would keep someone else from claiming it. The new value
  * is added, unless another Contact already holds it. Then this Contact is left with none on that channel: no message beats a
  * message to the wrong person, and sendMessage's owner check refuses that holder anyway. The change itself is never refused
@@ -24,8 +25,10 @@ export async function syncClientContactChannels(tx: TxLike, args: {
   clientId: string
   before: ClientChannels
   after: ClientChannels
+  /** The staff member making the change: their value is unverified for a signing code. Null: the borrower's own change, which is verified. */
+  setByStaffUserId: string | null
 }): Promise<Channel[]> {
-  const { tenantId, clientId } = args
+  const { tenantId, clientId, setByStaffUserId } = args
   const changes = ([
     { channel: "EMAIL", column: "primaryEmail", before: emailOf(args.before), after: emailOf(args.after) },
     { channel: "WHATSAPP", column: "primaryWaJid", before: waJidOf(args.before), after: waJidOf(args.after) },
@@ -40,7 +43,9 @@ export async function syncClientContactChannels(tx: TxLike, args: {
     await tx.contactIdentity.deleteMany({ where: { tenantId, contactId: contact.id, channel, value: { in: replaced } } })
     const holder = after ? await tx.contactIdentity.findFirst({ where: { tenantId, channel, value: after } }) : null
     const held = holder !== null && holder.contactId !== contact.id
-    if (after && !holder) await tx.contactIdentity.create({ data: { tenantId, contactId: contact.id, channel, value: after, source: "MANUAL", verified: false } })
+    if (after && !holder) await tx.contactIdentity.create({ data: { tenantId, contactId: contact.id, channel, value: after, source: "MANUAL", verified: false, setByStaffUserId } })
+    // A value this Contact held already, pointed at again: who set it now is who chose it.
+    if (holder && !held) await tx.contactIdentity.update({ where: { id: holder.id }, data: { setByStaffUserId, confirmedAt: null, confirmedByUserId: null, confirmedByClientId: null } })
     if (held) unset.push(channel)
     await tx.contact.update({ where: { id: contact.id }, data: { [column]: held ? null : after } })
   }

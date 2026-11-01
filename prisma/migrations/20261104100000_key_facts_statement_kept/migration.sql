@@ -4,7 +4,7 @@
 -- at another application. Before the claim the row is the borrower's ordinary document, and the claim itself
 -- (null to an application) passes. Nothing about a document without issuedForApplicationId changes, so no ZA row is touched.
 --
--- Rollback (hand-written): restore guardLoanDocumentFile from 20261103090000_key_facts_offer_arrears_letter.
+-- Rollback (hand-written): restore guardLoanDocumentFile from 20261104090000_key_facts_offer_arrears_letter.
 
 CREATE OR REPLACE FUNCTION public."guardLoanDocumentFile"()
  RETURNS trigger

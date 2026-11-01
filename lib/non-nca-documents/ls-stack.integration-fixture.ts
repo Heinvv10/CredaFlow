@@ -79,7 +79,7 @@ export async function seedBorrower(db: PrismaClient, stack: Stack, id: string, o
     data: {
       id: clientId, tenantId: stack.tenant, reference: `CLI-${id}`,
       idNumber: ls ? `99${String(randomInt(10_000_000)).padStart(7, "0")}` : syntheticSaIdNumber(),
-      firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone: ls ? `+26658${String(randomInt(1_000_000)).padStart(6, "0")}` : "+27820000000",
+      firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone: ls ? `+26658${String(randomInt(1_000_000)).padStart(6, "0")}` : `+2782${String(randomInt(10_000_000)).padStart(7, "0")}`,
       grossMonthlyIncome: 2_200_000, monthlyIncome: opts.income ?? 2_000_000, monthlyExpenses: 800_000,
       ...(opts.bank === false ? {} : bank), ...(opts.dealerId ? { createdByDealerId: opts.dealerId } : {}), expenseBreakdown: { create: EXPENSES },
     },

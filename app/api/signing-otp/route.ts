@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
     })
     if (!result.ok) {
       return NextResponse.json(
-        { error: result.error },
+        { error: result.error, ...(result.signingOtp ? { signingOtp: result.signingOtp } : {}) },
         {
           status: result.status,
           ...(result.retryAfterSeconds ? { headers: { "Retry-After": String(result.retryAfterSeconds) } } : {}),

@@ -14,7 +14,9 @@ import { randomUUID } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAudit } from "@/lib/audit"
 import { demoCodeReveal } from "@/lib/config/demo-mode"
+import { signingIdentityRefusal } from "@/lib/contact/identity-confirmation"
 import { generateOtp } from "@/lib/otp"
+import { SIGNING_OTP_REFUSAL_MESSAGES } from "./challenge"
 import { SIGNING_OTP_TEMPLATE_KEYS } from "@/lib/messaging/otp-templates"
 import {
   SIGNING_OTP_CLIENT_REQUEST_LIMIT,
@@ -37,7 +39,7 @@ export type IssuedChallenge = {
 
 export type RequestResult =
   | { ok: true; challenge: IssuedChallenge }
-  | { ok: false; status: number; error: string; retryAfterSeconds?: number }
+  | { ok: false; status: number; error: string; retryAfterSeconds?: number; signingOtp?: string }
 
 const CHANNEL_LABEL: Record<OtpChannel, string> = { EMAIL: "email", WHATSAPP: "WhatsApp" }
 
@@ -121,6 +123,12 @@ export async function requestSigningOtp(args: {
   if (channel === "WHATSAPP" && !(await isWhatsAppCloudConfigured(subject.tenantId))) {
     return { ok: false, status: 422, error: "WhatsApp codes are not available for this lender." }
   }
+
+  // Every signing purpose: a code authorises a signature whatever the document. Ordinary mail is not gated.
+  const identityRefusal = await signingIdentityRefusal(prisma, {
+    tenantId: subject.tenantId, channel, destination, witnessUserId: args.method === "branch" ? args.actor.userId : null,
+  })
+  if (identityRefusal) return { ok: false, status: 409, error: SIGNING_OTP_REFUSAL_MESSAGES[identityRefusal], signingOtp: identityRefusal }
 
   const challengeId = randomUUID()
   const code = generateOtp()

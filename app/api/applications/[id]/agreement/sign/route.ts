@@ -814,6 +814,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
               challengeId: signingOtpChallengeId!,
               method,
               now,
+              ...(method === "branch" ? { witnessUserId: session.user.id } : {}),
             })
           : null
         const applicationChanged = await tx.loanApplication.updateMany({

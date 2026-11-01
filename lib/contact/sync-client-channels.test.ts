@@ -5,10 +5,11 @@ function tx(contact: object | null, holder: object | null = null) {
   const deleteMany = vi.fn(async (_: unknown) => ({ count: 1 }))
   const create = vi.fn(async (_: unknown) => ({}))
   const update = vi.fn(async (_: unknown) => ({}))
-  return { deleteMany, create, update, db: { contact: { findFirst: async () => contact, update }, contactIdentity: { deleteMany, create, findFirst: async () => holder } } as never }
+  const identityUpdate = vi.fn(async (_: unknown) => ({}))
+  return { deleteMany, create, update, identityUpdate, db: { contact: { findFirst: async () => contact, update }, contactIdentity: { deleteMany, create, update: identityUpdate, findFirst: async () => holder } } as never }
 }
 const contact = { id: "ct1", primaryEmail: "old@x.invalid", primaryWaJid: "26658000001@s.whatsapp.net" }
-const scope = { tenantId: "t1", clientId: "c1" }
+const scope = { tenantId: "t1", clientId: "c1", setByStaffUserId: null }
 
 describe("syncClientContactChannels", () => {
   it("replaces the email identity and the primary", async () => {
@@ -28,6 +29,22 @@ describe("syncClientContactChannels", () => {
     expect(cleared.create).not.toHaveBeenCalled()
     expect(cleared.update).toHaveBeenCalledWith({ where: { id: "ct1" }, data: { primaryWaJid: null } })
     expect(update).toHaveBeenCalled()
+  })
+
+  it("records who set it: a staff change carries the staff member, a borrower's own change carries none", async () => {
+    const staff = tx(contact)
+    await syncClientContactChannels(staff.db, { ...scope, setByStaffUserId: "u9", before: { email: "old@x.invalid" }, after: { email: "new@x.invalid" } })
+    expect(staff.create).toHaveBeenCalledWith({ data: expect.objectContaining({ setByStaffUserId: "u9" }) })
+    const own = tx(contact)
+    await syncClientContactChannels(own.db, { ...scope, before: { whatsapp: "+26658000001" }, after: { whatsapp: "+26658000002" } })
+    expect(own.create).toHaveBeenCalledWith({ data: expect.objectContaining({ setByStaffUserId: null }) })
+  })
+
+  it("a value this Contact already held, chosen again by staff, is unverified again", async () => {
+    const { db, identityUpdate, create } = tx(contact, { id: "i1", contactId: "ct1" })
+    await syncClientContactChannels(db, { ...scope, setByStaffUserId: "u9", before: { email: "old@x.invalid" }, after: { email: "again@x.invalid" } })
+    expect(create).not.toHaveBeenCalled()
+    expect(identityUpdate).toHaveBeenCalledWith({ where: { id: "i1" }, data: { setByStaffUserId: "u9", confirmedAt: null, confirmedByUserId: null, confirmedByClientId: null } })
   })
 
   it("also removes what the Contact held from before this change, so a record already stale is corrected", async () => {

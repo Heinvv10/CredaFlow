@@ -916,7 +916,7 @@ export async function PUT(
         let updated = clientMutation.client
         // The Contact follows the client: the next message goes to the address on file, not the replaced one.
         const unsetChannels = await syncClientContactChannels(tx, {
-          tenantId: tenant.id, clientId: id, before: previous,
+          tenantId: tenant.id, clientId: id, before: previous, setByStaffUserId: guard.user.id,
           after: { email: hasKey("email") ? data.email : previous.email, whatsapp: hasKey("whatsapp") ? data.whatsapp : previous.whatsapp },
         })
         const biometricIdentityRevocation = clientMutation.revocation

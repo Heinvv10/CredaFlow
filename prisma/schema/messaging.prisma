@@ -476,6 +476,12 @@ model ContactIdentity {
   verified  Boolean        @default(false)
   source    IdentitySource
   createdAt DateTime       @default(now())
+  // Set by staff: unverified for a signing code until someone else confirms it (lib/contact/identity-confirmation.ts).
+  // Null: the borrower's own, or from before this rule; both count as verified.
+  setByStaffUserId    String?
+  confirmedAt         DateTime?
+  confirmedByUserId   String?
+  confirmedByClientId String?
 
   // Tenant-scoped — two tenants may legitimately share a number (shared
   // household phone across tenants in different branches).

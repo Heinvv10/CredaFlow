@@ -16,6 +16,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ContactConfirmCard } from "@/components/clients/ContactConfirmCard"
+import { unconfirmedIdentities } from "@/lib/contact/identity-confirmation"
 import { FileText, Wallet, Shield, FolderOpen, TrendingUp, MessageSquare } from "lucide-react"
 import { DocumentsPanel } from "@/components/documents/DocumentsPanel"
 import { portalContinueUrl, portalUrlOrNull } from "@/lib/portal-urls"
@@ -348,6 +350,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
               />
             </div>
           )}
+          <ContactConfirmCard pending={await unconfirmedIdentities(tenantId, client.id)} endpoint={`/api/clients/${client.id}/contact-identity-confirmation`} staff />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div>
               <h4 className="text-sm font-medium text-gray-500 mb-2">Personal Details</h4>

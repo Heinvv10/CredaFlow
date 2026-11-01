@@ -77,7 +77,7 @@ export async function signKeyFactsAgreement(args: {
     await prisma.$transaction(async (tx) => {
       // First, so a refusal spends no one-time code.
       await requireLivingBorrower(tx, { tenantId, applicationId, clientId, affordabilityResult: application.affordabilityResult, refusal: BORROWER_REFUSAL, identityRefusal: BORROWER_REFUSAL })
-      if (otpNeeded) await consumeSigningOtp(tx, { ...binding, challengeId: args.signingOtpChallengeId!, method, now })
+      if (otpNeeded) await consumeSigningOtp(tx, { ...binding, challengeId: args.signingOtpChallengeId!, method, now, ...(assistedBy ? { witnessUserId: assistedBy.id } : {}) })
       const claimed = await tx.loanApplication.updateMany({
         where: { id: applicationId, tenantId, status: "APPROVED", agreementSignedAt: null, agreementDocumentId: application.agreementDocumentId, agreementDocumentSha256: application.agreementDocumentSha256 },
         data: {

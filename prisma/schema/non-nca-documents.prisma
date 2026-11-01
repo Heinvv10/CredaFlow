@@ -66,7 +66,7 @@ model LoanDocumentIssuance {
 // (lib/non-nca-documents/arrears-letter.ts). One per loan per SAST day. Immutable: the
 // wording, the figures and the file are what the borrower was sent. Section 129
 // stays South African: a key-facts loan has this instead.
-// Hand-written guards: prisma/migrations/20261103090000_key_facts_offer_arrears_letter.
+// Hand-written guards: prisma/migrations/20261104090000_key_facts_offer_arrears_letter.
 model LoanArrearsLetter {
   id                     String                  @id @default(cuid())
   tenantId               String
