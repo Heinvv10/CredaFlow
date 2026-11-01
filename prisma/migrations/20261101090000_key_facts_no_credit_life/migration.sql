@@ -4,7 +4,8 @@
 -- (20261030090000_non_nca_documents), so nothing in the database refused a direct write approving such a row with
 -- cover. This CHECK does. NCA_PASQ rows are judged exactly as before: the expression is true for them.
 --
--- Additive on existing data: no KEY_FACTS row can carry cover (the route refused it), and every NCA_PASQ row passes.
+-- Additive on existing data: no KEY_FACTS row is approved with cover (decide refuses it), and every NCA_PASQ row passes.
+-- A KEY_FACTS row not yet approved is outside this CHECK, so the code refuses cover before it gets here.
 -- It takes effect immediately, so it ships with the code that already refuses the same thing.
 --
 -- Rollback (hand-written; Prisma has no down migrations):

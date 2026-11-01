@@ -15,11 +15,12 @@ import { compareProductsForCapture } from "@/lib/applications/product-order"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
+import { approvalEvidenceRules, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import { hasClientBorrowerId } from "@/lib/borrower"
 import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
-async function getData(tenantId: string) {
+async function getData(tenantId: string, disclosureRegime: string) {
   const [clientRows, productRows, creditLifeProduct] = await Promise.all([
     prisma.client.findMany({
       // A deceased client is excluded from the picker for the same reason a
@@ -59,7 +60,7 @@ async function getData(tenantId: string) {
         productType: true,
       },
     }),
-    prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId)),
+    loadCreditLifeOffer(prisma, tenantId, disclosureRegime),
   ])
 
   // Coerce Prisma Decimal / Int to plain number; shape as wizard types.
@@ -103,6 +104,7 @@ async function loadDraftForResume(id: string, tenantId: string) {
       id: true,
       clientId: true,
       productId: true,
+      disclosureRegime: true,
       appliedAmount: true,
       appliedTermDays: true,
       purpose: true,
@@ -151,10 +153,7 @@ export default async function NewApplicationPage({ searchParams }: PageProps) {
   }
   const { id } = await searchParams
   const tenantId = await getStaffTenantId()
-  const [{ clients, products, creditLifeOffer }, draft] = await Promise.all([
-    getData(tenantId),
-    id ? loadDraftForResume(id, tenantId) : Promise.resolve(null),
-  ])
+  const draft = id ? await loadDraftForResume(id, tenantId) : null
 
   // A draft id that doesn't resolve (wrong tenant, wrong status, or doesn't
   // exist) sends staff to the detail page instead of a blank wizard — it
@@ -165,6 +164,9 @@ export default async function NewApplicationPage({ searchParams }: PageProps) {
   }
 
   const resuming = !!draft
+  // A resumed draft keeps the regime it was stamped with; a new application takes the instance's.
+  const disclosureRegime = draft?.disclosureRegime ?? newApplicationRegime()
+  const { clients, products, creditLifeOffer } = await getData(tenantId, disclosureRegime)
 
   return (
     <>
@@ -189,6 +191,7 @@ export default async function NewApplicationPage({ searchParams }: PageProps) {
             applicationId={draft?.id}
             initialData={draft ? toWizardData(draft) : undefined}
             creditLifeOffer={creditLifeOffer}
+            ncaDeclarations={approvalEvidenceRules({ disclosureRegime }).affordabilityDeclaration}
           />
         </Suspense>
       </div>

@@ -1,43 +1,34 @@
-import { describe, expect, it } from "vitest"
-import { creditLifeOfferFindFirstArgs } from "./credit-life-offer"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { creditLifeOfferFindFirstArgs, loadCreditLifeOffer } from "./credit-life-offer"
 
-describe("creditLifeOfferFindFirstArgs", () => {
-  it("only offers a same-tenant active product backed by a same-tenant active insurer", () => {
-    expect(creditLifeOfferFindFirstArgs("tenant-1")).toMatchObject({
-      where: {
-        tenantId: "tenant-1",
-        type: "CREDIT_LIFE",
-        active: true,
-        insurerId: { not: null },
-        insurer: {
-          is: {
-            tenantId: "tenant-1",
-            active: true,
-          },
-        },
-      },
-    })
+const row = { id: "cl-1", name: "Synthetic Cover", insurerId: "ins-1", insurer: { name: "Synthetic Insurer" } }
+const db = () => ({ insuranceProduct: { findFirst: vi.fn(async () => row) } })
+
+describe("loadCreditLifeOffer: the one read of what a client is offered", () => {
+  afterEach(() => resetActiveJurisdiction())
+
+  it("reads the offer on an instance that has not loaded its jurisdiction, and on a South African one", async () => {
+    const unloaded = db()
+    expect(await loadCreditLifeOffer(unloaded as never, "t1")).toBe(row)
+    expect(unloaded.insuranceProduct.findFirst).toHaveBeenCalledWith(creditLifeOfferFindFirstArgs("t1"))
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    expect(await loadCreditLifeOffer(db() as never, "t1")).toBe(row)
   })
 
-  it("skips a product whose configured premium or cover is not positive", () => {
-    expect(creditLifeOfferFindFirstArgs("tenant-1").where).toMatchObject({
-      premiumAmount: { gt: 0 },
-      sumAssured: { gt: 0 },
-    })
+  it("offers a new application on a Lesotho instance nothing, whatever product rows exist", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const lesotho = db()
+    expect(await loadCreditLifeOffer(lesotho as never, "t1")).toBeNull()
+    expect(lesotho.insuranceProduct.findFirst).not.toHaveBeenCalled()
   })
 
-  it("selects deterministically when more than one supported offer exists", () => {
-    expect(creditLifeOfferFindFirstArgs("tenant-1").orderBy).toEqual([
-      { createdAt: "asc" },
-      { id: "asc" },
-    ])
+  it("goes by the application's own regime once it has one: an NCA_PASQ application that pre-dates the switch keeps its offer", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(await loadCreditLifeOffer(db() as never, "t1", "NCA_PASQ")).toBe(row)
   })
 
-  // #143 blind review (HIGH): a lender with no FSP number issues no insurance,
-  // so every place that presents or records an offer sees none.
-  it("offers nothing for a lender that holds no FSP number", () => {
-    expect(creditLifeOfferFindFirstArgs("tenant-1").where.tenant).toEqual({
-      config: { is: { AND: [{ fscaNumber: { not: null } }, { NOT: { fscaNumber: "" } }] } },
-    })
+  it("and a KEY_FACTS application has none whatever the process thinks it is", async () => {
+    expect(await loadCreditLifeOffer(db() as never, "t1", "KEY_FACTS")).toBeNull()
   })
 })

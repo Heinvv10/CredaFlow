@@ -5,6 +5,7 @@ import {
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
   calculateCreditLifeMonthlyPremiumCents,
   creditLifeOfferMatches,
+  creditLifeOfferFields,
   creditLifeOfferedFor,
   creditLifePrincipalIsEligible,
   isCreditLifeElection,
@@ -366,5 +367,23 @@ describe("creditLifeOfferedFor by jurisdiction", () => {
   it("offers none on a Lesotho instance, whatever product rows exist (the regulations are South African)", () => {
     setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
     expect(creditLifeOfferedFor(true, 500_000)).toBe(false)
+  })
+
+  it("goes by the application's regime when it has one: an NCA_PASQ application on a Lesotho instance stays offered, or the approval guard strands it", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(creditLifeOfferedFor(true, 500_000, "NCA_PASQ")).toBe(true)
+    expect(creditLifeOfferedFor(true, 500_000, "KEY_FACTS")).toBe(false)
+    resetActiveJurisdiction()
+    expect(creditLifeOfferedFor(true, 500_000, "KEY_FACTS")).toBe(false)
+  })
+})
+
+describe("creditLifeOfferFields: what the staff wizard posts", () => {
+  it("is nothing with no offer, and the offer's exact identity and premium with one", () => {
+    expect(creditLifeOfferFields(null, 500_000)).toBeNull()
+    expect(creditLifeOfferFields({ productId: "cl", productName: "CL", insurerId: "i", insurerName: "Ins", autoBundleEnabled: true }, 500_000)).toEqual({
+      creditLifeProductId: "cl", creditLifeProductName: "CL", creditLifeInsurerId: "i", creditLifeInsurerName: "Ins",
+      creditLifeMonthlyPremiumCents: calculateCreditLifeMonthlyPremiumCents(500_000), creditLifeDisclosureVersion: CREDIT_LIFE_DISCLOSURE_VERSION,
+    })
   })
 })

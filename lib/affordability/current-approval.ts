@@ -364,6 +364,8 @@ export async function verifyLockedCurrentAffordabilityApproval(
   if (!context || context.application.status !== "APPROVED") {
     return { ok: false, reason: "application_changed" }
   }
+  // A client the lender recorded as deceased is never bound or paid, in either regime: the approval no longer describes them.
+  if (context.application.client.deceasedAt) return { ok: false, reason: "changed" }
   // Agreement generation, signing and disbursement: strict. This is the gate
   // that has always required identity evidence before the consumer is bound.
   if (!await hasCurrentCompositeKyc(tx, context.application, "payout")) {

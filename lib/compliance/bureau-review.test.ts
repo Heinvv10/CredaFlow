@@ -243,6 +243,19 @@ describe("bureau review generation binding", () => {
 
     expect(getCreditReportMock).not.toHaveBeenCalled()
     expect(bureauCheckCreateMock).not.toHaveBeenCalled()
+    // No enquiry was made of anyone, so no provider is named on the record.
+    const recorded = complianceRecordCreateMock.mock.calls.at(-1)?.[0]
+    expect(recorded.data.data).toMatchObject({ skipped: true, reason: "NOT_APPLICABLE_JURISDICTION" })
+    expect(recorded.data.data).not.toHaveProperty("provider")
+  })
+
+  it("reports a key-facts skip as stale when the review moved on before it could be recorded", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS" })
+    txApplicationFindUniqueMock.mockResolvedValue({ ...currentReview, bureauReviewGeneration: "a-newer-generation" })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stale")
+
+    expect(complianceRecordCreateMock).not.toHaveBeenCalled()
   })
 
   it("never calls a non-approval bureau for an origination enquiry: it is recorded as skipped", async () => {

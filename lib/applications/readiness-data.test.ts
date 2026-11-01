@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   assembleReadiness,
   inMemoryKycReader,
+  readinessApplicationSelect,
   type ReadinessBureauRow,
   type ReadinessCoreDocumentRow,
   type ReadinessExceptionRow,
@@ -636,6 +637,25 @@ describe("assembleReadiness", () => {
       ],
     })
     expect([...result.keys()]).toEqual(["application-1"])
+  })
+
+  it("hands the board the regime, the deceased record and the screening provider, or a key-facts row is judged as an NCA one", async () => {
+    const keyFacts = await assembleReadiness({
+      ...base, bureauChecks: [],
+      tenantConfig: { ...base.tenantConfig, screeningProvider: "simulated" },
+      applications: [loaded({ id: "application-1", status: "UNDER_REVIEW", disclosureRegime: "KEY_FACTS", clientAffordabilityDeclaredAt: null })],
+    })
+    expect(keyFacts.get("application-1")?.blockers).not.toContain("Bureau check required")
+    expect(keyFacts.get("application-1")?.blockers).not.toContain("Affordability declaration missing")
+    expect(keyFacts.get("application-1")?.blockers).not.toContain("Screening provider required")
+
+    const noProvider = await assembleReadiness({ ...base, bureauChecks: [], applications: [loaded({ id: "application-1", status: "UNDER_REVIEW", disclosureRegime: "KEY_FACTS" })] })
+    expect(noProvider.get("application-1")?.blockers).toContain("Screening provider required")
+
+    const dead = await assembleReadiness({ ...base, applications: [loaded({ id: "application-1", status: "UNDER_REVIEW", client: { ...loaded().client, deceasedAt: NOW } })] })
+    expect(dead.get("application-1")?.blockers).toEqual(["Client recorded as deceased"])
+    expect(readinessApplicationSelect.disclosureRegime).toBe(true)
+    expect(readinessApplicationSelect.client.select.deceasedAt).toBe(true)
   })
 
   it("joins each client's mismatch count to that client's applications only", async () => {

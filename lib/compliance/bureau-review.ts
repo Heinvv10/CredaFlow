@@ -88,7 +88,8 @@ export async function runBureauReviewCheck(
         status: "ACKNOWLEDGED",
         referenceId: opts.applicationId,
         completedAt: new Date(),
-        data: { clientId: opts.clientId, provider: primary, reviewGeneration: opts.reviewGeneration, skipped: true, reason: "NOT_APPLICABLE_JURISDICTION" },
+        // No provider: no enquiry was made of anyone.
+        data: { clientId: opts.clientId, reviewGeneration: opts.reviewGeneration, skipped: true, reason: "NOT_APPLICABLE_JURISDICTION" },
       })
       return stored ? "skipped" : "stale"
     }

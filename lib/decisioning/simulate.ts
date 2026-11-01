@@ -1,6 +1,7 @@
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { decide } from "./decide"
+import { withKeyFactsReferral } from "./key-facts-referral"
 import { loadDecisionFacts } from "./load-facts"
 import { pickChampion } from "./select-version"
 import { summarise, type SimulationEntry, type SimulationSummary, type StaffOutcome } from "./simulate-summary"
@@ -82,10 +83,15 @@ export async function simulateRuleSet(input: SimulationInput, db: Db = prisma): 
       const loaded = await loadDecisionFacts(db, input.tenantId, application.id, application.submittedAt ?? now, { preferSnapshot: true })
       if (!loaded) return null
       const live = liveFor(application.productId)
+      // As the live run does: a key-facts application is referred, not approved (./key-facts-referral.ts).
+      const verdictOf = (ruleSet: ReturnType<typeof parseRules>, card: ReturnType<typeof parseScorecard>) => withKeyFactsReferral(
+        decide({ facts: loaded.facts, rules: ruleSet, scorecard: card }),
+        { regime: loaded.application.disclosureRegime, bureauCheckId: loaded.bureauCheckId, facts: loaded.facts, rules: ruleSet },
+      ).verdict
       return {
         facts: loaded.facts,
-        live: live ? decide({ facts: loaded.facts, rules: parseRules(live.row.rules), scorecard: parseScorecard(live.row.scorecard) }) : null,
-        candidate: decide({ facts: loaded.facts, rules, scorecard }),
+        live: live ? verdictOf(parseRules(live.row.rules), parseScorecard(live.row.scorecard)) : null,
+        candidate: verdictOf(rules, scorecard),
         actual: automated.has(application.id) ? "AUTOMATED" : staffOutcome(application.status),
         affordabilitySource: loaded.affordabilitySource,
       }

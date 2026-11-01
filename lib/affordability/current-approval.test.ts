@@ -667,6 +667,18 @@ describe("locked affordability approval verification", () => {
     expect(result).toEqual({ ok: false, reason: "compliance_changed" })
   })
 
+  it("refuses to bind or pay a client the lender has since recorded as deceased, in either regime", async () => {
+    for (const disclosureRegime of ["NCA_PASQ", "KEY_FACTS"]) {
+      const application = applicationFixture("APPROVED")
+      const dead = { ...application, disclosureRegime, client: { ...application.client, deceasedAt: new Date("2026-07-01T00:00:00.000Z") } }
+      const result = await verifyLockedCurrentAffordabilityApproval(transactionFor(dead as never) as never, { tenantId: "tenant-1", applicationId: "application-1" })
+      expect(result).toEqual({ ok: false, reason: "changed" })
+    }
+    // The control: the same approval of a living client verifies.
+    const alive = await verifyLockedCurrentAffordabilityApproval(transactionFor(applicationFixture("APPROVED")) as never, { tenantId: "tenant-1", applicationId: "application-1" })
+    expect(alive.ok).toBe(true)
+  })
+
   it("rejects downstream progression when approval is not bound to the PASQ hash", async () => {
     const application = applicationFixture("APPROVED")
     application.approvedPasqDocumentSha256 = null
