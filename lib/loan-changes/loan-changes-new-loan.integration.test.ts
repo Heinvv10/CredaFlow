@@ -187,4 +187,33 @@ suite("loan changes that book a new loan, on a Lesotho instance (real Postgres, 
     await runWithTenant(l.tenantId, () => inheritPriorStaging(holder.prisma as never, l.tenantId, priors))
     expect(priors.get(change.newLoanId!)?.stage).toBe(3)
   })
+
+  it("IFRS 9: a loan refinanced twice before the next run still starts from the first one's stage, the worst of its sources", async () => {
+    const a = await loan({ status: "DEFAULTED" })
+    const first = await proposeAndApprove(a, { type: "REFINANCE", instalments: 12 })
+    const b = (await db().loanChange.findUniqueOrThrow({ where: { changeRequestId: first } })).newLoanId!
+    const second = await proposeAndApprove({ ...a, loanId: b }, { type: "REFINANCE", instalments: 12 })
+    const c = (await db().loanChange.findUniqueOrThrow({ where: { changeRequestId: second } })).newLoanId!
+    const priors = new Map([[a.loanId, { stage: 3 as const, stageSince: "2026-01-31", cureStartedOn: null, restructured: false, runDate: "2026-01-31" }]])
+    await runWithTenant(a.tenantId, () => inheritPriorStaging(holder.prisma as never, a.tenantId, priors))
+    expect(priors.get(c)?.stage).toBe(3)
+  })
+
+  it("IFRS 9: a late run for the day before a restructure sees that day's arrears, and a prior Stage 3 holds through its cure", async () => {
+    const l = await loan({ monthsRun: 4, status: "DEFAULTED" })
+    const asOf = new Date(Date.now() - 86_400_000)
+    const ctx = { settings: DEFAULT_SETTINGS, parameters: [], runAt: asOf, chargesLive: false }
+    const load = async () => (await runWithTenant(l.tenantId, () => loadRunLoans(holder.prisma as never, l.tenantId, asOf, asOf))).find((r) => r.id === l.loanId)!
+    const before = assessLoan(await load(), ctx, null)
+    expect(before.dpd).toBeGreaterThan(90)
+    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12 })
+    const after = await load()
+    expect(after.status).toBe("DEFAULTED")
+    expect(assessLoan(after, ctx, null)).toMatchObject({ dpd: before.dpd, staging: { stage: 3 } })
+    // Today the arrears are gone, but a Stage 3 loan cures by its clock, not by being restructured.
+    const runAt = new Date()
+    const today = (await runWithTenant(l.tenantId, () => loadRunLoans(holder.prisma as never, l.tenantId, runAt, null))).find((r) => r.id === l.loanId)!
+    const prior = { stage: 3 as const, stageSince: "2026-01-31", cureStartedOn: null, restructured: false, runDate: "2026-01-31" }
+    expect(assessLoan(today, { ...ctx, runAt }, prior).staging).toMatchObject({ stage: 3, inProbation: true, restructured: true })
+  })
 })

@@ -103,6 +103,20 @@ BEGIN
     OR NEW."makerId" IS DISTINCT FROM req."makerId" OR NEW."checkerId" IS DISTINCT FROM req."checkerId" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan change must be what its request approved';
   END IF;
+  IF (SELECT array_agg(id ORDER BY id) FROM unnest(NEW."sourceLoanIds") AS id) IS DISTINCT FROM (
+    SELECT array_agg(id ORDER BY id) FROM unnest(
+      CASE WHEN NEW."newLoanId" IS NULL THEN ARRAY[]::TEXT[]
+           ELSE ARRAY[NEW."loanId"] || ARRAY(SELECT jsonb_array_elements_text(COALESCE(req."payload" -> 'otherLoanIds', '[]'::JSONB))) END
+    ) AS id
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan change settles exactly the loans its request named';
+  END IF;
+  IF NEW."newLoanId" IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM "Loan" l JOIN "LoanApplication" a ON a."id" = l."applicationId"
+    WHERE l."id" = NEW."newLoanId" AND l."tenantId" = NEW."tenantId" AND a."loanChangeRequestId" = NEW."changeRequestId"
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan change books the loan of its own application';
+  END IF;
   involved := array_append(NEW."sourceLoanIds", NEW."loanId");
   IF EXISTS (
     SELECT 1 FROM "Loan" l JOIN "LoanApplication" a ON a."id" = l."applicationId"
@@ -112,7 +126,8 @@ BEGIN
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM "ClientDocument" d JOIN "Loan" l ON l."clientId" = d."clientId" AND l."tenantId" = d."tenantId"
-    WHERE d."id" = NEW."signedDocumentId" AND d."tenantId" = NEW."tenantId" AND l."id" = NEW."loanId"
+    WHERE d."id" = NEW."signedDocumentId" AND d."tenantId" = NEW."tenantId" AND l."id" = NEW."loanId" AND d."deletedAt" IS NULL
+      AND d."docType"::TEXT IN ('OTHER', 'SIGNED_AGREEMENT_PACKET', 'EXECUTED_CREDIT_AGREEMENT')
   ) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan change needs a signed document of the borrower';
   END IF;
@@ -159,9 +174,13 @@ BEGIN
   IF NEW."sequence" <> last + 1 THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Loan terms are appended in sequence: the next row for this loan is ' || (last + 1)::TEXT;
   END IF;
+  -- The request is this loan's: the one it changed, or the one whose application booked it.
   IF (NEW."sequence" > 1 OR NEW."changeRequestId" IS NOT NULL) AND NOT EXISTS (
     SELECT 1 FROM "ChangeRequest" c
     WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."changeRequestId" AND c."kind" = 'LOAN_CHANGE' AND c."status" = 'APPROVED'
+      AND (c."payload" ->> 'loanId' = NEW."loanId" OR EXISTS (
+        SELECT 1 FROM "Loan" l JOIN "LoanApplication" a ON a."id" = l."applicationId"
+        WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND a."loanChangeRequestId" = c."id"))
   ) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Later terms are appended only by an approved LOAN_CHANGE request';
   END IF;
@@ -169,9 +188,10 @@ BEGIN
 END;
 $function$;
 
--- The application of a new loan a change booked. Only an approved top-up, refinance or consolidation of that borrower names a
--- request, at insert, and it never changes; its paper is that request's signed document, so the key facts gate steps aside
--- for exactly these rows.
+-- The application of a new loan a change books. It is opened under review, by a submitted or approved top-up, refinance or
+-- consolidation of that borrower, so the approval chain guard runs on it as on any other; the request never changes, and it
+-- leaves review only once that request is approved. Its paper is the request's signed document, so the key facts gate steps
+-- aside for exactly these rows.
 CREATE OR REPLACE FUNCTION public."guardLoanChangeApplication"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
@@ -179,23 +199,28 @@ BEGIN
     IF NEW."loanChangeRequestId" IS DISTINCT FROM OLD."loanChangeRequestId" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The loan change that booked an application never changes';
     END IF;
+    IF NEW."loanChangeRequestId" IS NOT NULL AND NEW."status"::TEXT IN ('APPROVED', 'DISBURSED') AND NOT EXISTS (
+      SELECT 1 FROM "ChangeRequest" c WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."loanChangeRequestId" AND c."status" = 'APPROVED'
+    ) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan change''s application is approved only with its request';
+    END IF;
     RETURN NEW;
   END IF;
   IF NEW."loanChangeRequestId" IS NULL THEN
     RETURN NEW;
   END IF;
-  IF NEW."disclosureRegime"::TEXT <> 'KEY_FACTS' OR NOT EXISTS (
+  IF NEW."disclosureRegime"::TEXT <> 'KEY_FACTS' OR NEW."status"::TEXT <> 'UNDER_REVIEW' OR NOT EXISTS (
     SELECT 1 FROM "ChangeRequest" c JOIN "ClientDocument" d ON d."id" = c."payload" ->> 'signedDocumentId' AND d."tenantId" = c."tenantId"
-    WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."loanChangeRequestId" AND c."kind" = 'LOAN_CHANGE' AND c."status" = 'APPROVED'
+    WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."loanChangeRequestId" AND c."kind" = 'LOAN_CHANGE' AND c."status" IN ('SUBMITTED', 'APPROVED')
       AND c."payload" ->> 'type' IN ('TOP_UP', 'REFINANCE', 'CONSOLIDATION') AND d."clientId" = NEW."clientId"
   ) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Only an approved top-up, refinance or consolidation of this borrower books a loan this way';
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Only a submitted top-up, refinance or consolidation of this borrower opens an application this way';
   END IF;
   RETURN NEW;
 END;
 $function$;
 -- a01: after a00 stamps the disclosure regime.
-CREATE TRIGGER "LoanApplication_a01_guard_loan_change" BEFORE INSERT OR UPDATE OF "loanChangeRequestId" ON "LoanApplication"
+CREATE TRIGGER "LoanApplication_a01_guard_loan_change" BEFORE INSERT OR UPDATE OF "loanChangeRequestId", "status" ON "LoanApplication"
   FOR EACH ROW EXECUTE FUNCTION public."guardLoanChangeApplication"();
 DROP TRIGGER "LoanApplication_z_guard_key_facts_documents" ON "LoanApplication";
 CREATE TRIGGER "LoanApplication_z_guard_key_facts_documents" BEFORE UPDATE OF "status", "agreementSignedAt" ON "LoanApplication" FOR EACH ROW

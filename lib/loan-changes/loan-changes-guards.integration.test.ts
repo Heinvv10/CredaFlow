@@ -29,7 +29,7 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
 
 import { createAppPrismaClient } from "@/lib/prisma"
 import { NCA_REFUSAL } from "./eligibility"
-import { bookLoan, changeRoutes, type LoanFixture } from "./loan-changes.integration-fixture"
+import { bookLoan, changeRoutes, type LoanFixture, type LoanOptions } from "./loan-changes.integration-fixture"
 import { LOAN_CHANGE_KIND } from "./types"
 
 const suite = process.env.RUN_LOAN_CHANGES_IT === "1" ? describe.sequential : describe.skip
@@ -38,7 +38,7 @@ const { draftAndSubmit, proposeAndApprove } = changeRoutes(holder)
 suite("the database holds the rules (real Postgres, a Lesotho instance)", () => {
   let fresh: ThrowawayDb
   const db = () => fresh.db
-  const loan = () => bookLoan(db())
+  const loan = (opts?: LoanOptions) => bookLoan(db(), opts)
 
   beforeAll(async () => {
     fresh = await createThrowawayDb({ instance: { jurisdiction: "LS", currency: "LSL" } })
@@ -80,7 +80,7 @@ suite("the database holds the rules (real Postgres, a Lesotho instance)", () => 
   it("refuses an application claiming a request, and a request added to one later", async () => {
     await expect(db().loanApplication.create({
       data: { tenantId: l.tenantId, reference: `APP-${randomUUID()}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, loanChangeRequestId: approved },
-    })).rejects.toThrow(/approved top-up/)
+    })).rejects.toThrow(/submitted top-up/)
     await expect(db().loanApplication.update({ where: { id: l.fx.applicationId }, data: { loanChangeRequestId: approved } })).rejects.toThrow(/never changes/)
   })
 
@@ -90,6 +90,73 @@ suite("the database holds the rules (real Postgres, a Lesotho instance)", () => 
     await proposeAndApprove(r, { type: "REFINANCE", instalments: 12 })
     const receipt = await db().payment.findFirstOrThrow({ where: { loanId: r.loanId, paymentMethod: "LOAN_SETTLEMENT" } })
     await expect(db().payment.update({ where: { id: receipt.id }, data: { reversed: true } })).rejects.toThrow(/never reversed/)
+  })
+
+  const directRequest = async (r: LoanFixture, payload: Record<string, unknown>) => {
+    const request = await db().changeRequest.create({ data: { tenantId: r.tenantId, kind: LOAN_CHANGE_KIND, title: "Direct", payload: { loanId: r.loanId, reason: "Direct", signedDocumentId: r.documentId, ...payload }, makerId: r.makerId } })
+    await db().changeRequest.update({ where: { id: request.id }, data: { status: "SUBMITTED", submittedAt: new Date() } })
+    await db().changeRequest.update({ where: { id: request.id }, data: { status: "APPROVED", checkerId: r.checkerId, decidedAt: new Date(), appliedAt: new Date() } })
+    return request.id
+  }
+  const own = (r: LoanFixture, changeRequestId: string, over: Record<string, unknown> = {}) => change({ tenantId: r.tenantId, loanId: r.loanId, makerId: r.makerId, checkerId: r.checkerId, signedDocumentId: r.documentId, changeRequestId, ...over })
+
+  it("the CHECK holds a change to its shape", async () => {
+    const r = await loan()
+    const id = await directRequest(r, { type: "RATE_CHANGE", interestRatePm: 0.01 })
+    await expect(db().loanChange.create({ data: own(r, id, { settledCents: 5 }) })).rejects.toThrow(/LoanChange_values/)
+  })
+
+  it("a change settles exactly the loans its request named, and books its own application's loan", async () => {
+    const r = await loan()
+    const other = await loan({ sameClientAs: r })
+    const id = await directRequest(r, { type: "REFINANCE", instalments: 12 })
+    await expect(db().loanChange.create({ data: own(r, id, { type: "REFINANCE", newLoanId: other.loanId, sourceLoanIds: [other.loanId] }) })).rejects.toThrow(/exactly the loans/)
+    await expect(db().loanChange.create({ data: own(r, id, { type: "REFINANCE", newLoanId: other.loanId, sourceLoanIds: [r.loanId] }) })).rejects.toThrow(/its own application/)
+  })
+
+  it("the signed document must be on file and signed paper, whatever wrote the row", async () => {
+    const r = await loan()
+    const idCopy = await db().clientDocument.findFirstOrThrow({ where: { clientId: r.fx.clientId, docType: "ID_COPY" } })
+    const id = await directRequest({ ...r, documentId: idCopy.id }, { type: "RATE_CHANGE", interestRatePm: 0.01 })
+    await expect(db().loanChange.create({ data: own({ ...r, documentId: idCopy.id }, id) })).rejects.toThrow(/signed document/)
+    const deleted = await directRequest(r, { type: "RATE_CHANGE", interestRatePm: 0.01 })
+    await db().clientDocument.update({ where: { id: r.documentId }, data: { deletedAt: new Date() } })
+    await expect(db().loanChange.create({ data: own(r, deleted) })).rejects.toThrow(/signed document/)
+  })
+
+  it("a loan's terms take only a request of that loan", async () => {
+    const a = await loan()
+    const b = await loan({ sameClientAs: a })
+    const request = await proposeAndApprove(a, { type: "RATE_CHANGE", interestRatePm: 0.03 })
+    await expect(db().loanTerms.create({ data: { tenantId: a.tenantId, loanId: b.loanId, sequence: 1, changeRequestId: request, baseRatePm: 0.99, interestRatePm: 0.99 } })).rejects.toThrow(/approved LOAN_CHANGE/)
+  })
+
+  it("a terms row with no version needs a change", async () => {
+    const r = await loan()
+    await expect(db().loanTerms.create({ data: { tenantId: r.tenantId, loanId: r.loanId, sequence: 1, baseRatePm: 0.01, interestRatePm: 0.01 } })).rejects.toThrow(/LoanTerms_version_or_change/)
+  })
+
+  it("an application names a request only when opened under review", async () => {
+    const r = await loan()
+    const { id } = await draftAndSubmit(r, { type: "REFINANCE", instalments: 12 })
+    const data = { tenantId: r.tenantId, reference: `APP-${randomUUID()}`, clientId: r.fx.clientId, productId: r.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, loanChangeRequestId: id }
+    await expect(db().loanApplication.create({ data: { ...data, status: "APPROVED", approvedAt: new Date(), approvedById: r.checkerId, repaymentMethod: "EFT" } })).rejects.toThrow(/submitted top-up/)
+    const opened = await db().loanApplication.create({ data: { ...data, status: "UNDER_REVIEW" } })
+    await expect(db().loanApplication.update({ where: { id: opened.id }, data: { status: "APPROVED", approvedAt: new Date(), approvedById: r.checkerId, repaymentMethod: "EFT" } })).rejects.toThrow(/only with its request/)
+  })
+
+  it("row-level security keeps one lender from another's changes", async () => {
+    const r = await loan()
+    await proposeAndApprove(r, { type: "RATE_CHANGE", interestRatePm: 0.03 })
+    await db().$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lc_rls_probe') THEN CREATE ROLE lc_rls_probe NOLOGIN; END IF; END $$`)
+    await db().$executeRawUnsafe(`GRANT SELECT ON "LoanChange" TO lc_rls_probe`)
+    const visibleTo = (tenant: string) => db().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE lc_rls_probe`)
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant}, true), set_config('app.rls_bypass', 'off', true)`
+      return (await tx.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM "LoanChange"`)[0]!.n
+    })
+    expect(Number(await visibleTo(r.tenantId))).toBeGreaterThan(0)
+    expect(Number(await visibleTo("another-lender"))).toBe(0)
   })
 
   it("refuses to commit a change whose schedule does not reconcile to the cent", async () => {

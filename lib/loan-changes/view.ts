@@ -2,7 +2,7 @@
 import { canDo } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { changeRefusal } from "./eligibility"
-import { computeChange, factsOf, loadChangeLoan, type Computed } from "./compute"
+import { computeChange, factsOf, loadChangeLoan, SIGNED_DOCUMENT_TYPES, type Computed } from "./compute"
 import { parseLoanChangePayload } from "./payload"
 import { LOAN_CHANGE_KIND, type LoanChangePayload } from "./types"
 import { LoanChangeRefused } from "./plan"
@@ -62,6 +62,10 @@ export interface LoanChangesView {
   requests: Array<{
     id: string; status: string; type: string; title: string; reason: string; maker: string; checker: string | null; createdAt: string; decidedAt: string | null
     decisionNote: string | null; mine: boolean; canApprove: boolean; preview: ChangePreview | null; payload: LoanChangePayload
+    /** The signed paper the checker decides on, opened through the logged document route. */
+    signedDocument: { id: string; fileName: string } | null
+    /** The application a matrix's chain runs on, and how far it has got. */
+    chain: { applicationId: string; recorded: number; required: number | null } | null
   }>
   applied: Array<{
     id: string; type: string; reason: string; maker: string; checker: string; appliedAt: string; restructured: boolean; loanId: string; newLoanId: string | null
@@ -79,12 +83,19 @@ export async function loadLoanChangesView(tenantId: string, loanId: string, view
     prisma.changeRequest.findMany({ where: { tenantId, kind: LOAN_CHANGE_KIND, payload: { path: ["loanId"], equals: loanId } }, orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.loanChange.findMany({ where: { tenantId, OR: [{ loanId }, { newLoanId: loanId }, { sourceLoanIds: { has: loanId } }] }, orderBy: { appliedAt: "desc" } }),
     prisma.loanTerms.findMany({ where: { tenantId, loanId }, orderBy: { sequence: "asc" } }),
-    loan.clientId ? prisma.clientDocument.findMany({ where: { tenantId, clientId: loan.clientId, deletedAt: null }, orderBy: { createdAt: "desc" }, take: 100, select: { id: true, fileName: true, docType: true } }) : [],
+    loan.clientId ? prisma.clientDocument.findMany({ where: { tenantId, clientId: loan.clientId, deletedAt: null, docType: { in: [...SIGNED_DOCUMENT_TYPES] } }, orderBy: { createdAt: "desc" }, take: 100, select: { id: true, fileName: true, docType: true } }) : [],
     loan.clientId ? prisma.loan.findMany({ where: { tenantId, clientId: loan.clientId, id: { not: loanId }, status: { in: ["ACTIVE", "DEFAULTED"] } }, select: { id: true, reference: true } }) : [],
   ])
   const ids = [...new Set([...requests.flatMap((r) => [r.makerId, r.checkerId]), ...applied.flatMap((c) => [c.makerId, c.checkerId])].filter((id): id is string => id !== null))]
   const users = new Map((await prisma.user.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true, email: true } })).map((u) => [u.id, u.name ?? u.email]))
   const nameOf = (id: string | null) => (id ? users.get(id) ?? id : null)
+  const signed = new Map((await prisma.clientDocument.findMany({
+    where: { tenantId, id: { in: requests.map((row) => (row.payload as { signedDocumentId?: string }).signedDocumentId ?? "") } }, select: { id: true, fileName: true },
+  })).map((doc) => [doc.id, doc]))
+  const chains = new Map((await prisma.loanApplication.findMany({
+    where: { tenantId, loanChangeRequestId: { in: requests.map((row) => row.id) } },
+    select: { id: true, loanChangeRequestId: true, approvalCases: { where: { status: "OPEN" }, select: { requiredLevels: true, _count: { select: { steps: true } } } } },
+  })).map((app) => [app.loanChangeRequestId, { applicationId: app.id, recorded: app.approvalCases[0]?._count.steps ?? 0, required: app.approvalCases[0]?.requiredLevels ?? null }]))
   const mayPropose = canDo(viewer.role, "propose_loan_change")
   const mayApprove = canDo(viewer.role, "approve_loan_change")
   // As /api/maker-checker: a request is seen by those who may make or approve its kind. What was applied is the loan's history.
@@ -95,7 +106,9 @@ export async function loadLoanChangesView(tenantId: string, loanId: string, view
     return {
       id: row.id, status: row.status, type: payload.type, title: row.title, reason: payload.reason, maker: nameOf(row.makerId)!, checker: nameOf(row.checkerId),
       createdAt: row.createdAt.toISOString(), decidedAt: row.decidedAt?.toISOString() ?? null, decisionNote: row.decisionNote, payload,
-      mine: row.makerId === viewer.id, canApprove: row.status === "SUBMITTED" && row.makerId !== viewer.id && mayApprove,
+      mine: row.makerId === viewer.id, signedDocument: signed.get(payload.signedDocumentId) ?? null, chain: chains.get(row.id) ?? null,
+      // A level of a matrix's chain may sit below the final approval's permission: the gate decides who holds it.
+      canApprove: row.status === "SUBMITTED" && row.makerId !== viewer.id && (mayApprove || (mayPropose && chains.has(row.id))),
       preview: open ? await previewChange(tenantId, payload) : null,
     }
   }))

@@ -7,9 +7,9 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { applyManualReceiptInTx } from "@/lib/loan/apply-payment"
 import { unusedLoanReference } from "@/lib/loan/loan-reference"
-import { generateReference } from "@/lib/utils"
 import { PERIOD_DAYS } from "@/lib/product-engine/types"
 import type { ApplyContext, Tx } from "@/lib/maker-checker/types"
+import { loanChangeApplication } from "./approval"
 import { computeChange, inArrears, involvedLoanIds, type ChangeLoan, type InPlaceComputed, type NewLoanComputed } from "./compute"
 import { LoanChangeRefused, type FreshRow } from "./plan"
 import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
@@ -104,14 +104,12 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
   const restructured = isForbearance(payload.type, settled.map((s) => s.loan), now)
   const payoutReference = payload.type === "TOP_UP" ? payload.payoutReference : null
   const termDays = plan.terms.instalments * PERIOD_DAYS[plan.terms.frequency]
-  // The checker approves and the maker books, as an approver never disburses: the database holds both.
-  const application = await tx.loanApplication.create({
-    data: {
-      tenantId, reference: generateReference("APP"), clientId: client.id, productId: primary.productId, branchId: primary.application.branchId,
-      appliedAmount: plan.principal, appliedTermDays: termDays, purpose: primary.application.purpose, status: "APPROVED",
-      approvedAt: now, approvedById: checker.id, approvedAmount: plan.principal, approvedTermDays: termDays, repaymentMethod: "EFT",
-      loanChangeRequestId: request.id,
-    },
+  // The matrix's chain, if one ran, stands on this application; with none it is opened here. Moving it to APPROVED runs the
+  // database's chain guard. The checker approves and the maker books, as an approver never disburses: the database holds both.
+  const application = await loanChangeApplication(tx, tenantId, request, computed)
+  await tx.loanApplication.update({
+    where: { id: application.id, tenantId },
+    data: { status: "APPROVED", appliedAmount: plan.principal, appliedTermDays: termDays, approvedAt: now, approvedById: checker.id, approvedAmount: plan.principal, approvedTermDays: termDays, repaymentMethod: "EFT" },
   })
   await tx.loanApplication.update({
     where: { id: application.id, tenantId },

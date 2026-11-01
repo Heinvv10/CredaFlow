@@ -53,7 +53,7 @@ function runLoan(row: BaseRow, schedule: RunLoan["schedule"], outstandingPrincip
  * staged on its days past due alone. Flags, collections stage, debt review and default charges are read as they are
  * now (docs/ifrs9/DESIGN.md, limits).
  */
-export async function loadRunLoans(db: Pick<Db, "loan" | "payment" | "auditLog" | "repaymentSchedule" | "bankTransaction">, tenantId: string, runAt: Date, asOf: Date | null): Promise<RunLoan[]> {
+export async function loadRunLoans(db: Pick<Db, "loan" | "payment" | "auditLog" | "repaymentSchedule" | "bankTransaction" | "loanChange">, tenantId: string, runAt: Date, asOf: Date | null): Promise<RunLoan[]> {
   if (!asOf) {
     const loans = await db.loan.findMany({
       where: collectibleLoanWhere(tenantId),
@@ -73,7 +73,7 @@ export async function loadRunLoans(db: Pick<Db, "loan" | "payment" | "auditLog" 
   const rows = await db.loan.findMany({ where: { tenantId, id: { in: [...byId.keys()] }, status: { not: "CANCELLED" } }, orderBy: { id: "asc" }, select: BASE_SELECT })
   return rows.map((row) => {
     const schedule = scheduleAsOf(byId.get(row.id)!, asOf).map(({ dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid }) => ({ dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid }))
-    const status = row.status === "COMPLETED" || row.status === "WRITTEN_OFF" ? "ACTIVE" : row.status
+    const status = byId.get(row.id)!.statusAsOf ?? (row.status === "COMPLETED" || row.status === "WRITTEN_OFF" ? "ACTIVE" : row.status)
     return runLoan(row, schedule, recomputeLoanBalances(row.principal, schedule, runAt).outstandingPrincipal, status)
   })
 }
@@ -112,7 +112,8 @@ export async function loadPriorStaging(db: Pick<Db, "$queryRaw">, tenantId: stri
  * until it has a run of its own: replacing a Stage 3 loan does not cure it.
  */
 export async function inheritPriorStaging(db: Pick<Db, "loanChange">, tenantId: string, priors: Map<string, PriorStaging>): Promise<void> {
-  const changes = await db.loanChange.findMany({ where: { tenantId, newLoanId: { not: null } }, select: { newLoanId: true, sourceLoanIds: true } })
+  // Oldest first: a loan replaced twice since the last run inherits through the one between.
+  const changes = await db.loanChange.findMany({ where: { tenantId, newLoanId: { not: null } }, orderBy: { appliedAt: "asc" }, select: { newLoanId: true, sourceLoanIds: true } })
   for (const change of changes) {
     if (priors.has(change.newLoanId!)) continue
     const old = change.sourceLoanIds.flatMap((id) => priors.get(id) ?? [])

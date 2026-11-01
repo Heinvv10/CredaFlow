@@ -153,7 +153,10 @@ export async function PATCH(
 
         // An early settlement re-priced the schedule; the reversal re-opens the
         // contract as signed (lib/loan/contractual-schedule.ts).
-        const contractualRows = await contractualScheduleOf(tx, loan, loan.repaymentSchedule, id)
+        // Not on a loan a new loan paid off (lib/loan-changes): that settlement stands and the new loan holds its balance. A receipt
+        // that bounces leaves exactly its amount owed on the old loan, on the rows the settlement priced.
+        const settledByNewLoan = await tx.payment.count({ where: { tenantId: tenant.id, loanId: payment.loanId, paymentMethod: LOAN_SETTLEMENT_METHOD, reversed: false } }) > 0
+        const contractualRows = settledByNewLoan ? loan.repaymentSchedule : await contractualScheduleOf(tx, loan, loan.repaymentSchedule, id)
         const perRowPaid = allocateReceipts(contractualRows, totalReceipts)
         const postRows = contractualRows.map((row, i) => ({
           ...row,
@@ -175,9 +178,9 @@ export async function PATCH(
 
         const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
         const restoredTotalInterest =
-          loan.commercialCancelledAt ? loan.totalInterest : loan.contractualTotalInterest ?? loan.totalInterest
+          loan.commercialCancelledAt || settledByNewLoan ? loan.totalInterest : loan.contractualTotalInterest ?? loan.totalInterest
         const restoredTotalRepayable =
-          loan.commercialCancelledAt ? loan.totalRepayable : loan.contractualTotalRepayable ?? loan.totalRepayable
+          loan.commercialCancelledAt || settledByNewLoan ? loan.totalRepayable : loan.contractualTotalRepayable ?? loan.totalRepayable
         const remainsCompleted = totalReceipts >= restoredTotalRepayable
 
         // Roll last-payment fields back to the most recent remaining receipt (or

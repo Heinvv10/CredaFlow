@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { changeRefusal, NCA_REFUSAL, type LoanChangeFacts } from "./eligibility"
 
 const facts: LoanChangeFacts = {
-  status: "ACTIVE", disclosureRegime: "KEY_FACTS", contractType: "LOAN", assetFinance: false, hasClient: true, deceased: false, interestModel: "REDUCING_BALANCE",
+  status: "ACTIVE", productActive: true, disclosureRegime: "KEY_FACTS", contractType: "LOAN", assetFinance: false, hasClient: true, deceased: false, interestModel: "REDUCING_BALANCE",
   creditLifePremiums: 0, repaymentMethod: "EFT", debtReview: false, collectionsStage: "NONE", arrangementActive: false, paymentPlanActive: false, mandates: 0, collectionInstructions: 0,
   chargesAccrued: 0, chargesOutstanding: 0, scheduleTies: true,
 }
@@ -43,6 +43,11 @@ describe("changeRefusal", () => {
     expect(changeRefusal({ ...facts, chargesAccrued: 500 }, "IN_PLACE")).toMatch(/default charges/)
     expect(changeRefusal({ ...facts, chargesOutstanding: 500 }, "IN_PLACE")).toMatch(/default charges/)
     expect(changeRefusal({ ...facts, chargesAccrued: 500 }, "NEW_LOAN")).toBeNull()
+  })
+
+  it("a retired product refuses a new loan, not a change to the one already written on it", () => {
+    expect(changeRefusal({ ...facts, productActive: false }, "NEW_LOAN")).toMatch(/no longer offered/)
+    expect(changeRefusal({ ...facts, productActive: false }, "IN_PLACE")).toBeNull()
   })
 
   it("a schedule that does not tie is refused in place", () => {

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { StatusPill } from "@/components/app-shell/StatusPill"
@@ -46,6 +47,15 @@ export function ChangeRequestCard({ request }: { request: LoanChangesView["reque
         {request.checker ? `. Decided by ${request.checker}${request.decidedAt ? `, ${formatDateTime(request.decidedAt)}` : ""}` : ""}
         {request.decisionNote ? `: ${request.decisionNote}` : ""}
       </p>
+      {request.signedDocument
+        ? <a className="block text-xs font-medium underline" href={`/api/documents/${request.signedDocument.id}/view`} target="_blank" rel="noreferrer">Signed document: {request.signedDocument.fileName}</a>
+        : <p className="text-xs text-[var(--cf-danger)]">The signed document is no longer on file.</p>}
+      {open && request.chain && (
+        <p className="text-xs text-[var(--cf-text-muted)]">
+          Approval matrix: {request.chain.required === null ? "no level recorded yet" : `${request.chain.recorded} of ${request.chain.required} levels recorded`}.{" "}
+          <Link className="underline" href={`/applications/${request.chain.applicationId}`}>Its application</Link>
+        </p>
+      )}
       {open && request.preview && <ChangePreviewTable preview={request.preview} />}
       {error && <p role="alert" className="text-sm text-[var(--cf-danger)]">{error}</p>}
       {request.canApprove && (

@@ -9,6 +9,7 @@ import { expect } from "vitest"
 import { POST as draftRoute } from "@/app/api/maker-checker/route"
 import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
 import { LOAN_CHANGE_KIND } from "./types"
+import { CORE_KYC_DOCUMENT_TYPES } from "@/lib/kyc/document-state"
 import { addCalendarMonths } from "@/lib/product-engine/periods"
 import { generateSchedule } from "@/lib/product-engine/schedule"
 import { createApprovedApplication, issueBoth, signData, type KeyFactsFixture } from "@/lib/non-nca-documents/gate.integration-fixture"
@@ -29,17 +30,24 @@ export interface LoanOptions {
   monthsRun?: number
   /** The same borrower as this fixture, for a consolidation. */
   sameClientAs?: LoanFixture
+  /** Another borrower of this fixture's lender. */
+  sameLenderAs?: LoanFixture
   status?: "ACTIVE" | "DEFAULTED"
 }
 
-async function bookedApplication(db: PrismaClient, sameClientAs?: LoanFixture): Promise<KeyFactsFixture> {
-  const fx = await createApprovedApplication(db)
-  if (!sameClientAs) return fx
-  // A second application of the first borrower, under the first lender: its documents are that lender's.
+async function bookedApplication(db: PrismaClient, options: LoanOptions): Promise<KeyFactsFixture> {
+  const beside = options.sameClientAs ?? options.sameLenderAs
+  if (!beside) return createApprovedApplication(db)
+  // A second application under the first lender: its documents are that lender's.
   const n = randomUUID().replaceAll("-", "").slice(0, 10)
-  const first = sameClientAs.fx
+  const first = beside.fx
+  let clientId = first.clientId
+  if (options.sameLenderAs) {
+    clientId = `c_kf2_${n}`
+    await db.client.create({ data: { id: clientId, tenantId: first.tenant.tenantId, idNumber: `Y${n}`, firstName: "Palesa", lastName: "Synthetic", email: `${n}@client.invalid`, phone: "+26658000098" } })
+  }
   const application = await db.loanApplication.create({
-    data: { tenantId: first.tenant.tenantId, reference: `APP-KF2-${n}`, clientId: first.clientId, productId: first.tenant.productId, appliedAmount: 200_000, appliedTermDays: 31 },
+    data: { tenantId: first.tenant.tenantId, reference: `APP-KF2-${n}`, clientId, productId: first.tenant.productId, appliedAmount: 200_000, appliedTermDays: 31 },
   })
   await db.loanApplication.update({ where: { id: application.id }, data: { status: "SUBMITTED" } })
   await db.loanApplication.update({ where: { id: application.id }, data: { status: "UNDER_REVIEW" } })
@@ -47,13 +55,13 @@ async function bookedApplication(db: PrismaClient, sameClientAs?: LoanFixture): 
     where: { id: application.id },
     data: { status: "APPROVED", approvedAt: new Date(), approvedById: first.tenant.userId, approvedAmount: 200_000, approvedTermDays: 31, repaymentMethod: "EFT" },
   })
-  return { ...first, applicationId: application.id }
+  return { ...first, clientId, applicationId: application.id }
 }
 
 /** A REDUCING_BALANCE loan at 4% a month on the lender's product, its rows from the engine. Nothing paid. */
 export async function bookLoan(db: PrismaClient, options: LoanOptions = {}): Promise<LoanFixture> {
   const { principal = 600_000, instalments = 6, monthsRun = 3, status = "ACTIVE" } = options
-  const fx = await bookedApplication(db, options.sameClientAs)
+  const fx = await bookedApplication(db, options)
   await issueBoth(db, fx)
   await db.loanApplication.update({ where: { id: fx.applicationId }, data: signData() })
   const now = new Date()
@@ -84,6 +92,13 @@ export async function bookLoan(db: PrismaClient, options: LoanOptions = {}): Pro
       tenantId: fx.tenant.tenantId, clientId: fx.clientId, docType: "OTHER", fileName: "signed-variation.pdf", fileUrl: "", storagePath: `/synthetic/${n}.pdf`, fileSize: 1, mimeType: "application/pdf",
       uploadedByType: "staff", extractionStatus: "skipped", verified: false,
     },
+  })
+  // The borrower's core KYC is verified, as a booked borrower's is: a new loan passes the same gate an application does.
+  await db.clientDocument.createMany({
+    data: CORE_KYC_DOCUMENT_TYPES.map((docType) => ({
+      tenantId: fx.tenant.tenantId, clientId: fx.clientId, docType, fileName: `${docType}.pdf`, fileUrl: "", storagePath: `/synthetic/${n}-${docType}.pdf`, fileSize: 1, mimeType: "application/pdf",
+      uploadedByType: "staff", extractionStatus: "skipped", verified: true,
+    })),
   })
   // The maker-checker pair: accounts older than 30 days, on a lender whose product allows the sizes these suites use.
   const old = new Date(Date.now() - 90 * 86_400_000)

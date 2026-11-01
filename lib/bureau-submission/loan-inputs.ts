@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import type { ChargesTx } from "@/lib/loan/charges-replay"
-import { isBalanceWaiver } from "@/lib/payments/waiver"
+import { isNonCashReceipt } from "@/lib/payments/waiver"
 import { hasClientBorrower } from "@/lib/borrower"
 import type { SubmissionKind } from "./layout"
 import type { AdverseStatus, BureauLoanInput, DataFlag } from "./map-loan"
@@ -122,11 +122,11 @@ export async function loadAdverseConfirmations(db: Db, tenantId: string, loanIds
 }
 
 /** The date cash was last received on or before the period day. */
-function lastPaymentOnOrBefore(loan: BureauLoanRow, day: Day): Date | null {
+export function lastPaymentOnOrBefore(loan: Pick<BureauLoanRow, "payments">, day: Day): Date | null {
   const periodEnd = dayEnd(day)
   let last: Date | null = null
   for (const p of loan.payments) {
-    if (p.reversed || p.allocationStatus !== "ALLOCATED" || isBalanceWaiver(p.paymentMethod)) continue
+    if (p.reversed || p.allocationStatus !== "ALLOCATED" || isNonCashReceipt(p.paymentMethod)) continue
     if (p.receivedAt >= periodEnd) continue
     if (last === null || p.receivedAt > last) last = p.receivedAt
   }

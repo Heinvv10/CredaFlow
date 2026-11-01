@@ -19,17 +19,27 @@ ADMIN approves with step-up TOTP (`approve_loan_change`), and `apply.ts` runs in
   own wording, uploaded to the client. A template for it is the bank's to supply.
 - **In place** (RESCHEDULE, RESTRUCTURE, PAYMENT_HOLIDAY, RATE_CHANGE, TERM_CHANGE, `plan.ts`): paid rows stay, a part-paid row is cut
   to what was paid, the rest is replaced. The rows always add up to `Loan.principal`: `assertLoanChangeReconciles` at commit.
-  Interest and fees already due are carried and spread (no interest on interest; `RepaymentSchedule.carried*` marks them, so a
-  later change carries them again); unearned interest is recomputed from the last due date. Money paid ahead on a row not yet
-  due is principal, or the borrower pays that period's interest twice.
+  The next instalment keeps its date unless the change moves it. Interest and fees already due are carried and spread (no interest
+  on interest; `RepaymentSchedule.carried*` marks them for repricing). Rows not yet due are priced again; whatever they held above a
+  fresh pricing of the same rows on the old terms (a deferred fee, a grace's or holiday's interest, an earlier change's carry) is
+  carried too, so a same-terms change moves nothing. FLAT prices on the original principal. Money paid ahead on a row not yet due
+  is principal, or the borrower pays that period's interest twice.
 - **History**: `LoanChange.scheduleBefore` keeps every row as it stood; the live `RepaymentSchedule` holds only the schedule in
   force, so no reader has to skip superseded rows. A replaced row's ledger entry reverses by itself (`deriveEntries`).
   `LoanTerms` is appended; a loan with no terms row gets its origination written first (`productVersionId` null).
 - **New loan** (TOP_UP, REFINANCE, CONSOLIDATION): principal = settlement + new money. Each old loan closes through
   `applyManualReceiptInTx` with method `LOAN_SETTLEMENT` for exactly `loanSettlementFigures().totalToSettle`: never compute a
   settlement here. The receipt is non-cash (`CASH_RECEIPTS`), never reversed (route and trigger). The application names the
-  request (`loanChangeRequestId`, insert-only), which is the only thing that steps past the key facts gate.
+  request (`loanChangeRequestId`, insert-only, opened UNDER_REVIEW), which is the only thing that steps past the key facts gate.
+- **A new loan is new credit** (`approval.ts`, the `approvalGate` hook): the lender's approval matrix and committee run on its
+  application, the request stays SUBMITTED while levels record, the last completes through the maker-checker approval, and the
+  database's chain guard holds. Rejecting or withdrawing cancels the application. Screening, KYC (`okForOrigination`), deceased and
+  `product.active` are read at submit and again at approval. A change in place is not new credit: one second person.
 - **The ledger moves only new money**: the new loan credits PAYOUT_CLEARING for the settled part, the receipts debit it.
+- **Bounds**: maturity stays inside `maxTermDays`, a new loan inside `maxAmount`, no rate above the product's and the loan's own.
+- **Signed paper**: `SIGNED_DOCUMENT_TYPES`, the borrower's, not deleted; the checker opens it from the proposal.
+- **A bounced receipt on a settled loan** reverses: the settlement stands and exactly that amount is owed on the old loan.
+- **Book as at a past date** (`lib/reports/book-as-of.ts`): a change after that date is read through `scheduleBefore` and `before`.
 - **`Loan.status` is never RESTRUCTURED**: eight receipt, mandate and reminder paths need ACTIVE or DEFAULTED. A forbearance sets
   `Loan.restructuredAt`; IFRS 9 reads it (`restructuredInForce`, `lib/ifrs9/staging.ts`). The three in-place distress types always
   mark; any other change marks when a loan is in arrears. A replacement loan inherits the worst prior stage (`inheritPriorStaging`).
@@ -40,7 +50,8 @@ ADMIN approves with step-up TOTP (`approve_loan_change`), and `apply.ts` runs in
 ## Known limits
 A top-up's payout is manual, recorded by reference. No affordability re-run, commission or initiation fee on a new loan.
 On early settlement s125 pricing rebates carried interest in rows not yet due. A holiday's deferred interest accrues in IFRS 9
-with the row that carries it, not through the holiday. Nothing is sent to the borrower.
+with the row that carries it, not through the holiday. Nothing is sent to the borrower. A new loan's open application shows in
+the staff application lists; declining it there stops the change at approval.
 
 ## Tests
 Pure: `plan`, `payload`, `eligibility`, `form`. `RUN_LOAN_CHANGES_IT=1`: `loan-changes*.integration.test.ts`, real routes on throwaway LS and ZA databases.

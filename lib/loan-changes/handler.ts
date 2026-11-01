@@ -1,5 +1,6 @@
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import type { ChangeHandler, Tx } from "@/lib/maker-checker/types"
+import { closeLoanChangeApplication, loanChangeApprovalGate } from "./approval"
 import { applyLoanChange } from "./apply"
 import { computeChange, involvedLoanIds } from "./compute"
 import { parseLoanChangePayload } from "./payload"
@@ -36,5 +37,7 @@ export const loanChangeHandler: ChangeHandler<LoanChangePayload> = {
     })
     return loans.map((loan) => `${loan.id}:${loan.status}:${loan._count.terms}`).join(",")
   },
+  approvalGate: loanChangeApprovalGate,
   apply: (tx, ctx) => refusing(() => applyLoanChange(tx, ctx)),
+  closed: closeLoanChangeApplication,
 }

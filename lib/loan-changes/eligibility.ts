@@ -6,6 +6,7 @@ export const NCA_REFUSAL =
 /** The loan's facts that decide it (lib/loan-changes/compute.ts reads them). */
 export interface LoanChangeFacts {
   status: string
+  productActive: boolean
   disclosureRegime: string
   contractType: string
   assetFinance: boolean
@@ -40,6 +41,7 @@ export function changeRefusal(loan: LoanChangeFacts, scope: ChangeScope): string
   if (loan.debtReview) return "This loan is under debt review: its repayments are set by that process."
   if (loan.collectionsStage === "ATTORNEY_REFERRED") return "This loan is with an attorney: recall it first."
   if (loan.arrangementActive || loan.paymentPlanActive) return "This loan has a live payment arrangement or plan: end it first."
+  if (scope === "NEW_LOAN" && !loan.productActive) return "This loan's product is no longer offered: a new loan cannot be written on it."
   if (scope === "IN_PLACE") {
     if (loan.chargesAccrued > 0 || loan.chargesOutstanding > 0) return "This loan carries default charges, which are derived from its schedule: refinance it, which settles them, instead."
     if (!loan.scheduleTies) return "This loan's schedule does not add up to its principal and receipts. Have it checked before changing it."

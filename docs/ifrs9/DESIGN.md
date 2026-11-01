@@ -31,7 +31,8 @@ A live loan is never given the status RESTRUCTURED: receipts, mandates and remin
 DEFAULTED. A forbearance (`lib/loan-changes`) sets `Loan.restructuredAt`, which counts as RESTRUCTURED
 until a MONTHLY run has staged it; from the next run the loan's triggers have cleared and the probation
 runs from there. A loan booked by a top-up, refinance or consolidation starts from the worst prior stage
-of the loans it replaced, so replacing a Stage 3 loan does not cure it.
+of the loans it replaced, so replacing a Stage 3 loan does not cure it. A run for a date before a change reads
+the schedule and status that change replaced (`LoanChange.scheduleBefore`).
 
 The cure clock belongs to the trigger stage being left. A trigger at or above the
 loan's own stage restarts it. A Stage 3 loan whose default triggers have cleared but
