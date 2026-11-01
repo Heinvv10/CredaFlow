@@ -164,7 +164,6 @@ describe("tenant-scope — ALS primitives", () => {
       "RecoveryRefund",
       // Daily arrears history for the NCR return — non-null tenantId; the
       // nightly cron writes inside runWithTenant.
-      "LoanArrearsLetter",
       "LoanArrearsSnapshot",
       "ArrearsSnapshotRun",
       // Append-only electronic declaration receipts: required tenant/application binding.
@@ -225,6 +224,7 @@ describe("tenant-scope — ALS primitives", () => {
       "ProductPricingRule",
       "LoanTerms",
       "ApplicationPricingInput",
+      "LoanArrearsLetter",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",
