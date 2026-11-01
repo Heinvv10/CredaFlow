@@ -34,12 +34,15 @@ describe("every PASQ / agreement / mandate / packet / disburse route refuses a k
     expect(starts.length, "exports a handler").toBeGreaterThan(0)
     starts.forEach((start, i) => {
       const body = source.slice(start.at, starts[i + 1]?.at ?? source.length)
-      expect(/await\s+keyFactsRefusal\(/.test(body), `${start.method} must await keyFactsRefusal(`).toBe(true)
+      // The disburse route books a key-facts loan itself (keyFactsDisbursement); every other route refuses the ceremony.
+      const guard = file.includes(`${path.sep}disburse${path.sep}`) ? /await\s+keyFactsDisbursement\(/ : /await\s+keyFactsRefusal\(/
+      expect(guard.test(body), `${start.method} must await ${guard.source}`).toBe(true)
     })
   })
 
-  it("the disburse route asks for the disbursement answer, with the gate's own reason", () => {
+  it("the disburse route hands a key-facts application to its own booking before any NCA work", () => {
     const disburse = stripComments(fs.readFileSync(path.join(ROOT, "disburse", "route.ts"), "utf8"))
-    expect(disburse).toMatch(/keyFactsRefusal\(tenant\.id, id, "disburse"\)/)
+    expect(disburse.indexOf("keyFactsDisbursement(")).toBeGreaterThan(-1)
+    expect(disburse.indexOf("keyFactsDisbursement(")).toBeLessThan(disburse.indexOf("hasClientBorrower(application)"))
   })
 })

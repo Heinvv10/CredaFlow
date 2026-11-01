@@ -65,7 +65,8 @@ vi.mock("@/lib/contact/provision", async (importOriginal) => {
 vi.mock("@/lib/audit", () => ({
   AuditAction: new Proxy({}, { get: (_target, key) => String(key) }),
 }))
-vi.mock("@/lib/utils", () => ({
+vi.mock("@/lib/utils", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/utils")>()),
   generateReference: (prefix: string) => `${prefix}-TEST-1`,
 }))
 const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
@@ -1045,7 +1046,7 @@ describe("POST /api/crm/leads/[id]/convert amount bounds", () => {
     const response = await POST(amountRequest(amount), context)
 
     expect(response.status).toBe(422)
-    expect((await response.json()).error).toBe("Amount must be between R1,000 and R10,000 for Staff Product.")
+    expect((await response.json()).error).toBe("Amount must be between R 1,000.00 and R 10,000.00 for Staff Product.")
     expectNothingWritten()
   })
 

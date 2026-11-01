@@ -139,6 +139,7 @@ export default async function LoanDetailPage(
           loanId={loan.id}
           showSection129={section129Availability.hasRetrievableIssuedArtifact}
           section129Simulated={section129Availability.latestIssuedSimulated}
+          debitMandate={loan.application?.disclosureRegime !== "KEY_FACTS"}
         />
       </div>
 

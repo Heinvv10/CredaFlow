@@ -11,7 +11,6 @@
  *   RUN_ASSET_FINANCE_LEASE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/asset-finance/lease-servicing-fund.integration.test.ts
  */
-import { monthEndClamps, reportMonthEndSkip } from "./first-due.test-helpers"
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
@@ -28,9 +27,7 @@ const { session } = vi.hoisted(() => ({ session: { current: null as null | { use
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 const RUN = process.env.RUN_ASSET_FINANCE_LEASE_IT === "1"
-// Not on the 29th to the 31st: the lease it books ends a day early there (monthEndClamps)
-const suite = RUN && !monthEndClamps() ? describe : describe.skip
-reportMonthEndSkip("lease servicing: maintenance fund, claims, readings, return", RUN)
+const suite = RUN ? describe : describe.skip
 const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture

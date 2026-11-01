@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { UserCheck, Briefcase, CreditCard, AlertCircle, CheckCircle } from "lucide-react"
 import { LOAN_PURPOSE_OPTIONS } from "@/lib/loan-purpose-categories"
 import { convertBlocked, defaultTermInput, isFixedTerm, termForRequest, termIsInvalid, type TermBounds } from "./convert-term"
-import { formatRands } from "@/lib/utils"
+import { activeCurrencySymbol, formatRands, formatZAR } from "@/lib/utils"
 
 type Product = {
   id: string
@@ -333,7 +333,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
           )}
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Loan Amount (R) * {selectedProduct && `— min R${(selectedProduct.minAmount / 100).toLocaleString()}, max R${(selectedProduct.maxAmount / 100).toLocaleString()}`}
+              Loan Amount ({activeCurrencySymbol()}) * {selectedProduct && `— min ${formatZAR(selectedProduct.minAmount)}, max ${formatZAR(selectedProduct.maxAmount)}`}
             </label>
             <input
               type="number"
@@ -373,7 +373,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
                 const a = parseFloat(amount)
                 if (!a || a <= 0) { setError("Enter a valid loan amount"); return }
                 if (selectedProduct && (a * 100 < selectedProduct.minAmount || a * 100 > selectedProduct.maxAmount)) {
-                  setError(`Amount must be between R${(selectedProduct.minAmount / 100).toLocaleString()} and R${(selectedProduct.maxAmount / 100).toLocaleString()}`)
+                  setError(`Amount must be between ${formatZAR(selectedProduct.minAmount)} and ${formatZAR(selectedProduct.maxAmount)}`)
                   return
                 }
                 if (recoveryMode && recoveryReason.trim().length < 10) {

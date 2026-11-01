@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { addMonthsClamped, fromDayNumber, toDayNumber } from "./dates"
 import { dealStartDate } from "./deal-structure"
-import { monthEndClamps, plannedStartFor } from "./first-due.test-helpers"
+import { leaseShiftDays, plannedStartFor } from "./first-due.test-helpers"
 
 const daysOf = (year: number) => {
   const first = toDayNumber(`${year}-01-01`)
@@ -47,15 +47,20 @@ describe("plannedStartFor: a start the signing prepare step accepts, from the fi
   })
 })
 
-describe("monthEndClamps: the days a lease moved back whole months ends a day early", () => {
-  it("is true on 31 Oct, 29 to 31 Jan, 31 Mar, and false on a day that round-trips", () => {
-    for (const today of ["2026-10-31", "2027-01-29", "2027-01-30", "2027-01-31", "2027-03-31", "2028-01-30"]) expect(monthEndClamps(today), today).toBe(true)
-    for (const today of ["2026-10-30", "2026-10-15", "2027-02-28", "2026-11-01", "2027-01-28"]) expect(monthEndClamps(today), today).toBe(false)
+describe("leaseShiftDays: backdateLease moves a lease by its own day gap, so the nth rental lands on the start date on every day", () => {
+  const back = (iso: string, days: number) => fromDayNumber(toDayNumber(iso) - days)
+
+  it("31 Oct, one month: first rental 30 Nov moves 30 days to 31 Oct (a month back would give 30 Oct)", () => {
+    expect(leaseShiftDays("2026-10-31", 1)).toBe(30)
+    expect(back("2026-11-30", leaseShiftDays("2026-10-31", 1))).toBe("2026-10-31")
+    expect(addMonthsClamped("2026-11-30", -1)).toBe("2026-10-30")
   })
 
-  it("is exactly the days on which the old first instalment put the deal's start in the past", () => {
-    for (const today of [...daysOf(2026), ...daysOf(2027), ...daysOf(2028)]) {
-      expect(monthEndClamps(today), today).toBe(dealStartDate(firstDueOf(today)) < today)
+  it("puts rental n on the start date for every start day of 2026 to 2028 and 1 to 6 months", () => {
+    for (const start of [...daysOf(2026), ...daysOf(2027), ...daysOf(2028)]) {
+      for (let months = 1; months <= 6; months++) {
+        expect(back(addMonthsClamped(start, months), leaseShiftDays(start, months)), `${start} +${months}`).toBe(start)
+      }
     }
   })
 })

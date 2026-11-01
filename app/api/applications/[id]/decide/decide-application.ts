@@ -56,6 +56,7 @@ import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllow
 import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
 import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
@@ -743,6 +744,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
         { status: 400 },
       )
     }
+    // A key-facts loan is collected by EFT: a debit-order mandate is a South African DebiCheck instrument that binds the PASQ contract
+    // evidence (lib/non-nca-documents/disburse.ts). A mandate for a non-NCA loan is a separate item.
+    if (application.disclosureRegime === "KEY_FACTS" && repaymentMethod !== "EFT") {
+      return NextResponse.json(
+        { error: "A loan outside the National Credit Act's jurisdiction is repaid by EFT. Approve for EFT.", repaymentMethod: "key_facts_eft_only" },
+        { status: 400 },
+      )
+    }
     const rateCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, application) // NCA Regulation 42
     if (rateCapRefusal) return rateCapRefusal
     // An OTHER account cannot carry a debit order: the Netcash AVS wire has
@@ -1163,6 +1172,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
       initiationFeePct: terms.initiationFeePct,
       initiationFeeMaxCents: terms.initiationFeeMax,
       monthlyServiceFeeCents: terms.monthlyServiceFee,
+      ...frozenIdentityInput(application),
       ...(terms.repayment ? { repayment: terms.repayment } : {}),
       ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
       initiationFeePayment: application.initiationFeePayment,

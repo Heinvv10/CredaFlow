@@ -40,10 +40,10 @@ from the lender's own versioned templates, not by the PASQ. `LoanApplication.dis
 - **The decision engine cannot approve a KEY_FACTS application** until a Lesotho bureau is integrated
   (`lib/decisioning/key-facts-referral.ts`): it refers (`NO_BUREAU`, `MISSING_FACT`) and strips the grade, which was scored on
   facts nobody checked. With no bureau check a scorecard decline refers too; a rule's decline on known facts stands.
-- Staff issue (`CREDIT_OFFICER`); only the borrower acknowledges and signs (`lib/proxy/shared-client-api.ts`). Each step
-  refuses a deceased borrower under the client row lock (`borrower-gate.ts`); the portal's refusal does not say why.
-- The PASQ/agreement/disburse routes answer 409 for a key-facts application (`refusal.ts`). **Disbursing one is not built
-  yet** (A10b PR B): the disburse route returns the gate's reason or "payout not available".
+- Staff issue (`CREDIT_OFFICER`); only the borrower signs (`lib/proxy/shared-client-api.ts`). PASQ routes answer 409 (`refusal.ts`).
+  Each step refuses a deceased borrower under the client row lock (`borrower-gate.ts`); the portal's refusal does not say why.
+- **Disbursing** (`disburse.ts`, `payout-gates.ts`): every gate in one SERIALIZABLE transaction on the NCA route's lock
+  protocol, the same run as a dry run for the page (no transfer until it passes). No debit mandate: EFT. Rules: `docs/non-nca-go-live.md`.
 
 ## Key Files
 | File | Purpose |
@@ -51,3 +51,4 @@ from the lender's own versioned templates, not by the PASQ. `LoanApplication.dis
 | `render.ts` / `quote.ts` | Template + approved terms -> PDF bytes; the quote.* tokens |
 | `issue.ts` / `acknowledge.ts` / `sign.ts` | The three actions (audited) |
 | `state.ts` / `refusal.ts` | What stands and why a signature would fail; the 409s |
+| `payout-gates.ts` / `disburse.ts` / `payout-account.ts` | Every payout gate; booking; the second person |

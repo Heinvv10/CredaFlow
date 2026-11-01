@@ -5,7 +5,7 @@ import { PO_FUNDING_NEEDS_ORDER, requiresPoFundingFacts } from "@/lib/applicatio
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { generateReference } from "@/lib/utils"
+import { generateReference, formatZAR } from "@/lib/utils"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { AuditAction } from "@/lib/audit"
 import {
@@ -841,7 +841,7 @@ export async function POST(
       }
       if (result.kind === "amount_out_of_range") {
         return NextResponse.json(
-          { error: `Amount must be between R${(result.min / 100).toLocaleString()} and R${(result.max / 100).toLocaleString()} for ${result.name}.` },
+          { error: `Amount must be between ${formatZAR(result.min)} and ${formatZAR(result.max)} for ${result.name}.` },
           { status: 422 },
         )
       }

@@ -1,3 +1,4 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib"
 import {
   A4_WIDTH, A4_HEIGHT, MARGIN, CONTENT_WIDTH,
@@ -60,7 +61,7 @@ type StatementBorrower =
 type StatementOpts = StatementBase & StatementBorrower
 
 interface StatementBase {
-  lender: Pick<LenderIdentity, "legalName" | "ncrNumber">
+  lender: Pick<LenderIdentity, "legalName" | "ncrNumber"> & Partial<Pick<LenderIdentity, "companyRegNumber">>
   /** Letterhead logo, PNG bytes. Absent → text header. */
   logo?: Uint8Array
   loan: {
@@ -130,7 +131,9 @@ export async function generateStatementPdf(opts: StatementOpts): Promise<Buffer>
 
 async function renderStatement(opts: StatementOpts & { statementDate: Date }, totalPages: number): Promise<PDFDocument> {
   const { loan, product, schedule, payments, statementDate } = opts
-  const lender = requireLenderIdentityFields(opts.lender, ["legalName", "ncrNumber"])
+  // A lender outside the NCA has no NCR number: its statement carries its company registration number instead (South African wording stays South African).
+  const nca = isNcaJurisdiction()
+  const lender = requireLenderIdentityFields(opts.lender, nca ? ["legalName", "ncrNumber"] : ["legalName", "companyRegNumber"])
   const doc = await PDFDocument.create()
   const regular = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
@@ -166,7 +169,7 @@ async function renderStatement(opts: StatementOpts & { statementDate: Date }, to
     drawText(p1, lender.legalName, MARGIN, y, bold, 16, ACCENT)
     y -= 16
   }
-  drawText(p1, `NCR Registration: ${lender.ncrNumber}`, MARGIN, y, regular, 8, GRAY)
+  drawText(p1, nca ? `NCR Registration: ${lender.ncrNumber}` : `Registration no.: ${lender.companyRegNumber}`, MARGIN, y, regular, 8, GRAY)
   y -= 12
   y -= 12
 

@@ -1,4 +1,4 @@
-import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
+import { keyFactsDisbursement } from "@/lib/non-nca-documents/disburse-response"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -28,7 +28,8 @@ import {
   verifyLockedCurrentAffordabilityApproval,
 } from "@/lib/affordability/current-approval"
 import { verifyCurrentDisbursementEvidence } from "@/lib/affordability/current-disbursement"
-import { graceDeferredInterest } from "@/lib/product-engine/schedule"
+import { KYC_AND_STATEMENT_DOCUMENTS } from "@/lib/disbursement/document-locks"
+import { recordOriginationTerms } from "@/lib/disbursement/loan-terms"
 import { Prisma } from "@prisma/client"
 import { disbursementGuardViolation } from "@/lib/disbursement/guard-violation"
 import { databaseGuardRefusal } from "@/lib/db-guard-refusal"
@@ -311,8 +312,9 @@ export async function POST(
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
       }
-      const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id, "disburse")
-      if (keyFactsRefused1) return keyFactsRefused1
+      // A key-facts application (a jurisdiction without the NCA) is booked by its own route (lib/non-nca-documents/disburse.ts).
+      const keyFactsBooking = await keyFactsDisbursement({ tenantId: tenant.id, applicationId: id, user: { id: user.id, email: user.email ?? "" }, bankRef: bankRequest.bankRef ?? null })
+      if (keyFactsBooking) return keyFactsBooking
       // Consumer payout path (PASQ, mandate, credit life); asset finance has its own.
       if (!hasClientBorrower(application)) {
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
@@ -919,18 +921,7 @@ export async function POST(
           WHERE "tenantId" = ${tenant.id}
             AND "clientId" = ${txApplication.clientId}
             AND (
-              "docType" = 'SELFIE'::"DocType"
-              OR (
-                "deletedAt" IS NULL
-                AND
-                "verified" = true
-                AND "docType" IN (
-                  'ID_COPY'::"DocType",
-                  'PROOF_OF_ADDRESS'::"DocType",
-                  'PAYSLIP'::"DocType",
-                  'BANK_STATEMENT'::"DocType"
-                )
-              )
+              ${KYC_AND_STATEMENT_DOCUMENTS}
               OR (
                 "deletedAt" IS NULL
                 AND
@@ -1403,21 +1394,8 @@ export async function POST(
           })),
         })
 
-        // A loan priced by the product engine keeps the version it was written on, the rule that priced it and the repayment
-        // structure it was scheduled with (lib/product-engine); a later version never reaches it. Written with the loan, or not at all.
         const writtenTerms = lockedApprovalEvidence.approval.inputs
-        if (writtenTerms.productVersion) {
-          const v = writtenTerms.productVersion
-          await tx.loanTerms.create({
-            data: {
-              loanId: newLoan.id, tenantId: tenant.id, sequence: 1, productVersionId: v.id,
-              deferredInterest: writtenTerms.interestModel === "DAILY_ACCRUAL" ? 0 : graceDeferredInterest({ principalCents: writtenTerms.principalCents, interestRatePm: writtenTerms.interestRatePm, interestModel: writtenTerms.interestModel, startDate: lockedStartDate, repayment: writtenTerms.repayment }),
-              frequency: writtenTerms.repayment?.frequency ?? null, structure: writtenTerms.repayment?.structure ?? null, graceKind: writtenTerms.repayment?.graceKind ?? null,
-              graceInstalments: writtenTerms.repayment?.graceInstalments ?? 0, instalments: writtenTerms.repayment?.instalments ?? null,
-              baseRatePm: v.baseRatePm, interestRatePm: writtenTerms.interestRatePm, pricingRuleId: v.pricingRuleId, pricingRuleName: v.pricingRuleName, pricingInputs: v.pricingInputs,
-            },
-          })
-        }
+        await recordOriginationTerms(tx, { tenantId: tenant.id, loanId: newLoan.id, terms: writtenTerms, startDate: lockedStartDate })
 
         // Referral agent commission — accrue for a referred, active-agent loan.
         // No-ops unless the borrower is attributed to an active code+agent with a

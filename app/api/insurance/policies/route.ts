@@ -11,6 +11,7 @@ import { premiumCommission } from "@/lib/insurance/commission"
 import { hashDraftToken, verifyDraftToken } from "@/lib/insurance/disclosure-token"
 import { sastMonthStart, sastParts } from "@/lib/date/sast"
 import { policyNumberPrefix } from "@/lib/insurance/policy/bind"
+import { formatRands } from "@/lib/utils"
 
 export async function GET(req: NextRequest) {
   try {
@@ -289,7 +290,7 @@ export async function POST(req: NextRequest) {
           const loanAmount = loan.outstandingPrincipal / 100
           if (sumAssured > loanAmount) {
             return NextResponse.json(
-              { error: `Credit Life sum assured (R${sumAssured.toLocaleString("en-ZA")}) cannot exceed the linked loan outstanding balance (R${loanAmount.toLocaleString("en-ZA")})` },
+              { error: `Credit Life sum assured (${formatRands(sumAssured, { whole: true })}) cannot exceed the linked loan outstanding balance (${formatRands(loanAmount, { whole: true })})` },
               { status: 400 }
             )
           }

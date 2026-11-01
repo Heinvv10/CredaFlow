@@ -22,6 +22,8 @@ export interface ApprovalTerms {
   monthlyServiceFeeCents: number
   /** When the approval was captured; the contract starts then (an approval's calculator never starts after it). Default: now. */
   capturedAt?: Date
+  /** The borrower's frozen identity (identity.ts), for a suite that issues documents from this approval. */
+  borrowerIdentity?: string
 }
 
 export function approvedAffordabilityResult(terms: ApprovalTerms): unknown {
@@ -43,6 +45,7 @@ export function approvedAffordabilityResult(terms: ApprovalTerms): unknown {
     productId: terms.productId, interestRatePm: pricing.interestRatePm, productType: pricing.productType, interestModel: pricing.interestModel,
     initiationFeeModel: pricing.initiationFeeModel, initiationFeePct: pricing.initiationFeePct, initiationFeeMaxCents: pricing.initiationFeeMax,
     monthlyServiceFeeCents: pricing.monthlyServiceFee, initiationFeePayment: "DEFERRED" as const, ndiBufferPct: tenantConfig.ndiBufferPct,
+    ...(terms.borrowerIdentity ? { borrowerIdentity: terms.borrowerIdentity } : {}),
   }
   const affordability = evaluateAffordabilityGate(inputs)
   const approval = createAffordabilitySnapshot({

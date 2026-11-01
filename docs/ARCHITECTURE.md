@@ -254,8 +254,13 @@ the template version and the SHA-256 of its wording.
   edited or republished after issue is caught.
 - **ZA unchanged:** the four PASQ guards, the credit-life commit invariant and the approved-status
   CHECK each got one `KEY_FACTS` step-aside (static test diffs them against the previous text).
-- **Not built:** booking the payout of a key-facts loan (the disburse route answers with the
-  gate's reason); approving a Lesotho application through `decide` still needs NCA evidence.
+- **Approval and payout:** `decide` asks a key-facts application for KYC, affordability and
+  screening but not the NCA-only evidence (credit-life election, affordability declaration,
+  s81 assessment, SA bureau); `lib/non-nca-documents/regime-evidence.ts` is the one rule. The
+  disburse route books a signed key-facts loan as a **manual** payout (audited
+  `payoutChannel: "MANUAL"`, a required bank reference, the NCA route's lock protocol, a second
+  person confirming the account in place of AVS, on the agreement's start date only). Not built: the automated payout rail (tender 2.5.1 core-banking
+  API) and debit-order mandates for key-facts loans.
 - Details and rules: `lib/non-nca-documents/.claude.md`.
 
 ## Lender-owned asset-finance templates

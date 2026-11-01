@@ -1,4 +1,3 @@
-import { monthEndClamps, reportMonthEndSkip } from "./first-due.test-helpers"
 import { randomUUID } from "node:crypto"
 import { vatOnExclusive } from "@/lib/vat/amounts"
 import { Prisma, PrismaClient } from "@prisma/client"
@@ -21,9 +20,7 @@ import { rateNoticeVars } from "./reprice-notice-dispatch"
 import { sastCalendarDate } from "@/lib/date/sast"
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
-// Not on the 29th to the 31st: the lease it books ends a day early there (monthEndClamps)
-const suite = process.env.RUN_ASSET_FINANCE_REPRICE_IT === "1" && !monthEndClamps() ? describe : describe.skip
-reportMonthEndSkip("closed booked lease late rates", process.env.RUN_ASSET_FINANCE_REPRICE_IT === "1")
+const suite = process.env.RUN_ASSET_FINANCE_REPRICE_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 let fx: LeaseFixture
 const fixtures: LeaseFixture[] = []
