@@ -502,6 +502,55 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).not.toHaveBeenCalled()
   })
 
+  describe("the NCA declarations by regime", () => {
+    const silent = { ...validBody, affordabilityDeclared: false, pasqDeliveryUnderstood: false }
+
+    it("demands both of an applicant on a South African instance", async () => {
+      const res = await POST(buildReq(silent))
+      expect(res.status).toBe(400)
+      expect(createApplication).not.toHaveBeenCalled()
+    })
+
+    it("demands neither on a Lesotho instance, stamps no declaration and audits none", async () => {
+      const { resetActiveJurisdiction, setActiveJurisdiction } = await import("@/lib/jurisdiction/active")
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      try {
+        const res = await POST(buildReq(silent))
+        expect(res.status, JSON.stringify(await res.clone().json())).toBe(201)
+        expect(createApplication.mock.calls[0][0].data).not.toHaveProperty("clientAffordabilityDeclaredAt")
+        expect(auditLogCreate.mock.calls[0][0].data.newValue).toMatchObject({ affordabilityDeclaredByClient: false, pasqDeliveryNoticeAcceptedByClient: false })
+      } finally {
+        resetActiveJurisdiction()
+      }
+    })
+
+    it("still stamps the declaration on a South African instance", async () => {
+      await POST(buildReq(validBody))
+      expect(createApplication.mock.calls[0][0].data.clientAffordabilityDeclaredAt).toBeInstanceOf(Date)
+    })
+  })
+
+  it("looks for the credit-life offer unless the instance is outside the NCA's jurisdiction: unloaded (the default) and ZA query, LS does not", async () => {
+    const { resetActiveJurisdiction, setActiveJurisdiction } = await import("@/lib/jurisdiction/active")
+    try {
+      resetActiveJurisdiction()
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).toHaveBeenCalled()
+
+      findFirstInsuranceProduct.mockClear()
+      setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).toHaveBeenCalled()
+
+      findFirstInsuranceProduct.mockClear()
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).not.toHaveBeenCalled()
+    } finally {
+      resetActiveJurisdiction()
+    }
+  })
+
   it("accepts the REAL no-offer client payload: election is an empty string", async () => {
     // The apply screen's election state initialises to "" and is posted
     // verbatim when no offer block rendered. `?? "DECLINED"` does not catch

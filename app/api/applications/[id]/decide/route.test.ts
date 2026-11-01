@@ -875,7 +875,7 @@ it("re-reads screening under its lock in the approve transaction and refuses a c
   expect(res.status).toBe(422)
   expect((await res.json()).error).toContain("screening changed while approving")
   expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({ action: "SCREENING_APPROVAL_REFUSED", status: 422 }))
-  expect(lockedScreeningAllowsApprovalMock).toHaveBeenCalledWith(expect.anything(), "t1", { clientId: expect.any(String), entityId: null }, "u1")
+  expect(lockedScreeningAllowsApprovalMock).toHaveBeenCalledWith(expect.anything(), "t1", { clientId: expect.any(String), entityId: null }, "u1", { providerRequired: false })
   expect(txUpdateManyMock).not.toHaveBeenCalled()
   expect(triggerNotificationMock).not.toHaveBeenCalled()
 })

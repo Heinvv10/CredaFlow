@@ -64,7 +64,7 @@ export type CreditLifeRetentionDecision =
  * conservative approximation.
  */
 export function creditLifeEvidenceSurvivesReturnToReview(
-  stored: StoredCreditLifeDisclosure,
+  stored: StoredCreditLifeDisclosure & { disclosureRegime?: string | null },
   terms: { principalCents: number; termDays: number },
   currentOffer: CreditLifeOffer | null,
 ): CreditLifeRetentionDecision {
@@ -77,7 +77,7 @@ export function creditLifeEvidenceSurvivesReturnToReview(
     // that now exists.
     // At or below the threshold a configured product is no offer (B6), so the
     // assertion stays true.
-    return !creditLifeOfferedFor(currentOffer !== null, terms.principalCents)
+    return !creditLifeOfferedFor(currentOffer !== null, terms.principalCents, stored.disclosureRegime)
       ? { retain: true }
       : { retain: false, reason: "offer_now_available" }
   }

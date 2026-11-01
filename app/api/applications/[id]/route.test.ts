@@ -237,6 +237,34 @@ it("allows DRAFT -> SUBMITTED", async () => {
   })
 })
 
+const noCreditLife = {
+  creditLifeElection: null, creditLifeProductId: null, creditLifeProductName: null, creditLifeInsurerId: null, creditLifeInsurerName: null,
+  creditLifeMonthlyPremiumCents: null, creditLifeDisclosureVersion: null, creditLifeDisclosureSha256: null,
+  creditLifeDisclosureAcknowledgedAt: null, creditLifeDisclosureAcknowledgedBy: null,
+}
+
+it("submits a key-facts draft that has no credit-life election: the page no longer asks for one outside the NCA's jurisdiction", async () => {
+  findUniqueMock.mockResolvedValue({ ...draftForSubmission, ...noCreditLife, disclosureRegime: "KEY_FACTS" })
+
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(updateManyMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "SUBMITTED" }) }))
+})
+
+it("still refuses an NCA draft with no credit-life election (the regime, or none recorded, fails closed)", async () => {
+  for (const regime of ["NCA_PASQ", undefined]) {
+    updateManyMock.mockClear()
+    findUniqueMock.mockResolvedValue({ ...draftForSubmission, ...noCreditLife, disclosureRegime: regime })
+
+    const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ missingComplianceEvidence: ["credit-life election"] })
+    expect(updateManyMock).not.toHaveBeenCalled()
+  }
+})
+
 it("includes accepted credit-life premiums in the submission affordability decision", async () => {
   const acceptedDisclosure = {
     version: "credit-life-election-v1" as const,

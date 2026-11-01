@@ -32,9 +32,10 @@ import {
   createCreditLifeDisclosureSha256,
   createCreditLifeNoOfferDisclosureSha256,
 } from "@/lib/insurance/credit-life-election.server"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
 import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
+import { approvalEvidenceRules, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 
 export type PrepareApplicationInput = Omit<ApplicationWizardData, "appliedAmount" | "appliedTermDays"> & {
   appliedAmount: number // cents (wizard coerces to cents before POST/PATCH)
@@ -116,7 +117,8 @@ export async function prepareApplicationFields(
   data: PrepareApplicationInput,
   tenantId: string,
   userId: string,
-  opts: { action: "create" | "update" },
+  /** `disclosureRegime`: the stamped regime of the draft being updated; a new application takes the instance's. */
+  opts: { action: "create" | "update"; disclosureRegime?: string | null },
   database?: ApplicationSubmissionTransaction,
 ): Promise<PrepareApplicationResult> {
   const db = database ?? prisma
@@ -160,8 +162,10 @@ export async function prepareApplicationFields(
   // Resolved before validation: with no active credit-life product there is no
   // cover to offer, so the wizard cannot have captured an election or a
   // disclosure acknowledgement and validation must not demand them.
+  const disclosureRegime = opts.disclosureRegime ?? newApplicationRegime()
+  const evidenceRules = approvalEvidenceRules({ disclosureRegime })
   const configuredCreditLifeOffer = data.submitForReview
-    ? await db.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId))
+    ? await loadCreditLifeOffer(db, tenantId, disclosureRegime)
     : null
 
   const validationErrors = validateAllApplication(
@@ -170,6 +174,7 @@ export async function prepareApplicationFields(
     {
       forReview: Boolean(data.submitForReview),
       creditLifeOffered: configuredCreditLifeOffer !== null,
+      ncaDeclarations: evidenceRules.affordabilityDeclaration,
     },
   )
   if (Object.keys(validationErrors).length > 0) {
@@ -316,7 +321,7 @@ export async function prepareApplicationFields(
     // offer here is what made every application unsubmittable. Cover cannot be
     // added at or below the threshold either, so a configured product is no
     // offer there (Fair Score audit B6).
-    if (!creditLifeOfferedFor(configuredCreditLifeOffer !== null, data.appliedAmount)) {
+    if (!creditLifeOfferedFor(configuredCreditLifeOffer !== null, data.appliedAmount, disclosureRegime)) {
       if (data.creditLifeElection === "ACCEPTED") {
         return {
           ok: false,
@@ -547,7 +552,8 @@ export async function prepareApplicationFields(
         : { schemaVersion: AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION }) as unknown as Prisma.InputJsonValue,
       status: isSubmitting ? "SUBMITTED" : "DRAFT",
       submittedAt: isSubmitting ? now : null,
-      ...(isSubmitting && data.affordabilityDeclared && {
+      // The NCA declarations are stamped only where the NCA asks for them: a key-facts application has none to attest.
+      ...(isSubmitting && evidenceRules.affordabilityDeclaration && data.affordabilityDeclared && {
         clientAffordabilityDeclaredAt: now,
       }),
       ...(isSubmitting && creditLifeEvidence && {
@@ -565,7 +571,7 @@ export async function prepareApplicationFields(
         // record and affordability/reckless-lending witness fields.
         creditLifeDisclosureAcknowledgedBy: client.id,
       }),
-      ...(isSubmitting && data.recklessLendingConfirmed && {
+      ...(isSubmitting && evidenceRules.recklessLendingAssessment && data.recklessLendingConfirmed && {
         recklessLendingAssessed: true,
         recklessLendingAssessedAt: now,
         recklessLendingAssessedById: userId,

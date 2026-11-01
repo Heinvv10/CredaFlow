@@ -1,7 +1,7 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { calculateCreditLifeMonthlyPremiumCents, CREDIT_LIFE_DISCLOSURE_VERSION, CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION, type CreditLifeElection } from "@/lib/insurance/credit-life-election"
 import { createCreditLifeDisclosureSha256, createCreditLifeNoOfferDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
 import type { RegimeTx } from "./classification"
 
 export type AssetCreditLifeElectionResult =
@@ -20,12 +20,13 @@ export async function recordAssetCreditLifeElection(
       { clientId: args.clientId },
       { entity: { relationships: { some: { clientId: args.clientId, active: true, role: { in: ["DIRECTOR", "MEMBER", "TRUSTEE", "AUTHORISED_SIGNATORY"] } } } } },
     ] },
-    select: { status: true, entityId: true, application: { select: { id: true, appliedAmount: true, appliedTermDays: true, pasqDocumentId: true } } },
+    select: { status: true, entityId: true, application: { select: { id: true, appliedAmount: true, appliedTermDays: true, pasqDocumentId: true, disclosureRegime: true } } },
   })
   if (!deal) return { kind: "not_found" }
   if (!["SUBMITTED", "REFERRED"].includes(deal.status) || deal.application.pasqDocumentId !== null) return { kind: "not_open" }
   if (deal.entityId && args.election === "ACCEPTED") return { kind: "entity_decline_required" }
-  const offer = await tx.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(args.tenantId))
+  // None on a key-facts application: an ACCEPTED election is refused here, before the CHECK would reject it at approval.
+  const offer = await loadCreditLifeOffer(tx, args.tenantId, deal.application.disclosureRegime)
   if ((!offer || !offer.insurerId || !offer.insurer) && args.election === "ACCEPTED") return { kind: "offer_required" }
   const acknowledgedAt = new Date()
   const principalCents = deal.application.appliedAmount
