@@ -8,6 +8,7 @@
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/non-nca-documents/flow.integration.test.ts
  */
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
@@ -32,7 +33,6 @@ import { issueLoanDocuments } from "./issue"
 import { acknowledgeKeyFacts } from "./acknowledge"
 import { signKeyFactsAgreement } from "./sign"
 import { loanDocumentState, documentProblem } from "./state"
-import { keyFactsRefusal } from "./refusal"
 import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe.sequential : describe.skip
@@ -68,7 +68,7 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
         where: { id: app.id },
         data: {
           status: "APPROVED", approvedAt: capturedAt, approvedById: t.userId, approvedAmount: 500_000, approvedTermDays: 90, repaymentMethod: "EFT",
-          affordabilityResult: approvedAffordabilityResult({ capturedAt, principalCents: 500_000, termDays: 90, productId: t.productId, interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: product.monthlyServiceFee }) as never,
+          affordabilityResult: approvedAffordabilityResult({ borrowerIdentity: biometricSubjectFingerprint({ id: clientId, idNumber: `F${n}`, firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null }), capturedAt, principalCents: 500_000, termDays: 90, productId: t.productId, interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: product.monthlyServiceFee }) as never,
         },
       })
     })
@@ -173,11 +173,8 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     const app = await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })
     expect(app).toMatchObject({ agreementSignedMethod: "portal", agreementSignedByIp: "203.0.113.5", agreementSignatureData: "Thabo Synthetic" })
     expect(await db().auditLog.count({ where: { tenantId: fx.tenantId, action: { in: ["KEY_FACTS_ACKNOWLEDGED", "KEY_FACTS_AGREEMENT_SIGNED"] } } })).toBe(2)
-    // Signed: the documents hold for disbursement and the disburse route's gate says so (the payout itself is a later item).
+    // Signed: the documents hold for disbursement (the booking itself is proven in disburse.integration.test.ts).
     expect(await documentProblem(fx.applicationId, false)).toBeNull()
-    const refusal = await keyFactsRefusal(fx.tenantId, fx.applicationId, "disburse")
-    expect(refusal?.status).toBe(409)
-    expect(await refusal?.json()).toMatchObject({ disbursementPrecondition: "non_nca_payout_unavailable" })
   })
 
   it("a template published after the issue stops the signature; issuing again from the new version lets it through", async () => {
@@ -191,14 +188,11 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId, supersededAt: { not: null } } })).toBe(2)
   })
 
-  it("refuses to issue without an approved template, for an unapproved application, and after signing; the disburse gate names what is missing", async () => {
+  it("refuses to issue without an approved template", async () => {
     const fx = await approvedApplication()
     await db().documentTemplate.update({ where: { id: fx.kfs.templateId }, data: { isActive: false } })
     await expect(issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })).rejects.toThrow(/not published and available/)
     expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId } })).toBe(0)
-    const refusal = await keyFactsRefusal(fx.tenantId, fx.applicationId, "disburse")
-    expect(refusal?.status).toBe(422)
-    expect(await refusal?.json()).toMatchObject({ error: expect.stringMatching(/the borrower has not signed the loan agreement/), disbursementPrecondition: "non_nca_documents" })
   })
 
   it("refuses when the approved terms move while the documents render, and leaves no row and no file behind", async () => {
