@@ -237,7 +237,10 @@ suite("a Lesotho loan, apply to arrears letter (real Postgres, real routes, no b
     const letter = await ok(await arrearsLetter(post(`/api/loans/${loan.id}/arrears-letter`), on(loan.id)), 201)
     expect(letter).toMatchObject({ sample: true, templateVersion: 1, delivery: [expect.objectContaining({ channel: "EMAIL", outcome: "sent" })] })
     const row = await db().loanArrearsLetter.findUniqueOrThrow({ where: { id: letter.letterId } })
-    expect(row).toMatchObject({ loanId: loan.id, arrearsAmount: expect.any(Number), daysInArrears: overdue.daysInArrears, sample: true, issuedById: stack.officer })
+    // The letter states what the loan says is overdue, on what is left to pay.
+    expect(row).toMatchObject({ loanId: loan.id, arrearsAmount: overdue.arrearsAmount, daysInArrears: overdue.daysInArrears, sample: true, issuedById: stack.officer })
+    expect(row.totalOutstanding).toBeGreaterThanOrEqual(row.arrearsAmount)
+    expect(row.arrearsAmount).toBeGreaterThanOrEqual(second.totalDue)
     const printed = printedLast()
     expect(printed).toContain("Arrears letter")
     expect(printed).toContain("SAMPLE")

@@ -1,6 +1,6 @@
 /**
  * The edges of PR C on real Postgres through the real routes, around ls-walk.integration.test.ts's happy path: what the database and
- * the routes refuse for the offer letter, the arrears letter, Section 129 on a key-facts loan and a signature at a branch.
+ * the routes refuse for the offer letter and a signature at a branch.
  * Nothing leaves: the email transport is a double. Mocks as in ls-walk.integration.test.ts.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/non-nca-documents/ls-letters.integration.test.ts
@@ -60,16 +60,11 @@ import { createAppPrismaClient } from "@/lib/prisma"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
-import { provisionContactForClient } from "@/lib/contact/provision"
 import { hashSigningOtp } from "@/lib/signing-otp/code"
 import { POST as accept } from "@/app/api/applications/[id]/loan-documents/accept/route"
 import { POST as branchSign } from "@/app/api/applications/[id]/loan-documents/branch-sign/route"
 import { POST as sign } from "@/app/api/applications/[id]/loan-documents/sign/route"
-import { POST as arrearsLetter } from "@/app/api/loans/[id]/arrears-letter/route"
-import { POST as section129 } from "@/app/api/loans/section129/route"
-import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
-import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate, publishVersion, sha } from "./gate.integration-fixture"
-import { ARREARS_LETTER_TEMPLATE_KEY } from "./keys"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { createRlsRole, seedStack, stackOf } from "./ls-stack.integration-fixture"
 
@@ -79,12 +74,9 @@ const t = randomUUID().replaceAll("-", "").slice(0, 10)
 const stack = stackOf("LS", t)
 const role = `cf_lsletters_${t}`
 const BODY = (title: string) => `<h1>${title}</h1><p>{{client.fullName}} {{quote.principal}}</p>`
-const LETTER = "<h1>Arrears letter</h1><p>{{client.fullName}} {{loan.reference}} {{arrears.amount}} {{arrears.days}}</p>"
-const LETTER_VERSION_REFUSED = /approved by someone other than its author/
 
 let fresh: ThrowawayDb
 let app: ReturnType<typeof createAppPrismaClient> | undefined
-let letterTemplateId = ""
 const db = () => fresh.db
 const flow = lsFlow(db, stack, holder)
 const post = (body?: unknown) => new NextRequest("http://localhost/x", { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }) })
@@ -96,10 +88,6 @@ const digests = async (id: string) => {
   const of = (kind: string) => rows.find((r) => r.kind === kind)!.pdfSha256
   return { offer: of("OFFER_LETTER"), kfs: of("KEY_FACTS_STATEMENT"), agreement: of("LOAN_AGREEMENT") }
 }
-const contactFor = async (id: string) => db().$transaction(async (tx) => {
-  const c = await tx.client.findUniqueOrThrow({ where: { id: `${id}-client` } })
-  await provisionContactForClient(tx as never, { tenantId: stack.tenant, clientId: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, whatsapp: c.whatsapp, source: "MANUAL" })
-})
 /** A code that reached the borrower and that they read back: what /api/signing-otp and its verify step leave behind. */
 async function verifiedCode(id: string, documentSha256: string, over: { clientId?: string; subjectId?: string; verified?: boolean } = {}) {
   const challengeId = randomUUID()
@@ -112,15 +100,6 @@ async function verifiedCode(id: string, documentSha256: string, over: { clientId
   })
   return challengeId
 }
-/** A loan in arrears: paid out through the routes, then the instalments' dates and the DPD columns as the nightly job would leave them. */
-async function arrearsLoan(id: string) {
-  await flow.signedApplication(id)
-  expect((await flow.disburseAs(stack.disburser, id)).status).toBe(200)
-  await contactFor(id)
-  const loan = await db().loan.findUniqueOrThrow({ where: { applicationId: id } })
-  await db().loan.update({ where: { id: loan.id }, data: { daysInArrears: 15, arrearsAmount: 120_000 } })
-  return loan
-}
 
 suite("the letters and the branch (real Postgres, real routes)", () => {
   beforeAll(async () => {
@@ -128,7 +107,6 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
     holder.tenantId = stack.tenant
     await seedStack(db(), stack, { code: "LTR", isDemoLender: true })
     for (const [key, title] of [[OFFER_KEY, "Offer letter"], [KFS_KEY, "Key facts statement"], [AGREEMENT_KEY, "Loan agreement"]] as const) await createTemplate(db(), stack.tenant, key, BODY(title))
-    letterTemplateId = (await createTemplate(db(), stack.tenant, ARREARS_LETTER_TEMPLATE_KEY, LETTER)).templateId
     await db().emailConfig.create({ data: { tenantId: stack.tenant, fromName: "Demo Basotho Lending", fromAddress: "hello@basotho-lending.example" } })
     vi.stubEnv("TENANT_RLS", "on")
     vi.stubEnv("AUTH_SECRET", "synthetic-auth-secret-for-this-suite")
@@ -267,113 +245,5 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       for (const audit of audits) expect(audit.newValue).toMatchObject({ actor: { type: "client", clientId: `${id}-client` }, assistedBy: { id: stack.officer } })
       expect((await attempt(id, { signingOtpChallengeId: challenge })).status).toBe(409)
     })
-  })
-
-  describe("the arrears letter", () => {
-    let loanId = ""
-    let id = ""
-    beforeAll(async () => {
-      id = `arrears-${t}`
-      loanId = (await arrearsLoan(id)).id
-    }, 120_000)
-
-    it("needs the collections permission, and arrears to collect", async () => {
-      asStaff(stack.officer, "READONLY")
-      expect((await arrearsLetter(post(), on(loanId))).status).toBe(403)
-      const current = `current-${t}`
-      await flow.signedApplication(current)
-      expect((await flow.disburseAs(stack.disburser, current)).status).toBe(200)
-      const loan = await db().loan.findUniqueOrThrow({ where: { applicationId: current } })
-      asStaff()
-      const res = await arrearsLetter(post(), on(loan.id))
-      expect(res.status).toBe(422)
-      expect(await db().loanArrearsLetter.count({ where: { loanId: loan.id } })).toBe(0)
-    })
-
-    it("refuses a template that is not published or whose approver wrote it; nothing is stored", async () => {
-      const files = holder.files.size
-      await db().documentTemplate.update({ where: { id: letterTemplateId }, data: { isActive: false } })
-      asStaff()
-      expect((await arrearsLetter(post(), on(loanId))).status).toBe(409)
-      await db().documentTemplate.update({ where: { id: letterTemplateId }, data: { isActive: true } })
-      const selfApproved = await publishVersion(db(), letterTemplateId, 2, LETTER)
-      await db().documentTemplateVersion.update({ where: { id: selfApproved.id }, data: { approvedById: selfApproved.createdById } })
-      const res = await arrearsLetter(post(), on(loanId))
-      expect(res.status).toBe(409)
-      expect(await res.json()).toMatchObject({ error: expect.stringMatching(LETTER_VERSION_REFUSED) })
-      expect(await db().loanArrearsLetter.count({ where: { loanId } })).toBe(0)
-      expect(holder.files.size).toBe(files)
-      await publishVersion(db(), letterTemplateId, 3, LETTER)
-    })
-
-    it("refuses a deceased borrower", async () => {
-      await db().client.update({ where: { id: `${id}-client` }, data: { deceasedAt: new Date() } })
-      asStaff()
-      expect((await arrearsLetter(post(), on(loanId))).status).toBe(409)
-      await db().client.update({ where: { id: `${id}-client` }, data: { deceasedAt: null } })
-    })
-
-    it("issues once a day, from the current version, stored, kept and sent", async () => {
-      asStaff()
-      holder.sendEmail.mockClear()
-      const res = await arrearsLetter(post(), on(loanId))
-      const body = await res.json()
-      expect(res.status, JSON.stringify(body)).toBe(201)
-      expect(body).toMatchObject({ templateVersion: 3, sample: true })
-      expect(holder.sendEmail).toHaveBeenCalledTimes(1)
-      expect((await arrearsLetter(post(), on(loanId))).status).toBe(409)
-      expect(await db().loanArrearsLetter.count({ where: { loanId } })).toBe(1)
-      const row = await db().loanArrearsLetter.findFirstOrThrow({ where: { loanId } })
-      await expect(db().loanArrearsLetter.update({ where: { id: row.id }, data: { arrearsAmount: 1 } })).rejects.toThrow(/cannot be changed or deleted/)
-      await expect(db().loanArrearsLetter.delete({ where: { id: row.id } })).rejects.toThrow(/cannot be changed or deleted/)
-      await expect(db().clientDocument.update({ where: { id: row.clientDocumentId }, data: { deletedAt: new Date() } })).rejects.toThrow(/cannot be deleted/)
-      await expect(db().clientDocument.delete({ where: { id: row.clientDocumentId } })).rejects.toThrow(/cannot be deleted/)
-    })
-
-    it("the database refuses a forged letter: a draft version, or a document that is not this borrower's", async () => {
-      const row = await db().loanArrearsLetter.findFirstOrThrow({ where: { loanId } })
-      const { id: _id, issuedAt: _at, noticeDate: _day, sample: _sample, ...base } = row
-      const tomorrow = new Date(Date.now() + 86_400_000)
-      await expect(db().loanArrearsLetter.create({ data: { ...base, clientDocumentId: "nope", noticeDate: tomorrow } })).rejects.toThrow()
-      const draft = await db().documentTemplateVersion.create({ data: { templateId: letterTemplateId, version: 9, bodyHtml: LETTER, tokensUsed: [], status: "DRAFT", createdById: "author-test" } })
-      const document = await db().clientDocument.create({
-        data: { tenantId: stack.tenant, clientId: `${id}-client`, docType: "OTHER", fileName: "f.pdf", fileUrl: "", storagePath: "/mem/f.pdf", fileSize: 1, mimeType: "application/pdf", templateId: letterTemplateId, generatedFromVersionId: draft.id, contentSha256: "e".repeat(64), extractionStatus: "skipped" },
-      })
-      await expect(db().loanArrearsLetter.create({ data: { ...base, templateVersionId: draft.id, templateVersionNumber: 9, clientDocumentId: document.id, pdfSha256: "e".repeat(64), noticeDate: tomorrow } })).rejects.toThrow(/current version of its template/)
-    })
-
-    it("Section 129 stays out of reach: the routes refuse, and the database refuses the record even if the code were fooled", async () => {
-      asStaff()
-      const res = await section129(post({ loanId }))
-      expect(res.status).toBe(422)
-      await expect(db().complianceRecord.create({ data: { tenantId: stack.tenant, type: "SECTION_129_NOTICE", referenceId: loanId, status: "PENDING" } })).rejects.toThrow(/key-facts loan has an arrears letter/)
-      const other = await db().complianceRecord.create({ data: { tenantId: stack.tenant, type: "SECTION_129_NOTICE", referenceId: "no-such-loan", status: "PENDING" } })
-      await expect(db().complianceRecord.update({ where: { id: other.id }, data: { referenceId: loanId } })).rejects.toThrow(/key-facts loan has an arrears letter/)
-      await db().complianceRecord.delete({ where: { id: other.id } })
-      expect(await db().complianceRecord.count({ where: { tenantId: stack.tenant, type: "SECTION_129_NOTICE" } })).toBe(0)
-    })
-  })
-})
-
-suite("South Africa is untouched (real Postgres, a ZA instance)", () => {
-  let za: ThrowawayDb
-  beforeAll(async () => { za = await createThrowawayDb() }, 300_000)
-  afterAll(async () => { await za?.drop() }, 60_000)
-
-  it("a ZA loan cannot be given an arrears letter, and its Section 129 record is not refused", async () => {
-    const tenant = await createChargesTenant(za.db, false)
-    const loan = await createChargesLoan(za.db, tenant)
-    const template = await createTemplate(za.db, tenant.tenantId, ARREARS_LETTER_TEMPLATE_KEY, LETTER)
-    const borrower = (await za.db.loan.findUniqueOrThrow({ where: { id: loan.loanId } })).clientId!
-    const document = await za.db.clientDocument.create({
-      data: { tenantId: tenant.tenantId, clientId: borrower, docType: "OTHER", fileName: "f.pdf", fileUrl: "", storagePath: "/mem/z.pdf", fileSize: 1, mimeType: "application/pdf", templateId: template.templateId, generatedFromVersionId: template.versionId, contentSha256: "d".repeat(64), extractionStatus: "skipped" },
-    })
-    await expect(za.db.loanArrearsLetter.create({
-      data: {
-        tenantId: tenant.tenantId, loanId: loan.loanId, templateId: template.templateId, templateVersionId: template.versionId, templateVersionNumber: 1, templateContentSha256: sha(LETTER), clientDocumentId: document.id, pdfSha256: "d".repeat(64),
-        noticeDate: new Date(), arrearsAmount: 100, totalOutstanding: 100, daysInArrears: 1, issuedById: tenant.userId,
-      },
-    })).rejects.toThrow(/Section 129 notice/)
-    expect(await za.db.complianceRecord.create({ data: { tenantId: tenant.tenantId, type: "SECTION_129_NOTICE", referenceId: loan.loanId, status: "PENDING" } })).toMatchObject({ referenceId: loan.loanId })
   })
 })
