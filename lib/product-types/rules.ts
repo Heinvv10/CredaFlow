@@ -3,11 +3,17 @@
  * and what it does not do: lib/product-types/.claude.md. Every other product type returns at once and reads nothing, so an NCA
  * lender's approval path does not change.
  */
+import { AuditAction } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { isNonNcaProductType } from "@/lib/product-config/product-kind"
 
-type Db = Pick<typeof prisma, "applicationProductFacts" | "client" | "loan" | "borrowerGroupMember">
+type Db = Pick<typeof prisma, "applicationProductFacts" | "client" | "loan" | "loanApplication" | "borrowerGroupMember">
+
+/** A loan with nothing left to collect. Every other status, RESTRUCTURED included, still counts against a limit. */
+const SETTLED_STATUSES = ["COMPLETED", "CANCELLED"] as const
+/** Loans past arrears: whatever their days-in-arrears figure says, the group is not lent to. */
+const DELINQUENT_STATUSES = ["DEFAULTED", "PENDING_WRITE_OFF", "WRITTEN_OFF"] as const
 
 export interface TypedApplication {
   id: string
@@ -45,15 +51,29 @@ async function groupRefusal(db: Db, tenantId: string, clientId: string, groupId:
   const members = await db.borrowerGroupMember.findMany({ where: { tenantId, groupId }, select: { clientId: true } })
   if (members.length < 2) return "a lending group needs at least two members"
   if (!members.some((m) => m.clientId === clientId)) return "the borrower is not a member of that lending group"
-  const inArrears = await db.loan.count({ where: { tenantId, clientId: { in: members.map((m) => m.clientId) }, status: "ACTIVE", daysInArrears: { gt: 0 } } })
-  return inArrears > 0 ? `${inArrears} loan(s) of the group's members are in arrears: the group is not lent to until they are cured` : null
+  const inArrears = await db.loan.count({
+    where: { tenantId, clientId: { in: members.map((m) => m.clientId) }, OR: [{ status: "ACTIVE", daysInArrears: { gt: 0 } }, { status: { in: [...DELINQUENT_STATUSES] } }] },
+  })
+  return inArrears > 0 ? `${inArrears} loan(s) of the group's members are in arrears or written off: the group is not lent to until they are cured` : null
 }
 
-/** The borrower's limit on a revolving product is its maximum amount: what they still owe on it counts against a new draw. */
+/**
+ * The borrower's limit on a revolving product is its maximum amount. Against a new draw counts what they still owe on it, whatever the
+ * loan's status (a defaulted or written-off balance is still owed, the write-off route keeps it), and what is approved and not paid out.
+ * Exact only under the client's lock: the locked re-checks in lib/affordability/current-approval.ts, at approval and at payout, hold it.
+ */
 async function revolvingRefusal(db: Db, tenantId: string, application: TypedApplication, clientId: string, principalCents: number, limitCents: number): Promise<string | null> {
-  const owed = await db.loan.aggregate({ where: { tenantId, clientId, productId: application.productId, status: "ACTIVE" }, _sum: { outstandingPrincipal: true } })
-  const drawn = owed._sum.outstandingPrincipal ?? 0
-  return drawn + principalCents > limitCents ? `the draw of ${principalCents} cents on top of the ${drawn} cents still owed exceeds the revolving limit of ${limitCents} cents` : null
+  const owed = await db.loan.aggregate({ where: { tenantId, clientId, productId: application.productId, status: { notIn: [...SETTLED_STATUSES] } }, _sum: { outstandingPrincipal: true } })
+  const pending = await db.loanApplication.aggregate({ where: { tenantId, clientId, productId: application.productId, status: "APPROVED", id: { not: application.id }, loan: { is: null } }, _sum: { appliedAmount: true } })
+  const drawn = (owed._sum.outstandingPrincipal ?? 0) + (pending._sum.appliedAmount ?? 0)
+  return drawn + principalCents > limitCents ? `the draw of ${principalCents} cents on top of the ${drawn} cents owed or approved exceeds the revolving limit of ${limitCents} cents` : null
+}
+
+/** Whether this person created the application's lending group or changed its members: who is in the group decides whether it is lent to, so they do not approve. */
+export async function groupEditedBy(db: Pick<typeof prisma, "applicationProductFacts" | "auditLog">, tenantId: string, applicationId: string, userId: string): Promise<boolean> {
+  const facts = await db.applicationProductFacts.findFirst({ where: { tenantId, applicationId }, select: { borrowerGroupId: true } })
+  if (!facts?.borrowerGroupId) return false
+  return (await db.auditLog.count({ where: { tenantId, entity: "BorrowerGroup", entityId: facts.borrowerGroupId, userId, action: { in: [AuditAction.BORROWER_GROUP_CREATED, AuditAction.BORROWER_GROUP_MEMBERS_CHANGED] } } })) > 0
 }
 
 /** Why this application may not be approved on its product's type, or null. `limitCents` is the maximum amount in effect. */

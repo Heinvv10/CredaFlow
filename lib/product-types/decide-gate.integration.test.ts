@@ -24,7 +24,9 @@ vi.mock("@/lib/prisma", async (importOriginal) => (await import("@/lib/approval/
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/notifications")>()), triggerNotification: vi.fn(async () => undefined) }))
 
-import { A, approveAs, as, db, ids, registerApprovalFixture, statusOf, suite, underReview } from "@/lib/approval/approval.integration-fixture"
+import { A, app, approveAs, as, db, ids, inTenant, registerApprovalFixture, statusOf, suite, underReview } from "@/lib/approval/approval.integration-fixture"
+import { verifyLockedCurrentAffordabilityApproval } from "@/lib/affordability/current-approval"
+import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const retype = (productType: "SALARY_BACKED" | "MICRO") => db.loanProduct.update({ where: { id: ids.product }, data: { productType } })
@@ -67,6 +69,33 @@ suite("the product types at the decide route (real Postgres)", () => {
     const result = await approveAs("la1", id)
     expect(result.status).not.toBe(200)
     expect(await statusOf(id)).toBe("UNDER_REVIEW")
+  })
+
+  it("the check holds to the payout: an approval whose product type no longer passes is not paid out", async () => {
+    const id = A("pt-payout")
+    await underReview(id, { amount: 300_000 })
+    expect((await approveAs("la1", id)).status).toBe(200)
+    expect(await statusOf(id)).toBe("APPROVED")
+    const verify = () => inTenant(() => app().$transaction((tx) => verifyLockedCurrentAffordabilityApproval(tx as never, { tenantId: ids.tenant, applicationId: id })))
+    // This fixture has no payout-grade identity evidence, so an approval that passes the type check stops at the next one.
+    expect(await verify()).toMatchObject({ ok: false, reason: "kyc_changed" })
+    await retype("SALARY_BACKED")
+    expect(await verify()).toMatchObject({ ok: false, reason: "changed" })
+  })
+
+  it("whoever changed the lending group does not approve its application", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    await db.loanProduct.update({ where: { id: ids.product }, data: { productType: "GROUP" } })
+    const id = A("pt-group")
+    await underReview(id, { amount: 300_000 })
+    const application = await db.loanApplication.findUniqueOrThrow({ where: { id } })
+    const group = await db.borrowerGroup.create({ data: { tenantId: ids.tenant, name: `Group ${id}`, createdById: as.la2.id } })
+    const other = await db.client.create({ data: { tenantId: ids.tenant, reference: `CLI-${id}-2`, idNumber: syntheticSaIdNumber(), firstName: "Synthetic", lastName: "Member", email: `${id}-2@test.invalid`, phone: "+27820000001" } })
+    await db.borrowerGroupMember.createMany({ data: [application.clientId!, other.id].map((clientId) => ({ tenantId: ids.tenant, groupId: group.id, clientId, addedById: as.la2.id })) })
+    await db.applicationProductFacts.create({ data: { applicationId: id, tenantId: ids.tenant, borrowerGroupId: group.id, updatedById: ids.officer } })
+    await db.auditLog.create({ data: { tenantId: ids.tenant, userId: as.la1.id, userEmail: as.la1.email, action: "BORROWER_GROUP_MEMBERS_CHANGED", entity: "BorrowerGroup", entityId: group.id } })
+    expect(await approveAs("la1", id)).toMatchObject({ status: 403, body: { pricingInputsSetByApprover: true } })
+    expect((await approveAs("la2", id)).body.pricingInputsSetByApprover).toBeUndefined()
   })
 
   it("whoever set the facts does not approve the application", async () => {

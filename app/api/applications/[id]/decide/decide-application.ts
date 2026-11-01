@@ -12,7 +12,7 @@ import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { approvalTermsFor, capApplicationFor, versionLimitRefusal } from "@/lib/product-engine/approval-terms"
-import { productTypeRefusal } from "@/lib/product-types/rules"
+import { groupEditedBy, productTypeRefusal } from "@/lib/product-types/rules"
 import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
 import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
@@ -1004,6 +1004,9 @@ export async function decideApplication({ tenant, user, id, formData, automation
     })
     if (inputsSetByApprover > 0) {
       return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs or product facts. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
+    }
+    if (application.product.productType === "GROUP" && await groupEditedBy(prisma, tenant.id, id, user.id)) {
+      return NextResponse.json({ error: "Approval blocked: you created this application's lending group or changed its members. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
     }
     // Credit life is billed a premium per month of cover, bound to repayment rows (lib/insurance/credit-life-billing.ts): a weekly or
     // fortnightly schedule has several rows to a month, so the premium periods would be counted per row. Until that is right, no

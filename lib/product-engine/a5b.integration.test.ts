@@ -19,6 +19,7 @@ import { POST as act } from "@/app/api/maker-checker/[id]/[action]/route"
 import { POST as draftChange } from "@/app/api/maker-checker/route"
 import { PUT as setFacts } from "@/app/api/applications/[id]/product-facts/route"
 import { GET as deductions } from "@/app/api/products/check-off/deductions/route"
+import { PUT as editGroup } from "@/app/api/products/groups/[id]/route"
 import { POST as createGroup } from "@/app/api/products/groups/route"
 import { DELETE as deactivate, PUT as editProduct } from "@/app/api/products/loan/[id]/route"
 import { POST as createProduct } from "@/app/api/products/loan/route"
@@ -30,7 +31,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { prisma } from "@/lib/prisma"
-import { productTypeRefusal } from "@/lib/product-types/rules"
+import { groupEditedBy, productTypeRefusal } from "@/lib/product-types/rules"
 import { addPeriods } from "./periods"
 import { repriceLoan } from "./reprice-loan"
 import type { RepaymentTerms } from "./types"
@@ -480,6 +481,39 @@ suite("A5b product types, maker-checker and repricing (real Postgres, real route
       expect(await gate(second, "REVOLVING", 100_000, 500_000)).toBeNull()
       await db.loan.update({ where: { id: loan.id }, data: { outstandingPrincipal: 300_000 } })
       expect(await gate(second, "REVOLVING", 200_000, 500_000)).toBeNull()
+      // A default does not free the limit: the balance is still owed.
+      await db.loan.update({ where: { id: loan.id }, data: { status: "DEFAULTED" } })
+      expect(await gate(second, "REVOLVING", 300_000, 500_000)).toContain("exceeds the revolving limit")
+      await db.loan.update({ where: { id: loan.id }, data: { status: "WRITTEN_OFF", writeOffAt: new Date() } })
+      expect(await gate(second, "REVOLVING", 300_000, 500_000)).toContain("exceeds the revolving limit")
+    })
+
+    it("a group member's default or write-off stops the group, and whoever edits the group joins its open applications' input staff", async () => {
+      const product = await created({ productType: "GROUP" })
+      const [a, b, c] = [await client(), await client(), await client()]
+      signIn("officer")
+      const { group } = await (await createGroup(request("/api/products/groups", "POST", { name: `Edit ${t}`, memberIdNumbers: [a.idNumber, b.idNumber] }))).json()
+      const app = await application(product.id, a.id)
+      expect((await facts(app.id, { borrowerGroupId: group.id })).status).toBe(200)
+
+      const other = await application(product.id, b.id)
+      const n = randomUUID().slice(0, 8)
+      const loan = await db.loan.create({ data: { tenantId, reference: `LN-${n}`, applicationId: other.id, clientId: b.id, productId: product.id, principal: 100_000, totalInterest: 0, initiationFee: 0, totalRepayable: 100_000, outstandingPrincipal: 100_000, startDate: new Date(), maturityDate: new Date(), interestRatePm: 0, interestModel: "REDUCING_BALANCE", status: "DEFAULTED" } })
+      expect(await gate(app, "GROUP")).toContain("in arrears")
+      await db.loan.update({ where: { id: loan.id }, data: { status: "PENDING_WRITE_OFF" } })
+      expect(await gate(app, "GROUP")).toContain("in arrears")
+      await db.loan.update({ where: { id: loan.id }, data: { status: "WRITTEN_OFF", writeOffAt: new Date() } })
+      expect(await gate(app, "GROUP")).toContain("in arrears")
+      await db.loan.update({ where: { id: loan.id }, data: { status: "COMPLETED" } })
+      expect(await gate(app, "GROUP")).toBeNull()
+
+      signIn("checker")
+      const replaced = await editGroup(request(`/api/products/groups/${group.id}`, "PUT", { memberIdNumbers: [a.idNumber, c.idNumber] }), { params: Promise.resolve({ id: group.id }) })
+      expect(replaced.status).toBe(200)
+      const after = await db.loanApplication.findUniqueOrThrow({ where: { id: app.id } })
+      expect(after.inputStaffIds).toContain(staff.checker)
+      expect(await groupEditedBy(prisma, tenantId, app.id, staff.checker)).toBe(true)
+      expect(await groupEditedBy(prisma, tenantId, app.id, staff.maker)).toBe(false)
     })
   })
 })

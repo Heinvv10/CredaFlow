@@ -364,6 +364,11 @@ export async function verifyLockedCurrentAffordabilityApproval(
   if (!context || context.application.status !== "APPROVED") {
     return { ok: false, reason: "application_changed" }
   }
+  // Held under the client's lock (loadLockedApprovalContext), as at approval: a revolving limit is not exceeded between approval and
+  // payout, nor a group lent to once a member defaults. Reads nothing for the product types an NCA lender has.
+  if (await productTypeRefusal(tx, args.tenantId, context.application, { principalCents: context.application.appliedAmount, limitCents: context.application.product.maxAmount })) {
+    return { ok: false, reason: "changed" }
+  }
   // Agreement generation, signing and disbursement: strict. This is the gate
   // that has always required identity evidence before the consumer is bound.
   if (!await hasCurrentCompositeKyc(tx, context.application, "payout")) {

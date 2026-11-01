@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireApiRole } from "@/lib/auth-guards"
 import { canDo } from "@/lib/permissions"
-import { memberIdNumbers, resolveMembers } from "@/lib/product-types/groups"
+import { memberIdNumbers, recordGroupEditor, resolveMembers } from "@/lib/product-types/groups"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 
@@ -21,6 +21,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const members = await resolveMembers(prisma, tenant.id, ids)
     if ("missing" in members) return NextResponse.json({ error: `No client with ID number ${members.missing.join(", ")}` }, { status: 422 })
     await prisma.$transaction(async (tx) => {
+      await recordGroupEditor(tx, tenant.id, id, guard.user.id)
       const before = await tx.borrowerGroupMember.findMany({ where: { tenantId: tenant.id, groupId: id }, select: { clientId: true } })
       await tx.borrowerGroupMember.deleteMany({ where: { tenantId: tenant.id, groupId: id } })
       await tx.borrowerGroupMember.createMany({ data: members.clientIds.map((clientId) => ({ tenantId: tenant.id, groupId: id, clientId, addedById: guard.user.id })) })
