@@ -5,6 +5,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends openssl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
+COPY patches ./patches
 ENV PUPPETEER_SKIP_DOWNLOAD=1
 # The face comparison runs onnxruntime-node on the CPU only; skip the ~270MB
 # of CUDA providers its postinstall otherwise downloads on linux/x64.
