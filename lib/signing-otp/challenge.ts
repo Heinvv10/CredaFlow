@@ -195,7 +195,7 @@ export async function consumeSigningOtp(
 /** What the borrower (or the witnessing staff member) is told for each refusal. */
 export const SIGNING_OTP_REFUSAL_MESSAGES: Record<ConsumeRefusal | "required" | VerifyRefusal | "identity_unconfirmed", string> = {
   required: "Verify the one-time code sent to you before signing.",
-  identity_unconfirmed: "Staff changed this address and it has not been confirmed. The borrower confirms it under Profile in the portal, or another staff member confirms it on the client record.",
+  identity_unconfirmed: "Staff set this address and it has not been confirmed. A second staff member confirms it on the client record.",
   identity_confirmed_by_witness: "You confirmed this address, so another staff member must witness the signature.",
   not_found: "That one-time code request was not found. Request a new code.",
   not_verified: "Enter the one-time code sent to you before signing.",

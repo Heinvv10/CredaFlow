@@ -4,8 +4,6 @@ import { prisma } from "@/lib/prisma"
 import { redirect } from "next/navigation"
 import { User, Shield } from "lucide-react"
 import { ProfileForm } from "./ProfileForm"
-import { ContactConfirmCard } from "@/components/clients/ContactConfirmCard"
-import { unconfirmedIdentities } from "@/lib/contact/identity-confirmation"
 import { PasswordFields } from "./PasswordFields"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
@@ -91,8 +89,6 @@ export default async function ProfilePage() {
           )}
         </div>
       </div>
-
-      <ContactConfirmCard pending={await unconfirmedIdentities(tenantId, client.id)} endpoint="/api/portal/contact-identity-confirmation" staff={false} />
 
       {/* Editable contact & address */}
       <ProfileForm

@@ -45,7 +45,7 @@ export async function syncClientContactChannels(tx: TxLike, args: {
     const held = holder !== null && holder.contactId !== contact.id
     if (after && !holder) await tx.contactIdentity.create({ data: { tenantId, contactId: contact.id, channel, value: after, source: "MANUAL", verified: false, setByStaffUserId } })
     // A value this Contact held already, pointed at again: who set it now is who chose it.
-    if (holder && !held) await tx.contactIdentity.update({ where: { id: holder.id }, data: { setByStaffUserId, confirmedAt: null, confirmedByUserId: null, confirmedByClientId: null } })
+    if (holder && !held) await tx.contactIdentity.update({ where: { id: holder.id }, data: { setByStaffUserId, confirmedAt: null, confirmedByUserId: null } })
     if (held) unset.push(channel)
     await tx.contact.update({ where: { id: contact.id }, data: { [column]: held ? null : after } })
   }

@@ -33,7 +33,16 @@ export interface ProvisionInput {
    * with MANUAL to record that staff drove the convert.
    */
   source?: IdentitySource
+  /**
+   * The staff member capturing this on a key-facts lender: their email and WhatsApp stay unverified until a second staff
+   * member confirms them (lib/contact/identity-confirmation.ts). A South African first capture passes nothing.
+   */
+  setByStaffUserId?: string | null
 }
+
+/** Who a channel's identity row says set it. SMS carries no signing code or login recovery, so nothing to confirm. */
+const staffSetter = (input: Pick<ProvisionInput, "setByStaffUserId">, channel: Channel) =>
+  channel === "SMS" ? null : input.setByStaffUserId ?? null
 
 // Transaction client shape we need — picks the two model delegates we touch
 // from the live prisma client type. Same pattern as `PrismaLike` in
@@ -150,6 +159,7 @@ export async function provisionContactForClient(
         value,
         source,
         verified: false,
+        setByStaffUserId: staffSetter(input, channel),
       },
     })
     created.push(row)
@@ -392,6 +402,7 @@ export async function resolveContactForLeadConversion(
           value,
           source,
           verified: false,
+          setByStaffUserId: staffSetter(input, channel),
         },
       }))
     } catch (error) {

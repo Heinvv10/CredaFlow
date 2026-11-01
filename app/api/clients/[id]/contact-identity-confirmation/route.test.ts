@@ -9,7 +9,7 @@ vi.mock("@/lib/contact/identity-confirmation", async (orig) => ({ ...(await orig
 import { POST } from "./route"
 
 const staff = (role: string) => ({ user: { id: "u2", email: "o@x.invalid", role, tenantId: "t1" } })
-const call = (body: unknown = { channel: "EMAIL", note: "Called the borrower back on file." }) =>
+const call = (body: unknown = { identityId: "i1", note: "Called the borrower back on file." }) =>
   POST(new NextRequest("http://localhost/x", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), { params: Promise.resolve({ id: "c1" }) })
 
 // The real role guard: this is what lets a signing code go to an address.
@@ -25,13 +25,13 @@ describe("POST contact-identity-confirmation", () => {
   it("confirms for a credit officer, in their name, with their note", async () => {
     h.session = staff("CREDIT_OFFICER")
     expect((await call()).status).toBe(200)
-    expect(h.confirm).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1", clientId: "c1", channel: "EMAIL", by: expect.objectContaining({ type: "staff", id: "u2", note: "Called the borrower back on file." }) }))
+    expect(h.confirm).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1", clientId: "c1", identityId: "i1", by: expect.objectContaining({ id: "u2", note: "Called the borrower back on file." }) }))
   })
 
-  it("wants a channel it knows and a note that says something", async () => {
+  it("wants the address reviewed and a note that says something", async () => {
     h.session = staff("CREDIT_OFFICER")
-    expect((await call({ channel: "SMS", note: "Called the borrower back." })).status).toBe(400)
-    expect((await call({ channel: "EMAIL", note: "ok" })).status).toBe(400)
+    expect((await call({ note: "Called the borrower back." })).status).toBe(400)
+    expect((await call({ identityId: "i1", note: "ok" })).status).toBe(400)
     expect(h.confirm).not.toHaveBeenCalled()
   })
 

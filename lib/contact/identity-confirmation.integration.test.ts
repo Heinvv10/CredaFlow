@@ -1,6 +1,6 @@
 /**
- * Who may vouch for an address a signing code goes to, in both regimes, on real Postgres. No browser: the real code request, the real
- * confirmation routes and the real sync. A ZA client needs no approved application here: a document's code takes the same gate, and an
+ * Who may vouch for an address a signing code or a login recovery goes to, in both regimes, on real Postgres. No browser: the real code request, the real
+ * confirmation and password routes and the real sync. A ZA client needs no approved application here: a document's code takes the same gate, and an
  * agreement's goes through requestSigningOtp, called directly so no NCA ceremony need be faked. The transport is a double: nothing leaves.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... npx vitest run lib/contact/identity-confirmation.integration.test.ts
@@ -32,6 +32,11 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
     withTenantContext: (_req: unknown, handler: (tenant: object) => Promise<unknown>) => runWithTenant(holder.tenantId, () => handler({ id: holder.tenantId, slug: holder.tenantId, name: "IT", domain: null, status: "ACTIVE" })),
   }
 })
+vi.mock("@/lib/config/identity", async (importOriginal) => {
+  const identity = { legalName: "Synthetic Lender", tradingName: "Synthetic Lender", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"], publicEmail: "hello@lender.example" }
+  return { ...(await importOriginal<typeof import("@/lib/config/identity")>()), findLenderIdentity: async () => identity, getLenderIdentity: async () => identity }
+})
+vi.mock("@/lib/turnstile", () => ({ verifyTurnstile: async () => ({ ok: true }) }))
 vi.mock("@/lib/email/service", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/email/service")>()), sendEmail: holder.sendEmail }))
 
 import { createAppPrismaClient } from "@/lib/prisma"
@@ -44,8 +49,10 @@ import { consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/cha
 import { runWithTenant } from "@/lib/tenant-scope"
 import { PUT as putClient } from "@/app/api/clients/[id]/route"
 import { POST as staffConfirm } from "@/app/api/clients/[id]/contact-identity-confirmation/route"
-import { POST as borrowerConfirm } from "@/app/api/portal/contact-identity-confirmation/route"
+import { POST as forgotPassword } from "@/app/api/portal/forgot-password/route"
 import { PUT as borrowerProfile } from "@/app/api/portal/profile/route"
+import { POST as registerPortal } from "@/app/api/portal/register/route"
+import { POST as resetPassword } from "@/app/api/portal/reset-password/route"
 import { createRlsRole, seedBorrower, seedStack, stackOf, type Stack, type StackJurisdiction } from "@/lib/non-nca-documents/ls-stack.integration-fixture"
 
 const RUN = process.env.RUN_DB_IT === "1"
@@ -86,7 +93,12 @@ function regime(jurisdiction: StackJurisdiction) {
     subject: { tenantId: stack.tenant, clientId, purpose: "AGREEMENT", subjectId: `app-${clientId}`, documentSha256: "a".repeat(64), recipient: { firstName: "Synthetic", lastName: "Borrower", email, whatsapp: null } },
     channel: "EMAIL", method, ip: null, actor: { userId, email: "x@test.invalid" },
   }))
-  const confirmAs = (clientId: string, userId: string, note = "Called the borrower back on the number on file.") => { asStaff(userId); return staffConfirm(json({ channel: "EMAIL", note }), on(clientId)) }
+  const identityOf = (email: string) => db().contactIdentity.findFirstOrThrow({ where: { tenantId: stack.tenant, channel: "EMAIL", value: email } })
+  const confirmAs = async (clientId: string, email: string, userId: string, note = "Called the borrower back on the number on file.") => {
+    const identity = await identityOf(email)
+    asStaff(userId)
+    return staffConfirm(json({ identityId: identity.id, note }), on(clientId))
+  }
 
   suite(`who vouches for a signing address (${jurisdiction}, real Postgres)`, () => {
     beforeAll(async () => {
@@ -142,22 +154,37 @@ function regime(jurisdiction: StackJurisdiction) {
       holder.tenantId = stack.tenant
       const clientId = await borrower("second")
       const email = await staffChangesEmail(clientId, stack.officer)
-      expect((await confirmAs(clientId, stack.officer)).status).toBe(403)
+      expect((await confirmAs(clientId, email, stack.officer)).status).toBe(403)
       await expect(db().contactIdentity.updateMany({ where: { value: email }, data: { confirmedAt: new Date(), confirmedByUserId: stack.officer } })).rejects.toThrow(/ContactIdentity_confirmation/)
-      expect((await confirmAs(clientId, stack.senior)).status).toBe(200)
+      expect((await confirmAs(clientId, email, stack.senior)).status).toBe(200)
       expect(await db().contactIdentity.findFirstOrThrow({ where: { value: email } })).toMatchObject({ confirmedByUserId: stack.senior })
       const audit = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: clientId, action: "CONTACT_IDENTITY_CONFIRMED" } })
       expect(audit).toMatchObject({ userId: stack.senior })
-      expect(audit.newValue).toMatchObject({ channel: "EMAIL", setByStaffUserId: stack.officer, confirmedBy: { type: "staff", id: stack.senior } })
+      expect(audit.newValue).toMatchObject({ identityId: (await identityOf(email)).id, channel: "EMAIL", maskedValue: expect.stringContaining("***"), setByStaffUserId: stack.officer })
+      expect(JSON.stringify(audit.newValue)).not.toContain(email)
       expect(await requestCode(clientId, email, "branch", stack.officer)).toMatchObject({ ok: true })
-      expect((await confirmAs(clientId, stack.disburser)).status).toBe(409)
+      expect((await confirmAs(clientId, email, stack.disburser)).status).toBe(409)
+    })
+
+    it("a confirmation names the row reviewed: a value changed under the reviewer, or another borrower's, is refused", async () => {
+      holder.tenantId = stack.tenant
+      const clientId = await borrower("bound")
+      const reviewed = await staffChangesEmail(clientId, stack.officer)
+      const stale = await identityOf(reviewed)
+      const replaced = await staffChangesEmail(clientId, stack.officer)
+      asStaff(stack.senior)
+      expect((await staffConfirm(json({ identityId: stale.id, note: "Reviewed the earlier address." }), on(clientId))).status).toBe(409)
+      expect(await identityOf(replaced)).toMatchObject({ confirmedAt: null })
+      const other = await borrower("other")
+      expect((await staffConfirm(json({ identityId: (await identityOf(replaced)).id, note: "Sent it to the wrong client." }), on(other))).status).toBe(409)
+      expect(await identityOf(replaced)).toMatchObject({ confirmedAt: null })
     })
 
     it("the confirmer does not witness: refused at the code and when it is spent", async () => {
       holder.tenantId = stack.tenant
       const clientId = await borrower("witness")
       const email = await staffChangesEmail(clientId, stack.officer)
-      expect((await confirmAs(clientId, stack.senior)).status).toBe(200)
+      expect((await confirmAs(clientId, email, stack.senior)).status).toBe(200)
       expect(await requestCode(clientId, email, "branch", stack.senior)).toMatchObject({ ok: false, signingOtp: "identity_confirmed_by_witness" })
       const issued = await requestCode(clientId, email, "branch", stack.disburser)
       if (!issued.ok) throw new Error(issued.error)
@@ -168,20 +195,67 @@ function regime(jurisdiction: StackJurisdiction) {
       await expect(spend).rejects.toMatchObject({ reason: "identity_confirmed_by_witness" })
     })
 
-    it("the borrower can confirm it in their own session, and their own change needs no one", async () => {
+    it("a staff-set address cannot recover the portal login: no code is sent, a code is not accepted, and activation is refused", async () => {
+      holder.tenantId = stack.tenant
+      const clientId = await borrower("recover")
+      await db().client.update({ where: { id: clientId }, data: { portalPassword: "unchanged-hash" } })
+      const email = await staffChangesEmail(clientId, stack.officer)
+      holder.session = null
+      holder.sendEmail.mockClear()
+      const forgot = await forgotPassword(json({ email, turnstileToken: "x" }))
+      expect(forgot.status, "the same answer as for no account").toBe(200)
+      expect(await forgot.json()).toEqual({ success: true })
+      expect(holder.sendEmail).not.toHaveBeenCalled()
+      expect(await db().clientOtp.count({ where: { email } })).toBe(0)
+
+      await db().clientOtp.create({ data: { email, otp: "123456", expiresAt: new Date(Date.now() + 600_000) } })
+      const password = "Synthetic-Passw0rd!-long"
+      const reset = await resetPassword(json({ email, otp: "123456", password, confirmPassword: password, turnstileToken: "x" }))
+      expect(reset.status).toBe(404)
+      expect((await db().client.findUniqueOrThrow({ where: { id: clientId } })).portalPassword).toBe("unchanged-hash")
+
+      const unactivated = await borrower("activate")
+      const staffTyped = await staffChangesEmail(unactivated, stack.officer)
+      const idNumber = (await db().client.findUniqueOrThrow({ where: { id: unactivated } })).idNumber
+      holder.sendEmail.mockClear()
+      expect((await registerPortal(json({ email: staffTyped, idNumber, turnstileToken: "x" }))).status).toBe(200)
+      expect(await db().clientOtp.count({ where: { email: staffTyped } })).toBe(0)
+
+      await db().clientOtp.create({ data: { email: staffTyped, otp: "654321", expiresAt: new Date(Date.now() + 600_000) } })
+      const activate = await registerPortal(json({ email: staffTyped, idNumber, otp: "654321", password, confirmPassword: password, turnstileToken: "x" }))
+      expect(activate.status, await activate.clone().text()).toBe(400)
+      expect((await db().client.findUniqueOrThrow({ where: { id: unactivated } })).portalPassword).toBeNull()
+
+      // A second person's word opens it again.
+      expect((await confirmAs(clientId, email, stack.senior)).status).toBe(200)
+      holder.session = null
+      expect((await forgotPassword(json({ email, turnstileToken: "x" }))).status).toBe(200)
+      expect(await db().clientOtp.count({ where: { email, used: false } })).toBe(2)
+    })
+
+    it("the borrower's own change needs no one", async () => {
       holder.tenantId = stack.tenant
       const clientId = await borrower("own")
-      const email = await staffChangesEmail(clientId, stack.officer)
       asClient(clientId)
-      holder.session!.user.email = email
-      expect((await borrowerConfirm(json({ channel: "EMAIL" }))).status).toBe(200)
-      expect(await db().contactIdentity.findFirstOrThrow({ where: { value: email } })).toMatchObject({ confirmedByClientId: clientId, confirmedByUserId: null })
-      expect(await requestCode(clientId, email, "portal")).toMatchObject({ ok: true })
-      expect((await borrowerConfirm(json({ channel: "EMAIL" }))).status).toBe(409)
-
+      holder.session!.user.email = (await db().client.findUniqueOrThrow({ where: { id: clientId } })).email
       const profile = await borrowerProfile(new Request("http://localhost/api/portal/profile", { method: "PUT", body: JSON.stringify({ whatsapp: jurisdiction === "LS" ? "+26658765432" : "0827654321" }), headers: { "content-type": "application/json" } }) as never)
       expect(profile.status, await profile.clone().text()).toBe(200)
       expect(await db().contactIdentity.findFirstOrThrow({ where: { tenantId: stack.tenant, channel: "WHATSAPP", contact: { clientId } } })).toMatchObject({ setByStaffUserId: null })
+    })
+
+    it("first capture: a key-facts lender's needs the second person, a South African one's is as it was", async () => {
+      holder.tenantId = stack.tenant
+      const id = `capture-${t}`
+      await seedBorrower(db(), stack, id)
+      const c = await db().client.findUniqueOrThrow({ where: { id: `${id}-client` } })
+      await db().$transaction((tx) => provisionContactForClient(tx as never, {
+        tenantId: stack.tenant, clientId: c.id, email: c.email, phone: c.phone, whatsapp: "+26658112233", setByStaffUserId: jurisdiction === "LS" ? stack.officer : null,
+      }))
+      const rows = await db().contactIdentity.findMany({ where: { tenantId: stack.tenant, contact: { clientId: c.id } } })
+      const setter = jurisdiction === "LS" ? stack.officer : null
+      expect(rows.find((r) => r.channel === "EMAIL")).toMatchObject({ setByStaffUserId: setter })
+      expect(rows.find((r) => r.channel === "WHATSAPP")).toMatchObject({ setByStaffUserId: setter })
+      expect(rows.find((r) => r.channel === "SMS")).toMatchObject({ setByStaffUserId: null })
     })
   })
 }

@@ -6,6 +6,7 @@ import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
+import { NO_UNCONFIRMED_IDENTITY_WHERE } from "@/lib/contact/identity-confirmation"
 import { passwordPolicyError } from "@/lib/security/password-policy"
 import { limiterAddress } from "@/lib/limiter-address"
 
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     // Never a dealer-captured client whose contacts staff have not verified
     // (lib/clients/dealer-contact.ts; the database refuses its password too).
-    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId, ...TRUSTED_CONTACT_WHERE } })
+    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId, ...TRUSTED_CONTACT_WHERE, ...NO_UNCONFIRMED_IDENTITY_WHERE } })
     if (!client) {
       return NextResponse.json({ error: "Account not found." }, { status: 404 })
     }

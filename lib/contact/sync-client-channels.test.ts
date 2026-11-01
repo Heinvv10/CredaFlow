@@ -44,7 +44,7 @@ describe("syncClientContactChannels", () => {
     const { db, identityUpdate, create } = tx(contact, { id: "i1", contactId: "ct1" })
     await syncClientContactChannels(db, { ...scope, setByStaffUserId: "u9", before: { email: "old@x.invalid" }, after: { email: "again@x.invalid" } })
     expect(create).not.toHaveBeenCalled()
-    expect(identityUpdate).toHaveBeenCalledWith({ where: { id: "i1" }, data: { setByStaffUserId: "u9", confirmedAt: null, confirmedByUserId: null, confirmedByClientId: null } })
+    expect(identityUpdate).toHaveBeenCalledWith({ where: { id: "i1" }, data: { setByStaffUserId: "u9", confirmedAt: null, confirmedByUserId: null } })
   })
 
   it("also removes what the Contact held from before this change, so a record already stale is corrected", async () => {

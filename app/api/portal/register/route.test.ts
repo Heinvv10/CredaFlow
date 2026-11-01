@@ -257,6 +257,8 @@ describe("POST /api/portal/register — request-code mode (SIGN-02 enumeration s
         portalPassword: null,
         // Never a dealer-captured client whose contact details staff have not verified.
         OR: [{ createdByDealerId: null }, { dealerContactVerifiedAt: { not: null } }],
+        // Nor one whose address staff set and nobody confirmed.
+        NOT: { contact: { identities: { some: { setByStaffUserId: { not: null }, confirmedAt: null } } } },
       },
     })
     expect(createClientOtp).toHaveBeenCalledTimes(1)

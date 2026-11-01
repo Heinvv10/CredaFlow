@@ -15,6 +15,7 @@ import { demoCodeReveal } from "@/lib/config/demo-mode"
 import { escapeHtml } from "@/lib/utils"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
+import { NO_UNCONFIRMED_IDENTITY_WHERE } from "@/lib/contact/identity-confirmation"
 import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
 import { clientReachableOnWhatsApp, portalOtpChannelFrom, sendPortalOtpByWhatsApp } from "@/lib/portal/portal-otp-whatsapp"
 import { limiterAddress } from "@/lib/limiter-address"
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
 
     // A dealer-captured client's contact details are untrusted until staff
     // verify them (lib/clients/dealer-contact.ts): no code goes to them.
-    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId, ...TRUSTED_CONTACT_WHERE } })
+    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId, ...TRUSTED_CONTACT_WHERE, ...NO_UNCONFIRMED_IDENTITY_WHERE } })
 
     // Always return success to avoid leaking account existence
     if (!client) {

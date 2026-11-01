@@ -60,9 +60,11 @@ segregation-of-duties setting. The borrower's email and WhatsApp number are froz
 before payout refuses until the application is returned to review and approved again. A borrower with no email or
 WhatsApp on file cannot sign this way: capture one first, or the bank chooses a wet-ink route (not built).
 
-If staff correct a borrower's email or WhatsApp number, ordinary mail follows at once, but no signing code goes there until someone
-else vouches for it: a different staff member on the client record, with a note, or the borrower under Profile in the portal. The one who
-confirmed it does not witness that signature. A number the borrower changed themselves needs nobody. An address captured when the client was created counts as verified.
+An address staff capture or change is unverified: ordinary mail follows at once, but no signing code and no portal login recovery goes
+there until a second staff member confirms the address they reviewed, on the client record, with a note. The borrower cannot confirm it: a
+session reached by recovering the login through that address proves nothing. The one who confirmed does not witness that signature. A
+number the borrower changed themselves needs nobody. So every client staff capture on a key-facts lender needs a second person before they can
+sign or activate the portal. On a South African lender only a later edit needs this, not the first capture.
 
 ## Paying out
 

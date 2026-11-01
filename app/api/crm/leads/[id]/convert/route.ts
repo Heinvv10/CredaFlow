@@ -208,6 +208,7 @@ export async function POST(
             // Contacts that already represent an earlier Lead remain unchanged.
             const contactPromotion = await resolveContactForLeadConversion(tx, {
               tenantId: tenant.id,
+              setByStaffUserId: newApplicationRegime() === "KEY_FACTS" ? guard.user.id ?? null : null,
               leadId,
               clientId: linkedClient.id,
               firstName: linkedClient.firstName,
@@ -330,6 +331,7 @@ export async function POST(
 
             const promotion = await resolveContactForLeadConversion(tx, {
               tenantId: tenant.id,
+              setByStaffUserId: newApplicationRegime() === "KEY_FACTS" ? guard.user.id ?? null : null,
               leadId,
               clientId: linkedClient.id,
               firstName: linkedClient.firstName,
@@ -548,6 +550,7 @@ export async function POST(
         // Contact that collides on its already-owned email and phone.
         const contactPromotion = await resolveContactForLeadConversion(tx, {
           tenantId: tenant.id,
+          setByStaffUserId: newApplicationRegime() === "KEY_FACTS" ? guard.user.id ?? null : null,
           leadId,
           clientId: client.id,
           firstName: client.firstName,
