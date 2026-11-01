@@ -1,4 +1,3 @@
-import { describe, it } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { addMonthsClamped, toDayNumber } from "./dates"
 import { dealStartDate } from "./deal-structure"
