@@ -12,11 +12,10 @@
  *     npx vitest run lib/non-nca-documents/ls-end-to-end.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { NextRequest } from "next/server"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
-const holder = vi.hoisted(() => ({ app: null as object | null, tenantId: "", userId: "", files: new Map<string, Buffer>() }))
+const holder = vi.hoisted(() => ({ app: null as object | null, tenantId: "", userId: "", role: "LOAN_ADMIN", files: new Map<string, Buffer>() }))
 vi.mock("@/lib/prisma", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/prisma")>()
   const prisma = new Proxy({}, {
@@ -32,7 +31,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("@/lib/auth-guards", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth-guards")>()),
   requireApiRole: vi.fn(async () => ({
-    user: { id: holder.userId, email: `${holder.userId}@test.invalid`, name: "Synthetic Officer", role: "LOAN_ADMIN", tenantId: holder.tenantId, totpVerified: true },
+    user: { id: holder.userId, email: `${holder.userId}@test.invalid`, name: "Synthetic Officer", role: holder.role, tenantId: holder.tenantId, totpVerified: true },
   })),
 }))
 vi.mock("@/lib/tenant", async (importOriginal) => {
@@ -54,18 +53,12 @@ vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<ty
 vi.mock("@/lib/config/identity", () => ({ findLenderIdentity: async () => ({ legalName: "Demo Basotho Lending (Pty) Ltd", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"] }) }))
 
 import { createAppPrismaClient } from "@/lib/prisma"
-import { runWithTenant } from "@/lib/tenant-scope"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
-import { POST as decide } from "@/app/api/applications/[id]/decide/route"
-import { POST as disburse } from "@/app/api/applications/[id]/disburse/route"
-import { issueLoanDocuments } from "./issue"
-import { acknowledgeKeyFacts } from "./acknowledge"
-import { signKeyFactsAgreement } from "./sign"
-import { loanDocumentState } from "./state"
 import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
-import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, sha256, stackOf } from "./ls-stack.integration-fixture"
+import { BANK_REF, lsFlow } from "./ls-flow.integration-fixture"
+import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
@@ -78,43 +71,7 @@ let fresh: ThrowawayDb
 let app: ReturnType<typeof createAppPrismaClient> | undefined
 const db = () => fresh.db
 
-const post = (route: typeof decide, id: string, body: BodyInit | null, headers: Record<string, string> = {}) =>
-  route(new NextRequest(`http://localhost/api/applications/${id}/x`, { method: "POST", body, headers }), { params: Promise.resolve({ id }) })
-const decideForm = (id: string, fields: Record<string, string>) => {
-  const form = new FormData()
-  for (const [k, v] of Object.entries(fields)) form.append(k, v)
-  return post(decide, id, form)
-}
-const disburseAs = (userId: string, id: string, bankRef?: string) => {
-  holder.userId = userId
-  return post(disburse, id, JSON.stringify(bankRef ? { bankRef } : {}), { "content-type": "application/json" })
-}
-
-/** An UNDER_REVIEW key-facts application, approved through the real route by the officer. */
-async function approvedApplication(id: string, opts: { documents?: boolean; bank?: boolean } = {}) {
-  const { statement } = await seedUnderReview(db(), stack, id, { nca: false, ...opts })
-  holder.files.set(statement.path, statement.bytes)
-  await clearOpenFlags(db(), stack, id)
-  holder.userId = stack.officer
-  const res = await decideForm(id, { action: "approve", repaymentMethod: "EFT" })
-  expect(res.status, JSON.stringify(await res.clone().json())).toBe(200)
-}
-
-/** Issue, acknowledge and sign: what the staff panel and the borrower's portal do. */
-async function signedApplication(id: string, opts: { documents?: boolean; bank?: boolean } = {}) {
-  await approvedApplication(id, opts)
-  // The routes run these inside the request's tenant frame; so does the test.
-  const inTenant = <T,>(fn: () => Promise<T>) => runWithTenant(stack.tenant, fn)
-  const issued = await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff: { id: stack.officer, email: `${stack.officer}@test.invalid` } }))
-  expect(issued).toMatchObject({ ok: true })
-  const docs = (await inTenant(() => loanDocumentState(stack.tenant, id)))!.keyFacts!.documents
-  const clientId = `${id}-client`
-  const base = { tenantId: stack.tenant, applicationId: id, clientId, clientEmail: `${id}@test.invalid` }
-  expect(await inTenant(() => acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 }))).toMatchObject({ ok: true })
-  expect(await inTenant(() => signKeyFactsAgreement({
-    ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Synthetic Borrower", signingOtpChallengeId: null, ipAddress: "203.0.113.9",
-  }))).toMatchObject({ ok: true })
-}
+const { approvedApplication, decideForm, disburseAs, signedApplication } = lsFlow(db, stack, holder)
 
 suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () => {
   beforeAll(async () => {
@@ -150,13 +107,13 @@ suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () =>
     await signedApplication(id)
     const printed = [...holder.files.values()].at(-1)!.toString()
 
-    const res = await disburseAs(stack.disburser, id, "LS-TRANSFER-0001")
+    const res = await disburseAs(stack.disburser, id)
     const body = await res.json()
     expect(res.status, JSON.stringify(body)).toBe(200)
     expect(body).toMatchObject({ success: true, payout: { channel: "MANUAL" } })
 
     const application = await db().loanApplication.findUniqueOrThrow({ where: { id }, include: { loan: { include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } } } })
-    expect(application).toMatchObject({ status: "DISBURSED", disbursedById: stack.disburser, disbursementRef: "LS-TRANSFER-0001", disbursementBank: "Demo Bank Lesotho" })
+    expect(application).toMatchObject({ status: "DISBURSED", disbursedById: stack.disburser, disbursementRef: BANK_REF, disbursementBank: "Demo Bank Lesotho" })
     const loan = application.loan!
     expect(loan).toMatchObject({ status: "ACTIVE", principal: 500_000, creditLifePremiums: 0, applicationId: id, clientId: `${id}-client` })
     expect(loan.repaymentSchedule.reduce((sum, r) => sum + r.totalDue, 0)).toBe(loan.totalRepayable)
@@ -166,7 +123,7 @@ suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () =>
     expect(printed).toContain("Loan agreement")
     expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DISBURSED" } })).toBe(1)
     const disbursed = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DISBURSED" } })
-    expect(disbursed.newValue).toMatchObject({ payoutChannel: "MANUAL", payoutReference: "LS-TRANSFER-0001", segregationOfDuties: true })
+    expect(disbursed.newValue).toMatchObject({ payoutChannel: "MANUAL", payoutReference: BANK_REF, segregationOfDuties: true, payoutAccountVerification: { verifiedById: stack.officer } })
     expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: loan.id, action: "LOAN_CREATED" } })).toBe(1)
   })
 
@@ -249,11 +206,9 @@ suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () =>
     const id = `debit-${t}`
     await seedUnderReview(db(), stack, id, { nca: false })
     await clearOpenFlags(db(), stack, id)
-    holder.userId = stack.officer
     const res = await decideForm(id, { action: "approve", repaymentMethod: "DEBIT_ORDER" })
     expect(res.status).toBe(400)
     expect(await res.json()).toMatchObject({ repaymentMethod: "key_facts_eft_only" })
   })
 })
 
-void sha256

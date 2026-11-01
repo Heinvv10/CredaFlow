@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { disburseKeyFactsLoan, KEY_FACTS_PAYOUT_NOTE } from "./disburse"
+import { disburseKeyFactsLoan } from "./disburse"
+import { KEY_FACTS_PAYOUT_NOTE } from "./payout-terms"
 
 /**
  * The disburse route's answer for a key-facts application: it books the loan (lib/non-nca-documents/disburse.ts)
@@ -11,11 +12,11 @@ export async function keyFactsDisbursement(args: {
   tenantId: string
   applicationId: string
   user: { id: string; email: string }
-  bankRef: string | null
+  bankRef: unknown
 }): Promise<NextResponse | null> {
   const row = await prisma.loanApplication.findFirst({ where: { id: args.applicationId, tenantId: args.tenantId }, select: { disclosureRegime: true } })
   if (row?.disclosureRegime !== "KEY_FACTS") return null
   const result = await disburseKeyFactsLoan(args)
-  if (!result.ok) return NextResponse.json({ error: result.error, disbursementPrecondition: result.precondition }, { status: result.status })
+  if (!result.ok) return NextResponse.json({ error: result.error, disbursementPrecondition: result.precondition, affordabilitySnapshot: result.affordabilitySnapshot }, { status: result.status })
   return NextResponse.json({ success: true, loanId: result.loanId, loanRef: result.loanRef, payout: { channel: result.payoutChannel, note: KEY_FACTS_PAYOUT_NOTE } })
 }

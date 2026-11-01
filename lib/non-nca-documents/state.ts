@@ -51,12 +51,12 @@ export async function loanDocumentState(tenantId: string, applicationId: string)
  * the database's own test (loanDocumentProblem), the one its sign and disburse
  * gates run. `forSigning` also requires the wording to still be the template's
  * current approved version; after signing the contract stands on the version it was
- * rendered from. The disbursement route calls this (forSigning = false) before it
- * does any work.
+ * rendered from. The disbursement route calls this (forSigning = false) under its
+ * locks, on its transaction (`db`).
  */
-export async function documentProblem(applicationId: string, forSigning: boolean): Promise<string | null> {
+export async function documentProblem(applicationId: string, forSigning: boolean, db: Pick<typeof prisma, "$queryRaw"> = prisma): Promise<string | null> {
   for (const kind of LOAN_DOCUMENT_KINDS) {
-    const [row] = await prisma.$queryRaw<{ problem: string | null }[]>`
+    const [row] = await db.$queryRaw<{ problem: string | null }[]>`
       SELECT public."loanDocumentProblem"(${applicationId}, ${kind}::"LoanDocumentKind", ${forSigning}) AS problem`
     if (row?.problem) return row.problem
   }

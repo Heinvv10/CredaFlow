@@ -27,6 +27,8 @@ export interface Stack {
   officer: string
   /** A second officer: the one who pays out (segregation of duties). */
   disburser: string
+  /** The senior who attests in-person KYC (the lender's default minimum role for it). */
+  senior: string
   product: string
 }
 
@@ -40,19 +42,19 @@ const EXPENSES = { housing: 400_000, transport: 150_000, food: 150_000, insuranc
 const LONG_AGO = new Date(Date.now() - 2 * 365 * 86_400_000)
 
 export const stackOf = (jurisdiction: StackJurisdiction, t: string): Stack => ({
-  jurisdiction, tenant: `stk-${jurisdiction.toLowerCase()}-${t}`, officer: `stk-officer-${t}`, disburser: `stk-disb-${t}`, product: `stk-product-${t}`,
+  jurisdiction, tenant: `stk-${jurisdiction.toLowerCase()}-${t}`, officer: `stk-officer-${t}`, disburser: `stk-disb-${t}`, senior: `stk-senior-${t}`, product: `stk-product-${t}`,
 })
 
 export const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex")
 
-/** The tenant, its config, two LOAN_ADMIN officers and the product. */
+/** The tenant, its config, two LOAN_ADMIN officers, an ADMIN and the product. */
 export async function seedStack(db: PrismaClient, stack: Stack, opts: { code: string; isDemoLender?: boolean } = { code: "STK" }) {
   await db.tenant.create({ data: { id: stack.tenant, slug: stack.tenant, name: "Stack IT" } })
   // An in-band (Experian Sigma) score floor: the default 450 is uncalibrated and refers every approval.
   // A key-facts approval needs a screening provider (it has no bureau): the simulated one, which a demo stack may use.
   await db.tenantConfig.create({ data: { tenantId: stack.tenant, bureauMinScore: 580, isDemoLender: opts.isDemoLender ?? false, ...(stack.jurisdiction === "LS" ? { screeningProvider: "simulated" } : {}) } })
-  for (const [id, name] of [[stack.officer, "Synthetic Officer"], [stack.disburser, "Synthetic Disburser"]] as const) {
-    await db.user.create({ data: { id, tenantId: stack.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name, role: "LOAN_ADMIN" } })
+  for (const [id, name, role] of [[stack.officer, "Synthetic Officer", "LOAN_ADMIN"], [stack.disburser, "Synthetic Disburser", "LOAN_ADMIN"], [stack.senior, "Synthetic Senior", "ADMIN"]] as const) {
+    await db.user.create({ data: { id, tenantId: stack.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name, role, totpEnabled: true, lastTotpCounter: 1 } })
   }
   await db.loanProduct.create({
     data: { id: stack.product, tenantId: stack.tenant, code: `${opts.code}-${stack.product.slice(-8)}`, name: "Stack micro", minAmount: 100_000, maxAmount: 800_000, minTermDays: 1, maxTermDays: 180, ...PRODUCT },

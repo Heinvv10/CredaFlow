@@ -29,6 +29,8 @@ import { PricingInputsCard } from "@/components/applications/PricingInputsCard"
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
+import { PayoutAccountVerificationCard } from "@/components/applications/PayoutAccountVerificationCard"
+import { SECOND_PERSON_VERIFICATION_PROVIDER } from "@/lib/non-nca-documents/payout-terms"
 import { AutoDecisionCard } from "@/components/applications/AutoDecisionCard"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
@@ -194,6 +196,8 @@ type LatestAvsCheck = {
   clientId: string
   subjectFingerprint: string | null
   passed: boolean
+  provider: string
+  checkedById: string | null
   accountNumber: string
   createdAt: Date
 }
@@ -209,6 +213,8 @@ async function getLatestAvsCheck(applicationId: string, clientId: string, tenant
       clientId: true,
       subjectFingerprint: true,
       passed: true,
+      provider: true,
+      checkedById: true,
       accountNumber: true,
       createdAt: true,
     },
@@ -296,7 +302,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       ? getReviewKycGate(application.client, tenantId)
       : Promise.resolve(null),
     listCannedReplies(tenantId),
-    avsEnabled
+    avsEnabled || keyFactsState?.keyFacts
       ? getLatestAvsCheck(application.id, application.clientId, tenantId)
       : Promise.resolve(null),
     prisma.selfieCaptureToken.findFirst({
@@ -614,6 +620,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           principalCents={displayedPrincipal}
           disbursementCents={loanCalc.disbursementAmount}
           clientName={`${application.client.firstName} ${application.client.lastName}`}
+          manualPayout={keyFactsRegime}
           clientBankDetails={{
             bankName: application.client.bankName,
             bankAccountNumber: application.client.bankAccountNumber,
@@ -968,7 +975,17 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
 
         {/* AVS bank-account verification — sits next to bank/financial details, ahead of
             disbursement. Available when either collections or payouts needs AVS. */}
-        {avsEnabled && (
+        {keyFactsRegime && application.status === "APPROVED" && (
+          <PayoutAccountVerificationCard
+            applicationId={application.id}
+            accountNumber={application.client.bankAccountNumber}
+            confirmedAt={latestAvsCheck?.provider === SECOND_PERSON_VERIFICATION_PROVIDER && avsCheckMatchesSubject(latestAvsCheck, application.client) ? latestAvsCheck.createdAt.toISOString() : null}
+            confirmedByYou={latestAvsCheck?.checkedById === session?.user?.id}
+            canConfirm={hasMinRole(userRole, "CREDIT_OFFICER")}
+          />
+        )}
+
+        {avsEnabled && !keyFactsRegime && (
           <AvsStatusCard
             applicationId={application.id}
             latest={latestAvsCheck ? {

@@ -46,9 +46,9 @@ describe("DisburseForm interaction", () => {
         : Array.isArray(children) ? children.map(nodeText).join("")
           : nodeText((children as { props?: { children?: unknown } }).props?.children)
 
-  async function openAndConfirm() {
+  async function openAndConfirm(extra: { manualPayout?: boolean } = {}) {
     let r!: ReactTestRenderer
-    await act(async () => { r = create(<DisburseForm {...props} />) })
+    await act(async () => { r = create(<DisburseForm {...props} {...extra} />) })
     const button = (label: string) => r.root.findAll((n) => n.type === "button" && nodeText(n.props.children).includes(label))[0]
     await act(async () => button("Disburse Loan").props.onClick())
     const confirm = r.root.findAll((n) => n.type === "input" && n.props.type === "checkbox")[0]
@@ -88,6 +88,23 @@ describe("DisburseForm interaction", () => {
     await act(async () => { await button("Confirm - Disburse").props.onClick() })
     const alert = r.root.findAll((n) => n.type === "p" && n.props.role === "alert")[0]
     expect(nodeText(alert.props.children)).toBe("Disbursement failed (HTTP 502).")
+  })
+
+  it("a manual payout says so and holds the button until the bank reference is entered", async () => {
+    const { r, button } = await openAndConfirm({ manualPayout: true })
+    expect(nodeText(r.root.findAll((n) => n.type === "label" && n.props.htmlFor === "disburse-payment-reference")[0].props.children)).toBe("Bank reference of the transfer *")
+    expect(r.root.findAll((n) => n.type === "p").map((n) => nodeText(n.props.children)).join(" ")).toContain("no money moved in the system")
+    expect(button("Confirm - Disburse").props.disabled).toBe(true)
+    const ref = r.root.findAll((n) => n.type === "input" && n.props.id === "disburse-payment-reference")[0]
+    await act(async () => ref.props.onChange({ target: { value: "   " } }))
+    expect(button("Confirm - Disburse").props.disabled).toBe(true)
+    await act(async () => ref.props.onChange({ target: { value: "LS-1" } }))
+    expect(button("Confirm - Disburse").props.disabled).toBe(false)
+  })
+
+  it("the reference stays optional for every other payout", async () => {
+    const { button } = await openAndConfirm()
+    expect(button("Confirm - Disburse").props.disabled).toBe(false)
   })
 
   it("labels every field it shows", async () => {

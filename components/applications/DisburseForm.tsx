@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { accountTypeLabel } from "@/lib/validation/client-wizard"
 import { formatZAR } from "@/lib/utils"
+import { KEY_FACTS_BANK_REF_MAX, KEY_FACTS_PAYOUT_NOTE, manualBankRef } from "@/lib/non-nca-documents/payout-terms"
 
 interface Props {
   applicationId: string
@@ -23,6 +24,8 @@ interface Props {
     bankBranchCode: string | null
     accountType: string | null
   }
+  /** A key-facts loan: no system moves the money, so the bank's reference of the transfer is required. */
+  manualPayout?: boolean
 }
 
 /** No example reference: a dated one goes stale (the audit saw an April date in October). */
@@ -72,7 +75,7 @@ function evidenceHint(reason: string | undefined, field?: string): string {
   return [base, detail].filter(Boolean).join(" ")
 }
 
-export function DisburseForm({ applicationId, repaymentMethod, principalCents, disbursementCents, clientName, clientBankDetails }: Props) {
+export function DisburseForm({ applicationId, repaymentMethod, principalCents, disbursementCents, clientName, clientBankDetails, manualPayout = false }: Props) {
   const feeDeducted = disbursementCents < principalCents
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -166,6 +169,12 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
                 </p>
               </div>
 
+              {manualPayout && (
+                <p className="rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] px-3 py-2 text-xs text-[var(--cf-text-secondary)]">
+                  {KEY_FACTS_PAYOUT_NOTE}
+                </p>
+              )}
+
               {clientBankMissing && (
                 <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">
                   {repaymentMethod === "EFT"
@@ -187,8 +196,8 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
                 <Field label="Branch Code" id="disburse-branch-code">
                   <input id="disburse-branch-code" value={branchCode} className={`${fieldClass} font-mono`} readOnly />
                 </Field>
-                <Field label="Payment Reference (optional)" id="disburse-payment-reference" className="col-span-2">
-                  <input id="disburse-payment-reference" value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} />
+                <Field label={manualPayout ? "Bank reference of the transfer *" : "Payment Reference (optional)"} id="disburse-payment-reference" className="col-span-2">
+                  <input id="disburse-payment-reference" value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} {...(manualPayout ? { maxLength: KEY_FACTS_BANK_REF_MAX, required: true } : {})} />
                 </Field>
               </div>
 
@@ -212,7 +221,7 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
 
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => { setOpen(false); setError(null) }}>Cancel</Button>
-                <Button onClick={submit} disabled={loading || disbursed || !confirm || !bank || !accountNo || clientBankMissing}>
+                <Button onClick={submit} disabled={loading || disbursed || !confirm || !bank || !accountNo || clientBankMissing || (manualPayout && !manualBankRef(bankRef))}>
                   <Banknote className="h-4 w-4" />
                   {loading ? "Disbursing..." : `Confirm - Disburse ${formatZAR(disbursementCents)}`}
                 </Button>
