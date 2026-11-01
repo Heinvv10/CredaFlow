@@ -137,6 +137,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       }
       // Staff: tenantId check would require client->tenant relation; skip for now as clients are global
 
+      // Evidence of an application (a key-facts document): the database refuses too, this says why.
+      if (doc.issuedForApplicationId) {
+        return NextResponse.json({ error: "This document belongs to an application's record and cannot be deleted." }, { status: 409 })
+      }
+
       const deletion = await prisma.$transaction(async (tx) => {
         // Coordinate with disbursement before changing either the database row
         // or the backing file. Re-read after obtaining the lock so an earlier

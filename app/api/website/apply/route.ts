@@ -7,6 +7,7 @@ import { checkRateLimit, callerIp, recordedCallerIp } from "@/lib/rate-limit"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/referrals"
 import { AuditAction } from "@/lib/audit"
+import { newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
 import { canonicalIdNumber, idNumberCopy, isValidIdNumber } from "@/lib/validation/client-wizard"
 import { generateReference, maskEmail, maskIdNumber } from "@/lib/utils"
@@ -701,6 +702,19 @@ export async function POST(req: NextRequest) {
           },
           ipAddress: ip,
         }, { tenantId: tenant.id, channel: "WEBSITE", reason: "identity_conflict", subject: { leadId: lead.id } })
+      }
+
+      // A key-facts borrower reads the statement for their terms before applying, and the public form has no such
+      // step (lib/non-nca-documents/pre-submission.ts). The lead above stands; the application is made in the portal.
+      if (newApplicationRegime() === "KEY_FACTS") {
+        await recordSubmissionRefusal({
+          tenantId: tenant.id, userEmail: email, action: AuditAction.APPLICATION_SUBMISSION_BLOCKED, entity: "Lead", entityId: lead.id,
+          newValue: { reason: "key_facts_statement_required", channel: "WEBSITE" }, ipAddress: ip,
+        }, { tenantId: tenant.id, channel: "WEBSITE", reason: "key_facts_statement_required", subject: { leadId: lead.id } })
+        return NextResponse.json(
+          { success: false, error: "Sign in to the client portal to apply: you read the key facts statement for your loan there first.", keyFacts: "required" },
+          { status: 422 },
+        )
       }
 
       // The public form proves an email+ID pair, not an authenticated portal

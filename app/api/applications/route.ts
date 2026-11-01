@@ -6,6 +6,8 @@ import { triggerNotification } from "@/lib/notifications"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { withTenantContext } from "@/lib/tenant"
 import { requireApiRole } from "@/lib/auth-guards"
+import { KEY_FACTS_STAFF_REFUSAL } from "@/lib/non-nca-documents/pre-submission"
+import { newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import { prepareApplicationFields, type PrepareApplicationInput } from "@/lib/applications/prepare-application"
 import { lockNewApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import {
@@ -41,6 +43,10 @@ export async function POST(req: NextRequest) {
           // Re-read the active product and all client affordability inputs only
           // after their locks are held, then persist that exact snapshot before
           // releasing either lock.
+          // A key-facts application is saved as a draft and submitted from its page (the statement's gate, ./[id]/route.ts).
+          if (data.submitForReview && newApplicationRegime() === "KEY_FACTS") {
+            return { ok: false as const, prepared: { body: { error: KEY_FACTS_STAFF_REFUSAL, keyFacts: "required" }, status: 422 } }
+          }
           const prepared = await prepareApplicationFields(
             data,
             tenant.id,

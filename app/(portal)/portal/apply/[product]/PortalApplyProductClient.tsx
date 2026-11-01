@@ -21,7 +21,7 @@ import {
   type ClientInfo,
 } from "./parts"
 import { creditLifePremiumForAmount, validAmountCents } from "./amount"
-import { KeyFactsQuote } from "./KeyFactsQuote"
+import { KeyFactsQuote } from "@/components/applications/KeyFactsQuote"
 import { CreditLifeElectionBox } from "./CreditLifeElectionBox"
 import { EMPTY_PO_INPUT, PoFundingFields, poInputComplete, uploadPoDocument } from "./PoFundingFields"
 import { useT } from "@/lib/i18n/client"
@@ -350,9 +350,10 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
           {!ncaDeclarations && amountCents !== null && !amountOutOfRange && !termOutOfRange && (
             <KeyFactsQuote
               key={`${amountCents}:${termNum}`}
-              productCode={product.code}
-              amount={amountCents / 100}
-              termDays={fixedTerm ? undefined : termNum * termUnitDays}
+              endpoint="/api/portal/key-facts-quote"
+              body={{ productCode: product.code, amount: amountCents / 100, termDays: fixedTerm ? undefined : termNum * termUnitDays }}
+              intro="See what this loan costs for this amount and term. You read this before you submit."
+              readLabel="I have read the key facts statement for this amount and term."
               onRead={setKeyFactsSha256}
             />
           )}

@@ -23,6 +23,7 @@ import { Prisma } from "@prisma/client"
 import { lockNewApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { creditBlock } from "@/lib/clients/status"
 import { approvalEvidenceRules, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
+import { KEY_FACTS_CHANNEL_REFUSAL } from "@/lib/non-nca-documents/pre-submission"
 
 interface LockedLead {
   id: string
@@ -84,6 +85,9 @@ export async function POST(
   return withTenantContext(req, async (tenant) => {
     try {
       const { id: leadId } = await params
+      // A conversion submits in one step, with no statement for the borrower to read (lib/non-nca-documents/pre-submission.ts).
+      // The application is captured as a draft on the client instead.
+      if (newApplicationRegime() === "KEY_FACTS") return NextResponse.json({ error: KEY_FACTS_CHANNEL_REFUSAL, keyFacts: "required" }, { status: 409 })
       const data = await req.json()
       if (typeof data.idNumber === "string") data.idNumber = canonicalIdNumber(data.idNumber)
 

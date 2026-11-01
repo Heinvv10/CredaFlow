@@ -28,6 +28,11 @@ describe("the offer letter and the arrears letter", () => {
     expect(now("guardLoanDocumentFile")).toContain(`public."LoanArrearsLetter"`)
   })
 
+  it("a claimed statement's file is kept: the claim itself still passes, because the rule reads OLD", () => {
+    expect(now("guardLoanDocumentFile")).toContain(`referenced := OLD."issuedForApplicationId" IS NOT NULL`)
+    expect(baselineTriggerSql("ClientDocument_guard_loan_document_file_update")).toContain(`"issuedForApplicationId"`)
+  })
+
   it("a letter is refused for anything but a key-facts loan, is never changed, and its SAMPLE flag is derived", () => {
     const guard = now("guardLoanArrearsLetter")
     expect(guard).toContain(`regime IS DISTINCT FROM 'KEY_FACTS'`)

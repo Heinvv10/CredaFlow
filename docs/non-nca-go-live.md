@@ -37,6 +37,20 @@ The templates in a demo are structure and figures only, marked SAMPLE. **There i
   form of notice, a delivery method or a waiting period before enforcement is for the bank's counsel. The system sends the letter by
   email with the PDF attached, at any arrears from 1 day; it has no minimum period and starts no enforcement step.
 
+## Before an application is submitted
+
+The borrower reads an indicative key facts statement for the exact product, amount and term, and the application claims it: from then
+on the statement is evidence of that application and cannot be deleted or replaced. A statement stands for 24 hours and for the published
+template version.
+
+- **Portal:** the borrower reads it on the apply page. This is the digital route.
+- **Staff capture (the branch):** the application is saved as a draft and submitted from its page, once staff have shown the borrower the
+  statement for the draft's terms and confirmed they read it. The wizard has no submit on this instance. The confirmation is the staff member's.
+- **Public website:** the form takes the lead and sends the visitor to the portal. It makes no application.
+- **CRM lead conversion:** refused. Capture the client, then a draft.
+- **Partner API:** makes drafts only, which staff submit as above.
+- **Asset finance:** refused. It is an NCA product.
+
 ## Signing at a branch
 
 Staff open the documents on the application; the borrower reads them and types their own name. A one-time code goes to the

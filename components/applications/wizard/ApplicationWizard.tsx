@@ -54,9 +54,11 @@ interface Props {
   creditLifeOffer: CreditLifePresentedOffer | null
   /** False for a key-facts application: no PASQ notice and no NCA s81 declaration to confirm. */
   ncaDeclarations?: boolean
+  /** A key-facts instance: saved here, submitted from the draft's page, where the borrower reads the statement. */
+  draftOnly?: boolean
 }
 
-export function ApplicationWizard({ mode, clients, products, applicationId, initialData, creditLifeOffer, ncaDeclarations = true }: Props) {
+export function ApplicationWizard({ mode, clients, products, applicationId, initialData, creditLifeOffer, ncaDeclarations = true, draftOnly = false }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -327,6 +329,7 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
             >
               {submittingAs === "draft" ? "Saving…" : "Save as draft"}
             </button>
+            {!draftOnly && (
             <button
               type="button"
               onClick={() => handleSubmit(false)}
@@ -335,6 +338,7 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
             >
               {submittingAs === "review" ? "Submitting…" : "Submit for review"}
             </button>
+            )}
           </div>
         )}
       </footer>

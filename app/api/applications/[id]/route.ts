@@ -28,6 +28,7 @@ import { AuditAction } from "@/lib/audit"
 import { verifyStoredCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
+import { KEY_FACTS_STAFF_REFUSAL, indicativeKeyFactsShown } from "@/lib/non-nca-documents/pre-submission"
 
 // PATCH supports two, mutually exclusive request shapes on the same route:
 //   1. `{ action: "update", ...ApplicationWizardData }` — the resumed wizard
@@ -80,6 +81,8 @@ export async function PATCH(
           if (!application) return { kind: "not_found" as const }
           if (application.status !== "DRAFT") return { kind: "not_draft" as const }
           if (await isAssetFinanceApplication(tx, tenant.id, id)) return { kind: "asset_finance" as const }
+          // A key-facts draft is submitted from its page, where the borrower is shown the statement (the gate below).
+          if ((body as PrepareApplicationInput).submitForReview && application.disclosureRegime === "KEY_FACTS") return { kind: "key_facts_required" as const }
 
           const prepared = await prepareApplicationFields(
             body as PrepareApplicationInput,
@@ -209,6 +212,9 @@ export async function PATCH(
       if (outcome.kind === "asset_finance") {
         return NextResponse.json({ error: ASSET_FINANCE_APPLICATION_ERROR }, { status: 409 })
       }
+      if (outcome.kind === "key_facts_required") {
+        return NextResponse.json({ error: KEY_FACTS_STAFF_REFUSAL, keyFacts: "required" }, { status: 422 })
+      }
       if (outcome.kind === "prepare_error") {
         return NextResponse.json(outcome.prepared.body, { status: outcome.prepared.status })
       }
@@ -318,6 +324,13 @@ export async function PATCH(
       if (await isAssetFinanceApplication(tx, tenant.id, id)) return { kind: "asset_finance" as const }
       // Submission snapshots consumer affordability; an entity borrower is refused.
       if (!hasClientBorrower(application)) return { kind: "entity_borrower" as const }
+      // Tender 2.2.4, the same gate as the portal: the borrower has been shown the statement for exactly these terms.
+      const keyFactsShown = application.disclosureRegime === "KEY_FACTS"
+        ? await indicativeKeyFactsShown(tx, {
+            tenantId: tenant.id, clientId: application.clientId, sha256: (body as { keyFactsDocumentSha256?: unknown }).keyFactsDocumentSha256, productId: application.productId, amountCents: application.appliedAmount, termDays: application.appliedTermDays,
+          })
+        : null
+      if (application.disclosureRegime === "KEY_FACTS" && !keyFactsShown) return { kind: "key_facts_required" as const }
       // A key-facts draft (a jurisdiction without the NCA) records no credit-life election: the page has no step for one.
       if (approvalEvidenceRules(application).creditLifeElection && !verifyStoredCreditLifeDisclosure(application, {
         principalCents: application.appliedAmount,
@@ -401,6 +414,7 @@ export async function PATCH(
         },
       })
       if (updated.count !== 1) return { kind: "changed" as const }
+      if (keyFactsShown) await tx.clientDocument.update({ where: { id: keyFactsShown }, data: { issuedForApplicationId: id } })
       await tx.auditLog.create({
         data: {
           tenantId: tenant.id,
@@ -414,6 +428,7 @@ export async function PATCH(
             status: "SUBMITTED",
             snapshotSchemaVersion: AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
             decisionFingerprint: snapshot.decisionFingerprint,
+            ...(keyFactsShown ? { indicativeKeyFactsDocumentId: keyFactsShown } : {}),
           },
         },
       })
@@ -425,6 +440,9 @@ export async function PATCH(
     }
     if (outcome.kind === "entity_borrower") {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
+    if (outcome.kind === "key_facts_required") {
+      return NextResponse.json({ error: KEY_FACTS_STAFF_REFUSAL, keyFacts: "required" }, { status: 422 })
     }
     if (outcome.kind === "not_draft") {
       return NextResponse.json(

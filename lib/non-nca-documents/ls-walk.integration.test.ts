@@ -51,7 +51,7 @@ vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOrig
 vi.mock("@/lib/email/service", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/email/service")>()), sendEmail: holder.sendEmail }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
-  saveFile: async (buffer: Buffer) => { const path = `/mem/${holder.files.size}.pdf`; holder.files.set(path, buffer); return { storagePath: path, fileSize: buffer.length } },
+  saveFile: async (buffer: Buffer) => { const path = `/mem/${randomUUID()}.pdf`; holder.files.set(path, buffer); return { storagePath: path, fileSize: buffer.length } },
   readFile: async (path: string) => { const b = holder.files.get(path); if (!b) throw new Error("missing"); return b },
   deleteFile: async (path: string) => { holder.files.delete(path) },
 }))
@@ -69,6 +69,7 @@ import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { provisionContactForClient } from "@/lib/contact/provision"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { formatZAR } from "@/lib/utils"
+import { DELETE as deleteDocument } from "@/app/api/documents/[id]/route"
 import { POST as apply } from "@/app/api/portal/applications/route"
 import { POST as quoteKeyFacts } from "@/app/api/portal/key-facts-quote/route"
 import { POST as review } from "@/app/api/applications/[id]/review/route"
@@ -173,6 +174,13 @@ suite("a Lesotho loan, apply to arrears letter (real Postgres, real routes, no b
     const applicationId: string = applied.applicationId ?? applied.id
     expect(await db().clientDocument.findUniqueOrThrow({ where: { id: quote.documentId } })).toMatchObject({ issuedForApplicationId: applicationId })
     expect(await db().loanApplication.findUniqueOrThrow({ where: { id: applicationId } })).toMatchObject({ disclosureRegime: "KEY_FACTS", status: "SUBMITTED" })
+    // The statement is now that application's evidence: the borrower cannot delete it, and nor can a raw write. One no application claimed stays theirs.
+    expect((await deleteDocument(new Request(`http://localhost/api/documents/${quote.documentId}`, { method: "DELETE" }), on(quote.documentId))).status).toBe(409)
+    await expect(db().clientDocument.update({ where: { id: quote.documentId }, data: { deletedAt: new Date() } })).rejects.toThrow(/cannot be deleted/)
+    await expect(db().clientDocument.delete({ where: { id: quote.documentId } })).rejects.toThrow(/cannot be deleted/)
+    await expect(db().clientDocument.update({ where: { id: quote.documentId }, data: { storagePath: "/mem/forged.pdf" } })).rejects.toThrow(/cannot be replaced/)
+    await expect(db().clientDocument.update({ where: { id: quote.documentId }, data: { issuedForApplicationId: "another" } })).rejects.toThrow(/cannot be replaced/)
+    expect((await deleteDocument(new Request(`http://localhost/api/documents/${otherTerm.documentId}`, { method: "DELETE" }), on(otherTerm.documentId))).status).toBe(200)
 
     // 2. Approve: staff review, clear the findings, a loan admin decides. The documents issue with the approval, and the borrower is told.
     asStaff(stack.officer)

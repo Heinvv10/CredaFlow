@@ -96,10 +96,12 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
     where: { id: dealId, tenantId },
     select: {
       id: true, status: true, applicationId: true, contractType: true, clientId: true, entityId: true,
-      application: { select: { status: true, clientId: true, entityId: true, ncaRegime: true, ncaClassificationRule: true } },
+      application: { select: { status: true, disclosureRegime: true, clientId: true, entityId: true, ncaRegime: true, ncaClassificationRule: true } },
     },
   })
   if (!deal) return { kind: "not_found" }
+  // createDeal refuses a key-facts instance: this is its floor, for a deal that outlived a change of jurisdiction.
+  if (deal.application.disclosureRegime === "KEY_FACTS") return { kind: "not_found" }
   if (deal.status !== "DRAFT" || deal.application.status !== "DRAFT") {
     return { kind: "not_draft", status: deal.status === "DRAFT" ? deal.application.status : deal.status }
   }

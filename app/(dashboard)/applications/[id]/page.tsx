@@ -596,6 +596,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           <ApplicationSubmitButton
             applicationId={application.id}
             blockedReason={submitBlockedReason}
+            keyFacts={application.disclosureRegime === "KEY_FACTS"}
           />
         </>
       )}

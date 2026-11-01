@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   return withTenantContext(req, async (tenant) => {
     if (newApplicationRegime() !== "KEY_FACTS") return NextResponse.json({ error: "This lender's applications are governed by the PASQ." }, { status: 409 })
     try {
-      const result = await issueIndicativeKeyFacts({ tenantId: tenant.id, clientId, clientEmail: session.user.email ?? null, productCode, amountCents, termDays, ipAddress: recordedCallerIp(req) ?? undefined })
+      const result = await issueIndicativeKeyFacts({ tenantId: tenant.id, clientId, actor: { type: "client", clientId, email: session.user.email ?? null }, productCode, amountCents, termDays, ipAddress: recordedCallerIp(req) ?? undefined })
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
       return NextResponse.json(result, { status: 201 })
     } catch (error) {
