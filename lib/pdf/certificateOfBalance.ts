@@ -1,3 +1,4 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { PDFDocument, StandardFonts } from "pdf-lib"
 import {
   A4_WIDTH, A4_HEIGHT, MARGIN, CONTENT_WIDTH,
@@ -10,7 +11,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { requireLenderIdentityFields, type LenderIdentity } from "@/lib/config/identity-schema"
 
 interface CobOpts {
-  lender: Pick<LenderIdentity, "legalName" | "ncrNumber">
+  lender: Pick<LenderIdentity, "legalName" | "ncrNumber"> & Partial<Pick<LenderIdentity, "companyRegNumber">>
   /** Letterhead logo, PNG bytes. Absent → text header. */
   logo?: Uint8Array
   client: { firstName: string; lastName: string; idNumber: string; addressLine1?: string; city?: string }
@@ -49,7 +50,10 @@ interface CobOpts {
 
 export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Buffer> {
   const { client, loan } = opts
-  const lender = requireLenderIdentityFields(opts.lender, ["legalName", "ncrNumber"])
+  // Outside the NCA there is no NCR number and no section 112: the certificate carries the company registration number and no South African statute.
+  const nca = isNcaJurisdiction()
+  const lender = requireLenderIdentityFields(opts.lender, nca ? ["legalName", "ncrNumber"] : ["legalName", "companyRegNumber"])
+  const registrationLine = nca ? `NCR Reg: ${lender.ncrNumber}` : `Registration no.: ${lender.companyRegNumber}`
   const asAt = opts.asAt ?? new Date()
   const doc = await PDFDocument.create()
   const regular = await doc.embedFont(StandardFonts.Helvetica)
@@ -64,17 +68,18 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
   page.drawRectangle({ x: 0, y: A4_HEIGHT - barHeight, width: A4_WIDTH, height: barHeight, color: DARK })
   const logo = await embedLogo(doc, opts.logo)
   if (logo) {
-    const ncrLine = `NCR Reg: ${lender.ncrNumber}`
+    const ncrLine = registrationLine
     const textX = drawLogoChip(page, logo, MARGIN, A4_HEIGHT, barHeight, regular.widthOfTextAtSize(ncrLine, 9))
     drawText(page, ncrLine, textX, A4_HEIGHT - 36, regular, 9, WHITE)
   } else {
     drawText(page, lender.legalName, MARGIN, A4_HEIGHT - 36, bold, 16, ACCENT)
-    drawText(page, `NCR Reg: ${lender.ncrNumber}`, MARGIN, A4_HEIGHT - 54, regular, 9, WHITE)
+    drawText(page, registrationLine, MARGIN, A4_HEIGHT - 54, regular, 9, WHITE)
   }
   y = A4_HEIGHT - 90
 
   drawText(page, "CERTIFICATE OF OUTSTANDING BALANCE", MARGIN, y, bold, 14, ACCENT); y -= 16
-  drawText(page, "Issued in terms of Section 112 of the National Credit Act 34 of 2005", MARGIN, y, italic, 8, GRAY); y -= 8
+  if (nca) drawText(page, "Issued in terms of Section 112 of the National Credit Act 34 of 2005", MARGIN, y, italic, 8, GRAY)
+  y -= 8
   drawText(page, `As at: ${formatDatePdf(asAt)}`, MARGIN, y - 10, bold, 9, DARK)
   drawText(page, `Certificate No: COB-${loan.reference}-${sastCalendarDate(asAt).replaceAll("-", "")}`, A4_WIDTH - MARGIN - 220, y - 10, regular, 8, GRAY)
   y -= 32
@@ -82,11 +87,11 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
   // Parties
   y = drawSectionTitle(page, y, "1. PARTIES", bold)
   const partyCols: [string, string][] = [
-    ["Credit Provider", lender.legalName],
-    ["NCR Registration", lender.ncrNumber],
-    ["Consumer", `${client.firstName} ${client.lastName}`],
-    ["Consumer ID", client.idNumber],
-    ["Consumer Address", client.addressLine1 ? `${client.addressLine1}${client.city ? `, ${client.city}` : ""}` : "—"],
+    [nca ? "Credit Provider" : "Lender", lender.legalName],
+    nca ? ["NCR Registration", lender.ncrNumber] : ["Registration No.", lender.companyRegNumber],
+    [nca ? "Consumer" : "Borrower", `${client.firstName} ${client.lastName}`],
+    [nca ? "Consumer ID" : "Borrower ID", client.idNumber],
+    [nca ? "Consumer Address" : "Borrower Address", client.addressLine1 ? `${client.addressLine1}${client.city ? `, ${client.city}` : ""}` : "—"],
   ]
   for (const [label, value] of partyCols) {
     drawText(page, `${label}:`, MARGIN + 4, y, bold, 9, DARK)
@@ -96,7 +101,7 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
   y -= 4
 
   // Loan details
-  y = drawSectionTitle(page, y, "2. CREDIT AGREEMENT DETAILS", bold)
+  y = drawSectionTitle(page, y, nca ? "2. CREDIT AGREEMENT DETAILS" : "2. LOAN AGREEMENT DETAILS", bold)
   const loanCols: [string, string][] = [
     ["Agreement Reference", loan.reference],
     ["Agreement Date", formatDatePdf(loan.startDate)],
@@ -145,7 +150,9 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
 
   // Certification
   y = drawSectionTitle(page, y, "4. CERTIFICATION", bold)
-  const certText = `This certificate is issued by ${lender.legalName} and confirms that the outstanding balance on credit agreement ${loan.reference} as at ${formatDatePdf(asAt)} is ${formatZarPdf(settlement?.totalToSettle ?? loan.outstandingPrincipal)}. This certificate is valid for 30 days from the date of issue. In the event of any dispute, the credit provider's records shall prevail unless successfully challenged.`
+  const certText = nca
+    ? `This certificate is issued by ${lender.legalName} and confirms that the outstanding balance on credit agreement ${loan.reference} as at ${formatDatePdf(asAt)} is ${formatZarPdf(settlement?.totalToSettle ?? loan.outstandingPrincipal)}. This certificate is valid for 30 days from the date of issue. In the event of any dispute, the credit provider's records shall prevail unless successfully challenged.`
+    : `This certificate is issued by ${lender.legalName} and confirms that the outstanding balance on loan agreement ${loan.reference} as at ${formatDatePdf(asAt)} is ${formatZarPdf(settlement?.totalToSettle ?? loan.outstandingPrincipal)}. [SAMPLE: the validity period and the evidential wording of this certificate are for the bank's legal team.]`
   const certLines = wrapText(certText, regular, 9, CONTENT_WIDTH - 8)
   for (const line of certLines) { drawText(page, line, MARGIN + 4, y, regular, 9, DARK); y -= 13 }
   y -= 16
@@ -154,7 +161,7 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
   drawText(page, "Authorised Signatory: _______________________________", MARGIN + 4, y, regular, 9, DARK)
   drawText(page, "Date: _______________", MARGIN + 360, y, regular, 9, DARK); y -= 20
   drawText(page, lender.legalName, MARGIN + 4, y, italic, 8, GRAY); y -= 12
-  drawText(page, "This certificate is issued in terms of section 112 of the National Credit Act 34 of 2005.", MARGIN + 4, y, italic, 8, GRAY)
+  if (nca) drawText(page, "This certificate is issued in terms of section 112 of the National Credit Act 34 of 2005.", MARGIN + 4, y, italic, 8, GRAY)
 
   drawPageNumber(page, 1, 1, regular)
   return Buffer.from(await doc.save())

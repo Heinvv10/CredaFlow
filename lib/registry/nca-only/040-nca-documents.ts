@@ -1,15 +1,8 @@
 import { defineNcaOnlySurfaces } from "@/lib/jurisdiction/nca-only-registry"
 
-// Documents that print the lender's NCR number: they refuse to render without one.
+// Documents that print the lender's NCR number: they refuse to render without one. (The statement, the certificate of balance and the
+// debit mandate are not here: outside the NCA they print the company registration number and no South African statute.)
 export default defineNcaOnlySurfaces({
-  "app/api/loans/[id]/certificate-of-balance/route.ts": {
-    gate: "via",
-    reason: "the certificate prints NCR Reg and requireLenderIdentityFields refuses a lender with no NCR number",
-    proof: [
-      { file: "lib/pdf/certificateOfBalance.ts", contains: 'requireLenderIdentityFields(opts.lender, ["legalName", "ncrNumber"])' },
-      { file: "lib/config/identity-schema.ts", contains: 'field === "ncrNumber") && (stored ?? null) === null' },
-    ],
-  },
   "app/api/documents/generate/route.ts": {
     gate: "via",
     reason: "templates take lender facts through tokens; tenant.ncrNumber resolves to null for an LS lender, so a template that needs it is refused as a missing token (422)",

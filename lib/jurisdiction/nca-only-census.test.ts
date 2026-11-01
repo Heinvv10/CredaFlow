@@ -17,7 +17,7 @@ const GATE_CALL = /\bawait\s+(?:ncaOnlyRefusal|ncaOnlyPage|ncaOnlyCronSkip)\(/
 // Surfaces whose path says they are an NCA, NCR, FSCA, FIC or TCF matter. Anything
 // matching that is not in the registry fails: a new NCA-only route must be declared,
 // and declaring it means saying how a lender outside the NCA is kept out.
-const NCA_PATH = /section129|ncr-return|fsca-return|reference-rate|repo-rate|debt-review|certificate-of-balance|attorney-referral|documents\/generate|nca-|\/tcf|compliance\/fic|reckless/i
+const NCA_PATH = /section129|ncr-return|fsca-return|reference-rate|repo-rate|debt-review|attorney-referral|documents\/generate|nca-|\/tcf|compliance\/fic|reckless/i
 
 function surfaces(dir: string): string[] {
   const out: string[] = []
