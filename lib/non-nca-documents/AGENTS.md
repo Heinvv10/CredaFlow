@@ -23,10 +23,9 @@ agreement** from the lender's own versioned templates, not by the PASQ. `LoanApp
   unchanged. DISBURSED needs a signed agreement and the same wording. `state.ts documentProblem` calls the same SQL.
 - **Issued on approval** (`issue-on-approval.ts`); the approval stands if a template is unpublished. `deliver.ts` tells the borrower (a demo `.invalid` mailbox is simulated).
 - **Section 129 is unreachable here**: code refuses by jurisdiction, the database by regime (`guardSection129KeyFacts`). The loan has `arrears-letter.ts` (immutable, one a day, dunning holds).
-- **At a branch only the borrower's own code carries the act** (`branch-sign.ts`): required whatever the exemption; staff are the witness (`assistedBy`), with no path through accept or sign.
+- **At a branch only the borrower's own code carries the act** (`branch-sign.ts`): required whatever the exemption, bound to the witness who asked for it. The email and WhatsApp are frozen with the approval (`identity.ts`). The witness (`assistedBy`) has no path through accept or sign and cannot pay out that loan.
 - **Before an application** (`pre-submission.ts`, 2.2.4): an INDICATIVE statement for the exact terms, claimed at submission in the portal and on a staff draft; the database then keeps its file. Every other channel is refused (`submission-channels.test.ts`).
-- Figures come from `quote.ts` (the frozen approval), never the product row; `loanApplicationTermsSha256` is SQL on both sides.
-- Issuance rows are immutable but for supersession and one acknowledgement; `guardLoanDocumentFile` keeps their files. The keyed templates need an approver other than the author and cannot be re-keyed or deleted (`guardLoanDocumentTemplate`).
+- Figures come from `quote.ts` (the frozen approval), never the product row; `loanApplicationTermsSha256` is SQL on both sides. Issuance rows are immutable but for supersession and one acknowledgement; `guardLoanDocumentFile` keeps their files. The keyed templates need an approver other than the author and cannot be re-keyed or deleted (`guardLoanDocumentTemplate`).
 - **Approval evidence by regime** (`regime-evidence.ts`, the one rule): a KEY_FACTS application is not asked for the
   credit-life election, the affordability declaration, the s81 assessment or a South African bureau check, and none
   is stamped on it. KYC, the submission snapshot, the affordability gate, credit checks, the matrix and the lender's own
