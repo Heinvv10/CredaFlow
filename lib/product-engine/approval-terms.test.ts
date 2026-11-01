@@ -22,7 +22,7 @@ beforeEach(() => { priced.value = null; priceApplication.mockClear(); versionNca
 
 describe("approvalTermsFor", () => {
   it("a product with no version in effect is approved on its own row, exactly as before: nothing versioned, no structure", async () => {
-    expect(await approvalTermsFor(db, "t", application, product)).toEqual({ ...product, repayment: null, versioned: null, limits: null, ncaIssues: [] })
+    expect(await approvalTermsFor(db, "t", application, product)).toEqual({ ...product, repayment: null, variableRate: null, referenceMissing: null, versioned: null, limits: null, ncaIssues: [] })
   })
 
   it("a product under the engine is approved on the version in effect, the price its rule gives and the structure for the term", async () => {
@@ -30,10 +30,12 @@ describe("approvalTermsFor", () => {
       version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: "SALARIED", channel: null, campaignCode: null, riskRank: 0 },
       pricing: { ratePm: 0.02, initiationFeePct: 0.08, ruleId: "r1", ruleName: "Best grades" },
       repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 12 },
+      variableRate: null, variableBasis: null,
     }
     expect(await approvalTermsFor(db, "t", application, product)).toEqual({
       interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0.08, initiationFeeMax: 90_000, monthlyServiceFee: 5_000,
       repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 12 },
+      variableRate: null, referenceMissing: null,
       versioned: { productVersionId: "pv1", version: 3, baseRatePm: 0.035, pricingRuleId: "r1", pricingRuleName: "Best grades", pricingInputs: { segment: "SALARIED", channel: null, campaignCode: null, riskRank: 0 } },
       limits: { minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180 },
       ncaIssues: [],

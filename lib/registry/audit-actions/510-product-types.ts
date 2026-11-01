@@ -8,4 +8,6 @@ export default defineAuditActions({
   // A lending group created, or its members changed.
   BORROWER_GROUP_CREATED: "BORROWER_GROUP_CREATED",
   BORROWER_GROUP_MEMBERS_CHANGED: "BORROWER_GROUP_MEMBERS_CHANGED",
+  // The month's employer deduction list exported.
+  CHECK_OFF_DEDUCTIONS_EXPORTED: "CHECK_OFF_DEDUCTIONS_EXPORTED",
 })

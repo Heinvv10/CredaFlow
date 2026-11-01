@@ -26,6 +26,8 @@ import { loanDocumentState } from "@/lib/non-nca-documents/state"
 import { PipelineStepper } from "@/components/applications/PipelineStepper"
 import { AffordabilityCapture } from "@/components/applications/AffordabilityCapture"
 import { PricingInputsCard } from "@/components/applications/PricingInputsCard"
+import { ProductFactsCard } from "@/components/applications/ProductFactsCard"
+import { isNonNcaProductType } from "@/lib/product-config/product-kind"
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
@@ -855,6 +857,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
 
         {/* Pricing inputs: only for a product under the product engine (the card hides itself otherwise) */}
         {canDo(userRole, "set_application_pricing_inputs") && <PricingInputsCard applicationId={application.id} />}
+        {canDo(userRole, "set_application_pricing_inputs") && isNonNcaProductType(application.product.productType) && <ProductFactsCard applicationId={application.id} />}
 
         {/* Affordability Capture */}
         <AffordabilityCapture

@@ -16,7 +16,7 @@ const BASES: Record<Basis, string> = {
  * Records a reference-rate value (decide_asset_finance). It is PENDING until a
  * different user approves it; only then does the repricing cron apply it.
  */
-export function ReferenceRateForm({ fixedBasis }: { fixedBasis?: Basis } = {}) {
+export function ReferenceRateForm({ fixedBasis, bases = BASES, endpoint = "/api/asset-finance/reference-rates" }: { fixedBasis?: Basis; bases?: Partial<Record<Basis, string>>; endpoint?: string } = {}) {
   const router = useRouter()
   const [basis, setBasis] = useState<Basis>(fixedBasis ?? "PRIME")
   const [effectiveDate, setEffectiveDate] = useState("")
@@ -34,7 +34,7 @@ export function ReferenceRateForm({ fixedBasis }: { fixedBasis?: Basis } = {}) {
     setSaving(true)
     setError(null)
     setFields({})
-    const result = await sendJson("/api/asset-finance/reference-rates", "POST", { basis, effectiveDate, rate })
+    const result = await sendJson(endpoint, "POST", { basis, effectiveDate, rate })
     setSaving(false)
     if (!result.ok) {
       setError(result.error)
@@ -52,7 +52,7 @@ export function ReferenceRateForm({ fixedBasis }: { fixedBasis?: Basis } = {}) {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {fixedBasis
           ? <p className="text-sm text-[var(--cf-text-secondary)]">Basis: <strong>{BASES[fixedBasis]}</strong></p>
-          : <SelectField id="basis" label="Basis" required value={basis} onChange={setBasis} options={BASES} error={fields.basis} />}
+          : <SelectField id="basis" label="Basis" required value={basis} onChange={setBasis} options={bases as Record<Basis, string>} error={fields.basis} />}
         <TextField id="effectiveDate" label="Effective from" type="date" required value={effectiveDate} onChange={setEffectiveDate} error={fields.effectiveDate} />
         <TextField id="rate" label="Annual rate (%)" inputMode="decimal" required placeholder="11.75" value={percent} onChange={setPercent} error={fields.rate} />
       </div>
