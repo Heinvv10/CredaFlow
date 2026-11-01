@@ -29,6 +29,8 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
 - **Credit-life binder assumption**: premium is payable as it falls due; on write-off the share not
   collected as at the write-off leaves the payable (receipts fill instalments earliest first: interest,
   fees, principal; premium pro rata within fees). Confirm with the insurer's binder.
+- **A loan change** (`lib/loan-changes`): a replaced row's source reverses by itself. A new loan's settled part credits PAYOUT_CLEARING and
+  the old loans' `LOAN_SETTLEMENT` receipts debit it, so BANK moves only by the new money; a booked-by-change loan has no payout attempts.
 - **Consumer VAT is split only** when the lender is VAT-registered AND a fee role is
   marked VAT-inclusive (default off). A tax code on a mapping goes to Xero as
   tax-inclusive; never both (refused). Consumer fees have no credit notes.

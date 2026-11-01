@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { addMonthsIso, classifyStage, stageTriggers, type PriorStaging, type StagingInput } from "./staging"
+import { addMonthsIso, classifyStage, restructuredInForce, stageTriggers, type PriorStaging, type StagingInput } from "./staging"
 import { DEFAULT_SETTINGS, type Ifrs9Settings } from "./types"
 
 const loan = (over: Partial<StagingInput> = {}): StagingInput => ({
@@ -221,5 +221,24 @@ describe("the restructured marker", () => {
     expect(a.stage).toBe(3)
     const b = classifyStage(loan(), s3, { stage: 3, stageSince: a.stageSince, cureStartedOn: a.cureStartedOn, restructured: false }, "2026-10-31")
     expect(b).toMatchObject({ stage: 3, inProbation: true, restructured: false })
+  })
+})
+
+describe("restructuredInForce: a live restructured loan keeps its status and carries Loan.restructuredAt", () => {
+  const prior = (runDate?: string): PriorStaging => ({ stage: 1, stageSince: "2026-01-31", cureStartedOn: null, restructured: false, runDate })
+
+  it("holds from the day of the restructure until a run has staged it", () => {
+    expect(restructuredInForce("2026-03-10", "2026-03-31", prior("2026-02-28"))).toBe(true)
+    expect(restructuredInForce("2026-03-10", "2026-03-31", null)).toBe(true)
+    expect(restructuredInForce("2026-03-10", "2026-04-30", prior("2026-03-31"))).toBe(false)
+  })
+
+  it("does not reach back before the restructure, or fire without one", () => {
+    expect(restructuredInForce("2026-03-10", "2026-02-28", prior("2026-01-31"))).toBe(false)
+    expect(restructuredInForce(null, "2026-03-31", prior("2026-02-28"))).toBe(false)
+  })
+
+  it("a restructure on the day of a run still counts at the next one", () => {
+    expect(restructuredInForce("2026-03-31", "2026-04-30", prior("2026-03-31"))).toBe(true)
   })
 })

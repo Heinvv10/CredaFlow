@@ -4,6 +4,7 @@
  */
 import type { Prisma } from "@prisma/client"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
+import type { ChargesTx } from "@/lib/loan/charges-replay"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { readBorrowerScreening } from "@/lib/screening/gate"
 import { PERIOD_DAYS, type EngineInterestModel, type Frequency, type RepaymentStructure } from "@/lib/product-engine/types"
@@ -26,7 +27,7 @@ const LOAN_INCLUDE = {
 
 export type ChangeLoan = Prisma.LoanGetPayload<{ include: typeof LOAN_INCLUDE }>
 
-type Reader = Pick<Tx, "loan" | "clientDocument" | "payment" | "loanCharge" | "repaymentSchedule" | "tenantConfig" | "auditLog" | "$queryRaw">
+type Reader = ChargesTx & Pick<Tx, "clientDocument">
 
 export async function loadChangeLoan(db: Pick<Tx, "loan">, tenantId: string, loanId: string): Promise<ChangeLoan | null> {
   return db.loan.findFirst({ where: { id: loanId, tenantId }, include: LOAN_INCLUDE })
@@ -104,7 +105,7 @@ async function computeNewLoan(db: Reader, tenantId: string, primary: ChangeLoan,
   const settled: SettledLoan[] = []
   for (const loan of loans) {
     // What the loan page, the certificate and the receipt path say settles it: lib/loan/settlement.ts, default charges included.
-    const figures = await loanSettlementFigures(db as never, { ...loan, repaymentSchedule: loan.repaymentSchedule }, asOf)
+    const figures = await loanSettlementFigures(db, loan, asOf)
     if (figures.totalToSettle <= 0) throw new LoanChangeRefused(`${loan.reference}: nothing is owed on this loan`)
     settled.push({ loan, settlementCents: figures.totalToSettle })
   }

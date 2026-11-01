@@ -189,6 +189,18 @@ suite("loan changes on a Lesotho instance (real Postgres, real routes)", () => {
     expect(rows).toHaveLength(6)
   })
 
+  it("a rejected change leaves the loan alone, and stays on its history with the reason", async () => {
+    const l = await loan()
+    const before = await rowsOf(l.loanId)
+    const { id } = await draftAndSubmit(l, { type: "TERM_CHANGE", instalments: 4 })
+    as(l, "checker")
+    expect((await actionRoute(req({ note: "Affordability does not support it" }), params({ id, action: "reject" }))).status).toBe(200)
+    expect(await rowsOf(l.loanId)).toEqual(before)
+    expect(await db().loanChange.count({ where: { loanId: l.loanId } })).toBe(0)
+    const view = await (await changesRoute(req(), params({ id: l.loanId }))).json() as { requests: Array<{ status: string; decisionNote: string | null; checker: string | null }> }
+    expect(view.requests).toEqual([expect.objectContaining({ status: "REJECTED", decisionNote: "Affordability does not support it", checker: `${l.checkerId}@test.invalid` })])
+  })
+
   it("a change drafted before another was applied is stale, and leaves the loan alone", async () => {
     const l = await loan()
     const { id } = await draftAndSubmit(l, { type: "TERM_CHANGE", instalments: 4 })
@@ -296,7 +308,7 @@ suite("loan changes on a Lesotho instance (real Postgres, real routes)", () => {
     expect(wrongPaper.status).toBe(422)
   })
 
-  it("IFRS 9 stages a restructure at least Stage 2, keeps a re-default at 3, then lets it cure", async () => {
+  it("IFRS 9 stages a restructure at least Stage 2, then lets it cure", async () => {
     const l = await loan()
     await pay(l, await dueRowsTotal(l.loanId, 3))
     await proposeAndApprove(l, { type: "PAYMENT_HOLIDAY", holidayInstalments: 1 })

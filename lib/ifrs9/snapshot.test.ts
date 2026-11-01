@@ -211,3 +211,25 @@ describe("an instalment sale three instalments in arrears", () => {
     expect(s).toMatchObject({ stage: 3, interestSuspended: false, suspendedInterestCents: 0, eadCents: 330_000 })
   })
 })
+
+describe("a restructured loan (Loan.restructuredAt, lib/loan-changes)", () => {
+  const paid = baseLoan({ outstandingPrincipal: 200_000, restructuredOn: "2026-10-05", schedule: schedule([115_000, 115_000, 115_000, 115_000]) })
+
+  it("an ACTIVE loan is staged RESTRUCTURED at the first run after it, however well it pays", () => {
+    const { staging } = assessLoan(paid, at("2026-10-31"), { stage: 1, stageSince: "2026-06-30", cureStartedOn: null, restructured: false, runDate: "2026-09-30" })
+    expect(staging).toMatchObject({ stage: 2, restructured: true })
+    expect(staging.reasons).toContain("RESTRUCTURED")
+  })
+
+  it("then serves its probation in Stage 2 rather than staying restructured for ever", () => {
+    const prior = { stage: 2 as const, stageSince: "2026-10-31", cureStartedOn: null, restructured: true, runDate: "2026-10-31" }
+    const { staging } = assessLoan({ ...paid, schedule: schedule([115_000, 115_000, 115_000, 115_000, 115_000]) }, at("2026-11-30"), prior)
+    expect(staging).toMatchObject({ stage: 2, inProbation: true, restructured: true, cureStartedOn: "2026-11-30" })
+  })
+
+  it("a restructured loan that defaults again is Stage 3: the marker does not hide DEFAULTED", () => {
+    const { staging } = assessLoan({ ...paid, status: "DEFAULTED" }, at("2026-10-31"), null)
+    expect(staging.stage).toBe(3)
+    expect(staging.reasons).toContain("STATUS_DEFAULTED")
+  })
+})
