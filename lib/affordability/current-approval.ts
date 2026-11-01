@@ -1,3 +1,4 @@
+import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 import type { LoanCalcResult } from "@/lib/loan-calculator"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { sastCalendarDate } from "@/lib/date/sast"
@@ -446,21 +447,30 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "compliance_changed" }
   }
+  // What an approval needs of the South African consumer evidence depends on the disclosure regime (the same rules
+  // decide-application applied before it opened this transaction).
+  const evidenceRules = approvalEvidenceRules(application)
   if (
-    !application.clientAffordabilityDeclaredAt ||
-    !application.recklessLendingAssessed ||
-    !application.recklessLendingAssessedAt ||
-    !application.recklessLendingAssessedById
+    (evidenceRules.affordabilityDeclaration && !application.clientAffordabilityDeclaredAt) ||
+    (evidenceRules.recklessLendingAssessment && (
+      !application.recklessLendingAssessed ||
+      !application.recklessLendingAssessedAt ||
+      !application.recklessLendingAssessedById
+    ))
   ) {
     return { ok: false, reason: "compliance_changed" }
   }
-  const creditLife = verifyStoredCreditLifeDisclosure(application, {
-    principalCents: application.appliedAmount,
-    termDays: application.appliedTermDays,
-  })
-  if (!creditLife.ok) {
+  if (keyFactsCreditLifeRefusal(application)) return { ok: false, reason: "compliance_changed" }
+  const storedCreditLife = evidenceRules.creditLifeElection
+    ? verifyStoredCreditLifeDisclosure(application, {
+        principalCents: application.appliedAmount,
+        termDays: application.appliedTermDays,
+      })
+    : null
+  if (storedCreditLife && !storedCreditLife.ok) {
     return { ok: false, reason: "compliance_changed" }
   }
+  const creditLife = { evidence: storedCreditLife?.ok ? storedCreditLife.evidence : KEY_FACTS_CREDIT_LIFE }
   const submission = readAffordabilitySnapshotStore(application.affordabilityResult).submission
   if (!submission || !application.submittedAt) {
     return { ok: false, reason: "submission_missing" }
@@ -472,7 +482,7 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "submission_changed" }
   }
-  if (!bureauCheck && !args.bureauOverrideReason) {
+  if (evidenceRules.bureauCheck && !bureauCheck && !args.bureauOverrideReason) {
     return { ok: false, reason: "bureau_missing" }
   }
   if (
@@ -550,13 +560,15 @@ export async function verifyLockedApprovalCandidate(
     }
     recurringPaymentCents = billing.recurringPaymentCents
   } else {
+    // A PASQ binds an NCA_PASQ application; a key-facts application has none.
+    if (!storedCreditLife?.ok) return { ok: false, reason: "compliance_changed" }
     const pasq = verifyStoredPasqBinding(application, {
       tenantId: application.tenantId,
       applicationId: application.id,
       clientId: application.clientId,
       productId: application.productId,
       calculatorPricingFingerprint: calculatorEvidence.pricingFingerprint,
-      creditLifeDisclosureSha256: creditLife.evidence.disclosureSha256,
+      creditLifeDisclosureSha256: storedCreditLife.evidence.disclosureSha256,
     })
     if (
       !pasq.ok

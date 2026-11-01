@@ -446,6 +446,25 @@ describe("computeReadiness", () => {
       expect(result?.blockers).toContain("Bureau check required")
     })
 
+    it("asks a key-facts application for none of the South African evidence, and keeps every other blocker", () => {
+      const result = computeReadiness(
+        input({
+          bureau: null,
+          application: {
+            disclosureRegime: "KEY_FACTS",
+            creditLife: { ...creditLifeDisclosure(), creditLifeDisclosureSha256: null },
+            clientAffordabilityDeclaredAt: null,
+            recklessLendingAssessedById: null,
+          },
+        }),
+      )
+      for (const gone of ["Credit-life election missing", "Affordability declaration missing", "Reckless-lending assessment missing", "Bureau check required"]) {
+        expect(result?.blockers).not.toContain(gone)
+      }
+      const nca = computeReadiness(input({ bureau: null, application: { disclosureRegime: "NCA_PASQ", clientAffordabilityDeclaredAt: null } }))
+      expect(nca?.blockers).toEqual(expect.arrayContaining(["Affordability declaration missing", "Bureau check required"]))
+    })
+
     it("blocks on the bureau risk gate", () => {
       const result = computeReadiness(
         input({

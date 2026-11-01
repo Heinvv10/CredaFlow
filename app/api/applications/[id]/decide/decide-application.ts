@@ -41,6 +41,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
+import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { clientDeclineReason, parseDeclineCategory } from "@/lib/applications/decline-category"
@@ -841,25 +842,34 @@ export async function decideApplication({ tenant, user, id, formData, automation
       )
     }
 
-    const creditLifeDisclosure = verifyAppliedCreditLifeDisclosure(application)
-    if (!creditLifeDisclosure.ok) {
+    // What an approval needs of the South African consumer evidence depends on the application's disclosure regime
+    // (lib/non-nca-documents/regime-evidence.ts): a key-facts application in a jurisdiction without the NCA needs none of it,
+    // and is priced with no credit life. Everything below this block applies to both.
+    const evidenceRules = approvalEvidenceRules(application)
+    const keyFactsCoverRefusal = keyFactsCreditLifeRefusal(application)
+    if (keyFactsCoverRefusal) {
+      return NextResponse.json({ error: keyFactsCoverRefusal, creditLifeEvidence: "not_offered" }, { status: 422 })
+    }
+    const ncaCreditLife = evidenceRules.creditLifeElection ? verifyAppliedCreditLifeDisclosure(application) : null
+    if (ncaCreditLife && !ncaCreditLife.ok) {
       return NextResponse.json(
         {
           error: "Approval requires an intact credit-life election and exact-premium disclosure captured before the PASQ.",
           missingComplianceEvidence: ["credit-life election"],
-          creditLifeEvidence: creditLifeDisclosure.reason,
+          creditLifeEvidence: ncaCreditLife.reason,
         },
         { status: 422 },
       )
     }
+    const creditLifeBilling = ncaCreditLife?.ok ? ncaCreditLife.evidence : KEY_FACTS_CREDIT_LIFE
 
     const missingComplianceEvidence = [
-      ...(!application.clientAffordabilityDeclaredAt
+      ...(evidenceRules.affordabilityDeclaration && !application.clientAffordabilityDeclaredAt
         ? ["client affordability declaration"]
         : []),
-      ...(!application.recklessLendingAssessed ||
+      ...(evidenceRules.recklessLendingAssessment && (!application.recklessLendingAssessed ||
         !application.recklessLendingAssessedAt ||
-        !application.recklessLendingAssessedById
+        !application.recklessLendingAssessedById)
         ? ["reckless-lending assessment"]
         : []),
     ]
@@ -931,7 +941,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // (integration error), or have gone stale (>90 days). Refuse to
     // approve without either a successful current pull or a documented,
     // audited override persisted to `recklessLendingNote`.
-    if (!bureauCheck && !bureauOverrideReason) {
+    if (evidenceRules.bureauCheck && !bureauCheck && !bureauOverrideReason) {
       return NextResponse.json(
         {
           error: "Bureau enquiry required: cannot approve without a current credit bureau check.",
@@ -1071,14 +1081,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
     try {
       approvalBilling = createPasqBillingEvidence({
         calculator: approvalCalculatorEvidence,
-        election: creditLifeDisclosure.evidence.election,
+        election: creditLifeBilling.election,
         // No-offer disclosures carry DECLINED + premium exactly 0; the
         // billing helper's validation branches on `offered` and REJECTS a
         // zero premium when it defaults to true. Omitting this made every
         // no-offer application unapprovable — the same failure that a zero
         // premium causes anywhere else the helper runs.
-        offered: creditLifeDisclosure.evidence.offered,
-        monthlyPremiumCents: creditLifeDisclosure.evidence.monthlyPremiumCents,
+        offered: creditLifeBilling.offered,
+        monthlyPremiumCents: creditLifeBilling.monthlyPremiumCents,
         premiumPeriods: calculateCreditLifePremiumPeriods(
           approvalCalculatorEvidence,
           approvalTermDays,

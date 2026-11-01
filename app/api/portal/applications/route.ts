@@ -1,3 +1,4 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { Prisma, type LoanPurposeCategory } from "@prisma/client"
@@ -152,9 +153,9 @@ export async function POST(req: NextRequest) {
     // block, so there is no choice for the client to submit. The transaction
     // below re-reads the offer under lock; this only decides whether the
     // client was expected to send one at all.
-    const offerConfiguredAtRequest = await prisma.insuranceProduct.findFirst(
-      creditLifeOfferFindFirstArgs(tenant.id),
-    )
+    const offerConfiguredAtRequest = isNcaJurisdiction() // none is offered outside the NCA's jurisdiction
+      ? await prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenant.id))
+      : null
     // Never silently rewrite an election the consumer actually stated. A stale
     // tab or a replayed body can post ACCEPTED with no product configured, and
     // recording that as DECLINED would put an untrue attribution into the

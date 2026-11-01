@@ -1,3 +1,4 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { Prisma, type AgreementType, type AppStatus, type LoanPurposeCategory } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import type { ApplicationSubmissionTransaction } from "@/lib/applications/submission-lock"
@@ -160,7 +161,7 @@ export async function prepareApplicationFields(
   // Resolved before validation: with no active credit-life product there is no
   // cover to offer, so the wizard cannot have captured an election or a
   // disclosure acknowledgement and validation must not demand them.
-  const configuredCreditLifeOffer = data.submitForReview
+  const configuredCreditLifeOffer = data.submitForReview && isNcaJurisdiction() // none is offered outside the NCA's jurisdiction
     ? await db.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId))
     : null
 

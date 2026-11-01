@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   CREDIT_LIFE_DISCLOSURE_VERSION,
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
   calculateCreditLifeMonthlyPremiumCents,
   creditLifeOfferMatches,
+  creditLifeOfferedFor,
   creditLifePrincipalIsEligible,
   isCreditLifeElection,
 } from "./credit-life-election"
@@ -350,5 +352,19 @@ describe("credit-life premium rounding matches Postgres ROUND(numeric)", () => {
     expect(() =>
       calculateCreditLifeMonthlyPremiumCents(Number.MAX_SAFE_INTEGER),
     ).toThrow(RangeError)
+  })
+})
+
+describe("creditLifeOfferedFor by jurisdiction", () => {
+  afterEach(() => resetActiveJurisdiction())
+
+  it("offers cover on a South African instance when a product is configured and the principal is eligible", () => {
+    expect(creditLifeOfferedFor(true, 500_000)).toBe(true)
+    expect(creditLifeOfferedFor(false, 500_000)).toBe(false)
+  })
+
+  it("offers none on a Lesotho instance, whatever product rows exist (the regulations are South African)", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(creditLifeOfferedFor(true, 500_000)).toBe(false)
   })
 })

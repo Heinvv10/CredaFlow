@@ -75,6 +75,22 @@ export async function runBureauReviewCheck(
   try {
     if (!(await currentReview(prisma, opts))) return "stale"
 
+    // A key-facts application (a jurisdiction without the NCA) has no South African bureau to ask: the borrower is not on
+    // one and the enquiry would be a South African identity check on a foreign number. Recorded as skipped, not failed, so the
+    // review does not wait on a retry (lib/non-nca-documents/regime-evidence.ts: approval does not require the check).
+    const regime = await prisma.loanApplication.findUnique({ where: { id: opts.applicationId, tenantId: opts.tenantId }, select: { disclosureRegime: true } })
+    if (regime?.disclosureRegime === "KEY_FACTS") {
+      const stored = await storeComplianceRecordIfCurrent(opts, {
+        tenantId: opts.tenantId,
+        type: "CREDIT_BUREAU_CHECK",
+        status: "ACKNOWLEDGED",
+        referenceId: opts.applicationId,
+        completedAt: new Date(),
+        data: { clientId: opts.clientId, provider: primary, reviewGeneration: opts.reviewGeneration, skipped: true, reason: "NOT_APPLICABLE_JURISDICTION" },
+      })
+      return stored ? "skipped" : "stale"
+    }
+
     const config = await prisma.tenantConfig.findUnique({
       where: { tenantId: opts.tenantId },
       select: { bureauProviderOrder: true, bureauCredentials: true },

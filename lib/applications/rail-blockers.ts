@@ -21,6 +21,8 @@ export interface ApprovalGateFacts {
   recklessLendingAssessed: boolean
   clientAffordabilityDeclared: boolean
   openCreditChecks: number
+  /** False for a key-facts application: the NCA reckless-lending checks are not asked of it (regime-evidence.ts). */
+  ncaChecksRequired?: boolean
 }
 
 export function approvalGateBlockers(f: ApprovalGateFacts): RailBlocker[] {
@@ -33,7 +35,7 @@ export function approvalGateBlockers(f: ApprovalGateFacts): RailBlocker[] {
       tone: "danger",
     })
   }
-  if (!f.recklessLendingAssessed || !f.clientAffordabilityDeclared) {
+  if ((f.ncaChecksRequired ?? true) && (!f.recklessLendingAssessed || !f.clientAffordabilityDeclared)) {
     blockers.push({
       label: "NCA checks not confirmed",
       detail: "Confirm the reckless-lending assessment and the client's affordability declaration under NCA checks.",

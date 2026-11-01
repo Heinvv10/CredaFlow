@@ -226,12 +226,22 @@ describe("bureau review generation binding", () => {
     getCreditReportMock.mockResolvedValue(experianNotConfigured)
     applicationFindUniqueMock
       .mockResolvedValueOnce(currentReview) // start of the run
+      .mockResolvedValueOnce(currentReview) // the disclosure regime
       .mockResolvedValueOnce(currentReview) // before attempt 1
       .mockResolvedValue({ ...currentReview, bureauReviewGeneration: "review-generation-2" })
 
     await expect(runBureauReviewCheck(request)).resolves.toBe("stale")
 
     expect(getCreditReportMock).toHaveBeenCalledOnce()
+    expect(bureauCheckCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("asks no bureau about a key-facts application (a jurisdiction without the NCA): recorded as skipped, not failed", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS" })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("skipped")
+
+    expect(getCreditReportMock).not.toHaveBeenCalled()
     expect(bureauCheckCreateMock).not.toHaveBeenCalled()
   })
 

@@ -1,3 +1,4 @@
+import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 import { DOC_TYPE_LABELS } from "@/lib/document-types"
 import { deriveKycBlockers, kycGateStage } from "@/lib/kyc/kyc-blockers"
 import type { CompositeKycResult, CoreDocumentGap } from "@/lib/kyc/document-state"
@@ -91,6 +92,8 @@ export interface ReadinessClient {
 }
 
 export interface ReadinessApplication {
+  /** NCA_PASQ or KEY_FACTS (LoanApplication.disclosureRegime): which approval evidence applies. */
+  disclosureRegime?: string | null
   status: string
   submittedAt: Date | null
   appliedAmount: number
@@ -213,20 +216,25 @@ function approvalBlockers(input: ReadinessInput): string[] {
   // The APPLIED-for terms, which is what /decide checks before approval. The
   // payout path deliberately uses the APPROVED terms instead; the two are not
   // interchangeable, and the helper name is what keeps them straight.
-  const creditLife = verifyAppliedCreditLifeDisclosure({
-    ...application.creditLife,
-    appliedAmount: application.appliedAmount,
-    appliedTermDays: application.appliedTermDays,
-  })
-  if (!creditLife.ok) blockers.push("Credit-life election missing")
+  // Which of the South African consumer evidence an approval asks for depends on the disclosure regime (decide-application).
+  const rules = approvalEvidenceRules(application)
+  if (rules.creditLifeElection) {
+    const creditLife = verifyAppliedCreditLifeDisclosure({
+      ...application.creditLife,
+      appliedAmount: application.appliedAmount,
+      appliedTermDays: application.appliedTermDays,
+    })
+    if (!creditLife.ok) blockers.push("Credit-life election missing")
+  }
 
-  if (!application.clientAffordabilityDeclaredAt) {
+  if (rules.affordabilityDeclaration && !application.clientAffordabilityDeclaredAt) {
     blockers.push("Affordability declaration missing")
   }
   if (
-    !application.recklessLendingAssessed
-    || !application.recklessLendingAssessedAt
-    || !application.recklessLendingAssessedById
+    rules.recklessLendingAssessment
+    && (!application.recklessLendingAssessed
+      || !application.recklessLendingAssessedAt
+      || !application.recklessLendingAssessedById)
   ) {
     blockers.push("Reckless-lending assessment missing")
   }
@@ -243,8 +251,8 @@ function approvalBlockers(input: ReadinessInput): string[] {
   }
   if (!input.bureau) {
     // A reasoned override can still approve without one, which is why this
-    // reads as a requirement rather than a refusal.
-    blockers.push("Bureau check required")
+    // reads as a requirement rather than a refusal. A key-facts application needs none.
+    if (rules.bureauCheck) blockers.push("Bureau check required")
   } else if (evaluateBureauGate(input.bureau, input.bureauPolicy).blocked) {
     blockers.push("Bureau risk gate")
   }

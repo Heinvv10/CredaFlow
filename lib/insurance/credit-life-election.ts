@@ -1,3 +1,5 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+
 export const CREDIT_LIFE_DISCLOSURE_VERSION = "credit-life-election-v1" as const
 /**
  * Recorded when the tenant has no active credit-life product with an active
@@ -64,7 +66,9 @@ export function creditLifePrincipalIsEligible(principalCents: number): boolean {
  * record for exactly this case even while a product is active.
  */
 export function creditLifeOfferedFor(productConfigured: boolean, principalCents: number): boolean {
-  return productConfigured && creditLifePrincipalIsEligible(principalCents)
+  // Credit life is sold under the South African Credit Life Insurance Regulations: a lender outside the NCA's
+  // jurisdiction offers none, whatever product rows exist (lib/non-nca-documents/regime-evidence.ts).
+  return productConfigured && isNcaJurisdiction() && creditLifePrincipalIsEligible(principalCents)
 }
 
 // Largest principal for which principalCents * 45 + 5_000 is a safe integer.
