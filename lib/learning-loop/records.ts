@@ -43,6 +43,8 @@ export interface AutomationFacts {
   reasonCodes: readonly string[]
   riskGrade: string | null
   bureauCheckId: string | null
+  /** A key-facts approval on which the engine attested affordability in place of a person. */
+  attestsAffordability?: boolean
   /** The exact facts the rules read: hashed into the record, never stored (lib/decisioning/facts.ts holds no identifiers). */
   exactInputs: { [key: string]: Plain }
 }
@@ -167,7 +169,7 @@ export function consumerApprovalRecords(f: ConsumerApprovalFacts): DecisionRecor
       creditChecks: { cleared: cleared.length, clearedCodes: cleared.map((flag) => `${flag.check}:${flag.code}`).sort() },
       screening: f.screeningState,
       thresholds: policy,
-      ...(f.automation ? { automated: { ruleVersion: f.automation.ruleVersion, reasonCodes: [...f.automation.reasonCodes], riskGrade: f.automation.riskGrade } } : {}),
+      ...(f.automation ? { automated: { ruleVersion: f.automation.ruleVersion, reasonCodes: [...f.automation.reasonCodes], riskGrade: f.automation.riskGrade, ...(f.automation.attestsAffordability ? { affordabilityAttested: true } : {}) } } : {}),
     },
     evidenceRefs,
     exactInputs,

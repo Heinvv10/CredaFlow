@@ -9,7 +9,7 @@ import { runBureauEnquiry } from "@/lib/bureau/enquiry"
 import { bureauCheckRow, scoreDropAlert } from "@/lib/bureau/persist"
 import { bureauProviderOrder } from "@/lib/bureau/registry"
 import { redactIdNumbers } from "@/lib/bureau/normalise"
-import { isApprovalBureau } from "@/lib/compliance/bureau"
+import { isApprovalBureau, isKeyFactsBureau } from "@/lib/compliance/bureau"
 import type { BureauPurpose } from "@/lib/bureau/types"
 
 export type BureauReviewRequest = {
@@ -27,6 +27,15 @@ type BureauReviewTransaction = Parameters<
 
 /** Origination enquiries are affordability assessments (NCA s.81). */
 const REVIEW_PURPOSE: BureauPurpose = "AFFORDABILITY_ASSESSMENT"
+
+/**
+ * A key-facts application is asked of a bureau only for a lender whose LIVE engine may approve it instantly (a bureau check is
+ * what that approval rests on); otherwise no enquiry is made and approval does not need one.
+ */
+export async function keyFactsBureauApplies(db: Pick<BureauReviewTransaction, "decisionEngineConfig">, tenantId: string): Promise<boolean> {
+  const config = await db.decisionEngineConfig.findUnique({ where: { tenantId }, select: { mode: true, keyFactsInstantApproval: true } })
+  return config?.mode === "LIVE" && config.keyFactsInstantApproval
+}
 
 /** A tenant with no config row keeps the schema default: Experian only. */
 const DEFAULT_ORDER = { bureauProviderOrder: ["experian"] }
@@ -81,7 +90,8 @@ export async function runBureauReviewCheck(
     // A key-facts application (a jurisdiction without the NCA) has no South African bureau to ask: the borrower is not on
     // one and the enquiry would be a South African identity check on a foreign number. Recorded as skipped, not failed, so the
     // review does not wait on a retry (lib/non-nca-documents/regime-evidence.ts: approval does not require the check).
-    if (review.disclosureRegime === "KEY_FACTS") {
+    const keyFacts = review.disclosureRegime === "KEY_FACTS"
+    if (keyFacts && !(await keyFactsBureauApplies(prisma, opts.tenantId))) {
       const stored = await storeComplianceRecordIfCurrent(opts, {
         tenantId: opts.tenantId,
         type: "CREDIT_BUREAU_CHECK",
@@ -173,7 +183,7 @@ export async function runBureauReviewCheck(
       },
       // An origination enquiry is for an approval: a bureau whose report could
       // not support one is recorded as skipped, never called and billed.
-      eligible: isApprovalBureau,
+      eligible: keyFacts ? isKeyFactsBureau : isApprovalBureau,
       beforeAttempt: async () => (await currentReview(prisma, opts)) !== null,
     })
     if (run.stale) return "stale"

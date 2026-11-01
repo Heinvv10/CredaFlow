@@ -12,12 +12,14 @@ const getCreditReportMock = vi.fn()
 const subjectFingerprintMock = vi.fn()
 const tenantConfigFindUniqueMock = vi.fn()
 const auditLogCreateMock = vi.fn()
+const engineConfigFindUniqueMock = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findUnique: (args: unknown) => applicationFindUniqueMock(args) },
     client: { findUnique: (args: unknown) => clientFindUniqueMock(args) },
     tenantConfig: { findUnique: (args: unknown) => tenantConfigFindUniqueMock(args) },
+    decisionEngineConfig: { findUnique: (args: unknown) => engineConfigFindUniqueMock(args) },
     creditBureauCheck: {
       findMany: (args: unknown) => priorCheckFindManyMock(args),
     },
@@ -247,6 +249,32 @@ describe("bureau review generation binding", () => {
     const recorded = complianceRecordCreateMock.mock.calls.at(-1)?.[0]
     expect(recorded.data.data).toMatchObject({ skipped: true, reason: "NOT_APPLICABLE_JURISDICTION" })
     expect(recorded.data.data).not.toHaveProperty("provider")
+  })
+
+  it.each([
+    ["the setting is off", { mode: "LIVE", keyFactsInstantApproval: false }],
+    ["the engine is only rehearsing", { mode: "SHADOW", keyFactsInstantApproval: true }],
+    ["the lender has no engine", null],
+  ])("still asks no bureau about a key-facts application when %s", async (_label, config) => {
+    applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS" })
+    engineConfigFindUniqueMock.mockResolvedValue(config)
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["simulated"], bureauCredentials: null })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("skipped")
+
+    expect(bureauCheckCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("with instant key-facts approval on, asks a bureau that serves the jurisdiction and never a South African one", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS" })
+    txApplicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS" })
+    engineConfigFindUniqueMock.mockResolvedValue({ mode: "LIVE", keyFactsInstantApproval: true })
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["experian", "simulated"], bureauCredentials: null })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
+
+    expect(getCreditReportMock).not.toHaveBeenCalled()
+    expect(bureauCheckCreateMock.mock.calls.map(([args]) => [args.data.provider, args.data.ok])).toEqual([["experian", false], ["simulated", true]])
   })
 
   it("reports a key-facts skip as stale when the review moved on before it could be recorded", async () => {

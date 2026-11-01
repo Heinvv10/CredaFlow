@@ -57,7 +57,7 @@ import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
 import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
-import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
+import { approvalEvidenceRules, automatedAffordabilityAllowedUnder, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
 // 20261021090000_credit_decision_record) holds the same 10-code-point floor:
@@ -240,6 +240,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
           recklessLendingAssessed: false,
           recklessLendingAssessedById: null,
           recklessLendingAssessedAt: null,
+          automatedAffordabilityAttestedAt: null,
+          automatedAffordabilityVersionId: null,
           pasqAcknowledgedAt: null,
           pasqAcknowledgedBy: null,
           pasqAcknowledgedSha256: null,
@@ -561,6 +563,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
           recklessLendingAssessed: false,
           recklessLendingAssessedById: null,
           recklessLendingAssessedAt: null,
+          automatedAffordabilityAttestedAt: null,
+          automatedAffordabilityVersionId: null,
           pasqAcknowledgedAt: null,
           pasqAcknowledgedBy: null,
           pasqAcknowledgedSha256: null,
@@ -1510,6 +1514,11 @@ export async function decideApplication({ tenant, user, id, formData, automation
               recklessLendingAssessedById: user.id,
               recklessLendingAssessedAt: decisionAt,
             }),
+            // The engine's attestation stands in for a person only where the regime allows it; it never satisfies an s81 assessment.
+            ...(automation?.attestsAffordability && automatedAffordabilityAllowedUnder(application.disclosureRegime) && {
+              automatedAffordabilityAttestedAt: decisionAt,
+              automatedAffordabilityVersionId: automation.ruleSetVersionId,
+            }),
           },
         })
         if (approved.count !== 1) {
@@ -1564,7 +1573,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
               approvedInstalmentCents: instalment,
               creditLifePremiumCents,
               ...(bureauOverrideReason ? { bureauOverride: bureauOverrideReason } : {}),
-              ...(automation ? { automated: true, ruleVersion: automation.ruleVersion, reasonCodes: automation.reasonCodes, riskGrade: automation.riskGrade } : {}),
+              ...(automation ? { automated: true, ruleVersion: automation.ruleVersion, reasonCodes: automation.reasonCodes, riskGrade: automation.riskGrade, ...(automation.attestsAffordability ? { affordabilityAttested: true } : {}) } : {}),
             },
           },
         })

@@ -23,6 +23,7 @@ export interface EnginePayload {
   challengerPercent: number
   s71SignOff: boolean
   automatedDeclineNotice: string | null
+  keyFactsInstantApproval: boolean
 }
 
 export interface VersionRow {
@@ -56,6 +57,8 @@ export interface Overview {
   products: { id: string; code: string; name: string }[]
   versions: VersionRow[]
   config: EnginePayload
+  /** An instance outside the NCA: the one place instant approval of a digital application can be offered. */
+  keyFactsInstance: boolean
   requests: ChangeRow[]
   stats: {
     sinceDays: number

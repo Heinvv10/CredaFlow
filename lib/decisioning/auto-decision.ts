@@ -12,7 +12,7 @@ import { inChallengerGroup, pickChampion } from "./select-version"
 import type { Verdict } from "./types"
 import { parseRules } from "./validate-rules"
 import { parseScorecard } from "./validate-scorecard"
-import { withKeyFactsReferral } from "./key-facts-referral"
+import { withKeyFactsAttestation, withKeyFactsReferral } from "./key-facts-referral"
 
 export const TRIGGERS = ["REVIEW_STARTED", "DIGITAL_SUBMISSION", "MANUAL"] as const
 export type Trigger = (typeof TRIGGERS)[number]
@@ -92,6 +92,7 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
 
     let verdict: Verdict
     let referralNote: string | null = null
+    let attestsAffordability = false
     try {
       const rules = parseRules(row.rules)
       // A key-facts application has no bureau, and a rule never fires on what is not known: see ./key-facts-referral.ts.
@@ -99,6 +100,10 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
         decide({ facts: loaded.facts, rules, scorecard: parseScorecard(row.scorecard) }),
         { regime: loaded.application.disclosureRegime, bureauCheckId: loaded.bureauCheckId, facts: loaded.facts, rules },
       ))
+      const attestation = withKeyFactsAttestation(verdict, { regime: loaded.application.disclosureRegime, allowed: config.keyFactsInstantApproval, trigger, facts: loaded.facts })
+      verdict = attestation.verdict
+      referralNote ??= attestation.note
+      attestsAffordability = attestation.attested
     } catch (error) {
       // A stored set that no longer validates is never run: staff decide. Say so where operations will see it.
       logger.error("auto-decision: stored rule set is invalid", { ruleSetVersionId: row.id, error: error instanceof Error ? error.message : String(error) })
@@ -114,7 +119,7 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
       verdict = { ...verdict, decision: "REFER", reasonCodes: ["NO_BUREAU"], declineCategory: null, riskGrade: null, gradeRank: null, score: null, pricingTier: null, hits: [] }
     }
     const ctx: RunContext = {
-      tenantId, applicationId, trigger, mode: config.mode, role, loaded, verdict, startedAt, now,
+      tenantId, applicationId, trigger, mode: config.mode, role, loaded, verdict, attestsAffordability, startedAt, now,
       noticeText: config.s71SignedOffAt ? config.automatedDeclineNotice : null,
       version: { id: row.id, scopeKey: row.scopeKey, version: row.version },
     }
