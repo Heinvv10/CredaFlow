@@ -59,7 +59,7 @@ suite.sequential("a lease's end-of-term invoice on the receivable (real Postgres
     expect(loan.principal).toBe(276_000 + 28_750)
     expect(loan.repaymentSchedule.map((r) => r.totalDue)).toEqual([138_000, 138_000, 28_750])
     // A receipt fills the rentals first, then the end-of-term row: money reaches it.
-    await applyManualReceipt(db as unknown as PaymentDb, { loanId: "jrn-q3", tenantId: tenant.tenantId, amount: 276_000 + 10_000, capturedById: tenant.userId, reference: "Q3" })
+    await applyManualReceipt(db as unknown as PaymentDb, { loanId: "jrn-q3", tenantId: tenant.tenantId, amount: 276_000 + 10_000, capturedById: tenant.userId, reference: "Q3", receivedAt: day("2026-10-01") })
     const paid = await db.repaymentSchedule.findMany({ where: { loanId: "jrn-q3" }, orderBy: { installmentNo: "asc" } })
     expect(paid.map((r) => r.totalPaid)).toEqual([138_000, 138_000, 10_000])
   })

@@ -81,7 +81,7 @@ describe("what an NCA lender may still approve on a version", () => {
 
 describe("versionLimitRefusal", () => {
   const termsFor = async (repayment: unknown = null) => {
-    priced.value = { version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: null, campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment }
+    priced.value = { version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel: "BRANCH", campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment }
     return approvalTermsFor(db, "t", application, product)
   }
 
@@ -94,12 +94,12 @@ describe("versionLimitRefusal", () => {
     expect(versionLimitRefusal(terms, { principalCents: 300_000, termDays: 181 })).toContain("term")
   })
 
-  it.each([["DIGITAL", true], ["API", true], ["BRANCH", false], [null, false]])("a structured schedule for an application that came in on %j is refused: %s", async (channel, refused) => {
+  it.each([["DIGITAL", true], ["API", true], ["BRANCH", false], [null, true], ["AGENT", true]])("a structured schedule for an application that came in on %j is refused: %s", async (channel, refused) => {
     priced.value = { version: version(), base: { ratePm: 0.035, initiationFeePct: 0.1 }, inputs: { segment: null, channel, campaignCode: null, riskRank: null }, pricing: { ratePm: 0.035, initiationFeePct: 0.1, ruleId: null, ruleName: null }, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 13 } }
     const terms = await approvalTermsFor(db, "t", application, product)
     const refusal = versionLimitRefusal(terms, { principalCents: 300_000, termDays: 90 })
     expect(refusal === null).toBe(!refused)
-    if (refused) expect(refusal).toContain(`${channel} channel`)
+    if (refused) expect(refusal).toContain(channel ? `${channel} channel` : "no recorded channel")
   })
 
   it("does not hold a customer channel to it when the version has no structure: the monthly schedule is what they were offered", async () => {
