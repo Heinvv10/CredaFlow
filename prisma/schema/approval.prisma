@@ -167,7 +167,10 @@ model CreditCommitteeDecision {
   recordedBy    User                  @relation("CommitteeDecisionRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   /// The delegation whose authority the recorder used, when their own role did not reach the committee's level.
   delegationId  String?
+  /// Insert order. "The latest decision" reads this, never createdAt: a transaction stamps createdAt when it starts, not when it writes.
+  seq           Int                   @default(autoincrement())
   createdAt     DateTime              @default(now())
 
   @@index([tenantId, applicationId])
+  @@index([caseId, level, seq])
 }

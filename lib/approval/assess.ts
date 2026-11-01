@@ -53,7 +53,7 @@ export async function assessApproval(db: Db, input: {
   const steps = theCase ? await db.approvalStep.findMany({ where: { caseId: theCase.id }, select: { level: true, approverId: true, delegationId: true }, orderBy: { level: "asc" } }) : []
   const committeeLevel = levels.find((l) => l.committee)
   const committeeRows = theCase && committeeLevel
-    ? await db.creditCommitteeDecision.findMany({ where: { caseId: theCase.id, level: committeeLevel.level }, orderBy: { createdAt: "desc" }, select: { decision: true, conditions: true, recordedById: true, delegationId: true } })
+    ? await db.creditCommitteeDecision.findMany({ where: { caseId: theCase.id, level: committeeLevel.level }, orderBy: { seq: "desc" }, select: { decision: true, conditions: true, recordedById: true, delegationId: true } })
     : []
   // Every act on the case, with the delegator behind it: the seats taken (./seats.ts). A delegation from anyone already seated is not used.
   const delegationIds = [...steps.map((s) => s.delegationId), ...committeeRows.map((d) => d.delegationId)].filter((id): id is string => id !== null)

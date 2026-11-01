@@ -66,7 +66,7 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
   const matchedIds = assessed.matchedRuleIds
   const steps = theCase?.steps ?? []
   const decisions = theCase
-    ? await prisma.creditCommitteeDecision.findMany({ where: { tenantId, caseId: theCase.id }, orderBy: { createdAt: "asc" }, include: { recordedBy: { select: { name: true, email: true } } } })
+    ? await prisma.creditCommitteeDecision.findMany({ where: { tenantId, caseId: theCase.id }, orderBy: { seq: "asc" }, include: { recordedBy: { select: { name: true, email: true } } } })
     : []
   const authority = { level: assessed.authorityLevel }
   // The committee's attendees, rationale and conditions are for those who may read its pack (view_committee_pack).

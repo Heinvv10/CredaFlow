@@ -340,13 +340,12 @@ function approvedTerms(application: LockedApprovalApplication) {
 }
 
 /**
- * A loan written at a product version's rate is paid out only while that rate is still within the NCA cap: a repo cut between the
- * approval and the payout can leave an approved, frozen rate above the ceiling in force when the agreement is entered into. The
- * loans of products with no version are unchanged: this reads only the frozen inputs of a versioned approval.
+ * A loan is paid out only while the rate its approval froze is still within the NCA cap, on a versioned product or not: a repo cut
+ * between the approval and the payout can leave that rate above the ceiling in force when the agreement is entered into.
  */
-async function frozenVersionedRateIsLawful(tx: ApprovalEvidenceTransaction, tenantId: string, application: LockedApprovalApplication): Promise<boolean> {
+export async function frozenRateIsLawful(tx: ApprovalEvidenceTransaction, tenantId: string, application: LockedApprovalApplication): Promise<boolean> {
   const frozen = readAffordabilitySnapshotStore(application.affordabilityResult).approval?.inputs
-  if (!frozen?.productVersion) return true
+  if (!frozen) return true
   const written = approvedTerms(application)
   const subject = { ...written, appliedAmount: frozen.principalCents, appliedTermDays: frozen.termDays, product: { ...written.product, interestModel: frozen.interestModel } }
   return (await approvalInterestCapCheck(tx, tenantId, subject, new Date())).ok
@@ -387,7 +386,7 @@ export async function verifyLockedCurrentAffordabilityApproval(
   // repeat rate), has appeared since.
   const raised = await ownLenderDebtIncreasedSinceApproval(tx, args.tenantId, args.applicationId, context.application)
     || !(await checkRepeatShortTermFor(tx, args.tenantId, approvedTerms(context.application), new Date())).ok
-    || !(await frozenVersionedRateIsLawful(tx, args.tenantId, context.application))
+    || !(await frozenRateIsLawful(tx, args.tenantId, context.application))
   return raised ? { ok: false, reason: "changed" } : { ...verified, application: context.application }
 }
 
