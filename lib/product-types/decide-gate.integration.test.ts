@@ -6,11 +6,25 @@
  */
 import { afterEach, expect, it, vi } from "vitest"
 
+const race = vi.hoisted(() => ({ passFirstCheck: false }))
+
+vi.mock("@/lib/product-types/rules", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./rules")>()
+  return {
+    ...real,
+    // A draw landing between the route's check and the transaction: the first check saw nothing wrong, the locked one reads the database.
+    productTypeRefusal: (...args: Parameters<typeof real.productTypeRefusal>) => {
+      if (!race.passFirstCheck) return real.productTypeRefusal(...args)
+      race.passFirstCheck = false
+      return Promise.resolve(null)
+    },
+  }
+})
 vi.mock("@/lib/prisma", async (importOriginal) => (await import("@/lib/approval/approval.integration-prisma")).mockPrisma(await importOriginal<typeof import("@/lib/prisma")>()))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/notifications")>()), triggerNotification: vi.fn(async () => undefined) }))
 
-import { A, approveAs, as, db, ids, registerApprovalFixture, suite, underReview } from "@/lib/approval/approval.integration-fixture"
+import { A, approveAs, as, db, ids, registerApprovalFixture, statusOf, suite, underReview } from "@/lib/approval/approval.integration-fixture"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const retype = (productType: "SALARY_BACKED" | "MICRO") => db.loanProduct.update({ where: { id: ids.product }, data: { productType } })
@@ -42,6 +56,17 @@ suite("the product types at the decide route (real Postgres)", () => {
     await db.applicationProductFacts.create({ data: { applicationId: id, tenantId: ids.tenant, employerName: "Maluti Mining", payrollNumber: "P-7", updatedById: ids.officer } })
     const past = await approveAs("la1", id)
     expect(past.body.productTypeRefused).toBeUndefined()
+  })
+
+  it("the check under the application's lock stands on its own: what changed after the route's check stops the approval", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    await retype("SALARY_BACKED")
+    const id = A("pt-race")
+    await underReview(id, { amount: 300_000 })
+    race.passFirstCheck = true
+    const result = await approveAs("la1", id)
+    expect(result.status).not.toBe(200)
+    expect(await statusOf(id)).toBe("UNDER_REVIEW")
   })
 
   it("whoever set the facts does not approve the application", async () => {
