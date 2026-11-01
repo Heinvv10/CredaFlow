@@ -14,6 +14,7 @@ enum DisclosureRegime {
 }
 
 enum LoanDocumentKind {
+  OFFER_LETTER
   KEY_FACTS_STATEMENT
   LOAN_AGREEMENT
 }
@@ -51,12 +52,48 @@ model LoanDocumentIssuance {
   issuedAt              DateTime                @default(now())
   issuedById            String?
   supersededAt          DateTime?
-  // KEY_FACTS_STATEMENT only: the borrower's acceptance of exactly these bytes.
+  // OFFER_LETTER and KEY_FACTS_STATEMENT: the borrower's acceptance of exactly these bytes.
   acknowledgedAt        DateTime?
   acknowledgedById      String?
   acknowledgedSha256    String?
 
   @@unique([tenantId, id])
   @@index([tenantId, applicationId])
+  @@index([templateVersionId])
+}
+
+// An arrears letter of a key-facts loan, from the lender's own approved template
+// (lib/non-nca-documents/arrears-letter.ts). One per loan per SAST day. Immutable: the
+// wording, the figures and the file are what the borrower was sent. Section 129
+// stays South African: a key-facts loan has this instead.
+// Hand-written guards: prisma/migrations/20261102090000_key_facts_offer_arrears_letter.
+model LoanArrearsLetter {
+  id                     String                  @id @default(cuid())
+  tenantId               String
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id])
+  loanId                 String
+  loan                   Loan                    @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  templateId             String
+  template               DocumentTemplate        @relation(fields: [tenantId, templateId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  templateVersionId      String
+  templateVersion        DocumentTemplateVersion @relation(fields: [templateVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  templateVersionNumber  Int
+  templateContentSha256  String
+  clientDocumentId       String                  @unique
+  clientDocument         ClientDocument          @relation(fields: [tenantId, clientDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  pdfSha256              String
+  // A demo lender's letters carry the SAMPLE banner (TenantConfig.isDemoLender).
+  sample                 Boolean                 @default(false)
+  // As printed: the SAST date, and the figures on that date (cents, days).
+  noticeDate             DateTime                @db.Date
+  arrearsAmount          Int
+  totalOutstanding       Int
+  daysInArrears          Int
+  issuedAt               DateTime                @default(now())
+  issuedById             String
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, loanId, noticeDate])
+  @@index([tenantId])
   @@index([templateVersionId])
 }

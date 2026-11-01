@@ -195,6 +195,7 @@ model Loan {
   application                 LoanApplication  @relation(fields: [applicationId], references: [id])
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  arrearsLetters             LoanArrearsLetter[]
   arrearsSnapshots           LoanArrearsSnapshot[]
   assetFinanceDeal           AssetFinanceDeal?
   assetTheftReports          AssetTheftReport[]

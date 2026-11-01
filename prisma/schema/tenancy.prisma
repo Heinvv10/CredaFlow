@@ -159,6 +159,7 @@ model Tenant {
   legalMatters               LegalMatter[]
   legalMatterSteps           LegalMatterStep[]
   loanApplications           LoanApplication[]
+  loanArrearsLetters         LoanArrearsLetter[]
   loanArrearsSnapshots       LoanArrearsSnapshot[]
   loanCharges                LoanCharge[]
   loanDocumentIssuances      LoanDocumentIssuance[]
