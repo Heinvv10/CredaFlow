@@ -14,6 +14,12 @@ person does to stand such a lender up, and what the bank must accept.
 
 The bank accepts these or changes them:
 
+- **At least two people are provisioned through the operator path.** One admin creating the team cannot run a two-person
+  control for 30 days (`docs/ONBOARDING.md`, "Two people from day one"). That step is not built yet: today the
+  operator path creates one person.
+- **A payout needs three people.** With segregation of duties on, the person who confirms the payout account took no
+  other part in the application (not its capturer, attester, approver or a condition's clearer), and the payer is
+  neither the approver nor the confirmer. A branch needs that many staff on hand.
 - **A screening provider is configured.** A key-facts loan has no bureau, so screening is its identity-risk check. Decide
   and the readiness board refuse without one.
 - **The approval matrix rules for key-facts products set `ungraded: true`.** A key-facts application has no risk grade,

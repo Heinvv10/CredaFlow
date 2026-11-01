@@ -61,6 +61,19 @@ secret/URI **now**. They are shown once.
 - [ ] Copy `/srv/lenders/<slug>/secrets/backup.passphrase` to a password manager or
       another host. Without it no backup restores.
 
+### Two people from day one
+
+A lender goes live with **at least two people provisioned through the operator path**, not one who then adds the
+other. The two-people rule (`lib/security/account-control.ts`, on every two-person control) refuses an approver who
+created or changed the maker's account in the last 30 days, the reverse, and two accounts sharing a creator while
+either is under 30 days old. So if the first admin creates the whole team in Settings, Users, nobody can approve
+anybody's work for 30 days: the admin created them all, and they all share the admin as creator. Accounts the operator
+provisions leave no such record and are exempt. The rule fails closed on purpose; there is no switch for it.
+
+**Not built yet:** `provision-lender.sh`, `lender:bootstrap-admin` (one-shot, refuses a second SUPER_ADMIN) and the
+operator console each create exactly one person. Until a second-person step exists, a new lender cannot meet this
+requirement with the shipped tooling, and must not be promised a working two-person control in its first 30 days.
+
 ## 3. Check it is alive
 
 ```bash
@@ -129,6 +142,7 @@ image (`deploy.sh <dir> <image>`) so the container is recreated with the new val
       `docs/DEPLOY.md`), backups copied off the host.
 - [ ] A restore drill done once by hand and the counts compared.
 - [ ] Break-glass procedure known to a second person (`docs/DEPLOY.md`).
+- [ ] At least two people provisioned through the operator path, see "Two people from day one" (section 2).
 - [ ] No `DEMO_MODE`, no dry-run flags, staff 2FA left at its default (on).
 
 ## 8. Afterwards
