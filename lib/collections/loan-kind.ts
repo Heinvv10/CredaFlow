@@ -15,6 +15,10 @@ const PRODUCT_KIND: Record<string, string> = {
   PERSONAL: "Personal",
   PO_FUNDING: "PO Fund",
   ASSET_FINANCE: "Asset finance",
+  SALARY_BACKED: "Check-off",
+  SME: "SME",
+  GROUP: "Group",
+  REVOLVING: "Revolving",
 }
 
 export function productKindLabel(productType: string): string {

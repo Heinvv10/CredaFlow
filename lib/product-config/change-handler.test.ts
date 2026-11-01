@@ -7,6 +7,7 @@ const { logAuditStrict, refusals } = vi.hoisted(() => ({
 vi.mock("@/lib/audit", () => ({ logAuditStrict, AuditAction: { LOAN_PRODUCT_CREATED: "LOAN_PRODUCT_CREATED", LOAN_PRODUCT_UPDATED: "LOAN_PRODUCT_UPDATED", LOAN_PRODUCT_DEACTIVATED: "LOAN_PRODUCT_DEACTIVATED" } }))
 vi.mock("./interest-cap", () => ({ loanProductCreateCapRefusal: vi.fn(async () => refusals.create?.body ?? null), loanProductUpdateCapRefusal: vi.fn(async () => null) }))
 
+import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import { loanProductHandler } from "./change-handler"
 import { parseLoanProductChange, type ProductFields } from "./product-change"
@@ -59,6 +60,19 @@ describe("parseLoanProductChange", () => {
   })
 })
 
+describe("the arrears terms of a proposal, however it arrives", () => {
+  const on = (over: object) => problems({ action: "CREATE", reason: "A reason", product: { ...fields, ...over } })
+
+  it("refuses what the form's route refuses: a percentage for the margin, a fractional fee, a fee share over 100%", () => {
+    expect(on({ nonNcaDefaultInterestMargin: "5" })[0]).toContain("nonNcaDefaultInterestMargin")
+    expect(on({ nonNcaDefaultInterestMargin: 5 })[0]).toContain("nonNcaDefaultInterestMargin")
+    expect(on({ nonNcaCollectionFeeCents: 10.5 })[0]).toContain("nonNcaCollectionFeeCents")
+    expect(on({ initiationFeePct: 50 })[0]).toContain("initiationFeePct")
+    expect(on({ nonNcaDefaultInterestMargin: "0.02", nonNcaCollectionFeeCents: 2_500 })).toEqual([])
+    expect(on({ nonNcaDefaultInterestMargin: null, nonNcaCollectionFeeCents: null })).toEqual([])
+  })
+})
+
 describe("loanProductHandler", () => {
   it("is a two-person change: a LOAN_ADMIN proposes, an ADMIN approves", () => {
     expect(loanProductHandler.makePermission).toBe("manage_product_versions")
@@ -102,6 +116,18 @@ describe("loanProductHandler", () => {
     refusals.create = { status: 422, body: { error: "above the cap" } }
     await expect(loanProductHandler.verify!(free as never, "t", create)).rejects.toThrow(InvalidPayloadError)
     await expect(loanProductHandler.verify!(free as never, "t", { action: "DEACTIVATE", reason: "Withdrawn", productId: "gone" } as never)).rejects.toThrow(InvalidPayloadError)
+  })
+
+  it("re-checks a deactivation at approval, under a FOR UPDATE on the row: MICRO30 with open applications stays", async () => {
+    const t = tx({ loanApplication: { count: vi.fn(async () => 2) } })
+    t.loanProduct.findFirst = vi.fn(async () => ({ ...row, code: "MICRO30" })) as never
+    await expect(loanProductHandler.verify!(t as never, "t", { action: "DEACTIVATE", reason: "Withdrawn", productId: "p1" } as never)).rejects.toThrow("MICRO30 cannot be deactivated")
+    expect(String((t.$queryRaw.mock.calls as unknown as Array<[TemplateStringsArray]>)[0]![0].join(" "))).toContain("FOR UPDATE")
+  })
+
+  it("will not move a product into a new type for an NCA lender", async () => {
+    resetActiveJurisdiction()
+    await expect(loanProductHandler.verify!(tx() as never, "t", { action: "UPDATE", reason: "Retype it", productId: "p1", product: { ...fields, productType: "SME" } } as never)).rejects.toThrow("not available to an NCA lender")
   })
 
   it("will not deactivate what is already inactive, or edit a versioned field past its version", async () => {

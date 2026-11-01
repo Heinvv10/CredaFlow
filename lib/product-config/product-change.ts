@@ -5,6 +5,7 @@
  */
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
+import { parseNonNcaArrearsTerms } from "./non-nca-arrears"
 import { PRODUCT_TYPES, type ProductTypeName } from "./product-kind"
 
 export const LOAN_PRODUCT_KIND = "LOAN_PRODUCT"
@@ -60,15 +61,14 @@ function parseFields(raw: unknown, problems: Problems): ProductFields | null {
   if (typeof raw.interestRatePm !== "number" || !Number.isFinite(raw.interestRatePm) || raw.interestRatePm < 0 || raw.interestRatePm >= 1) problems.add("payload.product.interestRatePm", "a monthly rate from 0 up to (not including) 1")
   if (raw.interestModel !== "FLAT" && raw.interestModel !== "REDUCING_BALANCE" && raw.interestModel !== "DAILY_ACCRUAL") problems.add("payload.product.interestModel", "FLAT, REDUCING_BALANCE or DAILY_ACCRUAL")
   if (raw.initiationFeeModel !== "FLAT_PCT" && raw.initiationFeeModel !== "NCA_REG42") problems.add("payload.product.initiationFeeModel", "FLAT_PCT or NCA_REG42")
-  if (typeof raw.initiationFeePct !== "number" || !Number.isFinite(raw.initiationFeePct) || raw.initiationFeePct < 0) problems.add("payload.product.initiationFeePct", "a share of the principal, 0 or more")
+  if (typeof raw.initiationFeePct !== "number" || !Number.isFinite(raw.initiationFeePct) || raw.initiationFeePct < 0 || raw.initiationFeePct > 1) problems.add("payload.product.initiationFeePct", "a share of the principal from 0 to 1")
   for (const key of ["initiationFeeMax", "monthlyServiceFee"] as const) {
     if (!isCount(raw[key], 0)) problems.add(`payload.product.${key}`, "a whole number of cents, 0 or more")
   }
   if (typeof raw.active !== "boolean") problems.add("payload.product.active", "true or false")
-  const margin = raw.nonNcaDefaultInterestMargin
-  if (margin !== undefined && margin !== null && typeof margin !== "string") problems.add("payload.product.nonNcaDefaultInterestMargin", "a decimal string, or null")
-  const fee = raw.nonNcaCollectionFeeCents
-  if (fee !== undefined && fee !== null && !isCount(fee, 0)) problems.add("payload.product.nonNcaCollectionFeeCents", "a whole number of cents, or null")
+  // Absent stays absent: the terms of the stored row are left alone.
+  const arrears = parseNonNcaArrearsTerms(raw)
+  if ("issues" in arrears) for (const key of arrears.issues) problems.add(`payload.product.${key}`, "an annual decimal from 0 to below 1 for the margin, whole cents for the fee, or null")
   return raw as unknown as ProductFields
 }
 

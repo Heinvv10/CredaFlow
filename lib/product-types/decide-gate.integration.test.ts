@@ -28,6 +28,7 @@ import { A, app, approveAs, as, db, ids, inTenant, registerApprovalFixture, stat
 import { verifyLockedCurrentAffordabilityApproval } from "@/lib/affordability/current-approval"
 import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { productTypeRefusal } from "./rules"
 
 const retype = (productType: "SALARY_BACKED" | "MICRO") => db.loanProduct.update({ where: { id: ids.product }, data: { productType } })
 
@@ -81,6 +82,19 @@ suite("the product types at the decide route (real Postgres)", () => {
     expect(await verify()).toMatchObject({ ok: false, reason: "kyc_changed" })
     await retype("SALARY_BACKED")
     expect(await verify()).toMatchObject({ ok: false, reason: "changed" })
+  })
+
+  it("a draw approved and not paid out counts against the limit of the next", async () => {
+    const id = A("pt-approved")
+    await underReview(id, { amount: 300_000 })
+    expect((await approveAs("la1", id)).status).toBe(200)
+    await db.loanProduct.update({ where: { id: ids.product }, data: { productType: "REVOLVING" } })
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const clientId = `${id}-client`
+    const next = (principalCents: number) => inTenant(() => productTypeRefusal(app() as never, ids.tenant, { id: "next", clientId, productId: ids.product, loanPurposeCategory: null, product: { productType: "REVOLVING" } }, { principalCents, limitCents: 500_000 }))
+    expect(await next(200_001)).toContain("exceeds the revolving limit")
+    expect(await next(200_000)).toBeNull()
+    await db.loanProduct.update({ where: { id: ids.product }, data: { productType: "MICRO" } })
   })
 
   it("whoever changed the lending group does not approve its application", async () => {

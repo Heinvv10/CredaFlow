@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { generateSchedule } from "./schedule"
 import { planReprice, type StoredRow } from "./reprice"
 import type { RepaymentTerms } from "./types"
@@ -59,6 +60,34 @@ describe("planReprice", () => {
   it("never rewrites a row already due, however far back the reference took effect", () => {
     const stored = rows(amortising)
     expect(plan(stored, amortising, { effectiveDate: "2027-01-01", today: "2027-06-20" })!.updates[0]!.id).toBe("r6")
+  })
+
+  it("leaves a row due today, and takes a period that starts on the effective day itself", () => {
+    const stored = rows(amortising)
+    const due = sastCalendarDate(stored[3]!.dueDate)
+    expect(plan(stored, amortising, { effectiveDate: "2027-01-01", today: due })!.updates[0]!.id).toBe("r5")
+    const periodStart = sastCalendarDate(stored[2]!.dueDate)
+    expect(plan(stored, amortising, { effectiveDate: periodStart, today: periodStart })!.updates[0]!.id).toBe("r4")
+    const dayAfter = sastCalendarDate(new Date(stored[2]!.dueDate.getTime() + 86_400_000))
+    expect(plan(stored, amortising, { effectiveDate: dayAfter, today: dayAfter })!.updates[0]!.id).toBe("r5")
+  })
+
+  it("never asks the tail to carry more balloon than it has principal", () => {
+    const terms: RepaymentTerms = { ...amortising, structure: "BALLOON", balloonPct: 0.3 }
+    const stored = rows(terms, 1_000_000, 0.02, 0)
+    const balance = sum(stored.slice(3).map((r) => r.principalDue))
+    const result = plan(stored, terms, { balloonCents: balance + 500_000 })!
+    expect(sum(result.updates.map((u) => u.principalDue))).toBe(balance)
+    expect(result.updates.every((u) => u.principalDue >= 0)).toBe(true)
+    expect(result.updates.at(-1)!.principalDue).toBe(balance)
+  })
+
+  it("stops at a row the common-law cap reduced: the rows after it and it stand", () => {
+    const stored = rows(amortising)
+    const capped = stored.map((r, i) => (i === 7 ? { ...r, commonLawContractualInterestDue: r.interestDue + 100 } : r))
+    expect(plan(capped)!.updates[0]!.id).toBe("r9")
+    const last = stored.map((r, i) => (i === 11 ? { ...r, commonLawContractualInterestDue: r.interestDue } : r))
+    expect(plan(last)).toBeNull()
   })
 
   it("has nothing to do when no row is left to reprice", () => {

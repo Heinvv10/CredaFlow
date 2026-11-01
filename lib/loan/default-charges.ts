@@ -79,6 +79,8 @@ export interface DefaultChargeInput {
   recoveryCosts?: AdminChargeEvent[]
   /** fraction per month, e.g. 0.05 */
   interestRatePm: number
+  /** Rates by the day they took effect, oldest first, when the loan's rate has moved (lib/product-engine/rate-history.ts). */
+  rateHistory?: ReadonlyArray<{ effectiveDate: Date; annualRate: number }>
   monthlyServiceFee: number
   maturityDate: Date
   asOf: Date
@@ -142,6 +144,9 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
     .map((row, index) => ({ ...row, index, dueDay: sastCalendarDay(row.dueDate) }))
     .sort((a, b) => a.dueDay - b.dueDay)
   const endDay = sastCalendarDay(input.asOf)
+  // A loan whose rate moved keeps each closed day at the rate of that day; every other loan has one rate.
+  const ratePeriods = (input.rateHistory ?? []).map((rate) => ({ day: sastCalendarDay(rate.effectiveDate), ratePm: rate.annualRate / 12 }))
+  const ratePmOn = (day: number) => ratePeriods.filter((rate) => rate.day <= day).at(-1)?.ratePm ?? input.interestRatePm
   const maturityDay = sastCalendarDay(input.maturityDate)
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
@@ -272,7 +277,7 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
     // 5. Accrue the completed day.
     if (day < endDay && episode && chargeable(day)) {
       const interest = Math.min(
-        (overduePrincipal * input.interestRatePm) / daysInMonth(day),
+        (overduePrincipal * ratePmOn(day)) / daysInMonth(day),
         headroom(),
       )
       interestExact += interest

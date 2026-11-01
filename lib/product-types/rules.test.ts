@@ -9,7 +9,7 @@ const loan = { principalCents: 100_000, limitCents: 500_000 }
 
 function db(over: { facts?: TypeFacts | null; employment?: string | null; members?: string[]; arrears?: number; owed?: number | null; pending?: number | null } = {}) {
   return {
-    loanApplication: { aggregate: vi.fn(async () => ({ _sum: { appliedAmount: over.pending ?? null } })) },
+    loanApplication: { aggregate: vi.fn(async () => ({ _sum: { approvedAmount: over.pending ?? null } })) },
     applicationProductFacts: { findFirst: vi.fn(async () => over.facts ?? null) },
     client: { findFirst: vi.fn(async () => ({ employmentStatus: over.employment ?? "EMPLOYED" })) },
     borrowerGroupMember: { findMany: vi.fn(async () => (over.members ?? []).map((clientId) => ({ clientId }))) },
@@ -84,8 +84,8 @@ describe("productTypeRefusal", () => {
     const reads = db()
     await productTypeRefusal(reads, "t", application("REVOLVING"), loan)
     const calls = reads as unknown as { loan: { aggregate: ReturnType<typeof vi.fn> }; loanApplication: { aggregate: ReturnType<typeof vi.fn> } }
-    expect(calls.loan.aggregate.mock.calls[0]![0].where.status).toEqual({ notIn: ["COMPLETED", "CANCELLED"] })
-    expect(calls.loanApplication.aggregate.mock.calls[0]![0].where).toMatchObject({ status: "APPROVED", id: { not: "a1" }, loan: { is: null } })
+    expect(calls.loan.aggregate.mock.calls[0]![0].where).toMatchObject({ clientId: "c1", product: { productType: "REVOLVING" }, status: { notIn: ["COMPLETED", "CANCELLED"] } })
+    expect(calls.loanApplication.aggregate.mock.calls[0]![0].where).toMatchObject({ clientId: "c1", product: { productType: "REVOLVING" }, status: "APPROVED", id: { not: "a1" }, loan: { is: null } })
   })
 
   it("revolving: a draw within the limit passes, repaid principal frees it, one cent over is refused", async () => {
@@ -93,6 +93,27 @@ describe("productTypeRefusal", () => {
     expect(await productTypeRefusal(db({ owed: 400_000 }), "t", application("REVOLVING"), loan)).toBeNull()
     expect(await productTypeRefusal(db({ owed: 400_001 }), "t", application("REVOLVING"), loan)).toContain("exceeds the revolving limit")
     expect(await productTypeRefusal(db(), "t", application("REVOLVING"), { principalCents: 500_001, limitCents: 500_000 })).toContain("exceeds")
+  })
+})
+
+describe("each fact is needed on its own", () => {
+  const salary = { ...none, employerName: "Acme Mining", payrollNumber: "P1" }
+  const sme = { ...none, businessName: "Acme Traders", businessRegistrationNumber: "2020/1", annualTurnoverCents: BigInt(1) }
+
+  it("salary-backed takes a part-time borrower, refuses one with no employer named", () => {
+    expect(salaryBackedRefusal(salary, "PART_TIME")).toBeNull()
+    expect(salaryBackedRefusal({ ...salary, employerName: null }, "EMPLOYED")).toContain("employer")
+  })
+
+  it("an SME needs its name and its registration number", () => {
+    expect(smeRefusal({ ...sme, businessName: null }, "BUSINESS")).toContain("business's name")
+    expect(smeRefusal({ ...sme, businessRegistrationNumber: null }, "BUSINESS")).toContain("registration")
+    expect(smeRefusal(sme, "BUSINESS")).toBeNull()
+  })
+
+  it("every new type needs a person", async () => {
+    lesotho()
+    expect(await productTypeRefusal(db(), "t", application("REVOLVING", { clientId: null }), loan)).toContain("no client")
   })
 })
 

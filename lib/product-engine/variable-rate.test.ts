@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { affordabilityInputFingerprint, type AffordabilityDecisionInputs } from "@/lib/affordability/snapshot"
 import { versionLimitRefusal, type ApprovalTerms } from "./approval-terms"
+import { priceApplication } from "./resolve"
 import { parseProductConfig, ncaStructureIssues } from "./terms"
 import { frozenVariableRate, rateFromReference, referenceOn } from "./variable-rate"
 
@@ -61,7 +62,7 @@ describe("the rate of a reference", () => {
   it("reads only an approved value of the basis, on or before the day", async () => {
     const findFirst = vi.fn(async () => ({ effectiveDate: new Date("2027-01-01T00:00:00Z"), rate: { toNumber: () => 0.12 } }))
     expect(await referenceOn({ referenceRate: { findFirst } } as never, "t", "PRIME", "2027-02-01")).toEqual({ rate: 0.12, effectiveDate: "2027-01-01" })
-    expect(findFirst.mock.calls[0]![0 as never]).toMatchObject({ where: { tenantId: "t", basis: "PRIME", status: "APPROVED" } })
+    expect(findFirst.mock.calls[0]![0 as never]).toMatchObject({ where: { tenantId: "t", basis: "PRIME", status: "APPROVED", effectiveDate: { lte: new Date("2027-02-01T00:00:00Z") } }, orderBy: { effectiveDate: "desc" } })
   })
 })
 
@@ -87,5 +88,36 @@ describe("versionLimitRefusal", () => {
   it("refuses a variable product with no approved reference value: it cannot be priced", () => {
     const terms = { limits: null, repayment: null, versioned: null, referenceMissing: "PRIME" } as unknown as ApprovalTerms
     expect(versionLimitRefusal(terms, { principalCents: 1, termDays: 1 })).toContain("PRIME")
+  })
+})
+
+describe("pricing a variable rate", () => {
+  const version = {
+    id: "v1", tenantId: "t", productId: "p", version: 1, effectiveFrom: new Date("2026-01-01T00:00:00Z"), minAmount: 1, maxAmount: 2, minTermDays: 1, maxTermDays: 2, interestRatePm: 0.05, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT", initiationFeePct: 0, initiationFeeMax: 0,
+    monthlyServiceFee: 0, frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, balloonPct: null, rateBasis: "PRIME", rateMarginPa: 0.03, collateral: [], eligibility: {},
+  }
+  const rule = { id: "r1", productId: null, name: "Staff", segment: null, channel: null, riskRankMin: null, riskRankMax: null, campaignCode: null, validFrom: new Date("2026-01-01T00:00:00Z"), validTo: null, priority: 0, rateMode: "ADD", rateValue: -0.0025, initiationFeePct: null, createdAt: new Date("2026-01-01T00:00:00Z") }
+  const db = (rate: number | null, rules: unknown[] = []) => ({
+    productVersion: { findFirst: vi.fn(async () => version) },
+    applicationPricingInput: { findFirst: vi.fn(async () => null) },
+    productPricingRule: { findMany: vi.fn(async () => rules) },
+    referenceRate: { findFirst: vi.fn(async () => (rate === null ? null : { effectiveDate: new Date("2026-06-01T00:00:00Z"), rate: { toNumber: () => rate } })) },
+  })
+  const price = (d: ReturnType<typeof db>) => priceApplication(d as never, "t", { productId: "p", applicationId: "a", riskRank: null, termDays: 360, asOf: "2027-01-01" })
+
+  it("prices at reference + margin, not the advertised rate", async () => {
+    const priced = (await price(db(0.09)))!
+    expect(priced.pricing.ratePm).toBe(0.01)
+    expect(priced.variableRate).toEqual({ basis: "PRIME", marginPa: 0.03, referenceRate: 0.09, referenceEffectiveDate: "2026-06-01" })
+  })
+
+  it("freezes the margin after a rule's discount, so the discount is the loan's", async () => {
+    const priced = (await price(db(0.09, [rule])))!
+    expect(priced.pricing.ratePm).toBeCloseTo(0.0075, 8)
+    expect(priced.variableRate!.marginPa).toBeCloseTo(0, 8)
+  })
+
+  it("names the basis it could not price on", async () => {
+    expect(await price(db(null))).toMatchObject({ variableRate: null, variableBasis: "PRIME" })
   })
 })

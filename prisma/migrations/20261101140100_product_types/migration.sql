@@ -173,7 +173,7 @@ END;
 $function$;
 
 -- Terms are appended in sequence, and a reference repricing appends them with no person involved: such a row must come from an
--- APPROVED reference value on the loan's own basis and keep its margin. Every other later row keeps the rule of the loan changes
+-- APPROVED reference value on the loan's own basis, keep its margin and structure, and carry the rate that value gives. Every other later row keeps the rule of the loan changes
 -- (20261101100100_loan_changes, an approved LOAN_CHANGE). changeRequestId is read through to_jsonb so this definition stands
 -- whichever of the two migrations a database took first.
 CREATE OR REPLACE FUNCTION public."guardLoanTerms"()
@@ -192,16 +192,21 @@ BEGIN
   END IF;
   request := to_jsonb(NEW) ->> 'changeRequestId';
   IF NEW."sequence" > 1 AND NEW."referenceEffectiveDate" IS NOT NULL AND request IS NULL THEN
-    SELECT t."rateBasis", t."rateMarginPa", t."referenceEffectiveDate" INTO prev FROM "LoanTerms" t
+    SELECT t."rateBasis", t."rateMarginPa", t."referenceEffectiveDate", t."frequency", t."structure", t."graceKind", t."graceInstalments", t."instalments", t."balloonCents"
+      INTO prev FROM "LoanTerms" t
       WHERE t."tenantId" = NEW."tenantId" AND t."loanId" = NEW."loanId" AND t."sequence" = last;
     IF prev."rateBasis" IS DISTINCT FROM NEW."rateBasis" OR prev."rateMarginPa" IS DISTINCT FROM NEW."rateMarginPa"
       OR prev."referenceEffectiveDate" >= NEW."referenceEffectiveDate"
+      OR prev."frequency" IS DISTINCT FROM NEW."frequency" OR prev."structure" IS DISTINCT FROM NEW."structure"
+      OR prev."graceKind" IS DISTINCT FROM NEW."graceKind" OR prev."graceInstalments" IS DISTINCT FROM NEW."graceInstalments"
+      OR prev."instalments" IS DISTINCT FROM NEW."instalments" OR prev."balloonCents" IS DISTINCT FROM NEW."balloonCents"
+      OR abs(NEW."interestRatePm" - GREATEST(0, (NEW."referenceRate" + NEW."rateMarginPa") / 12)) > 0.00000001
       OR NOT EXISTS (
         SELECT 1 FROM "ReferenceRate" r
         WHERE r."tenantId" = NEW."tenantId" AND r."basis" = NEW."rateBasis" AND r."effectiveDate" = NEW."referenceEffectiveDate"
           AND r."status" = 'APPROVED' AND r."rate"::DOUBLE PRECISION = NEW."referenceRate"
       ) THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A repricing follows an approved reference rate on the loan''s own basis and margin';
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A repricing follows an approved reference rate on the loan''s own basis, margin and structure';
     END IF;
     RETURN NEW;
   END IF;

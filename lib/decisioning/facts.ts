@@ -13,7 +13,7 @@ export type Channel = (typeof CHANNELS)[number]
 
 export const EMPLOYMENT_STATUSES = ["EMPLOYED", "PART_TIME", "SELF_EMPLOYED", "UNEMPLOYED", "STUDENT", "PENSIONER"] as const
 export const INCOME_SOURCES = ["SALARY", "WAGES", "PENSION", "SOCIAL_GRANT", "BUSINESS_INCOME", "RENTAL_INCOME", "OTHER"] as const
-export const PRODUCT_TYPES = ["MICRO", "PERSONAL", "PO_FUNDING", "ASSET_FINANCE"] as const
+export const PRODUCT_TYPES = ["MICRO", "PERSONAL", "PO_FUNDING", "ASSET_FINANCE", "SALARY_BACKED", "SME", "GROUP", "REVOLVING"] as const
 
 export interface DecisionFacts {
   productId: string

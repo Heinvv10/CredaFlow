@@ -1,3 +1,4 @@
+import { loanTermsRateHistory } from "@/lib/product-engine/rate-history"
 import type { prisma } from "@/lib/prisma"
 import { allocateReceipts } from "@/lib/loan/balances"
 import { sastCalendarDay } from "@/lib/loan/settlement"
@@ -171,6 +172,10 @@ export async function loadChargesReplay(
         orderBy: { effectiveDate: "asc" },
         select: { effectiveDate: true, resultingRate: true },
       },
+      terms: {
+        orderBy: { sequence: "asc" },
+        select: { sequence: true, interestRatePm: true, referenceEffectiveDate: true, createdAt: true },
+      },
       tenant: {
         select: {
           config: {
@@ -276,6 +281,7 @@ export async function loadChargesReplay(
 
   /** Re-run the replay, optionally with a receipt not yet written. */
   const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = [], proposed?: { schedule: DefaultChargeInput["schedule"]; contractRateHistory?: Array<{ effectiveDate: Date; annualRate: number }> }) => {
+    const termsRates = loanTermsRateHistory(loan.terms, loan.startDate)
     const common = {
       schedule: proposed?.schedule ?? loan.repaymentSchedule,
       receipts: [...receipts, ...extraReceipts],
@@ -298,7 +304,7 @@ export async function loadChargesReplay(
         defaultInterestMargin: (!defaultChargesLive && !stoppedHistory) || margin === null ? null : margin.toNumber(),
         collectionFeeCents: defaultChargesLive || stoppedHistory ? terms.nonNcaCollectionFeeCents : null,
         stoppedCharges: stoppedHistory ? { at: config.defaultChargesStoppedAt!, receipts: frozenReceipts } : undefined,
-        contractRateHistory: proposed?.contractRateHistory ?? loan.contractRates.map((rate) => ({
+        contractRateHistory: proposed?.contractRateHistory ?? termsRates ?? loan.contractRates.map((rate) => ({
           effectiveDate: rate.effectiveDate,
           annualRate: rate.resultingRate.toNumber(),
         })),
@@ -314,7 +320,7 @@ export async function loadChargesReplay(
         interestPaid: frozenReceipts.reduce((sum, receipt) => sum + receipt.defaultInterestAllocated, 0),
       }
     }
-    return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee })
+    return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee, ...(termsRates ? { rateHistory: termsRates } : {}) })
   }
   return {
     loan,

@@ -58,14 +58,16 @@ async function groupRefusal(db: Db, tenantId: string, clientId: string, groupId:
 }
 
 /**
- * The borrower's limit on a revolving product is its maximum amount. Against a new draw counts what they still owe on it, whatever the
- * loan's status (a defaulted or written-off balance is still owed, the write-off route keeps it), and what is approved and not paid out.
+ * The borrower's limit on a revolving product is its maximum amount. Against a new draw counts what they still owe across all the lender's
+ * revolving products, whatever the loan's status (a defaulted or written-off balance is still owed, the write-off route keeps it), and
+ * what is approved and not paid out.
  * Exact only under the client's lock: the locked re-checks in lib/affordability/current-approval.ts, at approval and at payout, hold it.
  */
-async function revolvingRefusal(db: Db, tenantId: string, application: TypedApplication, clientId: string, principalCents: number, limitCents: number): Promise<string | null> {
-  const owed = await db.loan.aggregate({ where: { tenantId, clientId, productId: application.productId, status: { notIn: [...SETTLED_STATUSES] } }, _sum: { outstandingPrincipal: true } })
-  const pending = await db.loanApplication.aggregate({ where: { tenantId, clientId, productId: application.productId, status: "APPROVED", id: { not: application.id }, loan: { is: null } }, _sum: { appliedAmount: true } })
-  const drawn = (owed._sum.outstandingPrincipal ?? 0) + (pending._sum.appliedAmount ?? 0)
+async function revolvingRefusal(db: Db, tenantId: string, application: Pick<TypedApplication, "id">, clientId: string, principalCents: number, limitCents: number): Promise<string | null> {
+  const revolving = { productType: "REVOLVING" as const }
+  const owed = await db.loan.aggregate({ where: { tenantId, clientId, product: revolving, status: { notIn: [...SETTLED_STATUSES] } }, _sum: { outstandingPrincipal: true } })
+  const pending = await db.loanApplication.aggregate({ where: { tenantId, clientId, product: revolving, status: "APPROVED", id: { not: application.id }, loan: { is: null } }, _sum: { approvedAmount: true } })
+  const drawn = (owed._sum.outstandingPrincipal ?? 0) + (pending._sum.approvedAmount ?? 0)
   return drawn + principalCents > limitCents ? `the draw of ${principalCents} cents on top of the ${drawn} cents owed or approved exceeds the revolving limit of ${limitCents} cents` : null
 }
 
