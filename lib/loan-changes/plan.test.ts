@@ -213,6 +213,12 @@ describe("planInPlace: the kinds of change", () => {
     reconciles(given, plan)
   })
 
+  it("a FLAT holiday charges the skipped periods on the original principal", () => {
+    const shape = { model: "FLAT" as const, fee: 0, principal: 1_000_000, terms: monthly(12) }
+    const plan = planInPlace(input(loanRows(shape, 3), { type: "PAYMENT_HOLIDAY", holidayInstalments: 2 }, { shape }))
+    expect(plan.deferredInterest).toBe(80_000)
+  })
+
   it("a weekly holiday charges the week's rate, and rounds each period before multiplying", () => {
     const shape = { principal: 100_001, fee: 3_000, terms: monthly(8, { frequency: "WEEKLY" }), rate: 0.0433 }
     const rows = loanRows(shape, 2)

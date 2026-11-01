@@ -187,14 +187,14 @@ export function finished(input: PlanInput, parts: {
 }
 
 /**
- * A single payment accrues by the period: the whole periods gone by keep their interest, and a new rate or term runs from the last
- * period end. `anchor` is where its interest starts.
+ * A single payment accrues by the period: a new rate or term runs from the last period end, and the row's interest for the periods
+ * before it is what the pricing of the rest leaves over, carried. `anchor` is where its interest starts.
  */
 function bulletProgress(row: PlanRow, anchor: Date, frequency: Frequency, today: number) {
   const periods = Math.max(1, Math.round((sastDay(row.dueDate) - sastDay(anchor)) / PERIOD_DAYS[frequency]))
   let gone = 0
   while (gone + 1 < periods && sastDay(addPeriods(anchor, frequency, gone + 1)) <= today) gone += 1
-  return { periods, gone, from: addPeriods(anchor, frequency, gone), accrued: Math.round((row.interestDue * gone) / periods) }
+  return { periods, gone, from: addPeriods(anchor, frequency, gone) }
 }
 
 export function planInPlace(input: PlanInput): InPlacePlan {
@@ -237,12 +237,11 @@ function planTail(input: PlanInput, change: TailChange): InPlacePlan {
     first = addPeriods(next, frequency, target.holiday)
   }
 
-  const accrued = bullet?.accrued ?? 0
   const dates = tail.map((row) => row.dueDate)
   const oldPricing = priced(loan, frequency, structure, { principal: balance, rate: loan.interestRatePm, instalments: remaining, first: next, dates })
-  const excessInterest = sumOf(tail, (row) => row.interestDue) - accrued - sumOf(oldPricing, (row) => row.interestDue)
+  const excessInterest = sumOf(tail, (row) => row.interestDue) - sumOf(oldPricing, (row) => row.interestDue)
   const excessFees = sumOf(tail, (row) => row.feesDue) - sumOf(oldPricing, (row) => row.feesDue)
-  const carriedInterest = deferredInterest + accrued + Math.max(0, excessInterest)
+  const carriedInterest = deferredInterest + Math.max(0, excessInterest)
   carriedFees += Math.max(0, excessFees)
 
   const generated = priced(loan, frequency, structure, { principal: balance, rate: target.rate, instalments: target.instalments, first, dates: first === next ? dates : [] })
