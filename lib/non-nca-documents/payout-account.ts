@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { evaluateAvsGate } from "@/lib/avs"
 import { lockAffordabilityApplicationEvidence, lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
-import { approvalStepApproverIds } from "@/lib/approval/progress"
 import { avsSubjectFingerprint, type AvsSubjectClient } from "@/lib/compliance/avs-subject"
 import { accountControlRefusal } from "@/lib/security/account-control"
 import { isSegregationOfDutiesRequired, segregationOfDutiesMakers } from "@/lib/security/segregation-of-duties"
@@ -46,7 +45,8 @@ export async function recordPayoutAccountVerification(args: {
     if (application.status !== "APPROVED") return { ok: false, status: 409, error: "Only an approved application has a payout to verify" }
     // The confirmer is a second person, not a second account of someone who made or approved this application.
     if (await isSegregationOfDutiesRequired(tenantId, tx)) {
-      const facts = { ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenantId, applicationId) }
+      const steps = await tx.approvalStep.findMany({ where: { tenantId, applicationId }, select: { approverId: true } })
+      const facts = { ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: steps.map((s) => s.approverId) }
       const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [...segregationOfDutiesMakers("disburse", facts), ...application.inputStaffIds], checkerId: user.id })
       if (controlled) return { ok: false, status: 409, error: controlled }
     }

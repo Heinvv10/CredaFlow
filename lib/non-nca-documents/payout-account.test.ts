@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => ({ application: vi.fn(), create: vi.fn(), audit: vi.fn(), queryRaw: vi.fn(), twoPeople: vi.fn(async (): Promise<string | null> => null) }))
-vi.mock("@/lib/approval/progress", () => ({ approvalStepApproverIds: async () => ["step-approver"] }))
 vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: h.twoPeople }))
 vi.mock("@/lib/security/segregation-of-duties", async (original) => ({ ...(await original<typeof import("@/lib/security/segregation-of-duties")>()), isSegregationOfDutiesRequired: async () => true }))
 vi.mock("@/lib/prisma", () => {
-  const tx = { $queryRaw: h.queryRaw, loanApplication: { findFirst: h.application }, avsCheck: { create: h.create }, auditLog: { create: h.audit } }
+  const tx = { $queryRaw: h.queryRaw, loanApplication: { findFirst: h.application }, avsCheck: { create: h.create }, auditLog: { create: h.audit }, approvalStep: { findMany: async () => [{ approverId: "step-approver" }] } }
   return { prisma: { loanApplication: { findFirst: h.application }, $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) } }
 })
 
@@ -30,7 +29,7 @@ describe("recording the second person's confirmation", () => {
     vi.clearAllMocks()
     h.create.mockResolvedValue({ id: "check-1" })
   })
-  const row = (over: object) => h.application.mockResolvedValue({ clientId: "client-1", status: "APPROVED", disclosureRegime: "KEY_FACTS", client, ...over })
+  const row = (over: object) => h.application.mockResolvedValue({ inputStaffIds: [], clientId: "client-1", status: "APPROVED", disclosureRegime: "KEY_FACTS", client, ...over })
 
   it("takes the application and client evidence locks, binds the account and audits who did it", async () => {
     row({})
