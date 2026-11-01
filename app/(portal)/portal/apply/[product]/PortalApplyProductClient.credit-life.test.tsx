@@ -109,6 +109,14 @@ describe("PortalApplyProductClient for a key-facts applicant", () => {
     const change = (id: string, value: string) => act(async () => renderer.root.findByProps({ id }).props.onChange({ target: { value } }))
     await change("amount", "5000")
     await change("purpose", "stock purchase")
-    expect(renderer.root.findAllByType("button").find((b) => b.props.type === "submit")!.props.disabled).toBe(false)
+    const submit = () => renderer.root.findAllByType("button").find((b) => b.props.type === "submit")!
+    expect(submit().props.disabled, "the key facts statement is read first").toBe(true)
+    const quote = { sha256: "a".repeat(64), viewUrl: "/x", figures: { amount: "M 5,000.00", instalments: 3, instalment: "M 2,000.00", totalRepayable: "M 6,000.00", totalCostOfCredit: "M 1,000.00", firstDueDate: "1 Jan 2027" } }
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(quote), { status: 201 })))
+    await act(async () => renderer.root.findAllByType("button").find((b) => JSON.stringify(b.props.children).includes("Show my key facts"))!.props.onClick())
+    expect(submit().props.disabled, "shown, not yet read").toBe(true)
+    await act(async () => renderer.root.findByProps({ type: "checkbox" }).props.onChange({ target: { checked: true } }))
+    expect(submit().props.disabled).toBe(false)
+    vi.unstubAllGlobals()
   })
 })

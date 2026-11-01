@@ -10,7 +10,7 @@ import { POST as decide } from "@/app/api/applications/[id]/decide/route"
 import { POST as disburse } from "@/app/api/applications/[id]/disburse/route"
 import { POST as verifyPayoutAccount } from "@/app/api/applications/[id]/payout-account-verification/route"
 import { POST as attestInPerson } from "@/app/api/clients/[id]/kyc-in-person-verification/route"
-import { acknowledgeKeyFacts } from "./acknowledge"
+import { acceptOffer, acknowledgeKeyFacts } from "./acknowledge"
 import { issueLoanDocuments } from "./issue"
 import { signKeyFactsAgreement } from "./sign"
 import { loanDocumentState } from "./state"
@@ -66,6 +66,7 @@ export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder)
     expect(issued).toMatchObject({ ok: true })
     const docs = (await inTenant(() => loanDocumentState(stack.tenant, id)))!.keyFacts!.documents
     const base = { tenantId: stack.tenant, applicationId: id, clientId: `${id}-client`, clientEmail: `${id}@test.invalid` }
+    expect(await inTenant(() => acceptOffer({ ...base, shown: docs.find((d) => d.kind === "OFFER_LETTER")!.pdfSha256 }))).toMatchObject({ ok: true })
     expect(await inTenant(() => acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 }))).toMatchObject({ ok: true })
     expect(await inTenant(() => signKeyFactsAgreement({
       ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Synthetic Borrower", signingOtpChallengeId: null, ipAddress: "203.0.113.9",

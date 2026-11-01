@@ -14,7 +14,7 @@ import type { PrismaClient } from "@prisma/client"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { approvedAffordabilityResult } from "./approval.integration-fixture"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate, publishVersion } from "./gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate, publishVersion } from "./gate.integration-fixture"
 
 const holder = vi.hoisted(() => ({ db: null as unknown, files: new Map<string, Buffer>(), onRender: null as null | (() => Promise<void>) }))
 vi.mock("@/lib/prisma", () => ({ prisma: new Proxy({}, { get: (_t, key) => (holder.db as Record<string | symbol, unknown>)[key] }) }))
@@ -30,7 +30,7 @@ vi.mock("@/lib/config/identity", () => ({ findLenderIdentity: async () => ({ leg
 
 import { BORROWER_REFUSAL, STAFF_REFUSAL } from "./borrower-gate"
 import { issueLoanDocuments } from "./issue"
-import { acknowledgeKeyFacts } from "./acknowledge"
+import { acceptOffer, acknowledgeKeyFacts } from "./acknowledge"
 import { signKeyFactsAgreement } from "./sign"
 import { loanDocumentState, documentProblem } from "./state"
 import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server"
@@ -72,6 +72,7 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
         },
       })
     })
+    await createTemplate(db(), t.tenantId, OFFER_KEY, BODY("Offer letter"))
     const kfs = await createTemplate(db(), t.tenantId, KFS_KEY, BODY("Key facts"))
     const agreement = await createTemplate(db(), t.tenantId, AGREEMENT_KEY, BODY("Agreement"))
     return { tenantId: t.tenantId, userId: t.userId, clientId, applicationId: app.id, kfs, agreement, email: `${n}@client.invalid` }
@@ -102,6 +103,7 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
     const docs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents
     const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    await acceptOffer({ ...base, shown: docs.find((d) => d.kind === "OFFER_LETTER")!.pdfSha256 })
     await acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 })
     await db().client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
     const signed = await signKeyFactsAgreement({ ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Thabo Synthetic", signingOtpChallengeId: null, ipAddress: "203.0.113.5" })
@@ -114,6 +116,7 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
     const docs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents
     const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    await acceptOffer({ ...base, shown: docs.find((d) => d.kind === "OFFER_LETTER")!.pdfSha256 })
     await acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 })
     let commit = () => {}
     const held = new Promise<void>((resolve) => { commit = resolve })
@@ -133,12 +136,12 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     expect((await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })).agreementSignedAt).toBeNull()
   })
 
-  it("issues both documents from the current approved versions, binds the agreement, and audits it", async () => {
+  it("issues the three documents from the current approved versions, binds the agreement, and audits it", async () => {
     const fx = await approvedApplication()
     const result = await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
     expect(result).toMatchObject({ ok: true })
     const state = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!
-    expect(state.documents.map((d) => d.kind).sort()).toEqual(["KEY_FACTS_STATEMENT", "LOAN_AGREEMENT"])
+    expect(state.documents.map((d) => d.kind).sort()).toEqual(["KEY_FACTS_STATEMENT", "LOAN_AGREEMENT", "OFFER_LETTER"])
     // Issued but not yet acknowledged: the gate's own test passes (the acknowledgement is checked at the signature itself).
     expect(state.signingProblem).toBeNull()
     const app = await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })
@@ -163,6 +166,9 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     // A stale digest is refused, and nobody else can acknowledge.
     expect(await acknowledgeKeyFacts({ ...base, shown: "0".repeat(64) })).toMatchObject({ ok: false, status: 409 })
     expect(await acknowledgeKeyFacts({ ...base, clientId: "someone-else", shown: kfs.pdfSha256 })).toMatchObject({ ok: false, status: 404 })
+    const offer = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents.find((d) => d.kind === "OFFER_LETTER")!
+    expect(await acceptOffer({ ...base, shown: "0".repeat(64) })).toMatchObject({ ok: false, status: 409 })
+    expect(await acceptOffer({ ...base, shown: offer.pdfSha256 })).toMatchObject({ ok: true })
     expect(await acknowledgeKeyFacts({ ...base, shown: kfs.pdfSha256 })).toMatchObject({ ok: true })
 
     expect(await signKeyFactsAgreement({ ...base, agreementDocumentSha256: "0".repeat(64), signature: "Thabo Synthetic", signingOtpChallengeId: null, ipAddress: "203.0.113.5" })).toMatchObject({ ok: false, error: expect.stringMatching(/replaced after this page loaded/) })
@@ -185,7 +191,7 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     const again = await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
     expect(again).toMatchObject({ ok: true })
     expect((await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents.find((d) => d.kind === "LOAN_AGREEMENT")!.templateVersion).toBe(2)
-    expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId, supersededAt: { not: null } } })).toBe(2)
+    expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId, supersededAt: { not: null } } })).toBe(3)
   })
 
   it("refuses to issue without an approved template", async () => {

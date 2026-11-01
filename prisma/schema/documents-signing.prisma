@@ -84,8 +84,8 @@ model DocumentTemplateVersion {
   // approval covers the protected wording too, and lapses when it changes.
   approvedSystemSha256  String?
   legalSignOffReference String?
-  issuances             AssetDocumentIssuance[]
   arrearsLetters        LoanArrearsLetter[]
+  issuances             AssetDocumentIssuance[]
   loanIssuances         LoanDocumentIssuance[]
 
   @@unique([templateId, version])

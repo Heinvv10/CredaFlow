@@ -11,8 +11,9 @@ export const sha = (text: string) => createHash("sha256").update(text, "utf8").d
 
 export const KFS_KEY = "non_nca_key_facts"
 export const AGREEMENT_KEY = "non_nca_loan_agreement"
-type Kind = "KEY_FACTS_STATEMENT" | "LOAN_AGREEMENT"
-const KEY_OF: Record<Kind, string> = { KEY_FACTS_STATEMENT: KFS_KEY, LOAN_AGREEMENT: AGREEMENT_KEY }
+export const OFFER_KEY = "non_nca_offer_letter"
+type Kind = "OFFER_LETTER" | "KEY_FACTS_STATEMENT" | "LOAN_AGREEMENT"
+const KEY_OF: Record<Kind, string> = { OFFER_LETTER: OFFER_KEY, KEY_FACTS_STATEMENT: KFS_KEY, LOAN_AGREEMENT: AGREEMENT_KEY }
 
 export interface TemplateRef { templateId: string; versionId: string; version: number; bodyHtml: string }
 
@@ -44,6 +45,7 @@ export interface KeyFactsFixture {
   disburserId: string
   clientId: string
   applicationId: string
+  offer: TemplateRef
   kfs: TemplateRef
   agreement: TemplateRef
 }
@@ -63,11 +65,12 @@ export async function createApprovedApplication(db: PrismaClient): Promise<KeyFa
     where: { id: application.id },
     data: { status: "APPROVED", approvedAt: new Date(), approvedById: tenant.userId, approvedAmount: 200_000, approvedTermDays: 31, repaymentMethod: "EFT" },
   })
+  const offer = await createTemplate(db, tenant.tenantId, OFFER_KEY)
   const kfs = await createTemplate(db, tenant.tenantId, KFS_KEY)
   const agreement = await createTemplate(db, tenant.tenantId, AGREEMENT_KEY)
   const disburserId = `u_disb_${n}`
   await db.user.create({ data: { id: disburserId, tenantId: tenant.tenantId, email: `${n}-disb@test.invalid`, password: "x", role: "SUPER_ADMIN" } })
-  return { tenant, disburserId, clientId, applicationId: application.id, kfs, agreement }
+  return { tenant, disburserId, clientId, applicationId: application.id, offer, kfs, agreement }
 }
 
 export const termsSha = async (db: PrismaClient, applicationId: string) =>
@@ -75,7 +78,7 @@ export const termsSha = async (db: PrismaClient, applicationId: string) =>
 
 /** What a real issue writes: the rendered document and its issuance row, bound to the template version. */
 export async function issueDocument(db: PrismaClient, fx: KeyFactsFixture, kind: Kind, over: { template?: TemplateRef; bodyHtml?: string } = {}) {
-  const template = over.template ?? (kind === "KEY_FACTS_STATEMENT" ? fx.kfs : fx.agreement)
+  const template = over.template ?? (kind === "OFFER_LETTER" ? fx.offer : kind === "KEY_FACTS_STATEMENT" ? fx.kfs : fx.agreement)
   const pdfSha256 = sha(`${kind}:${randomUUID()}`)
   const document = await db.clientDocument.create({
     data: {
@@ -95,8 +98,15 @@ export async function issueDocument(db: PrismaClient, fx: KeyFactsFixture, kind:
   return { document, issuance, pdfSha256 }
 }
 
-/** Both documents issued, the key facts statement acknowledged by the borrower, the agreement bound to the application. */
-export async function issueBoth(db: PrismaClient, fx: KeyFactsFixture, opts: { acknowledge?: boolean; bind?: boolean } = {}) {
+/** All three documents issued, the offer accepted and the key facts statement acknowledged by the borrower, the agreement bound to the application. */
+export async function issueBoth(db: PrismaClient, fx: KeyFactsFixture, opts: { acknowledge?: boolean; bind?: boolean; acceptOffer?: boolean } = {}) {
+  const offer = await issueDocument(db, fx, "OFFER_LETTER")
+  if (opts.acceptOffer !== false) {
+    await db.loanDocumentIssuance.update({
+      where: { id: offer.issuance.id },
+      data: { acknowledgedAt: new Date(), acknowledgedById: fx.clientId, acknowledgedSha256: offer.pdfSha256 },
+    })
+  }
   const kfs = await issueDocument(db, fx, "KEY_FACTS_STATEMENT")
   const agreement = await issueDocument(db, fx, "LOAN_AGREEMENT")
   if (opts.acknowledge !== false) {
@@ -111,7 +121,7 @@ export async function issueBoth(db: PrismaClient, fx: KeyFactsFixture, opts: { a
       data: { agreementGeneratedAt: new Date(), agreementDocumentId: agreement.document.id, agreementDocumentSha256: agreement.pdfSha256 },
     })
   }
-  return { kfs, agreement }
+  return { offer, kfs, agreement }
 }
 
 export const signData = () => ({ agreementSignedAt: new Date(), agreementSignedMethod: "portal", agreementSignedByIp: "203.0.113.9", agreementSignatureData: "typed:Thabo Synthetic" })

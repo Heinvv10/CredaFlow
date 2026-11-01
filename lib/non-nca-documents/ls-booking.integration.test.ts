@@ -61,7 +61,7 @@ import { runScreening } from "@/lib/screening/run"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { GET as payoutCheck } from "@/app/api/applications/[id]/payout-check/route"
 import { PUT as clientPut } from "@/app/api/clients/[id]/route"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { issueLoanDocuments } from "./issue"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { clearOpenFlags, createRlsRole, PRODUCT, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
@@ -88,6 +88,7 @@ suite("what a key-facts payout books, and when the officer may make the transfer
     fresh = await createThrowawayDb({ instance: { jurisdiction: "LS", currency: "LSL" } })
     holder.tenantId = stack.tenant
     await seedStack(db(), stack, { code: "BOOK", isDemoLender: true })
+    await createTemplate(db(), stack.tenant, OFFER_KEY, BODY("Offer letter"))
     await createTemplate(db(), stack.tenant, KFS_KEY, BODY("Key facts statement"))
     await createTemplate(db(), stack.tenant, AGREEMENT_KEY, BODY("Loan agreement"))
     vi.stubEnv("TENANT_RLS", "on")

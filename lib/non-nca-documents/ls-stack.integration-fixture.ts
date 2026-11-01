@@ -66,11 +66,8 @@ export interface BorrowerBytes {
   statement: { path: string; bytes: Buffer }
 }
 
-/**
- * A borrower and an UNDER_REVIEW application. Returns the statement bytes for the suite to put in its storage double
- * (the payout gate reads the stored file back and hashes it).
- */
-export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean; dealerId?: string }): Promise<BorrowerBytes> {
+/** A borrower with verified evidence and no application: what the portal's apply route starts from. */
+export async function seedBorrower(db: PrismaClient, stack: Stack, id: string, opts: { documents?: boolean; income?: number; bank?: boolean; dealerId?: string } = {}): Promise<BorrowerBytes> {
   const ls = stack.jurisdiction === "LS"
   const clientId = `${id}-client`
   const bank = ls
@@ -101,6 +98,16 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
       })
     }
   }
+  return { statement: { path: statementPath, bytes: statementBytes } }
+}
+
+/**
+ * A borrower and an UNDER_REVIEW application. Returns the statement bytes for the suite to put in its storage double
+ * (the payout gate reads the stored file back and hashes it).
+ */
+export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean; dealerId?: string }): Promise<BorrowerBytes> {
+  const statement = await seedBorrower(db, stack, id, opts)
+  const clientId = `${id}-client`
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId }, include: { expenseBreakdown: true } })
   const submittedAt = new Date(Date.now() - 60 * 60_000)
   const submission = createSubmissionAffordabilitySnapshot({
@@ -129,7 +136,7 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
       },
     })
   }
-  return { statement: { path: statementPath, bytes: statementBytes } }
+  return statement
 }
 
 /** The real recompute raises its findings (no statement or payslip in the window); an officer clears each with a reason. */

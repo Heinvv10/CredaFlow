@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const h = vi.hoisted(() => ({
   session: null as null | { user: Record<string, unknown> },
   tenantConfig: null as null | Record<string, unknown>,
+  disclosureRegime: "NCA_PASQ",
   resolveSubject: vi.fn(),
   request: vi.fn(),
 }))
@@ -12,7 +13,9 @@ vi.mock("@/lib/auth", () => ({ auth: async () => h.session }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "t1" }),
 }))
-vi.mock("@/lib/prisma", () => ({ prisma: { tenantConfig: { findUnique: async () => h.tenantConfig } } }))
+vi.mock("@/lib/prisma", () => ({
+  prisma: { tenantConfig: { findUnique: async () => h.tenantConfig }, loanApplication: { findFirst: async () => ({ disclosureRegime: h.disclosureRegime }) } },
+}))
 vi.mock("@/lib/signing-otp/subject", async (orig) => ({
   ...(await orig<typeof import("@/lib/signing-otp/subject")>()),
   resolveSigningSubject: (...a: unknown[]) => h.resolveSubject(...a),
@@ -90,6 +93,14 @@ describe("POST /api/signing-otp", () => {
     h.tenantConfig = { requireSigningOtp: true, signingOtpBranchExempt: false }
     expect((await post(body)).status).toBe(200)
     expect(h.request).toHaveBeenCalledWith(expect.objectContaining({ method: "branch", actor: { userId: "u1", email: "o@example.invalid" } }))
+  })
+
+  it("always gives a branch witness of a key-facts agreement a code for the borrower, exempt or not", async () => {
+    h.session = asStaff()
+    h.disclosureRegime = "KEY_FACTS"
+    expect((await post(body)).status).toBe(200)
+    h.disclosureRegime = "NCA_PASQ"
+    expect((await post(body)).status).toBe(409)
   })
 
   it("keeps the debit mandate a portal-only signature", async () => {

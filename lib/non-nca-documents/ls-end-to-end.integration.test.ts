@@ -56,7 +56,7 @@ import { createAppPrismaClient } from "@/lib/prisma"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { bankRefFor, lsFlow } from "./ls-flow.integration-fixture"
 import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
 
@@ -79,6 +79,7 @@ suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () =>
     holder.tenantId = stack.tenant
     await seedStack(db(), stack, { code: "E2E", isDemoLender: true })
     // The lender's two approved templates: authored by one admin, approved by another.
+    await createTemplate(db(), stack.tenant, OFFER_KEY, BODY("Offer letter"))
     await createTemplate(db(), stack.tenant, KFS_KEY, BODY("Key facts statement"))
     await createTemplate(db(), stack.tenant, AGREEMENT_KEY, BODY("Loan agreement"))
     vi.stubEnv("TENANT_RLS", "on")
