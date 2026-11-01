@@ -47,9 +47,12 @@ approve and the affordability gate passes, the engine attests affordability and 
 - **The approval matrix must allow it.** The engine never approves what needs a person: a matrix requiring level 1 keeps every such
   application pending. Set `requiredLevels: 0` on the rule for the small digital loans the bank wants instant. A loan with a scorecard
   grade is matched by grade, not by `ungraded`.
+- **The bureau score floor must be calibrated.** `TenantConfig.bureauMinScore` left at its default (450, below the Sigma band) refuses every
+  approval as uncalibrated, so every application is referred (`HARD_GATE_REFUSED`). Set an in-band floor for the bureau in use.
 - **The 60 seconds.** Decided after the response is sent; measured from `submittedAt`, kept on the run (`submissionLatencyMs`) and shown on
   the Decision rules page. A bureau that is slow adds its own time, up to 25 seconds per bureau. If the task is lost to a restart the sweep
-  takes it within about 8 minutes, so a target missed on a restart is seen in the p95, and the decision is still made.
+  takes it within about 8 minutes, so a target missed on a restart is seen in the p95, and the decision is still made. The client's
+  application page shows the decision the next time it loads: it does not refresh itself, and the first page after submitting can still say under review.
 - **An automated decline still needs the POPIA s71-style sign-off.** The setting changes approvals only; until the sign-off is recorded a
   decline verdict is referred. The bank decides whether Lesotho's Data Protection Act asks for the same wording.
 - **Payout does not change.** The second person, in-person or biometric KYC and segregation of duties apply. Staff whose input the
