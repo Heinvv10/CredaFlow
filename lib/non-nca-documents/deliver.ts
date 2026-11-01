@@ -60,13 +60,10 @@ export async function deliverToBorrower(args: {
       prisma.client.findFirst({ where: { id: clientId, tenantId }, select: { email: true, whatsapp: true } }),
       prisma.contact.findFirst({ where: { tenantId, clientId } }),
     ])
-    if (!contact) {
-      legs.push({ channel: "EMAIL", outcome: "not_sent", detail: "no comms Contact on file for this client" })
-    } else {
-      if (client?.email && await simulatesSection129(tenantId, client.email)) legs.push({ channel: "EMAIL", outcome: "simulated" })
-      else await leg("EMAIL", contact.id)
-      if (client?.whatsapp) await leg("WHATSAPP", contact.id)
-    }
+    if (client?.email && await simulatesSection129(tenantId, client.email)) legs.push({ channel: "EMAIL", outcome: "simulated" })
+    else if (contact) await leg("EMAIL", contact.id)
+    else legs.push({ channel: "EMAIL", outcome: "not_sent", detail: "no comms Contact on file for this client" })
+    if (contact && client?.whatsapp) await leg("WHATSAPP", contact.id)
   } catch (error) {
     console.error(`[non-nca-documents] notice of ${args.what} failed:`, error instanceof Error ? error.message : "unknown error")
     legs.push({ channel: "EMAIL", outcome: "not_sent", detail: "the notice could not be prepared" })
