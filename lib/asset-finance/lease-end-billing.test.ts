@@ -30,6 +30,10 @@ describe("billingRefusal (C7–C8): what holds before an end of term is billed",
   it("a return, every rental invoiced, no claim open, billed by someone other than the inspector: nothing in the way", async () => {
     expect(await refusal({ lastDue: "2027-06-30" }, { ...ret, damageItems: [{}] })).toBeNull()
   })
+  it("account_controlled: the two-people rule refuses the biller of assessed damage (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    expect(await refusal({ lastDue: "2027-06-30" }, { ...ret, damageItems: [{}] })).toBe("account_controlled")
+  })
   it("rentals_pending: an uncancelled rental without its tax invoice", async () => {
     expect(await refusal({ pendingDue: "2027-06-30" }, ret)).toBe("rentals_pending")
   })

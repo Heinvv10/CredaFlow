@@ -36,10 +36,10 @@ describe("approversForLevel", () => {
     const db = tx([person("gone", "LOAN_ADMIN", { active: false }), person("robot", "LOAN_ADMIN", { isSystem: true }), person("la2", "LOAN_ADMIN")], ["gone", "robot", "la2"])
     expect(await approversForLevel(db as never, input)).toEqual(["la2"])
   })
-  it("a branch-scoped level wakes only those who hold it at the application's branch, and head office (F8)", async () => {
+  it("a branch-scoped level wakes only those who hold it at the application's branch, and head office, not staff with no branch (F8)", async () => {
     const scoped = levels.map((l) => (l.level === 2 ? { ...l, branchScoped: true } : l))
     const directory = [
-      person("here", "BRANCH_MANAGER", { branchId: "b1" }), person("elsewhere", "BRANCH_MANAGER", { branchId: "b2" }), person("office", "BRANCH_MANAGER", { branchId: null }),
+      person("here", "BRANCH_MANAGER", { branchId: "b1" }), person("elsewhere", "BRANCH_MANAGER", { branchId: "b2" }), person("unassigned", "BRANCH_MANAGER", { branchId: null }), person("office", "ADMIN", { branchId: null }),
       person("deputy-here", "LOAN_ADMIN"), person("boss-of-deputy-here", "BRANCH_MANAGER", { branchId: "b1" }),
       person("deputy-there", "LOAN_ADMIN"), person("boss-of-deputy-there", "BRANCH_MANAGER", { branchId: "b2" }),
     ]

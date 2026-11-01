@@ -48,9 +48,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // through audit logs and URLs).
     const existing = await prisma.user.findFirst({
       where: { id, tenantId: tenant.id },
-      select: { role: true, active: true, name: true, email: true, isSystem: true },
+      select: { role: true, active: true, name: true, email: true, isSystem: true, branchId: true },
     })
     if (!existing) return NextResponse.json({ error: "User not found" }, { status: 404 })
+
+    // A branch carries approval authority (lib/approval/evaluate.ts): nobody moves themselves.
+    const branchChanged = branchId !== undefined && branchId !== existing.branchId
+    if (id === guard.user.id && branchChanged) {
+      return NextResponse.json({ error: "You cannot change your own branch" }, { status: 400 })
+    }
 
     // The role ceiling: nobody edits a user who outranks them, or assigns a
     // role above their own. Checked BEFORE the email-uniqueness probe so an
@@ -154,10 +160,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           // Capture the email and role transitions explicitly — identity and
           // privilege changes auditors will want to trace, not just a
           // changed-key name.
-          oldValue: normalizedEmail !== undefined || roleChanged
+          oldValue: normalizedEmail !== undefined || roleChanged || branchChanged
             ? {
                 ...(normalizedEmail !== undefined ? { email: existing.email } : {}),
                 ...(roleChanged ? { role: locked.targetRole } : {}),
+                ...(branchChanged ? { branchId: existing.branchId } : {}),
               }
             : undefined,
           newValue: {
@@ -166,6 +173,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
             ...("password" in data ? { passwordChanged: true } : {}),
             ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
             ...(roleChanged ? { role: user.role } : {}),
+            ...(branchChanged ? { branchId: user.branchId } : {}),
           },
         }, tx)
         return { user }

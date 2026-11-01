@@ -239,6 +239,13 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
     expect(await res.json()).toEqual({ error: "Another change to this application was in progress; try again" })
   })
 
+  it("refuses an approval the two-people rule refuses, and does not ask it about a rejection (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const res = await decide({ decision: "APPROVE", note: "AFS checked against CIPC" })
+    expect(res.status).toBe(403)
+    expect(twoPeople.refusal).toHaveBeenCalledTimes(1)
+  })
+
   it("approves: locks, records the decision, moves the regime and audits in the transaction", async () => {
     const res = await decide({ decision: "APPROVE", note: "  AFS checked against CIPC  " })
     expect(res.status).toBe(200)

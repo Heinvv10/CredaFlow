@@ -72,11 +72,11 @@ export async function assessApproval(db: Db, input: {
   const caps = await delegatorLevels(db, tenantId, delegations, levels)
   // A branch-scoped pending level: the person's role, and each delegator's authority, count only at their own branch.
   const pending = levels.find((l) => l.level === steps.length + 1)
-  const branches = new Map<string, string | null>()
+  const people = new Map<string, { branchId: string | null; role: UserRole }>()
   if (pending?.branchScoped) {
-    for (const u of await db.user.findMany({ where: { tenantId, id: { in: [user.id, ...delegations.map((d) => d.delegatorId)] } }, select: { id: true, branchId: true } })) branches.set(u.id, u.branchId)
+    for (const u of await db.user.findMany({ where: { tenantId, id: { in: [user.id, ...delegations.map((d) => d.delegatorId)] } }, select: { id: true, branchId: true, role: true } })) people.set(u.id, u)
   }
-  const holds = (id: string) => holdsAtBranch(pending, branches.get(id) ?? null, facts.branchId)
+  const holds = (id: string) => !pending?.branchScoped || (people.has(id) && holdsAtBranch(pending, people.get(id)!, facts.branchId))
   const authorityFor = (list: typeof delegations, roleCounts = holds(user.id)) => authorityLevel({ role: user.role as UserRole, levels, delegations: list, amountCents: facts.amountCents, now: input.now, delegatorLevels: caps, roleCounts })
   const unseated = delegations.filter((d) => !seats.has(d.delegatorId))
   const authority = authorityFor(unseated.filter((d) => holds(d.delegatorId)))

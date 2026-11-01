@@ -92,14 +92,21 @@ describe("authority", () => {
 
 describe("holdsAtBranch (F8)", () => {
   const scoped = { branchScoped: true }
-  it("a scoped level is held at one's own branch, and everywhere by staff with no branch", () => {
-    expect(holdsAtBranch(scoped, "b1", "b1")).toBe(true)
-    expect(holdsAtBranch(scoped, "b1", "b2")).toBe(false)
-    expect(holdsAtBranch(scoped, "b1", null)).toBe(false)
-    expect(holdsAtBranch(scoped, null, "b2")).toBe(true)
+  const manager = (branchId: string | null) => ({ branchId, role: "BRANCH_MANAGER" as const })
+  it("a scoped level is held at one's own branch", () => {
+    expect(holdsAtBranch(scoped, manager("b1"), "b1")).toBe(true)
+    expect(holdsAtBranch(scoped, manager("b1"), "b2")).toBe(false)
+    expect(holdsAtBranch(scoped, manager("b1"), null)).toBe(false)
+  })
+  it("no branch is head office for an ADMIN or SUPER_ADMIN, and nothing for anyone else: a forgotten assignment is not all-branch authority", () => {
+    expect(holdsAtBranch(scoped, { branchId: null, role: "ADMIN" }, "b2")).toBe(true)
+    expect(holdsAtBranch(scoped, { branchId: null, role: "SUPER_ADMIN" }, null)).toBe(true)
+    expect(holdsAtBranch(scoped, manager(null), "b2")).toBe(false)
+    expect(holdsAtBranch(scoped, manager(null), null)).toBe(false)
+    expect(holdsAtBranch(scoped, { branchId: null, role: "LOAN_ADMIN" }, "b2")).toBe(false)
   })
   it("a level that is not scoped ignores branches", () => {
-    expect(holdsAtBranch({}, "b1", "b2")).toBe(true)
-    expect(holdsAtBranch(undefined, "b1", "b2")).toBe(true)
+    expect(holdsAtBranch({}, manager("b1"), "b2")).toBe(true)
+    expect(holdsAtBranch(undefined, manager("b1"), "b2")).toBe(true)
   })
 })

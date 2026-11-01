@@ -87,6 +87,13 @@ describe("PUT /api/clients/[id]/kyc-override-requests/[requestId]", () => {
     h.lockEvidence.mockResolvedValue(undefined)
   })
 
+  it("refuses an approval the two-people rule refuses, granting nothing (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const response = await call()
+    expect(response.status).toBe(403)
+    expect(h.clientUpdate).not.toHaveBeenCalled()
+  })
+
   it("approves by a different senior, grants VERIFIED in the same transaction, and audits both actions", async () => {
     const response = await call()
     expect(response.status).toBe(200)

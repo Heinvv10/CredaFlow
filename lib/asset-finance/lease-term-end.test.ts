@@ -35,6 +35,10 @@ describe("checkPurchaseValuation (C7)", () => {
     expect(await check(tx({ valuation: valuation("2027-06-30"), maxAge: 30 }))).toEqual({ ok: true, amountCents: 50_000_000 })
     expect(await check(tx({ valuation: valuation("2027-06-30", { source: "DEALER" }), maxAge: 30 }))).toMatchObject({ ok: true })
   })
+  it("refuses a valuation the two-people rule refuses (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    expect(await check(tx({ valuation: valuation("2027-06-30"), maxAge: 30 }))).toMatchObject({ ok: false, reason: "valuation_four_eyes" })
+  })
   it("refuses a valuation not of this asset", async () => {
     const t = tx({ maxAge: 30 })
     expect(await check(t)).toMatchObject({ ok: false, reason: "valuation" })

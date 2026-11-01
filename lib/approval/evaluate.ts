@@ -59,9 +59,19 @@ export interface Authority {
   delegationId: string | null
 }
 
-/** Whether a person of this branch holds `level` on an application of that branch. No branch (head office) holds every branch's. */
-export function holdsAtBranch(level: Pick<MatrixLevel, "branchScoped"> | undefined, personBranchId: string | null, applicationBranchId: string | null): boolean {
-  return level?.branchScoped !== true || personBranchId === null || personBranchId === applicationBranchId
+/**
+ * Whether a person holds `level` on an application of `applicationBranchId`. A scoped level is held at one's own branch. Head office is an
+ * ADMIN or SUPER_ADMIN with no branch, who holds every branch's and an application with no branch. Anyone else with no branch holds it
+ * nowhere: a forgotten assignment must not be all-branch authority. The step trigger repeats this (guardApprovalStep).
+ */
+export function holdsAtBranch(
+  level: Pick<MatrixLevel, "branchScoped"> | undefined,
+  person: { branchId: string | null; role: UserRole },
+  applicationBranchId: string | null,
+): boolean {
+  if (level?.branchScoped !== true) return true
+  if (person.branchId === null) return hasMinRole(person.role, "ADMIN")
+  return person.branchId === applicationBranchId
 }
 
 /** What a user may approve on an application: the higher of their role's level and any delegated one. `roleCounts: false`: their role is held elsewhere (./holdsAtBranch). */

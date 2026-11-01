@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { accountControlRefusal, ACCOUNT_CONTROL_DAYS } from "./account-control"
+import { accountControlRefusal, ACCOUNT_CONTROL_DAYS, ACCOUNT_CONTROL_UNREADABLE } from "./account-control"
 
 const suite = process.env.RUN_ACCOUNT_CONTROL_IT === "1" ? describe.sequential : describe.skip
 const db = new PrismaClient()
@@ -15,13 +15,14 @@ const run = randomUUID().replaceAll("-", "").slice(0, 10)
 const tenantId = `ac-${run}`
 const otherTenant = `ac-other-${run}`
 const id = (name: string) => `ac-${name}-${run}`
-const people = ["root", "m", "c", "s1", "s2", "x", "y", "boss", "h1", "h2", "old1", "old2", "e1", "e2", "i1", "i2", "d1", "d2", "o1"].map(id)
+const people = ["root", "m", "c", "s1", "s2", "x", "y", "boss", "h1", "h2", "old1", "old2", "e1", "e2", "i1", "i2", "d1", "d2", "o1", "t1", "t2", "t3", "n1", "n2", "n3", "b1", "b2", "b3", "boss2", "h3", "h4", "h5", ...Array.from({ length: 11 }, (_, i) => `link${i}`)].map(id)
 const DAY = 86_400_000
 
 /** AuditLog.createdAt is stamped by the database: a row is always "now", and the window is tested by moving the rule's own clock. */
-async function trail(action: string, actor: string | null, target: string, tenant = tenantId) {
-  await db.auditLog.create({ data: { tenantId: tenant, userId: actor, userEmail: `${actor}@test.invalid`, action, entity: "User", entityId: target } })
+async function trail(action: string, actor: string | null, target: string, tenant = tenantId, values: { oldValue?: object; newValue?: object } = {}) {
+  await db.auditLog.create({ data: { tenantId: tenant, userId: actor, userEmail: `${actor}@test.invalid`, action, entity: "User", entityId: target, ...values } })
 }
+const update = (actor: string, target: string, values: { oldValue?: object; newValue?: object }) => trail("USER_UPDATED", actor, target, tenantId, values)
 const decide = (makerIds: Array<string | null>, checkerId: string) => accountControlRefusal(db as never, { tenantId, makerIds, checkerId })
 
 suite("two people, not two accounts: the rule (real Postgres)", () => {
@@ -58,11 +59,42 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
     expect(await decide([id("o1")], id("d2"))).toContain("Two people")
   })
 
-  it("a common creator alone does not relate two people: the first admin sets up the whole team", async () => {
+  it("the line follows a takeover, not only a creation: a password reset, a role or email change, a branch move or a second-factor reset up the line", async () => {
+    await update(id("t1"), id("t2"), { newValue: { changed: [], passwordChanged: true } })
+    await update(id("t2"), id("t3"), { oldValue: { role: "LOAN_ADMIN" }, newValue: { role: "ADMIN" } })
+    expect(await decide([id("t1")], id("t3"))).toContain("Two people")
+    await trail("TOTP_RESET_BY_ADMIN", id("b1"), id("b2"))
+    await update(id("b2"), id("b3"), { oldValue: { branchId: "here" }, newValue: { branchId: "there" } })
+    expect(await decide([id("b1")], id("b3"))).toContain("Two people")
+  })
+
+  it("a name or phone edit up the line, or a self-edit, is no hold over anyone", async () => {
+    await update(id("n1"), id("n2"), { newValue: { changed: ["name"] } })
+    await update(id("n2"), id("n3"), { newValue: { changed: ["phone"] } })
+    await update(id("n3"), id("n3"), { newValue: { changed: [], passwordChanged: true } })
+    expect(await decide([id("n1")], id("n3"))).toBeNull()
+  })
+
+  it("two accounts minted by one person are not two people while either is new; after the window they are; another creator is unrelated", async () => {
     await trail("USER_CREATED", id("boss"), id("h1"))
     await trail("USER_CREATED", id("boss"), id("h2"))
-    expect(await decide([id("h1")], id("h2"))).toBeNull()
+    expect(await decide([id("h1")], id("h2"))).toContain("Two people")
     expect(await decide([id("boss")], id("h2"))).toContain("Two people")
+    expect(await accountControlRefusal(db as never, { tenantId, makerIds: [id("h1")], checkerId: id("h2"), now: new Date(Date.now() + (ACCOUNT_CONTROL_DAYS + 1) * DAY) })).toBeNull()
+    await trail("USER_CREATED", id("boss2"), id("h3"))
+    expect(await decide([id("h1")], id("h3"))).toBeNull()
+  })
+
+  it("a shared creator up a minted chain counts: boss mints h4, h4 mints h5, h5 sits opposite boss's other account", async () => {
+    await trail("USER_CREATED", id("boss2"), id("h4"))
+    await trail("USER_CREATED", id("h4"), id("h5"))
+    expect(await decide([id("h3")], id("h5"))).toContain("Two people")
+  })
+
+  it("a line too long to walk is refused, not passed unread, on either side", async () => {
+    for (let i = 0; i < 10; i += 1) await update(id(`link${i + 1}`), id(`link${i}`), { newValue: { changed: [], passwordChanged: true } })
+    expect(await decide([id("x")], id("link0"))).toBe(ACCOUNT_CONTROL_UNREADABLE)
+    expect(await decide([id("link0")], id("x"))).toBe(ACCOUNT_CONTROL_UNREADABLE)
   })
 
   it("the window closes after the rule's days, on both the direct row and the chain", async () => {

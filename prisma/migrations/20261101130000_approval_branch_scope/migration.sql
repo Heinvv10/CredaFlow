@@ -17,6 +17,7 @@ DECLARE
   latest TEXT;
   branch_scoped BOOLEAN;
   holder_branch TEXT;
+  holder_role TEXT;
   application_branch TEXT;
 BEGIN
   SELECT * INTO c FROM "ApprovalCase" WHERE "id" = NEW."caseId" AND "tenantId" = NEW."tenantId";
@@ -64,12 +65,13 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval by role is recorded only by someone whose role reaches the level';
     END IF;
   END IF;
-  -- A branch-scoped level is held at one's own branch: the approver's, or the delegator's on a delegated step. No branch is head office.
+  -- A branch-scoped level is held at one's own branch: the approver's, or the delegator's on a delegated step. With no branch, only head
+  -- office holds it (an ADMIN or SUPER_ADMIN, for every branch); anyone else with no branch holds it nowhere.
   SELECT (l->>'branchScoped')::boolean INTO branch_scoped FROM jsonb_array_elements(c."levelsSnapshot") l WHERE (l->>'level')::int = NEW."level";
   IF branch_scoped THEN
-    SELECT u."branchId" INTO holder_branch FROM "User" u WHERE u."tenantId" = NEW."tenantId" AND u."id" = principals[array_length(principals, 1)];
+    SELECT u."branchId", u."role"::text INTO holder_branch, holder_role FROM "User" u WHERE u."tenantId" = NEW."tenantId" AND u."id" = principals[array_length(principals, 1)];
     SELECT a."branchId" INTO application_branch FROM "LoanApplication" a WHERE a."id" = NEW."applicationId" AND a."tenantId" = NEW."tenantId";
-    IF holder_branch IS NOT NULL AND holder_branch IS DISTINCT FROM application_branch THEN
+    IF NOT (CASE WHEN holder_branch IS NULL THEN public."approvalRoleRank"(holder_role) >= public."approvalRoleRank"('ADMIN') ELSE holder_branch IS NOT DISTINCT FROM application_branch END) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A branch-scoped level is approved only with authority held at the application''s branch';
     END IF;
   END IF;

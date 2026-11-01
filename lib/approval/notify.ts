@@ -16,14 +16,17 @@ export async function approversForLevel(
     where: { tenantId: input.tenantId, active: true, isSystem: false, id: { notIn: [...input.exclude] }, role: { in: ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"] } },
     select: { id: true, role: true, branchId: true },
   })
-  const byRole = users.filter((u) => roleLevel(input.levels, u.role) === input.level && holdsAtBranch(target, u.branchId, input.branchId)).map((u) => u.id)
+  const byRole = users.filter((u) => roleLevel(input.levels, u.role) === input.level && holdsAtBranch(target, u, input.branchId)).map((u) => u.id)
   const delegations = await tx.approvalDelegation.findMany({
     where: { tenantId: input.tenantId, revokedAt: null, validFrom: { lte: input.now }, validTo: { gte: input.now }, level: { gte: input.level }, maxAmountCents: { gte: input.amountCents }, delegateId: { notIn: [...input.exclude] } },
     select: { delegateId: true, delegatorId: true },
   })
   // A delegate who has since left (or is the system account) is not woken for work they can no longer do.
-  const delegators = target?.branchScoped ? await tx.user.findMany({ where: { tenantId: input.tenantId, id: { in: delegations.map((d) => d.delegatorId) } }, select: { id: true, branchId: true } }) : []
-  const inBranch = (delegatorId: string) => holdsAtBranch(target, delegators.find((u) => u.id === delegatorId)?.branchId ?? null, input.branchId)
+  const delegators = target?.branchScoped ? await tx.user.findMany({ where: { tenantId: input.tenantId, id: { in: delegations.map((d) => d.delegatorId) } }, select: { id: true, branchId: true, role: true } }) : []
+  const inBranch = (delegatorId: string) => {
+    const delegator = delegators.find((u) => u.id === delegatorId)
+    return !target?.branchScoped || (delegator !== undefined && holdsAtBranch(target, delegator, input.branchId))
+  }
   const delegateIds = [...new Set(delegations.filter((d) => inBranch(d.delegatorId)).map((d) => d.delegateId))]
   const active = delegateIds.length === 0
     ? []

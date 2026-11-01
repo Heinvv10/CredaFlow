@@ -15,6 +15,7 @@ import { POST as committeeRoute } from "@/app/api/applications/[id]/committee/ro
 import { POST as rateDecide } from "@/app/api/asset-finance/reference-rates/[id]/decide/route"
 import { POST as makerChecker } from "@/app/api/maker-checker/[id]/[action]/route"
 import { POST as createUser } from "@/app/api/settings/users/route"
+import { PATCH as editUser } from "@/app/api/settings/users/[id]/route"
 import { PATCH as writeOff } from "@/app/api/loans/[id]/write-off/route"
 import { auth } from "@/lib/auth"
 import { createDraft, submit } from "@/lib/maker-checker/service"
@@ -111,6 +112,20 @@ suite("two people, not two accounts (real routes, real Postgres)", () => {
     // Refusing is not gated: it moves nothing the second person vouches for.
     const ok = await decide(as.ad2 as Person, "APPROVE")
     expect(ok.status, JSON.stringify(ok.body)).toBe(200)
+  })
+
+  it("a branch: nobody moves themselves; a move by the maker is a hold over the account through the real staff route", async () => {
+    const edit = async (by: Person, target: string, body: object) => {
+      signIn(by)
+      return inTenant(async () => answer(await editUser(post(`/api/settings/users/${target}`, body, "PATCH"), { params: Promise.resolve({ id: target }) })))
+    }
+    await db.user.update({ where: { id: ids.bm }, data: { branchId: ids.branch } })
+    expect(await edit(as.bm as Person, ids.bm, { branchId: null })).toMatchObject({ status: 400, body: { error: "You cannot change your own branch" } })
+    expect((await db.user.findUniqueOrThrow({ where: { id: ids.bm } })).branchId).toBe(ids.branch)
+    const hand = await mint(as.checker2 as Person, "LOAN_ADMIN")
+    expect((await edit(as.checker2 as Person, hand.id, { branchId: ids.branch })).status).toBe(200)
+    const row = await db.auditLog.findFirstOrThrow({ where: { tenantId: ids.tenant, action: "USER_UPDATED", entityId: hand.id }, orderBy: { createdAt: "desc" } })
+    expect(row.newValue).toMatchObject({ branchId: ids.branch })
   })
 
   it("a write-off: the account the requester minted cannot approve it", async () => {

@@ -36,14 +36,24 @@ suite("approval matrix: branch-scoped authority (real Postgres)", () => {
     expect(await stepsOf(A("away"))).toHaveLength(1)
   })
 
-  it("at their own branch they approve, and head office staff approve anywhere", async () => {
+  it("at their own branch they approve; an ADMIN with no branch is head office and approves anywhere", async () => {
     await db.user.update({ where: { id: ids.bm }, data: { branchId: ids.branch } })
     expect((await approveAs("bm", A("away"))).status).toBe(200)
     expect(await statusOf(A("away"))).toBe("APPROVED")
-    await db.user.update({ where: { id: ids.bm }, data: { branchId: null } })
     await underReview(A("office"), { amount: 500_000 })
     expect((await approveAs("la1", A("office"))).status).toBe(200)
-    expect((await approveAs("bm", A("office"))).status).toBe(200)
+    expect((await approveAs("ad", A("office"))).status).toBe(200)
+    expect(await statusOf(A("office"))).toBe("APPROVED")
+    await db.user.update({ where: { id: ids.bm }, data: { branchId: OTHER } })
+  })
+
+  it("a branch manager with no branch holds a scoped level nowhere: gate and database, also on an application with no branch", async () => {
+    await db.user.update({ where: { id: ids.bm }, data: { branchId: null } })
+    await underReview(A("unassigned"), { amount: 500_000 })
+    expect((await approveAs("la1", A("unassigned"))).status).toBe(200)
+    expect(await approveAs("bm", A("unassigned"))).toMatchObject({ status: 403, body: { approvalMatrix: "BRANCH_AUTHORITY_REQUIRED" } })
+    const theCase = await caseOf(A("unassigned"))
+    expect(await refusal(insertStep(theCase.id, A("unassigned"), 2, ids.bm))).toContain("held at the application's branch")
     await db.user.update({ where: { id: ids.bm }, data: { branchId: OTHER } })
   })
 
