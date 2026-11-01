@@ -2,6 +2,7 @@ import { DOC_TYPE_LABELS } from "@/lib/document-types"
 import { deriveKycBlockers, kycGateStage } from "@/lib/kyc/kyc-blockers"
 import type { CompositeKycResult, CoreDocumentGap } from "@/lib/kyc/document-state"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
+import { verifyCurrentAffordabilityApproval } from "@/lib/affordability/current-approval"
 import {
   verifyCurrentDisbursementEvidence,
   type CurrentDisbursementEvidenceApplication,
@@ -284,6 +285,7 @@ function approvalBlockers(input: ReadinessInput): string[] {
  */
 function payoutBlockers(input: ReadinessInput): string[] {
   const { application } = input
+  if (application.disclosureRegime === "KEY_FACTS") return keyFactsPayoutBlockers(input)
 
   const agreementBound = Boolean(
     application.agreementSignedAt
@@ -370,6 +372,27 @@ function payoutBlockers(input: ReadinessInput): string[] {
     const verdict = verdicts[precondition]
     return verdict === null ? [] : typeof verdict === "string" ? [verdict] : verdict
   })
+}
+
+/**
+ * A key-facts payout has no PASQ, countersignature, mandate or cover. A necessary view for the board, without the second person, which
+ * needs a read per card: the application page runs every gate (lib/non-nca-documents/payout-gates.ts).
+ */
+function keyFactsPayoutBlockers(input: ReadinessInput): string[] {
+  const { application } = input
+  const approval = verifyCurrentAffordabilityApproval({
+    application: { ...application.disbursementEvidence, disclosureRegime: application.disclosureRegime },
+    bureauCheck: null,
+    tenantConfig: input.tenantConfig,
+  })
+  const bankDetails = currentVerifiedBankDetails({ client: application.client } as unknown as DebitMandateApplication)
+  const kyc = kycBlockerLabels(input.kyc, application.status)
+  return [
+    ...(application.agreementSignedAt ? [] : [PAYOUT_BLOCK_LABELS.signed_agreement]),
+    ...(kyc === null ? [] : typeof kyc === "string" ? [kyc] : kyc),
+    ...(approval.ok ? [] : [PAYOUT_BLOCK_LABELS.unchanged_affordability]),
+    ...(bankDetails ? [] : [PAYOUT_BLOCK_LABELS.verified_banking]),
+  ]
 }
 
 /**

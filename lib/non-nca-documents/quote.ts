@@ -28,24 +28,31 @@ export class QuoteUnavailableError extends Error {
 }
 
 /**
- * The approved terms of an application, from the approval it was decided on (the
- * frozen pricing, lib/affordability/snapshot.ts), not from the product row as it
- * stands now. The same calculator the PASQ uses, so a figure printed here is a
- * figure the loan is booked on.
+ * The frozen approval's calculation: the terms the application was approved on (the frozen pricing,
+ * lib/affordability/snapshot.ts), not the product row as it stands now, run through the calculator the
+ * PASQ uses from the date the approval was captured. The one source of the figures a key-facts document
+ * prints and of the schedule its loan is booked on, so the two cannot differ.
  */
-export function quoteFor(application: { affordabilityResult: unknown; repaymentMethod: string | null }): QuoteFigures {
+export function approvedCalculation(application: { affordabilityResult: unknown }) {
   const frozen = frozenApprovedTerms(application.affordabilityResult)
   if (!frozen.ok) throw new QuoteUnavailableError(frozen.reason)
   const approval = readAffordabilitySnapshotStore(application.affordabilityResult).approval
   if (!approval) throw new QuoteUnavailableError("missing")
-  const calculation = calculateLoanFromDecisionInputs(frozen.terms, new Date(approval.calculator.startDate))
+  const startDate = new Date(approval.calculator.startDate)
+  const calculation = calculateLoanFromDecisionInputs(frozen.terms, startDate)
+  if (calculation.schedule.length === 0) throw new QuoteUnavailableError("no_schedule")
+  return { calculation, terms: frozen.terms, startDate }
+}
+
+/** The approved terms as printed on the key facts statement and the agreement. */
+export function quoteFor(application: { affordabilityResult: unknown; repaymentMethod: string | null }): QuoteFigures {
+  const { calculation, terms } = approvedCalculation(application)
   const first = calculation.schedule[0]
-  const last = calculation.schedule.at(-1)
-  if (!first || !last) throw new QuoteUnavailableError("no_schedule")
+  const last = calculation.schedule[calculation.schedule.length - 1]
   return {
     principalCents: calculation.principal,
-    termDays: frozen.terms.termDays,
-    interestRatePm: frozen.terms.interestRatePm,
+    termDays: terms.termDays,
+    interestRatePm: terms.interestRatePm,
     initiationFeeCents: calculation.initiationFee,
     serviceFeesCents: calculation.serviceFees,
     monthlyInstalmentCents: calculation.monthlyInstalment || first.totalDue,

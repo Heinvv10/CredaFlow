@@ -22,13 +22,17 @@ vi.mock("@/lib/signing-otp/challenge", () => ({
 import { createHash } from "node:crypto"
 import { Prisma } from "@prisma/client"
 import { SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { approvedAffordabilityResult } from "./approval.integration-fixture"
 import { BORROWER_REFUSAL } from "./borrower-gate"
 import { signKeyFactsAgreement } from "./sign"
 
+const BORROWER = { id: "c1", idNumber: "990000001", firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null }
+const frozen = approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900, borrowerIdentity: biometricSubjectFingerprint(BORROWER) })
 const BYTES = Buffer.from("%PDF synthetic agreement")
 const SHA = createHash("sha256").update(BYTES).digest("hex")
 const base = { tenantId: "t1", applicationId: "a1", clientId: "c1", clientEmail: "c1@client.invalid", agreementDocumentSha256: SHA, signature: "Thabo Synthetic", signingOtpChallengeId: "ch1", ipAddress: "203.0.113.5" }
-const approved = { id: "a1", status: "APPROVED", disclosureRegime: "KEY_FACTS", agreementSignedAt: null, agreementDocumentId: "d1", agreementDocumentSha256: SHA, client: { firstName: "T", lastName: "S" } }
+const approved = { id: "a1", status: "APPROVED", disclosureRegime: "KEY_FACTS", affordabilityResult: frozen, agreementSignedAt: null, agreementDocumentId: "d1", agreementDocumentSha256: SHA, client: { firstName: "T", lastName: "S" } }
 
 beforeEach(() => {
   for (const f of Object.values(m)) f.mockReset()
@@ -38,7 +42,7 @@ beforeEach(() => {
   m.otpRequired.mockResolvedValue(true)
   m.check.mockResolvedValue(null)
   m.updateMany.mockResolvedValue({ count: 1 })
-  m.raw.mockResolvedValue([{ deceasedAt: null }])
+  m.raw.mockResolvedValue([{ deceasedAt: null, ...BORROWER }])
 })
 
 describe("signKeyFactsAgreement", () => {
@@ -114,5 +118,21 @@ describe("signKeyFactsAgreement", () => {
     await expect(signKeyFactsAgreement(base)).rejects.toThrow(TypeError)
     m.updateMany.mockResolvedValue({ count: 0 })
     expect(await signKeyFactsAgreement(base)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/changed while it was being signed/) })
+  })
+})
+
+describe("the person and the race", () => {
+  it("refuses a borrower who is no longer the person the approval froze, without saying why, read under the client lock", async () => {
+    m.raw.mockResolvedValue([{ deceasedAt: null, ...BORROWER, lastName: "Someoneelse" }])
+    const refused = await signKeyFactsAgreement(base)
+    expect(refused).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(m.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("answers a timeout or a lost race as a conflict, not a fault", async () => {
+    for (const code of ["P2028", "P2034"]) {
+      m.updateMany.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("timed out", { code, clientVersion: "5" }))
+      expect(await signKeyFactsAgreement(base)).toMatchObject({ ok: false, status: 409 })
+    }
   })
 })

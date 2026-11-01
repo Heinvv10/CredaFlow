@@ -181,6 +181,11 @@ export interface AffordabilityDecisionInputs {
    * fingerprint, and the loan is booked on it.
    */
   repayment?: RepaymentTerms
+  /**
+   * The borrower's identity at approval, on a key-facts approval only (lib/non-nca-documents/identity.ts): with no bureau check, nothing
+   * else in the snapshot names who was assessed. Part of the fingerprint when present.
+   */
+  borrowerIdentity?: string
   /** The product version the terms came from, and the rule that priced them (lib/product-engine/approval-terms.ts). */
   productVersion?: { id: string; version: number; baseRatePm: number; pricingRuleId: string | null; pricingRuleName: string | null; pricingInputs: { segment: string | null; channel: string | null; campaignCode: string | null; riskRank: number | null } }
 }
@@ -679,6 +684,9 @@ export function affordabilityInputFingerprint(inputs: AffordabilityDecisionInput
   if (inputs.repayment !== undefined) {
     canonical.push(`repayment:${JSON.stringify([inputs.repayment.frequency, inputs.repayment.structure, inputs.repayment.graceKind, inputs.repayment.graceInstalments, inputs.repayment.instalments])}`)
   }
+  if (inputs.borrowerIdentity !== undefined) {
+    canonical.push(`identity:${inputs.borrowerIdentity}`)
+  }
   if (inputs.productVersion !== undefined) {
     canonical.push(`version:${JSON.stringify([inputs.productVersion.id, inputs.productVersion.version, inputs.productVersion.baseRatePm, inputs.productVersion.pricingRuleId])}`)
   }
@@ -1062,6 +1070,7 @@ function affordabilityInputsAreValid(value: unknown): value is AffordabilityDeci
     (value.initiationFeePayment === "DEFERRED" || value.initiationFeePayment === "UPFRONT") &&
     Number.isFinite(value.ndiBufferPct) && Number(value.ndiBufferPct) >= 0 &&
     (value.repayment === undefined || repaymentTermsAreValid(value.repayment)) &&
+    (value.borrowerIdentity === undefined || (typeof value.borrowerIdentity === "string" && /^[0-9a-f]{64}$/.test(value.borrowerIdentity))) &&
     (value.productVersion === undefined || productVersionRefIsValid(value.productVersion))
 }
 
