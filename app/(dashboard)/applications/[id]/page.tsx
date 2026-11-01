@@ -1,4 +1,3 @@
-import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
 import { Header } from "@/components/layout/Header"
@@ -99,6 +98,7 @@ import {
 } from "@/lib/security/segregation-of-duties"
 import { bureauRailAction } from "@/lib/applications/bureau-rail-action"
 import { selfieLinkNeeded } from "@/lib/kyc/selfie-link-needed"
+import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -924,13 +924,15 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         )}
 
         {/* Compliance Capture: the NCA reckless-lending checks, asked only of an application under the NCA */}
-        {evidenceRules.recklessLendingAssessment && <ComplianceCapture
-          applicationId={application.id}
-          recklessDone={application.recklessLendingAssessed}
-          recklessNote={application.recklessLendingNote}
-          affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
-          canConfirm={hasMinRole(userRole, "LOAN_ADMIN")}
-        />}
+        {evidenceRules.recklessLendingAssessment && (
+          <ComplianceCapture
+            applicationId={application.id}
+            recklessDone={application.recklessLendingAssessed}
+            recklessNote={application.recklessLendingNote}
+            affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
+            canConfirm={hasMinRole(userRole, "LOAN_ADMIN")}
+          />
+        )}
 
         {canReadChecks && (
           <CreditChecksPanel

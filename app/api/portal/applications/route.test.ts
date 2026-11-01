@@ -502,6 +502,27 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).not.toHaveBeenCalled()
   })
 
+  it("looks for the credit-life offer unless the instance is outside the NCA's jurisdiction: unloaded (the default) and ZA query, LS does not", async () => {
+    const { resetActiveJurisdiction, setActiveJurisdiction } = await import("@/lib/jurisdiction/active")
+    try {
+      resetActiveJurisdiction()
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).toHaveBeenCalled()
+
+      findFirstInsuranceProduct.mockClear()
+      setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).toHaveBeenCalled()
+
+      findFirstInsuranceProduct.mockClear()
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).not.toHaveBeenCalled()
+    } finally {
+      resetActiveJurisdiction()
+    }
+  })
+
   it("accepts the REAL no-offer client payload: election is an empty string", async () => {
     // The apply screen's election state initialises to "" and is posted
     // verbatim when no offer block rendered. `?? "DECLINED"` does not catch

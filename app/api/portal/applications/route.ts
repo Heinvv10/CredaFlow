@@ -1,4 +1,3 @@
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { Prisma, type LoanPurposeCategory } from "@prisma/client"
@@ -44,6 +43,7 @@ import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-contai
 import { loadOwnLenderArrears, OWN_LENDER_ARREARS_CODE, OWN_LENDER_ARREARS_REASON } from "@/lib/affordability/own-lender-arrears-gate"
 import { creditBlock } from "@/lib/clients/status"
 import { CUSTOMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 
 // Client-portal application submission. Distinct from /api/applications
 // (staff-only) and /api/website/apply (anonymous lead capture, creates a
@@ -445,7 +445,7 @@ export async function POST(req: NextRequest) {
         // submission-time gate.) Explicit branches: Prisma silently DROPS an
         // `id: undefined` filter, which would "work" only by
         // accident.
-        const currentCreditLifeProduct = await tx.insuranceProduct.findFirst({
+        const currentCreditLifeProduct = !isNcaJurisdiction() ? null : await tx.insuranceProduct.findFirst({
           where: disclosedCreditLifeProductId !== null ? {
             id: disclosedCreditLifeProductId,
             tenantId: tenant.id,

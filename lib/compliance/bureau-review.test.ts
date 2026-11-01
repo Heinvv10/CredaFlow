@@ -59,6 +59,7 @@ const currentReview = {
   status: "UNDER_REVIEW",
   clientId: "client-1",
   bureauReviewGeneration: "review-generation-1",
+  disclosureRegime: "NCA_PASQ",
 }
 
 beforeEach(() => {
@@ -226,7 +227,6 @@ describe("bureau review generation binding", () => {
     getCreditReportMock.mockResolvedValue(experianNotConfigured)
     applicationFindUniqueMock
       .mockResolvedValueOnce(currentReview) // start of the run
-      .mockResolvedValueOnce(currentReview) // the disclosure regime
       .mockResolvedValueOnce(currentReview) // before attempt 1
       .mockResolvedValue({ ...currentReview, bureauReviewGeneration: "review-generation-2" })
 

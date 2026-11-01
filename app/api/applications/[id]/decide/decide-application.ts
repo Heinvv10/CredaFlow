@@ -41,7 +41,6 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
-import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { clientDeclineReason, parseDeclineCategory } from "@/lib/applications/decline-category"
@@ -57,6 +56,7 @@ import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllow
 import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
+import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
 // 20261021090000_credit_decision_record) holds the same 10-code-point floor:
@@ -131,6 +131,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
           lastName: true,
           gender: true,
           dateOfBirth: true,
+          deceasedAt: true,
           kycStatus: true,
           kycVerifiedAt: true,
           kycVerifiedById: true,
@@ -909,7 +910,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // Deceased is a NON-OVERRIDABLE hard stop — an audited override reason
     // cannot approve a consumer the bureau reports as deceased (owner
     // decision). Checked before the override bypass below.
-    const hardStop = nonOverridableBlock({ deceased: bureauCheck?.deceased ?? false })
+    // The lender's own record counts too: a key-facts loan has no bureau, and a bureau can miss a death the lender knows of.
+    const hardStop = nonOverridableBlock({ deceased: (bureauCheck?.deceased ?? false) || !!application.client.deceasedAt })
     if (hardStop.blocked) {
       return NextResponse.json(
         {
@@ -1229,6 +1231,28 @@ export async function decideApplication({ tenant, user, id, formData, automation
         { status: 422 },
       )
     }
+    // A key-facts loan has no bureau check, so screening is its only identity-risk check: no provider, no approval.
+    if (screening.allowed && evidenceRules.screeningProvider && screening.state.state === "NOT_CONFIGURED") {
+      await auditRefusal({
+        action: AuditAction.SCREENING_APPROVAL_REFUSED,
+        entity: "LoanApplication",
+        entityId: id,
+        tenantId: tenant.id,
+        userId: user.id,
+        userEmail: user.email,
+        reason: "screening_provider_required",
+        status: 422,
+      })
+      return NextResponse.json(
+        {
+          error: "Approval blocked: no screening provider is configured. A key-facts loan has no bureau check, so PEP and sanctions screening must run before it is approved.",
+          screening: screening.state,
+          screeningProviderRequired: true,
+          requiresOverride: false,
+        },
+        { status: 422 },
+      )
+    }
     if (!screening.allowed) {
       await auditRefusal({
         action: AuditAction.SCREENING_APPROVAL_REFUSED,
@@ -1321,7 +1345,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
         if (openFlags > 0) {
           return { ok: false as const, reason: "checks_open" as const }
         }
-        if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, user.id))) {
+        if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, user.id, { providerRequired: evidenceRules.screeningProvider }))) {
           return { ok: false as const, reason: "screening_changed" as const }
         }
         // Evidence that arrived after the recompute read it has not been
@@ -1464,7 +1488,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
             // freely via `/api/applications/[id]/compliance`). Also stamp
             // the broader reckless-lending assessment columns for ops
             // dashboards and NCR audit queries.
-            ...(bureauOverrideReason && {
+            // An s81 assessment is stamped only where the NCA asks for one: a key-facts loan has none to attest.
+            ...(bureauOverrideReason && evidenceRules.recklessLendingAssessment && {
               recklessLendingAssessed: true,
               recklessLendingAssessedById: user.id,
               recklessLendingAssessedAt: decisionAt,
