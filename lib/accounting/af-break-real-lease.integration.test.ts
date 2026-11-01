@@ -38,8 +38,13 @@ let op = ""
 const setSession = (user: SessionUser | null) => { session.current = user && { user } }
 const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession({ id, email: `${id}@lease-acct.test`, role, tenantId: fx.tenantId })
 const today = () => sastCalendarDate(new Date())
-const FUTURE = new Date("2028-02-05T10:00:00+02:00")
-const MONTHS = ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12", "2028-01"]
+// Every month is relative to the go-live month (the month the suite runs in). These were literal months from 2026-10, which
+// broke the suite on 2026-11-01: go-live became 2026-11 and closing 2026-10 was refused as OUT_OF_ORDER.
+const GO_LIVE = today().slice(0, 7)
+const month = (n: number) => addMonthsClamped(`${GO_LIVE}-01`, n).slice(0, 7)
+const monthStart = (n: number) => new Date(`${month(n)}-01T00:00:00+02:00`)
+const FUTURE = new Date(`${month(16)}-05T10:00:00+02:00`)
+const MONTHS = Array.from({ length: 16 }, (_, i) => month(i))
 const plan = (key: string) => runWithTenant(fx.tenantId, () => planPeriod(prisma, fx.tenantId, parsePeriodKey(key)!, FUTURE))
 const close = (key: string) => runWithTenant(fx.tenantId, () => closePeriod(prisma, { tenantId: fx.tenantId, periodKey: key, userId: fx.adminA, userEmail: "lease@test.invalid", now: FUTURE }))
 
@@ -83,7 +88,7 @@ suite.sequential("real leases through the accounting close", () => {
     await backdateLease(db, fml, 3)
     await backdateLease(db, op, 1)
     expect((await runLeaseInvoiceBatch(db as never, today())).ok).toBe(true)
-    await db.accountingSettings.create({ data: { tenantId: fx.tenantId, mappingConfirmedAt: new Date(), mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], goLiveMonth: today().slice(0, 7) } })
+    await db.accountingSettings.create({ data: { tenantId: fx.tenantId, mappingConfirmedAt: new Date(), mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], goLiveMonth: GO_LIVE } })
   }, 600_000)
   afterAll(async () => {
     session.current = null
@@ -108,8 +113,8 @@ suite.sequential("real leases through the accounting close", () => {
   }, 600_000)
 
   it("L1. the booking month closes with the back-dated rentals posted by origin, every control nil", async () => {
-    const out = await closeThrough(today().slice(0, 7))
-    expect(out, JSON.stringify(out)).toEqual([{ key: today().slice(0, 7), closed: true }])
+    const out = await closeThrough(GO_LIVE)
+    expect(out, JSON.stringify(out)).toEqual([{ key: GO_LIVE, closed: true }])
     const rentals = await db.leaseRental.findMany({ where: { loanId: { in: [fml, op] }, taxInvoiceId: { not: null } } })
     expect(rentals.length).toBeGreaterThan(0)
   }, 300_000)
@@ -120,9 +125,9 @@ suite.sequential("real leases through the accounting close", () => {
     await credit(fmlInv.id, today(), 10_000)
     await credit(fmlInv.id, today(), fmlInv.totalExclVatCents - 10_000) // the rest: a full credit
     if (opInv) await credit(opInv.id, today(), 5_000)
-    const out = await closeThrough("2026-12")
+    const out = await closeThrough(month(2))
     expect(out.filter((o) => !o.closed), JSON.stringify(out)).toEqual([])
-    const again = await plan("2027-01")
+    const again = await plan(month(3))
     expect(again.entries.filter((e) => e.eventType === "CREDIT_NOTE"), "credit notes posted again").toEqual([])
     expect(again.controls).toEqual([])
   }, 600_000)
@@ -134,7 +139,7 @@ suite.sequential("real leases through the accounting close", () => {
       loanId: op, tenantId: fx.tenantId, amount: 100_000, paymentMethod: "EFT", reference: "LEASE-REAL-1", notes: "synthetic", capturedById: fx.adminA,
       idempotencyKey: `lease-real-1-${t}`, receivedAt: new Date(),
     }))
-    const out = await closeThrough("2027-03")
+    const out = await closeThrough(month(5))
     expect(out.filter((o) => !o.closed), JSON.stringify(out)).toEqual([])
   }, 600_000)
 
@@ -146,12 +151,12 @@ suite.sequential("real leases through the accounting close", () => {
     staff(fx.adminB, "LOAN_ADMIN")
     expect((await wo.writeOff(fml, { action: "approve", confirm: true })).status).toBe(200)
     expect((await db.loan.findUniqueOrThrow({ where: { id: fml } })).status).toBe("WRITTEN_OFF")
-    const out1 = await closeThrough("2027-04")
+    const out1 = await closeThrough(month(6))
     expect(out1.filter((o) => !o.closed), JSON.stringify(out1)).toEqual([])
     const invs = await invoicesOf(fml)
     const target = invs[invs.length - 1]
     await credit(target.id, today(), 1_000)
-    const out2 = await closeThrough("2027-06")
+    const out2 = await closeThrough(month(8))
     expect(out2.filter((o) => !o.closed), JSON.stringify(out2)).toEqual([])
     const rows = await db.$queryRaw<Array<{ cents: bigint }>>`
       SELECT SUM(l."debitCents" - l."creditCents")::bigint AS cents FROM "AccountingJournalLine" l JOIN "AccountingLedgerEntry" e ON e."id" = l."entryId"
@@ -163,7 +168,7 @@ suite.sequential("real leases through the accounting close", () => {
 
   it("L5. BANK in the ledger equals the tables; nothing was posted twice", async () => {
     const tt = await roleTotals()
-    const bank = await expectedBank(fx.tenantId, new Date("2027-07-01T00:00:00+02:00"), new Date("2026-09-30T22:00:00Z"))
+    const bank = await expectedBank(fx.tenantId, monthStart(9), monthStart(0))
     expect(tt.BANK, `ledger ${tt.BANK} vs tables ${bank}`).toBe(bank)
     const dupes = await db.accountingLedgerEntry.groupBy({ by: ["eventKey"], where: { tenantId: fx.tenantId }, _count: true, having: { eventKey: { _count: { gt: 1 } } } })
     expect(dupes).toEqual([])

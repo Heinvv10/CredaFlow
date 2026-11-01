@@ -66,7 +66,8 @@ suite.sequential("a lease's end-of-term invoice on the receivable (real Postgres
 
   it("the independent receivable of the lease counts the invoice with the rentals and nets the receipt", async () => {
     // The lease branch counts rentals invoiced + the other tax invoices - receipts.
-    const book = await independentAssetFinanceBook(db, tenant.tenantId, day("2026-11-01"))
+    // As of tomorrow (SAST): the receipt above is dated now, so a literal date stops counting it once the clock passes it (it did on 2026-11-01).
+    const book = await independentAssetFinanceBook(db, tenant.tenantId, day(sastCalendarDate(new Date(Date.now() + 86_400_000))))
     expect(book.get("jrn-q3")?.cents).toBe(276_000 + 28_750 - 286_000) // two rentals + the end-of-term invoice - the receipt (10 000 reached the end-of-term row)
   })
 })
