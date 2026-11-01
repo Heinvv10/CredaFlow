@@ -1,0 +1,24 @@
+diff --git a/node_modules/minimatch/dist/commonjs/index.js b/node_modules/minimatch/dist/commonjs/index.js
+index eb1c915..ea47740 100644
+--- a/node_modules/minimatch/dist/commonjs/index.js
++++ b/node_modules/minimatch/dist/commonjs/index.js
+@@ -1547,4 +1547,7 @@ Object.defineProperty(exports, "unescape", { enumerable: true, get: function ()
+ exports.minimatch.Minimatch = Minimatch;
+ exports.minimatch.escape = escape_js_1.escape;
+ exports.minimatch.unescape = unescape_js_1.unescape;
++// Preserve the callable CommonJS API used by legacy consumers while keeping
++// the named v11 exports available on the function object.
++module.exports = Object.assign(exports.minimatch, exports);
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/node_modules/minimatch/dist/esm/index.js b/node_modules/minimatch/dist/esm/index.js
+index 1dc27e6..2744910 100644
+--- a/node_modules/minimatch/dist/esm/index.js
++++ b/node_modules/minimatch/dist/esm/index.js
+@@ -1536,4 +1536,6 @@ export { unescape } from './unescape.js';
+ minimatch.Minimatch = Minimatch;
+ minimatch.escape = escape;
+ minimatch.unescape = unescape;
++// Preserve the default export used by legacy ESM consumers.
++export default minimatch;
+ //# sourceMappingURL=index.js.map
