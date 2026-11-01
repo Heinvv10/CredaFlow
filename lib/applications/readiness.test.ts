@@ -573,14 +573,14 @@ describe("computeReadiness", () => {
 
     describe("a KEY_FACTS application has no PASQ, countersignature, mandate or cover", () => {
       const keyFacts = keyFactsApplication()
-      const application = { disclosureRegime: "KEY_FACTS", repaymentMethod: "EFT", creditLife: keyFacts, countersign: countersign(), mandate: signedMandate(), disbursementEvidence: keyFacts }
+      const application = { disclosureRegime: "KEY_FACTS", repaymentMethod: "EFT", creditLife: keyFacts as never, countersign: countersign(), mandate: signedMandate(), disbursementEvidence: keyFacts as never }
 
       it("is READY on what it does have", () => {
         expect(approved({ application: { ...application, countersign: null as never, mandate: null as never } })).toEqual({ stage: "READY", blockers: [] })
       })
 
       it("names only its own blockers", () => {
-        expect(approved({ application: { ...application, agreementSignedAt: null, disbursementEvidence: { ...keyFacts, approvedAmount: 1 } } })?.blockers).toEqual([
+        expect(approved({ application: { ...application, agreementSignedAt: null, disbursementEvidence: { ...keyFacts, approvedAmount: 1 } as never } })?.blockers).toEqual([
           PAYOUT_BLOCK_LABELS.signed_agreement, PAYOUT_BLOCK_LABELS.unchanged_affordability,
         ])
       })
