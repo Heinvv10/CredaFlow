@@ -70,7 +70,7 @@ export interface BorrowerBytes {
  * A borrower and an UNDER_REVIEW application. Returns the statement bytes for the suite to put in its storage double
  * (the payout gate reads the stored file back and hashes it).
  */
-export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean }): Promise<BorrowerBytes> {
+export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean; dealerId?: string }): Promise<BorrowerBytes> {
   const ls = stack.jurisdiction === "LS"
   const clientId = `${id}-client`
   const bank = ls
@@ -82,7 +82,7 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
       idNumber: ls ? `99${String(randomInt(10_000_000)).padStart(7, "0")}` : syntheticSaIdNumber(),
       firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone: ls ? "+26658000011" : "+27820000000",
       grossMonthlyIncome: 2_200_000, monthlyIncome: opts.income ?? 2_000_000, monthlyExpenses: 800_000,
-      ...(opts.bank === false ? {} : bank), expenseBreakdown: { create: EXPENSES },
+      ...(opts.bank === false ? {} : bank), ...(opts.dealerId ? { createdByDealerId: opts.dealerId } : {}), expenseBreakdown: { create: EXPENSES },
     },
   })
   const statementBytes = Buffer.from(`%PDF synthetic bank statement ${id}`)

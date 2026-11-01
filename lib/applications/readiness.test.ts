@@ -1,3 +1,5 @@
+import { keyFactsApplication } from "@/lib/affordability/__fixtures__/key-facts-approval"
+import { PAYOUT_BLOCK_LABELS } from "@/lib/applications/pipeline-view"
 import { describe, expect, it, vi } from "vitest"
 import { createHash } from "node:crypto"
 import { computeReadiness, type ReadinessInput } from "@/lib/applications/readiness"
@@ -567,6 +569,21 @@ describe("computeReadiness", () => {
 
     it("is READY when the agreement, countersignature, KYC, banking and mandate all hold", () => {
       expect(approved()).toEqual({ stage: "READY", blockers: [] })
+    })
+
+    describe("a KEY_FACTS application has no PASQ, countersignature, mandate or cover", () => {
+      const keyFacts = keyFactsApplication()
+      const application = { disclosureRegime: "KEY_FACTS", repaymentMethod: "EFT", creditLife: keyFacts, countersign: countersign(), mandate: signedMandate(), disbursementEvidence: keyFacts }
+
+      it("is READY on what it does have", () => {
+        expect(approved({ application: { ...application, countersign: null as never, mandate: null as never } })).toEqual({ stage: "READY", blockers: [] })
+      })
+
+      it("names only its own blockers", () => {
+        expect(approved({ application: { ...application, agreementSignedAt: null, disbursementEvidence: { ...keyFacts, approvedAmount: 1 } } })?.blockers).toEqual([
+          PAYOUT_BLOCK_LABELS.signed_agreement, PAYOUT_BLOCK_LABELS.unchanged_affordability,
+        ])
+      })
     })
 
     it("blocks when the agreement has not been signed", () => {

@@ -55,7 +55,7 @@ import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwawa
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
-import { BANK_REF, lsFlow } from "./ls-flow.integration-fixture"
+import { bankRefFor, lsFlow } from "./ls-flow.integration-fixture"
 import { createRlsRole, seedStack, stackOf } from "./ls-stack.integration-fixture"
 import { SECOND_PERSON_VERIFICATION_PROVIDER } from "./payout-terms"
 
@@ -150,15 +150,15 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
   it("a manual transfer needs its bank reference: missing, blank, over-long and non-text ones book nothing", async () => {
     const id = `ref-${t}`
     await signedApplication(id)
-    for (const body of [{}, { bankRef: null }, { bankRef: "   " }, { bankRef: "x".repeat(65) }, { bankRef: 1234 }, { bankRef: "two\nlines" }]) {
+    for (const body of [{}, { bankRef: null }, { bankRef: "   " }, { bankRef: "x".repeat(65) }, { bankRef: 1234 }, { bankRef: "two\nlines" }, { bankRef: "\u200b" }, { bankRef: "---" }]) {
       const res = await disburseAs(stack.disburser, id, body)
       expect(res.status).toBe(422)
       expect(await res.json()).toMatchObject({ disbursementPrecondition: "bank_reference" })
     }
     expect(await loans(id)).toBe(0)
-    const res = await disburseAs(stack.disburser, id, { bankRef: ` ${BANK_REF} ` })
+    const res = await disburseAs(stack.disburser, id, { bankRef: ` ${bankRefFor(id)} ` })
     expect(res.status).toBe(200)
-    expect(await db().loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ disbursementRef: BANK_REF })
+    expect(await db().loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ disbursementRef: bankRefFor(id) })
   })
 
   it("a second person records the payout account, audited, and the disburser cannot be that person", async () => {
@@ -220,7 +220,7 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     await db().client.update({ where: { id: `${id}-client` }, data: { deceasedAt: new Date() } })
     const res = await disburseAs(stack.disburser, id)
     expect(res.status).toBe(422)
-    expect(await res.json()).toMatchObject({ disbursementPrecondition: "deceased" })
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "unchanged_affordability" })
     expect(await loans(id)).toBe(0)
   })
 

@@ -32,11 +32,23 @@ describe("certificate of balance", () => {
     expect(printed).not.toMatch(SA_ONLY)
   })
 
+  it("speaks of a borrower and a loan agreement, and leaves the legal wording to the bank's legal team", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const printed = text(await generateCertificateOfBalancePdf({ ...cob, lender: LS_LENDER }))
+    for (const word of ["Consumer", "CREDIT AGREEMENT", "credit agreement", "credit provider"]) expect(printed).not.toContain(word)
+    expect(printed).toContain("Borrower ID")
+    expect(printed).toContain("LOAN AGREEMENT DETAILS")
+    expect(printed).toMatch(/\[SAMPLE:/)
+  })
+
   it("still refuses a South African lender with no NCR number, and still prints its NCR line and section 112", async () => {
     await expect(generateCertificateOfBalancePdf({ ...cob, lender: LS_LENDER })).rejects.toBeInstanceOf(LenderIdentityError)
     const printed = text(await generateCertificateOfBalancePdf({ ...cob, lender: { legalName: ACME_LENDER.legalName, ncrNumber: ACME_LENDER.ncrNumber } }))
     expect(printed).toContain(`NCR Reg: ${ACME_LENDER.ncrNumber}`)
     expect(printed).toContain("section 112 of the National Credit Act")
+    expect(printed).toContain("Consumer ID")
+    expect(printed).toContain("CREDIT AGREEMENT DETAILS")
+    expect(printed).not.toContain("SAMPLE")
   })
 
   it("refuses a Lesotho lender with no company registration number rather than print a blank", async () => {

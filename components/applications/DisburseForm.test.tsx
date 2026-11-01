@@ -90,16 +90,38 @@ describe("DisburseForm interaction", () => {
     expect(nodeText(alert.props.children)).toBe("Disbursement failed (HTTP 502).")
   })
 
-  it("a manual payout says so and holds the button until the bank reference is entered", async () => {
+  const reference = (r: ReactTestRenderer) => r.root.findAll((n) => n.type === "input" && n.props.id === "disburse-payment-reference")[0]
+  const status = (r: ReactTestRenderer) => nodeText(r.root.findAll((n) => n.type === "p" && n.props.role === "status")[0].props.children)
+
+  it("a manual payout runs every gate first, tells the officer to transfer, and holds the button until the reference is entered", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) })
+    vi.stubGlobal("fetch", fetchMock)
     const { r, button } = await openAndConfirm({ manualPayout: true })
+    expect(fetchMock).toHaveBeenCalledWith("/api/applications/app-1/payout-check")
     expect(nodeText(r.root.findAll((n) => n.type === "label" && n.props.htmlFor === "disburse-payment-reference")[0].props.children)).toBe("Bank reference of the transfer *")
-    expect(r.root.findAll((n) => n.type === "p").map((n) => nodeText(n.props.children)).join(" ")).toContain("no money moved in the system")
+    expect(r.root.findAll((n) => n.type === "p").map((n) => nodeText(n.props.children)).join(" ")).toContain("no money moves in the system")
+    expect(status(r)).toContain("Make the transfer at the bank now")
     expect(button("Confirm - Disburse").props.disabled).toBe(true)
-    const ref = r.root.findAll((n) => n.type === "input" && n.props.id === "disburse-payment-reference")[0]
-    await act(async () => ref.props.onChange({ target: { value: "   " } }))
+    await act(async () => reference(r).props.onChange({ target: { value: "   " } }))
     expect(button("Confirm - Disburse").props.disabled).toBe(true)
-    await act(async () => ref.props.onChange({ target: { value: "LS-1" } }))
+    await act(async () => reference(r).props.onChange({ target: { value: "LS-1" } }))
     expect(button("Confirm - Disburse").props.disabled).toBe(false)
+  })
+
+  it("keeps a manual payout closed when a gate refuses: no transfer, no reference, no button", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: false, error: "A second staff member must confirm." }) }))
+    const { r, button } = await openAndConfirm({ manualPayout: true })
+    expect(status(r)).toBe("Do not make the transfer. A second staff member must confirm.")
+    expect(reference(r).props.disabled).toBe(true)
+    await act(async () => reference(r).props.onChange({ target: { value: "LS-1" } }))
+    expect(button("Confirm - Disburse").props.disabled).toBe(true)
+  })
+
+  it("keeps a manual payout closed when the check itself fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")))
+    const { r } = await openAndConfirm({ manualPayout: true })
+    expect(status(r)).toContain("Do not make the transfer")
+    expect(reference(r).props.disabled).toBe(true)
   })
 
   it("the reference stays optional for every other payout", async () => {

@@ -19,7 +19,8 @@ import { clearOpenFlags, seedUnderReview, type Stack } from "./ls-stack.integrat
 /** Who the mocked session guard says is calling, and the mocked storage (see the suites' vi.mock blocks). */
 export interface FlowHolder { userId: string; role: string; files: Map<string, Buffer> }
 export const NOTE = "Confirmed the account with the borrower's bank by telephone."
-export const BANK_REF = "LS-TRANSFER-0001"
+/** A reference pays one loan, so each application has its own. */
+export const bankRefFor = (id: string) => `LS-${id}`
 
 export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder) {
   const post = (route: typeof decide, id: string, body: BodyInit | null, headers: Record<string, string> = {}) =>
@@ -32,7 +33,7 @@ export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder)
     as(stack.officer)
     return post(decide, id, form)
   }
-  const disburseAs = (userId: string, id: string, body: { bankRef?: unknown } = { bankRef: BANK_REF }) => {
+  const disburseAs = (userId: string, id: string, body: { bankRef?: unknown } = { bankRef: bankRefFor(id) }) => {
     as(userId)
     return postJson(disburse, id, body)
   }
@@ -49,7 +50,7 @@ export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder)
   }
 
   /** An UNDER_REVIEW key-facts application, approved through the real route by the officer. */
-  async function approvedApplication(id: string, opts: { documents?: boolean; bank?: boolean; kyc?: boolean } = {}) {
+  async function approvedApplication(id: string, opts: { documents?: boolean; bank?: boolean; kyc?: boolean; dealerId?: string } = {}) {
     const { statement } = await seedUnderReview(db(), stack, id, { nca: false, ...opts })
     holder.files.set(statement.path, statement.bytes)
     await clearOpenFlags(db(), stack, id)
@@ -72,7 +73,7 @@ export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder)
   }
 
   /** Approved and signed; unless `verified: false`, a second person (the officer) has confirmed the payout account. */
-  async function signedApplication(id: string, opts: { documents?: boolean; bank?: boolean; kyc?: boolean; verified?: boolean } = {}) {
+  async function signedApplication(id: string, opts: { documents?: boolean; bank?: boolean; kyc?: boolean; verified?: boolean; dealerId?: string } = {}) {
     await approvedApplication(id, opts)
     await issueAndSign(id)
     if (opts.verified !== false && opts.bank !== false) expect((await verifyAccount(stack.officer, id)).status).toBe(200)

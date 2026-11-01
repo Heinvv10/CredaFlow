@@ -7,13 +7,15 @@ describe("the bank reference of a manual transfer", () => {
   it("is required, trimmed, a single line and bounded", () => {
     expect(manualBankRef("  LS-1  ")).toBe("LS-1")
     expect(manualBankRef("x".repeat(KEY_FACTS_BANK_REF_MAX))).toHaveLength(KEY_FACTS_BANK_REF_MAX)
-    for (const refused of [null, undefined, "", "   ", "x".repeat(KEY_FACTS_BANK_REF_MAX + 1), 1234, {}, "two\nlines"]) expect(manualBankRef(refused)).toBeNull()
+    for (const refused of [null, undefined, "", "   ", "x".repeat(KEY_FACTS_BANK_REF_MAX + 1), 1234, {}, "two\nlines", "\u200b", " \u200b ", "LS\u200b-1", "---"]) expect(manualBankRef(refused)).toBeNull()
   })
 })
 
 describe("the second person's note", () => {
   it("says how the account was confirmed, within bounds", () => {
     expect(payoutVerificationNote("x".repeat(PAYOUT_VERIFICATION_NOTE_MIN))).toHaveLength(PAYOUT_VERIFICATION_NOTE_MIN)
+    expect(payoutVerificationNote("x".repeat(PAYOUT_VERIFICATION_NOTE_MAX))).toHaveLength(PAYOUT_VERIFICATION_NOTE_MAX)
+    expect(payoutVerificationNote("\u200b".repeat(PAYOUT_VERIFICATION_NOTE_MIN))).toBeNull()
     for (const refused of [null, "x".repeat(PAYOUT_VERIFICATION_NOTE_MIN - 1), "x".repeat(PAYOUT_VERIFICATION_NOTE_MAX + 1), ` ${" ".repeat(30)} `]) expect(payoutVerificationNote(refused)).toBeNull()
   })
 })

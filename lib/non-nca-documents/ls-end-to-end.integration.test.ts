@@ -57,7 +57,7 @@ import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwawa
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
-import { BANK_REF, lsFlow } from "./ls-flow.integration-fixture"
+import { bankRefFor, lsFlow } from "./ls-flow.integration-fixture"
 import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
 
 const RUN = process.env.RUN_DB_IT === "1"
@@ -113,7 +113,7 @@ suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () =>
     expect(body).toMatchObject({ success: true, payout: { channel: "MANUAL" } })
 
     const application = await db().loanApplication.findUniqueOrThrow({ where: { id }, include: { loan: { include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } } } })
-    expect(application).toMatchObject({ status: "DISBURSED", disbursedById: stack.disburser, disbursementRef: BANK_REF, disbursementBank: "Demo Bank Lesotho" })
+    expect(application).toMatchObject({ status: "DISBURSED", disbursedById: stack.disburser, disbursementRef: bankRefFor(id), disbursementBank: "Demo Bank Lesotho" })
     const loan = application.loan!
     expect(loan).toMatchObject({ status: "ACTIVE", principal: 500_000, creditLifePremiums: 0, applicationId: id, clientId: `${id}-client` })
     expect(loan.repaymentSchedule.reduce((sum, r) => sum + r.totalDue, 0)).toBe(loan.totalRepayable)
@@ -123,7 +123,7 @@ suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () =>
     expect(printed).toContain("Loan agreement")
     expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DISBURSED" } })).toBe(1)
     const disbursed = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DISBURSED" } })
-    expect(disbursed.newValue).toMatchObject({ payoutChannel: "MANUAL", payoutReference: BANK_REF, segregationOfDuties: true, payoutAccountVerification: { verifiedById: stack.officer } })
+    expect(disbursed.newValue).toMatchObject({ payoutChannel: "MANUAL", payoutReference: bankRefFor(id), segregationOfDuties: true, payoutAccountVerification: { verifiedById: stack.officer } })
     expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: loan.id, action: "LOAN_CREATED" } })).toBe(1)
   })
 

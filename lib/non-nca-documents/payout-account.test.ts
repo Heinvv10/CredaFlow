@@ -24,7 +24,7 @@ describe("recording the second person's confirmation", () => {
     row({})
     expect(await recordPayoutAccountVerification(args)).toEqual({ ok: true, id: "check-1" })
     expect(h.queryRaw.mock.calls.map(([query]) => query.values[0])).toEqual(["affordability-application:t1:app-1", "affordability-client:t1:client-1"])
-    expect(h.create.mock.calls[0][0].data).toMatchObject({ provider: SECOND_PERSON_VERIFICATION_PROVIDER, checkedById: "second", subjectFingerprint: avsSubjectFingerprint(client), applicationId: "app-1", passed: true })
+    expect(h.create.mock.calls[0][0].data).toMatchObject({ provider: SECOND_PERSON_VERIFICATION_PROVIDER, checkedById: "second", subjectFingerprint: avsSubjectFingerprint(client), applicationId: "app-1", passed: true, raw: { note: args.note } })
     expect(h.audit.mock.calls[0][0].data).toMatchObject({ action: "PAYOUT_ACCOUNT_VERIFIED", userId: "second", entityId: "app-1" })
   })
 
@@ -56,6 +56,11 @@ describe("the confirmation a payout stands on", () => {
     for (const latest of [null, check({ applicationId: "app-2" }), check({ subjectFingerprint: "a".repeat(64) }), check({ provider: "netcash" }), check({ checkedById: null }), check({ passed: false })]) {
       expect(await judge(latest)).toMatchObject({ ok: false, error: expect.stringMatching(/second staff member/) })
     }
+  })
+  it("reads this application's confirmation, not another's for the same client", async () => {
+    const findFirst = vi.fn().mockResolvedValue(check())
+    await currentPayoutVerification({ avsCheck: { findFirst } } as never, { tenantId: "t1", applicationId: "app-1", client, disburserId: "disburser" })
+    expect(findFirst.mock.calls[0][0].where).toEqual({ tenantId: "t1", clientId: client.id, applicationId: "app-1" })
   })
   it("is refused for the disburser, whatever else holds", async () => {
     expect(await judge(check(), "second")).toMatchObject({ ok: false, error: expect.stringMatching(/cannot also pay it out/) })
