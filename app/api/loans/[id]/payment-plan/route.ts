@@ -4,6 +4,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
 import { splitPaymentPlan } from "@/lib/collections/payment-plan"
+import { formatZAR } from "@/lib/utils"
 
 const MAX_INT32 = 2_147_483_647
 const MAX_INSTALLMENTS = 60
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       || installments > totalCents
     ) {
       return NextResponse.json(
-        { error: `totalArrears must be positive (at most R${MAX_INT32 / 100}) and installments a whole number from 1 to ${MAX_INSTALLMENTS}, not more than the cents owed` },
+        { error: `totalArrears must be positive (at most ${formatZAR(MAX_INT32)}) and installments a whole number from 1 to ${MAX_INSTALLMENTS}, not more than the cents owed` },
         { status: 400 },
       )
     }
@@ -58,10 +59,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
     const { regularCents, finalCents } = splitPaymentPlan(totalCents, installments)
-    const rands = (cents: number) => (cents / 100).toFixed(2)
-    const amountText = finalCents === regularCents
-      ? `${installments} × R${rands(regularCents)}/month`
-      : `${installments - 1} × R${rands(regularCents)} + final instalment R${rands(finalCents)} (R${rands(totalCents)} total), monthly`
+        const amountText = finalCents === regularCents
+      ? `${installments} × ${formatZAR(regularCents)}/month`
+      : `${installments - 1} × ${formatZAR(regularCents)} + final instalment ${formatZAR(finalCents)} (${formatZAR(totalCents)} total), monthly`
 
     // Snapshot the prior plan so the audit records what an upsert overwrote.
     const previousPlan = await prisma.paymentPlan.findUnique({ where: { loanId: id } })

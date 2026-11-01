@@ -43,8 +43,8 @@ describe("POST /api/loans/[id]/payment-plan", () => {
     expect(data.installmentAmt).toBe(68_611)
     expect(data.installmentAmt * 2 + 68_612).toBe(data.totalArrears)
     const note = db.loanNote.create.mock.calls[0][0].data.note as string
-    expect(note).toContain("2 × R686.11")
-    expect(note).toContain("final instalment R686.12")
+    expect(note).toContain("2 × R 686.11")
+    expect(note).toContain("final instalment R 686.12")
   })
 
   it("keeps the audit entry shape unchanged", async () => {
@@ -59,7 +59,7 @@ describe("POST /api/loans/[id]/payment-plan", () => {
 
   it("an even split keeps the simple note", async () => {
     await post({ totalArrears: 3000, installments: 3, startDate: "2026-11-01" })
-    expect(db.loanNote.create.mock.calls[0][0].data.note).toContain("3 × R1000.00/month")
+    expect(db.loanNote.create.mock.calls[0][0].data.note).toContain("3 × R 1,000.00/month")
   })
 
   it("rejects a non-positive amount or a bad instalment count with 400", async () => {

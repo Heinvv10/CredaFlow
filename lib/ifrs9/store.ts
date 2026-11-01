@@ -8,6 +8,7 @@ import { lockAccounting } from "@/lib/accounting/route-helpers"
 import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { DEFAULT_SETTINGS, type EclParameter, type Ifrs9Settings, type SicrFlagKind, type Stage } from "./types"
+import { formatZAR } from "@/lib/utils"
 
 type Db = Pick<typeof prisma, "ifrs9Config" | "ifrs9EclParameter">
 type Db2 = Pick<typeof prisma, "$transaction">
@@ -58,7 +59,7 @@ async function firstUnclosedMonth(tx: Pick<Tx, "accountingExportBatch" | "accoun
 
 export type SaveSettingsResult = { ok: true } | { ok: false; error: string }
 
-const rand = (cents: number) => `R${(Math.abs(cents) / 100).toFixed(2)}`
+const rand = (cents: number) => formatZAR(Math.abs(cents))
 
 /**
  * Why a change of policy must wait, given what the ledger already holds, or null. A closed month is final and each month

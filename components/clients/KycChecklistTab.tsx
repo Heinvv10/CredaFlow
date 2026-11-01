@@ -39,7 +39,7 @@ import {
   formatFileSize,
   type DocumentRecord,
 } from "@/lib/document-types"
-import { formatDate } from "@/lib/utils"
+import { formatDate, formatRands } from "@/lib/utils"
 
 // ── Extraction display ────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ const EXTRACTION_DISPLAY: Record<string, { key: string; label: string; format?: 
   ],
   PAYSLIP: [
     { key: "employerName", label: "Employer" },
-    { key: "grossIncome", label: "Gross Income", format: (v) => `R${(Number(v) / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}` },
+    { key: "grossIncome", label: "Gross Income", format: (v) => formatRands(Number(v) / 100, { whole: true }) },
   ],
   BANK_STATEMENT: [
     { key: "bankName", label: "Bank" },

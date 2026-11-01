@@ -75,7 +75,7 @@ describe("validateDocumentAgainstClient — payslip income", () => {
     )
 
     expect(result.mismatches).toMatchObject([
-      { field: "grossIncome", severity: "warning", documentValue: "R 40123.45" },
+      { field: "grossIncome", severity: "warning", documentValue: "R 40,123.45" },
     ])
   })
 

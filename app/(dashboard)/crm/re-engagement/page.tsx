@@ -3,6 +3,7 @@ import Link from "next/link"
 import { RefreshCw, Phone, Mail } from "lucide-react"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { getStaffTenantId } from "@/lib/session-tenant"
+import { formatRands } from "@/lib/utils"
 
 const LOST_REASON_LABELS: Record<string, string> = {
   TOO_EXPENSIVE: "Too Expensive",
@@ -42,7 +43,7 @@ async function getReEngagementLeads(tenantId: string) {
 
 function formatRand(cents: number | null) {
   if (!cents) return "—"
-  return `R${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
+  return formatRands(cents / 100, { whole: true })
 }
 
 export default async function ReEngagementPage() {

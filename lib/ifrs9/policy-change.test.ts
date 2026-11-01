@@ -13,8 +13,8 @@ describe("policyChangeRefusal", () => {
   })
 
   it("refuses switching off while an allowance is held, or interest in suspense", () => {
-    expect(policyChangeRefusal(on(), on({ enabled: false }), held)).toContain("allowance of R162.68")
-    expect(policyChangeRefusal(on(), on({ enabled: false }), position({ suspenseCents: -10_000, posted: true }))).toContain("suspense of R100.00")
+    expect(policyChangeRefusal(on(), on({ enabled: false }), held)).toContain("allowance of R 162.68")
+    expect(policyChangeRefusal(on(), on({ enabled: false }), position({ suspenseCents: -10_000, posted: true }))).toContain("suspense of R 100.00")
     expect(policyChangeRefusal(on({ enabled: false }), on({ enabled: false }), held)).toBeNull()
   })
 

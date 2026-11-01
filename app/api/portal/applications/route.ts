@@ -4,7 +4,7 @@ import { Prisma, type LoanPurposeCategory } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { withTenantContext } from "@/lib/tenant"
-import { generateReference } from "@/lib/utils"
+import { generateReference, formatZAR } from "@/lib/utils"
 import { triggerNotification } from "@/lib/notifications"
 import { scheduleDigitalDecision } from "@/lib/decisioning/schedule-digital"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
     if (appliedAmount < product.minAmount || appliedAmount > product.maxAmount) {
       return NextResponse.json(
         {
-          error: `Amount must be between R${(product.minAmount / 100).toLocaleString()} and R${(product.maxAmount / 100).toLocaleString()} for ${product.name}.`,
+          error: `Amount must be between ${formatZAR(product.minAmount)} and ${formatZAR(product.maxAmount)} for ${product.name}.`,
         },
         { status: 400 },
       )
@@ -607,7 +607,7 @@ export async function POST(req: NextRequest) {
           return {
             ok: false as const,
             status: 400,
-            body: { error: `Amount must be between R${(currentProduct.minAmount / 100).toLocaleString()} and R${(currentProduct.maxAmount / 100).toLocaleString()} for ${currentProduct.name}.` },
+            body: { error: `Amount must be between ${formatZAR(currentProduct.minAmount)} and ${formatZAR(currentProduct.maxAmount)} for ${currentProduct.name}.` },
           }
         }
 
