@@ -16,7 +16,6 @@ const assetFinanceDealCountMock = vi.fn()
 const clientDocumentFindFirstMock = vi.fn()
 
 const tx = {
-  clientDocument: { update: vi.fn(async () => ({})) },
   assetFinanceDeal: { count: (a: unknown) => assetFinanceDealCountMock(a) },
   $queryRaw: (query: unknown) => queryRawMock(query),
   loanApplication: {
@@ -25,7 +24,7 @@ const tx = {
     updateMany: (a: unknown) => updateManyMock(a),
   },
   auditLog: { create: (a: unknown) => auditLogCreateMock(a) },
-  clientDocument: { findFirst: (a: unknown) => clientDocumentFindFirstMock(a) },
+  clientDocument: { findFirst: (a: unknown) => clientDocumentFindFirstMock(a), update: async () => ({}) },
 }
 
 // No loans with this lender here; the obligations themselves are proven in
