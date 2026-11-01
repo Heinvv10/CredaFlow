@@ -73,6 +73,18 @@ describe("planInPlace: what stays and what goes", () => {
     }
   })
 
+  it("a row due today is due: it stays and stays owed", () => {
+    const rows = loanRows({}, 3)
+    const plan = planInPlace(input(rows, rate(0.03), { asOf: rows[3]!.dueDate }))
+    expect(plan.keep.map((r) => r.id)).toContain("r4")
+    expect(plan.remove).toEqual(["r5", "r6"])
+  })
+
+  it("refuses when money paid ahead already covers the principal left", () => {
+    const rows = loanRows({ terms: monthly(1), principal: 1_000, rate: 0.5, fee: 0 }).map((r) => ({ ...r, totalPaid: 1_100 }))
+    expect(() => planInPlace(input(rows, rate(0.03), { asOf: at("2026-01-20"), shape: { principal: 1_000, rate: 0.5, fee: 0 } }))).toThrow(/principal/)
+  })
+
   it("refuses when nothing of the principal is left", () => {
     expect(() => planInPlace(input(loanRows({ terms: monthly(2) }, 2), rate(0.03)))).toThrow(/principal/)
   })
@@ -137,6 +149,41 @@ describe("planInPlace: a change that changes nothing changes nothing", () => {
     const again = planInPlace(input(written(moved), rate(0.04), { asOf: at("2026-05-25") }))
     expect(again.fresh[0]!.dueDate).toEqual(moved.fresh[0]!.dueDate)
     expect(again.totalRepayable).toBe(moved.totalRepayable)
+  })
+
+  describe("after a reschedule moved arrears", () => {
+    const rows = loanRows({}, 1) // rows 2 and 3 are overdue on 20 April
+    const moved = planInPlace(input(rows, { type: "RESCHEDULE", firstDueDate: "2026-05-15" }))
+    const after = (change: Parameters<typeof input>[1]) => planInPlace(input(written(moved), change, { asOf: at("2026-04-21") }))
+    const carried = moved.fresh.reduce((s, r) => s + r.carriedInterestDue, 0)
+    const earned = (plan: ReturnType<typeof planInPlace>) => plan.fresh.reduce((s, r) => s + r.interestDue, 0)
+
+    it("marks the arrears principal it moved, which bears no interest", () => {
+      expect(moved.fresh.reduce((s, r) => s + r.carriedPrincipalDue, 0)).toBe(rows[1]!.principalDue + rows[2]!.principalDue)
+    })
+
+    it("no later change reduces the interest it carried", () => {
+      expect(earned(after(rate(0)))).toBe(carried)
+      expect(earned(after({ type: "TERM_CHANGE", instalments: 1 }))).toBeGreaterThanOrEqual(carried)
+    })
+
+    it("a later change prices only what bears interest, and carries the moved principal on", () => {
+      const plan = after(rate(0.02))
+      const bearing = moved.fresh.reduce((s, r) => s + r.principalDue - r.carriedPrincipalDue, 0)
+      expect(plan.fresh[0]!.interestDue - plan.fresh[0]!.carriedInterestDue).toBe(Math.round(bearing * 0.02))
+      expect(plan.fresh.reduce((s, r) => s + r.carriedPrincipalDue, 0)).toBe(moved.fresh.reduce((s, r) => s + r.carriedPrincipalDue, 0))
+      expect(plan.fresh.reduce((s, r) => s + r.principalDue, 0)).toBe(moved.balance)
+    })
+
+    it("at the same terms moves nothing", () => {
+      expect(after(rate(0.04)).totalRepayable).toBe(moved.totalRepayable)
+    })
+
+    it("a loan whose whole balance was moved bears no interest however its rate changes", () => {
+      const allMoved = planInPlace(input(loanRows({}, 3), { type: "RESCHEDULE", firstDueDate: "2027-01-15" }, { asOf: at("2026-12-20") }))
+      const plan = planInPlace(input(written(allMoved), rate(0.09), { asOf: at("2026-12-21") }))
+      expect(plan.totalRepayable).toBe(allMoved.totalRepayable)
+    })
   })
 
   it("a second change keeps what the first carried", () => {

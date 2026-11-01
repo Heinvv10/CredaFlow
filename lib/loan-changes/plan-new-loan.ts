@@ -28,7 +28,7 @@ export function planNewLoan(input: NewLoanInput): NewLoanPlan {
   const principal = input.settledCents + input.newMoneyCents
   const terms: RepaymentTerms = { frequency: input.frequency, structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: input.instalments }
   const generated = generateSchedule({ principalCents: principal, interestRatePm: input.interestRatePm, interestModel: input.interestModel, monthlyServiceFeeCents: input.monthlyServiceFee, startDate: input.asOf, terms })
-  const rows = generated.schedule.map((row) => ({ installmentNo: row.installmentNo, dueDate: row.dueDate, principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue, carriedInterestDue: 0, carriedFeesDue: 0 }))
+  const rows = generated.schedule.map((row) => ({ installmentNo: row.installmentNo, dueDate: row.dueDate, principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue, carriedPrincipalDue: 0, carriedInterestDue: 0, carriedFeesDue: 0 }))
   return {
     principal, rows, terms, totalInterest: generated.totalInterest,
     totalRepayable: rows.reduce((sum, row) => sum + row.totalDue, 0), maturityDate: rows.at(-1)!.dueDate,

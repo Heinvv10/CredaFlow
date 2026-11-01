@@ -461,6 +461,13 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).not.toHaveBeenCalled()
   })
 
+  it("does not count a loan change's application as one the borrower has open", async () => {
+    findFirstApplication.mockResolvedValue({ id: "existing", reference: "APP-OLD", status: "SUBMITTED" })
+    await POST(buildReq(validBody))
+    const openCheck = findFirstApplication.mock.calls.map((call: unknown[]) => (call[0] as { where: Record<string, unknown> }).where).find((where: Record<string, unknown>) => "productId" in where)
+    expect(openCheck).toMatchObject({ loanChangeRequestId: null })
+  })
+
   it("maps the database winner of a concurrent submission race to 409", async () => {
     findFirstApplication
       .mockResolvedValueOnce(null)

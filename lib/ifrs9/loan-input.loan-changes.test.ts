@@ -44,6 +44,13 @@ describe("loadRunLoans", () => {
     expect(loan!.graceDeferral).toBeUndefined()
   })
 
+  it("a later change's holiday is not read as a grace from the loan's start", async () => {
+    const terms = [{ sequence: 2, frequency: "MONTHLY", graceKind: "FULL", graceInstalments: 2, deferredInterest: 500 }]
+    const db = { loan: { findMany: async () => [{ id: "l", reference: "L", productId: "p", contractType: "LOAN", status: "ACTIVE", collectionsStage: "NONE", debtReviewNoticeAt: null, startDate: new Date(0), principal: 1, outstandingPrincipal: 1, chargesOutstanding: 0, restructuredAt: null, ifrs9Flags: [], terms, repaymentSchedule: [] }] } } as never
+    const [loan] = await loadRunLoans(db, "t", new Date(), null)
+    expect(loan!.graceDeferral).toBeUndefined()
+  })
+
   it("a full grace still reads through when the origination is the only row", async () => {
     const terms = [{ sequence: 1, frequency: "MONTHLY", graceKind: "FULL", graceInstalments: 2, deferredInterest: 500 }]
     const db = { loan: { findMany: async () => [{ id: "l", reference: "L", productId: "p", contractType: "LOAN", status: "ACTIVE", collectionsStage: "NONE", debtReviewNoticeAt: null, startDate: new Date(0), principal: 1, outstandingPrincipal: 1, chargesOutstanding: 0, restructuredAt: null, ifrs9Flags: [], terms, repaymentSchedule: [] }] } } as never

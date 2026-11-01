@@ -78,6 +78,13 @@ describe("planInPlace: the kinds of change", () => {
     expect(plan.totalRepayable).toBe(totalOf(rows))
   })
 
+  it("the days a reschedule adds earn interest on what bears it, not on arrears principal it moved", () => {
+    const rows = loanRows({}, 1)
+    const plan = planInPlace(input(rows, { type: "RESCHEDULE", firstDueDate: "2026-05-30" }))
+    const bearing = rows.slice(3).reduce((s, r) => s + r.principalDue, 0)
+    expect(plan.carriedInterest - rows[1]!.interestDue - rows[2]!.interestDue).toBe(Math.round((bearing * 0.04 * 15) / 30))
+  })
+
   it("a reschedule keeps what an earlier change carried, and marks it", () => {
     const first = planInPlace(input(loanRows({}, 1), { type: "RESCHEDULE", firstDueDate: "2026-05-15" }))
     const again = planInPlace(input(written(first), { type: "RESCHEDULE", firstDueDate: "2026-05-15" }, { asOf: at("2026-04-21") }))

@@ -190,6 +190,8 @@ model Loan {
   // When the loan was last restructured as a forbearance (lib/loan-changes). The status stays ACTIVE or DEFAULTED, which every
   // receipt, mandate and reminder path needs; IFRS 9 reads this (lib/ifrs9/staging.ts, restructuredInForce).
   restructuredAt              DateTime?
+  // It was in default when last restructured: IFRS 9 keeps it in Stage 3 until it has cured by its clock.
+  defaultedAtRestructure      Boolean          @default(false)
   createdAt                   DateTime         @default(now())
   updatedAt                   DateTime         @updatedAt
   client                      Client?          @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -312,8 +314,9 @@ model RepaymentSchedule {
   assetFinanceOpeningBalanceCents Int?
   creditLifePremiumDue            Int            @default(0)
   feesDue                         Int
-  // The parts of interestDue and feesDue a loan change carried here from rows it replaced (lib/loan-changes): earned already,
-  // so a later change carries them again instead of recomputing them away. 0 on every other row.
+  // The parts of this row a loan change carried here (lib/loan-changes). Interest and fees already earned, which a later change
+  // never reduces, and arrears principal a reschedule moved, which bears no interest. 0 on every other row.
+  carriedPrincipalDue             Int            @default(0)
   carriedInterestDue              Int            @default(0)
   carriedFeesDue                  Int            @default(0)
   totalDue                        Int

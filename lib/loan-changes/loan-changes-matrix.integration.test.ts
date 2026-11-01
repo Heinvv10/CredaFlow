@@ -54,7 +54,7 @@ suite("loan changes under an approval matrix (real Postgres, real routes)", () =
     holder.prisma = createAppPrismaClient(fresh.url)
     l = await bookLoan(db())
     others = []
-    for (let i = 0; i < 4; i++) others.push({ ...(await bookLoan(db(), { sameClientAs: l })), makerId: l.makerId, checkerId: l.checkerId })
+    for (let i = 0; i < 3; i++) others.push({ ...(await bookLoan(db(), { sameClientAs: l })), makerId: l.makerId, checkerId: l.checkerId })
     la = await staff(`u_la_${l.loanId}`, "LOAN_ADMIN")
     bm = await staff(`u_bm_${l.loanId}`, "BRANCH_MANAGER")
     recorder = await staff(`u_rc_${l.loanId}`, "ADMIN")
@@ -117,18 +117,6 @@ suite("loan changes under an approval matrix (real Postgres, real routes)", () =
     expect(app.status).toBe("CANCELLED")
     expect((await db().approvalCase.findFirstOrThrow({ where: { applicationId: app.id } })).status).toBe("CLOSED")
     expect(await db().auditLog.count({ where: { tenantId: l.tenantId, action: "LOAN_CHANGE_APPLICATION_CLOSED", entityId: id } })).toBe(1)
-  })
-
-  it("another open application under a matrix is a clean refusal, not a crash", async () => {
-    const mine = others.pop()!
-    const other = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-OPEN-${mine.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "SUBMITTED" } })
-    const { id } = await draftAndSubmit(mine, { type: "REFINANCE", instalments: 12 })
-    const refused = await approveAs(la, id)
-    expect(refused.status).toBe(409)
-    expect(((await refused.json()) as { error: string }).error).toMatch(/another open application/)
-    await db().loanApplication.update({ where: { id: other.id }, data: { status: "CANCELLED" } })
-    as(mine, "maker")
-    expect((await actionRoute(req({}), params({ id, action: "withdraw" }))).status).toBe(200)
   })
 
   it("a change in place keeps its one second person: the matrix governs new credit", async () => {

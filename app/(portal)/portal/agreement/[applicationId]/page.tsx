@@ -22,7 +22,7 @@ export default async function PortalAgreementPage({ params }: Props) {
   if (session.user.tenantId !== tenantId) notFound()
 
   const application = await prisma.loanApplication.findFirst({
-    where: { id: applicationId, tenantId, clientId: session.user.id },
+    where: { id: applicationId, tenantId, clientId: session.user.id, loanChangeRequestId: null },
     select: {
       id: true,
       reference: true,

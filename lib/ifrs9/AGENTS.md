@@ -41,7 +41,8 @@ Design and limits: `docs/ifrs9/DESIGN.md`.
 - **Write-off uses the allowance** (Dr allowance / Cr bad debt); never credit
   `ECL_EXPENSE` on a write-off.
 - **A live restructure is `Loan.restructuredAt`, not the status** (`lib/loan-changes`): `restructuredInForce` treats it as RESTRUCTURED
-  until a MONTHLY run has staged it, then the probation runs. A loan a change booked starts from its predecessors' worst stage.
+  until a MONTHLY run has staged it, then the probation runs; each restructure restarts the clock. In default when restructured
+  (`defaultedAtRestructure`): Stage 3, not `restructuredStage`. A loan a change booked starts from its predecessors' worst stage.
 - **DPD is the product's** (`recomputeLoanBalances`, `>= 90` = Stage 3; Stage 2
   is `> 30`). Do not add a second definition.
 - **A run needs the DEFAULT PD/LGD for all three stages** or it refuses; a

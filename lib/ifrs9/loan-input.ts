@@ -15,7 +15,7 @@ type Db = Pick<typeof prisma, "loan" | "payment" | "auditLog" | "repaymentSchedu
 
 const BASE_SELECT = {
   id: true, reference: true, productId: true, contractType: true, status: true, collectionsStage: true, debtReviewNoticeAt: true,
-  startDate: true, principal: true, outstandingPrincipal: true, chargesOutstanding: true, restructuredAt: true,
+  startDate: true, principal: true, outstandingPrincipal: true, chargesOutstanding: true, restructuredAt: true, defaultedAtRestructure: true,
   ifrs9Flags: { where: { clearedAt: null }, select: { kind: true } },
   // The terms in force (lib/product-engine): a full grace defers interest that is earned in the grace.
   terms: { orderBy: { sequence: "desc" }, take: 1, select: { sequence: true, frequency: true, graceKind: true, graceInstalments: true, deferredInterest: true } },
@@ -37,7 +37,7 @@ function runLoan(row: BaseRow, schedule: RunLoan["schedule"], outstandingPrincip
     id: row.id, reference: row.reference, productId: row.productId, contractType: row.contractType, status,
     collectionsStage: row.collectionsStage, startDate: row.startDate, principal: row.principal, outstandingPrincipal,
     chargesOutstanding: row.chargesOutstanding, debtReview: row.debtReviewNoticeAt !== null, schedule,
-    restructuredOn: row.restructuredAt ? sastCalendarDate(row.restructuredAt) : null,
+    restructuredOn: row.restructuredAt ? sastCalendarDate(row.restructuredAt) : null, defaultedAtRestructure: row.defaultedAtRestructure,
     flags: [...new Set(row.ifrs9Flags.map((f) => f.kind as SicrFlagKind))],
   }
 }

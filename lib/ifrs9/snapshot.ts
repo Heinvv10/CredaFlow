@@ -24,6 +24,7 @@ export interface RunLoan {
   chargesOutstanding: number
   /** SAST day of Loan.restructuredAt, a change that eased the loan's terms (lib/loan-changes). */
   restructuredOn?: string | null
+  defaultedAtRestructure?: boolean
   flags: SicrFlagKind[]
   schedule: Array<{ dueDate: Date; principalDue: number; interestDue: number; feesDue: number; totalDue: number; totalPaid: number }>
   /** The interest a full grace deferred (lib/product-engine), earned in the grace although no row carries it. */
@@ -86,7 +87,7 @@ export function assessLoan(loan: RunLoan, ctx: RunContext, prior: PriorStaging |
   // Only an ACTIVE loan: a restructured loan that defaults again is DEFAULTED, and Stage 3.
   const status = loan.status === "ACTIVE" && restructuredInForce(loan.restructuredOn, runDate, prior) ? "RESTRUCTURED" : loan.status
   const staging = classifyStage(
-    { dpd, status, collectionsStage: loan.collectionsStage, debtReview: loan.debtReview, flags: loan.flags },
+    { dpd, status, defaultedAtRestructure: loan.defaultedAtRestructure, collectionsStage: loan.collectionsStage, debtReview: loan.debtReview, flags: loan.flags },
     ctx.settings, prior, runDate,
   )
   return { dpd, staging, suspended: suspensionApplies(dpd, staging.stage, loan.contractType, ctx.settings), prior }

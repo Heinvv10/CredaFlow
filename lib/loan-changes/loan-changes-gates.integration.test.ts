@@ -230,16 +230,43 @@ suite("loan changes: credit gates and bounds (real Postgres, real routes)", () =
     expect((await db().loanApplication.findUniqueOrThrow({ where: { id: app.id } })).status).toBe("CANCELLED")
   })
 
-  it("another open application on the product is a clean refusal at approval", async () => {
+  it("a change's application and the borrower's own coexist: neither blocks the other, and the borrower's portal sees only their own", async () => {
     const l = await loan()
     const { id } = await draftAndSubmit(l, refinance)
-    const other = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-OPEN-${l.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "SUBMITTED" } })
+    const own = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-OWN-${l.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "SUBMITTED" } })
+    const change = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-CH-${l.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "UNDER_REVIEW", loanChangeRequestId: id } })
+    await expect(db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-OWN2-${l.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "SUBMITTED" } })).rejects.toThrow(/Unique/)
+    as(l, "checker")
+    expect((await actionRoute(req({}), params({ id, action: "approve" }))).status).toBe(200)
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: change.id } })).status).toBe("DISBURSED")
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: own.id } })).status).toBe("SUBMITTED")
+  })
+
+  it("opening a change's application is audited", async () => {
+    const l = await loan()
+    const { id } = await draftAndSubmit(l, refinance)
+    as(l, "checker")
+    expect((await actionRoute(req({}), params({ id, action: "approve" }))).status).toBe(200)
+    const app = await db().loanApplication.findFirstOrThrow({ where: { loanChangeRequestId: id } })
+    const row = await db().auditLog.findFirstOrThrow({ where: { tenantId: l.tenantId, action: "LOAN_CHANGE_APPLICATION_OPENED", entityId: app.id } })
+    expect(row).toMatchObject({ userId: l.checkerId, newValue: { changeRequestId: id, makerId: l.makerId } })
+  })
+
+  it("a loan on which nothing is owed cannot be settled into a new one", async () => {
+    const l = await loan()
+    const { id } = await draftAndSubmit(l, refinance)
+    holder.settlementOffset = -100_000_000
     as(l, "checker")
     const refused = await actionRoute(req({}), params({ id, action: "approve" }))
+    holder.settlementOffset = 0
     expect(refused.status).toBe(422)
-    expect(((await refused.json()) as { error: string }).error).toMatch(/another open application/)
-    await db().loanApplication.update({ where: { id: other.id }, data: { status: "CANCELLED" } })
-    expect((await actionRoute(req({}), params({ id, action: "approve" }))).status).toBe(200)
+    expect(((await refused.json()) as { error: string }).error).toMatch(/nothing is owed/)
+  })
+
+  it("the term is counted in periods, as a new loan's is: twelve months are 360 days, not 365", async () => {
+    const l = await loan({ instalments: 12 })
+    await db().loanProduct.update({ where: { id: l.fx.tenant.productId }, data: { maxTermDays: 360 } })
+    expect((await draftAndSubmit(l, { type: "RATE_CHANGE", interestRatePm: 0.03 })).submitted.status).toBe(200)
   })
 
   it("a bounced receipt on a loan a new loan settled leaves exactly its amount owed, on the old loan", async () => {

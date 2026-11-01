@@ -7,9 +7,13 @@ import { planInPlace, type PlanRow } from "./plan"
 const sumF = (rows: Array<{ totalDue: number; totalPaid: number }>) => rows.reduce((s, r) => s + r.totalDue - r.totalPaid, 0)
 type T = { structure: "AMORTISING" | "INTEREST_ONLY" | "BULLET"; graceKind: "NONE" | "FULL" | "PRINCIPAL_ONLY"; graceInstalments: number; frequency: "MONTHLY" | "WEEKLY" | "FORTNIGHTLY" }
 
+function maker(start: number) {
+  let seed = start
+  return (n: number) => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) % n }
+}
+
 function run(cfg: { partPaid: boolean; arrears: boolean; stacked: boolean; reschedule?: boolean }) {
-  let seed = 7
-  const rnd = (n: number) => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) % n }
+  const rnd = maker(7)
   const moved: Array<Record<string, unknown>> = []
   let tested = 0
   for (let run = 0; run < 4000; run++) {
@@ -65,6 +69,57 @@ function run(cfg: { partPaid: boolean; arrears: boolean; stacked: boolean; resch
   for (const m of moved) { const k = `${m.structure}/${m.model}/${m.graceKind}`; by[k] = (by[k] ?? 0) + 1 }
   return { tested, moved: moved.length, worst: worst.slice(0, 2), by, up: moved.filter((m) => Number(m.delta) > 0).length, down: moved.filter((m) => Number(m.delta) < 0).length }
 }
+
+/** After a reschedule, what it carried stands whatever a later change does, and the same terms still move nothing. */
+function afterReschedule() {
+  const rnd = maker(281)
+  const asOf = new Date("2026-08-15T10:00:00Z")
+  const lost: unknown[] = []
+  let tested = 0
+  for (let run = 0; run < 4000; run++) {
+    const P = 10_000 + rnd(3_000_000)
+    const n = 2 + rnd(30)
+    const fee = rnd(2) ? 0 : rnd(10_000)
+    const interestModel = rnd(2) ? "REDUCING_BALANCE" as const : "FLAT" as const
+    const rate = (1 + rnd(9)) / 100
+    const startDate = new Date(asOf.getTime() - rnd(400) * 86_400_000)
+    const structure = (["AMORTISING", "AMORTISING", "INTEREST_ONLY", "BULLET"] as const)[rnd(4)]!
+    const frequency = (["MONTHLY", "MONTHLY", "WEEKLY", "FORTNIGHTLY"] as const)[rnd(4)]!
+    const rows: PlanRow[] = generateSchedule({ principalCents: P, interestRatePm: rate, interestModel, monthlyServiceFeeCents: fee, startDate, terms: { frequency, structure, graceKind: "NONE", graceInstalments: 0, instalments: n } })
+      .schedule.map((r, i) => ({ id: `r${i}`, installmentNo: r.installmentNo, dueDate: r.dueDate, principalDue: r.principalDue, interestDue: r.interestDue, feesDue: r.feesDue, totalDue: r.totalDue, totalPaid: 0, paidAt: null }))
+    const dueCount = rows.filter((r) => r.dueDate <= asOf).length
+    const paid = rows.map((r, i) => (i < rnd(dueCount + 1) ? { ...r, totalPaid: r.totalDue } : r))
+    const base = { loan: { principal: P, interestRatePm: rate, interestModel, monthlyServiceFee: fee, startDate }, frequency, structure, asOf }
+    const ahead = paid.find((r) => r.dueDate > asOf && r.totalPaid < r.totalDue)
+    if (paid.every((r) => r.totalPaid >= r.totalDue)) continue
+    const moved = planInPlace({ ...base, rows: paid, change: { type: "RESCHEDULE", firstDueDate: new Date((ahead ? ahead.dueDate : new Date(asOf.getTime() + 62 * 86_400_000)).getTime() + (5 + rnd(30)) * 86_400_000).toISOString().slice(0, 10) } })
+    const written = moved.rows.map((r, i) => ({ ...r, id: `y${i}`, paidAt: null }))
+    const carried = moved.fresh.reduce((s, r) => s + r.carriedInterestDue, 0)
+    for (const change of [{ type: "RATE_CHANGE", interestRatePm: 0 }, { type: "TERM_CHANGE", instalments: 1 }, { type: "RATE_CHANGE", interestRatePm: rate }] as const) {
+      let after
+      try {
+        after = planInPlace({ ...base, rows: written, change })
+      } catch (error) {
+        if (/No principal/.test(String(error))) continue
+        throw error
+      }
+      tested++
+      if (after.fresh.reduce((s, r) => s + r.interestDue, 0) < carried) lost.push({ why: "earned lost", change, carried, structure, interestModel })
+      if (change.type === "RATE_CHANGE" && change.interestRatePm === rate && after.totalRepayable !== moved.totalRepayable) lost.push({ why: "same terms moved", structure, interestModel, frequency })
+      if (after.rows.reduce((s, r) => s + r.principalDue, 0) !== P) lost.push({ why: "principal", structure, interestModel })
+      if (after.rows.some((r) => r.interestDue < 0 || r.feesDue < 0 || r.principalDue < 0)) lost.push({ why: "negative", structure, interestModel })
+    }
+  }
+  return { tested, lost }
+}
+
+describe("after a reschedule", () => {
+  it("carried interest stands, same terms move nothing, the rows add up", () => {
+    const { tested, lost } = afterReschedule()
+    expect(tested).toBeGreaterThan(1_000)
+    expect(lost.slice(0, 3)).toEqual([])
+  })
+})
 
 describe("same-terms moves nothing", () => {
   for (const cfg of [

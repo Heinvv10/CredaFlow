@@ -216,6 +216,7 @@ suite("loan changes that book a new loan, on a Lesotho instance (real Postgres, 
     const runAt = new Date()
     const today = (await runWithTenant(l.tenantId, () => loadRunLoans(holder.prisma as never, l.tenantId, runAt, null))).find((r) => r.id === l.loanId)!
     const prior = { stage: 3 as const, stageSince: "2026-01-31", cureStartedOn: null, restructured: false, runDate: "2026-01-31" }
-    expect(assessLoan(today, { ...ctx, runAt }, prior).staging).toMatchObject({ stage: 3, inProbation: true, restructured: true })
+    expect(today.defaultedAtRestructure).toBe(true)
+    expect(assessLoan(today, { ...ctx, runAt }, { ...prior, stage: 2 }).staging).toMatchObject({ stage: 3, restructured: true })
   })
 })

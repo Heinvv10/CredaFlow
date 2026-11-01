@@ -4,12 +4,13 @@
  */
 import type { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { applyManualReceiptInTx } from "@/lib/loan/apply-payment"
 import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { PERIOD_DAYS } from "@/lib/product-engine/types"
 import type { ApplyContext, Tx } from "@/lib/maker-checker/types"
-import { ANOTHER_OPEN_APPLICATION, loanChangeApplication } from "./approval"
+import { loanChangeApplication } from "./approval"
 import { computeChange, inArrears, involvedLoanIds, type ChangeLoan, type InPlaceComputed, type NewLoanComputed } from "./compute"
 import { LoanChangeRefused, type FreshRow } from "./plan"
 import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
@@ -19,6 +20,10 @@ type Ctx = ApplyContext<LoanChangePayload>
 
 /** A change that eases terms for a borrower who cannot meet them. Any change to a loan in arrears is one too. */
 const FORBEARANCE_TYPES: readonly string[] = ["RESCHEDULE", "RESTRUCTURE", "PAYMENT_HOLIDAY"]
+
+/** A loan DEFAULTED, or 90 days past due and not yet marked so by the nightly job, is in default. */
+const inDefault = (loans: ChangeLoan[], asOf: Date) =>
+  loans.some((loan) => loan.status === "DEFAULTED" || recomputeLoanBalances(loan.principal, loan.repaymentSchedule, asOf).daysInArrears >= 90)
 
 export const isForbearance = (type: string, loans: ChangeLoan[], asOf: Date) =>
   FORBEARANCE_TYPES.includes(type) || loans.some((loan) => inArrears(loan, asOf))
@@ -32,12 +37,12 @@ const figures = (loan: ChangeLoan) => ({
 
 const scheduleOf = (loan: ChangeLoan) => ({
   loanId: loan.id,
-  rows: loan.repaymentSchedule.map(({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt, carriedInterestDue, carriedFeesDue }) => ({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt, carriedInterestDue, carriedFeesDue })),
+  rows: loan.repaymentSchedule.map(({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt, carriedPrincipalDue, carriedInterestDue, carriedFeesDue }) => ({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt, carriedPrincipalDue, carriedInterestDue, carriedFeesDue })),
 })
 
 const scheduleRow = (tenantId: string, loanId: string) => (row: FreshRow) => ({
   tenantId, loanId, installmentNo: row.installmentNo, dueDate: row.dueDate, principalDue: row.principalDue, interestDue: row.interestDue,
-  creditLifePremiumDue: 0, feesDue: row.feesDue, totalDue: row.totalDue, carriedInterestDue: row.carriedInterestDue, carriedFeesDue: row.carriedFeesDue, status: "PENDING" as const,
+  creditLifePremiumDue: 0, feesDue: row.feesDue, totalDue: row.totalDue, carriedPrincipalDue: row.carriedPrincipalDue, carriedInterestDue: row.carriedInterestDue, carriedFeesDue: row.carriedFeesDue, status: "PENDING" as const,
 })
 
 async function applyInPlace(tx: Tx, ctx: Ctx, { loan, plan }: InPlaceComputed): Promise<void> {
@@ -46,7 +51,7 @@ async function applyInPlace(tx: Tx, ctx: Ctx, { loan, plan }: InPlaceComputed): 
   for (const row of plan.trim) {
     await tx.repaymentSchedule.update({
       where: { id: row.id, tenantId },
-      data: { principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue, carriedInterestDue: 0, carriedFeesDue: 0, status: "PAID", paidAt: loan.lastPaymentDate ?? now },
+      data: { principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue, carriedPrincipalDue: 0, carriedInterestDue: 0, carriedFeesDue: 0, status: "PAID", paidAt: loan.lastPaymentDate ?? now },
     })
   }
   await tx.repaymentSchedule.deleteMany({ where: { tenantId, loanId: loan.id, id: { in: plan.remove } } })
@@ -59,7 +64,7 @@ async function applyInPlace(tx: Tx, ctx: Ctx, { loan, plan }: InPlaceComputed): 
       contractualTotalInterest: plan.totalInterest, contractualTotalRepayable: plan.totalRepayable,
       maturityDate: plan.maturityDate, nextPaymentDate: plan.nextPaymentDate, outstandingPrincipal: plan.outstandingPrincipal,
       arrearsAmount: plan.arrearsAmount, daysInArrears: plan.daysInArrears, status,
-      ...(restructured ? { restructuredAt: now } : {}),
+      ...(restructured ? { restructuredAt: now, defaultedAtRestructure: inDefault([loan], now) } : {}),
     },
   })
   // A loan with no terms row was written before its product had a version: its first change records the origination too.
@@ -106,10 +111,7 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
   const termDays = plan.terms.instalments * PERIOD_DAYS[plan.terms.frequency]
   // The matrix's chain, if one ran, stands on this application; with none it is opened here. Moving it to APPROVED runs the
   // database's chain guard. The checker approves and the maker books, as an approver never disburses: the database holds both.
-  const application = await loanChangeApplication(tx, tenantId, request, computed).catch((error: unknown) => {
-    if ((error as { code?: string }).code === "P2002") throw new LoanChangeRefused(ANOTHER_OPEN_APPLICATION)
-    throw error
-  })
+  const application = await loanChangeApplication(tx, tenantId, request, computed, checker)
   await tx.loanApplication.update({
     where: { id: application.id, tenantId },
     data: { status: "APPROVED", appliedAmount: plan.principal, appliedTermDays: termDays, approvedAt: now, approvedById: checker.id, approvedAmount: plan.principal, approvedTermDays: termDays, repaymentMethod: "EFT" },
@@ -128,7 +130,7 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
       principal: plan.principal, totalInterest: plan.totalInterest, initiationFee: 0, creditLifePremiums: 0, totalRepayable: plan.totalRepayable,
       contractualTotalInterest: plan.totalInterest, contractualTotalRepayable: plan.totalRepayable, outstandingPrincipal: plan.principal,
       status: "ACTIVE", startDate: now, maturityDate: plan.maturityDate, nextPaymentDate: plan.rows[0]!.dueDate, interestRatePm, interestModel: primary.interestModel,
-      monthlyServiceFee: primary.monthlyServiceFee ?? 0, agreementDocId: payload.signedDocumentId, ...(restructured ? { restructuredAt: now } : {}),
+      monthlyServiceFee: primary.monthlyServiceFee ?? 0, agreementDocId: payload.signedDocumentId, ...(restructured ? { restructuredAt: now, defaultedAtRestructure: inDefault(settled.map((s) => s.loan), now) } : {}),
     },
   })
   await tx.repaymentSchedule.createMany({ data: plan.rows.map(scheduleRow(tenantId, created.id)) })

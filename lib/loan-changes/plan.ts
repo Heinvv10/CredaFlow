@@ -6,7 +6,8 @@
  * not yet due change, priced from the principal outstanding on them, from the last due date forward. Whatever they held above a
  * fresh pricing of themselves on the old terms (a deferred fee, a grace's or holiday's interest, what an earlier change carried, a
  * single payment's interest for the whole periods gone by) is already owed, and is carried, spread evenly, never added to the
- * balance: no interest on interest. So a change that changes nothing changes nothing, to the cent.
+ * balance: no interest on interest. A later change never reduces what was carried. So a change that changes nothing changes
+ * nothing, to the cent.
  *
  * Moving arrears is its own case, RESCHEDULE (plan-reschedule.ts). Every other change refuses a loan with no row left to change.
  */
@@ -35,7 +36,8 @@ export interface PlanRow {
   totalDue: number
   totalPaid: number
   paidAt: Date | null
-  /** What an earlier change carried onto this row. */
+  /** What an earlier change carried onto this row: earned interest and fees, and arrears principal that bears no interest. */
+  carriedPrincipalDue?: number
   carriedInterestDue?: number
   carriedFeesDue?: number
 }
@@ -58,7 +60,7 @@ export interface PlanInput {
 }
 
 export type TrimmedRow = Pick<PlanRow, "id" | "principalDue" | "interestDue" | "feesDue" | "totalDue" | "totalPaid">
-export type FreshRow = Pick<PlanRow, "installmentNo" | "dueDate" | "principalDue" | "interestDue" | "feesDue" | "totalDue"> & { carriedInterestDue: number; carriedFeesDue: number }
+export type FreshRow = Pick<PlanRow, "installmentNo" | "dueDate" | "principalDue" | "interestDue" | "feesDue" | "totalDue"> & { carriedPrincipalDue: number; carriedInterestDue: number; carriedFeesDue: number }
 
 export interface InPlacePlan {
   /** Rows the change leaves as they are: paid, and, unless it reschedules them, already due. */
@@ -92,12 +94,14 @@ export const sastDay = (date: Date) => Date.parse(sastCalendarDate(date)) / DAY_
 export const byDue = (a: PlanRow, b: PlanRow) => a.dueDate.getTime() - b.dueDate.getTime() || a.installmentNo - b.installmentNo
 
 /** Adds what is carried to the rows, spread evenly: every cent lands on a row. */
-export function spreadCarried<T extends { interestDue: number; feesDue: number; totalDue: number }>(rows: T[], interest: number, fees: number): Array<T & { carriedInterestDue: number; carriedFeesDue: number }> {
+export function spreadCarried<T extends { principalDue: number; interestDue: number; feesDue: number; totalDue: number }>(rows: T[], interest: number, fees: number, principal = 0): Array<T & { carriedPrincipalDue: number; carriedInterestDue: number; carriedFeesDue: number }> {
+  const principalShare = evenly(principal, rows.length)
   const interestShare = evenly(interest, rows.length)
   const feeShare = evenly(fees, rows.length)
   return rows.map((row, i) => ({
-    ...row, interestDue: row.interestDue + interestShare[i]!, feesDue: row.feesDue + feeShare[i]!, totalDue: row.totalDue + interestShare[i]! + feeShare[i]!,
-    carriedInterestDue: interestShare[i]!, carriedFeesDue: feeShare[i]!,
+    ...row, principalDue: row.principalDue + principalShare[i]!, interestDue: row.interestDue + interestShare[i]!, feesDue: row.feesDue + feeShare[i]!,
+    totalDue: row.totalDue + principalShare[i]! + interestShare[i]! + feeShare[i]!,
+    carriedPrincipalDue: principalShare[i]!, carriedInterestDue: interestShare[i]!, carriedFeesDue: feeShare[i]!,
   }))
 }
 
@@ -148,13 +152,13 @@ export function priced(loan: PlanLoan, frequency: Frequency, structure: Repaymen
 
 export const sumOf = <T,>(rows: readonly T[], cents: (row: T) => number) => rows.reduce((sum, row) => sum + cents(row), 0)
 
-/** What the old rows held short of a fresh pricing comes off the new rows, first to last; none goes below nothing. */
-function lessShortfall<T extends { interestDue: number; feesDue: number; totalDue: number }>(rows: T[], interest: number, fees: number): T[] {
+/** What the old rows held short of a fresh pricing comes off the new rows' own interest and fees, first to last, never off what is carried. */
+function lessShortfall(rows: FreshRow[], interest: number, fees: number): FreshRow[] {
   let owedInterest = -interest
   let owedFees = -fees
   return rows.map((row) => {
-    const offInterest = Math.min(owedInterest, row.interestDue)
-    const offFees = Math.min(owedFees, row.feesDue)
+    const offInterest = Math.min(owedInterest, row.interestDue - row.carriedInterestDue)
+    const offFees = Math.min(owedFees, row.feesDue - row.carriedFeesDue)
     owedInterest -= offInterest
     owedFees -= offFees
     return { ...row, interestDue: row.interestDue - offInterest, feesDue: row.feesDue - offFees, totalDue: row.totalDue - offInterest - offFees }
@@ -169,8 +173,8 @@ export function finished(input: PlanInput, parts: {
   const { keep, trim, fresh } = parts
   const byId = new Map(input.rows.map((row) => [row.id, row]))
   const after = [
-    ...keep.map(({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, carriedInterestDue = 0, carriedFeesDue = 0 }) => ({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, carriedInterestDue, carriedFeesDue })),
-    ...trim.map((row) => ({ ...row, installmentNo: byId.get(row.id)!.installmentNo, dueDate: byId.get(row.id)!.dueDate, carriedInterestDue: 0, carriedFeesDue: 0 })),
+    ...keep.map(({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, carriedPrincipalDue = 0, carriedInterestDue = 0, carriedFeesDue = 0 }) => ({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, carriedPrincipalDue, carriedInterestDue, carriedFeesDue })),
+    ...trim.map((row) => ({ ...row, installmentNo: byId.get(row.id)!.installmentNo, dueDate: byId.get(row.id)!.dueDate, carriedPrincipalDue: 0, carriedInterestDue: 0, carriedFeesDue: 0 })),
   ].sort((a, b) => a.installmentNo - b.installmentNo)
   const all = [...after, ...fresh.map((row) => ({ ...row, totalPaid: 0 }))]
   const balances = recomputeLoanBalances(input.loan.principal, all, input.asOf)
@@ -214,8 +218,16 @@ function planTail(input: PlanInput, change: TailChange): InPlacePlan {
   // Money paid ahead is all principal: it is what the rows no longer have to repay.
   const trim = tail.filter((row) => row.totalPaid > 0).map((row): TrimmedRow => ({ id: row.id, principalDue: row.totalPaid, interestDue: 0, feesDue: 0, totalDue: row.totalPaid, totalPaid: row.totalPaid }))
   const remove = tail.filter((row) => row.totalPaid === 0).map((row) => row.id)
-  const balance = sumOf(tail, (row) => row.principalDue) - sumOf(tail, (row) => row.totalPaid)
+  // Arrears principal a reschedule moved bears no interest: only the rest is priced. Money paid ahead lowers what bears interest first.
+  const movedPrincipal = sumOf(tail, (row) => row.carriedPrincipalDue ?? 0)
+  const paidAhead = sumOf(tail, (row) => row.totalPaid)
+  const bearingBefore = sumOf(tail, (row) => row.principalDue) - movedPrincipal
+  const bearing = Math.max(0, bearingBefore - paidAhead)
+  const interestFree = movedPrincipal - Math.max(0, paidAhead - bearingBefore)
+  const balance = bearing + interestFree
   if (balance <= 0) throw new LoanChangeRefused("No principal is left unpaid on this loan to change")
+  const pricedPrincipal = bearing > 0 ? bearing : interestFree
+  const pricedRate = (rate: number) => (bearing > 0 ? rate : 0)
 
   const bullet = structure === "BULLET"
     ? bulletProgress(tail[0]!, rows.reduce((latest, row) => (settled(row) && row.dueDate > latest ? row.dueDate : latest), loan.startDate), frequency, today)
@@ -232,22 +244,25 @@ function planTail(input: PlanInput, change: TailChange): InPlacePlan {
   if (target.holiday > 0) {
     // Simple interest for the skipped periods, and the service fee of the months they span, as a full grace defers them.
     const periodRate = frequency === "MONTHLY" ? target.rate : (target.rate * 12) / PERIODS_PER_YEAR[frequency]
-    deferredInterest = Math.round((loan.interestModel === "FLAT" ? loan.principal : balance) * periodRate) * target.holiday
+    deferredInterest = bearing > 0 ? Math.round((loan.interestModel === "FLAT" ? loan.principal : bearing) * periodRate) * target.holiday : 0
     carriedFees = Math.round((target.holiday * PERIOD_DAYS[frequency]) / 30) * loan.monthlyServiceFee
     first = addPeriods(next, frequency, target.holiday)
   }
 
   const dates = tail.map((row) => row.dueDate)
-  const oldPricing = priced(loan, frequency, structure, { principal: balance, rate: loan.interestRatePm, instalments: remaining, first: next, dates })
+  const oldPricing = priced(loan, frequency, structure, { principal: pricedPrincipal, rate: pricedRate(loan.interestRatePm), instalments: remaining, first: next, dates })
   const excessInterest = sumOf(tail, (row) => row.interestDue) - sumOf(oldPricing, (row) => row.interestDue)
   const excessFees = sumOf(tail, (row) => row.feesDue) - sumOf(oldPricing, (row) => row.feesDue)
-  const carriedInterest = deferredInterest + Math.max(0, excessInterest)
-  carriedFees += Math.max(0, excessFees)
+  // What an earlier change carried is earned: it stands whatever the pricing says. Below it, the difference comes off the new rows' own.
+  const keptInterest = Math.max(0, excessInterest, sumOf(tail, (row) => row.carriedInterestDue ?? 0))
+  const keptFees = Math.max(0, excessFees, sumOf(tail, (row) => row.carriedFeesDue ?? 0))
+  const carriedInterest = deferredInterest + keptInterest
+  carriedFees += keptFees
 
-  const generated = priced(loan, frequency, structure, { principal: balance, rate: target.rate, instalments: target.instalments, first, dates: first === next ? dates : [] })
+  const generated = priced(loan, frequency, structure, { principal: pricedPrincipal, rate: pricedRate(target.rate), instalments: target.instalments, first, dates: first === next ? dates : [] })
   const nextNo = rows.reduce((max, row) => Math.max(max, tail.includes(row) ? 0 : row.installmentNo), trim.length > 0 ? Math.max(...tail.filter((row) => row.totalPaid > 0).map((row) => row.installmentNo)) : 0) + 1
   const generatedRows = generated.map((row, i) => ({ ...row, installmentNo: nextNo + i }))
-  const fresh = lessShortfall(spreadCarried(generatedRows, carriedInterest, carriedFees), Math.min(0, excessInterest), Math.min(0, excessFees))
+  const fresh = lessShortfall(spreadCarried(generatedRows, carriedInterest, carriedFees, bearing > 0 ? interestFree : 0), excessInterest - keptInterest, excessFees - keptFees)
   const terms: RepaymentTerms = target.holiday > 0
     ? { frequency, structure, instalments: target.instalments + target.holiday, graceKind: "FULL", graceInstalments: target.holiday }
     : { frequency, structure, instalments: target.instalments, graceKind: "NONE", graceInstalments: 0 }

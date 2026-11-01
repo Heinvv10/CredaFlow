@@ -3,14 +3,16 @@ CREATE TYPE "LoanChangeType" AS ENUM ('RESCHEDULE', 'RESTRUCTURE', 'PAYMENT_HOLI
 
 
 -- AlterTable
-ALTER TABLE "Loan" ADD COLUMN     "restructuredAt" TIMESTAMP(3);
+ALTER TABLE "Loan" ADD COLUMN     "defaultedAtRestructure" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "restructuredAt" TIMESTAMP(3);
 
 -- AlterTable
 ALTER TABLE "LoanApplication" ADD COLUMN     "loanChangeRequestId" TEXT;
 
 -- AlterTable
 ALTER TABLE "RepaymentSchedule" ADD COLUMN     "carriedFeesDue" INTEGER NOT NULL DEFAULT 0,
-ADD COLUMN     "carriedInterestDue" INTEGER NOT NULL DEFAULT 0;
+ADD COLUMN     "carriedInterestDue" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "carriedPrincipalDue" INTEGER NOT NULL DEFAULT 0;
 
 -- AlterTable
 ALTER TABLE "LoanTerms" ADD COLUMN     "changeRequestId" TEXT,
@@ -248,6 +250,12 @@ CREATE TRIGGER "Payment_loan_settlement_insert" BEFORE INSERT ON "Payment" FOR E
   WHEN (NEW."paymentMethod"::TEXT = 'LOAN_SETTLEMENT') EXECUTE FUNCTION public."guardLoanSettlementReceipt"();
 CREATE TRIGGER "Payment_loan_settlement_update" BEFORE UPDATE ON "Payment" FOR EACH ROW
   WHEN (OLD."paymentMethod"::TEXT = 'LOAN_SETTLEMENT' OR NEW."paymentMethod"::TEXT = 'LOAN_SETTLEMENT') EXECUTE FUNCTION public."guardLoanSettlementReceipt"();
+
+-- An open application is one per client and product, as the borrower sees them: a change's application is not one the borrower made,
+-- so it neither blocks their own nor is blocked by it.
+DROP INDEX "LoanApplication_one_open_per_client_product_idx";
+CREATE UNIQUE INDEX "LoanApplication_one_open_per_client_product_idx" ON "LoanApplication" USING btree ("tenantId", "clientId", "productId")
+  WHERE (status = ANY (ARRAY['DRAFT'::"AppStatus", 'SUBMITTED'::"AppStatus", 'UNDER_REVIEW'::"AppStatus", 'APPROVED'::"AppStatus"])) AND "loanChangeRequestId" IS NULL;
 
 -- Tenant isolation (as 20261031120000_product_engine) ---------------------------
 

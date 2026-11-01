@@ -9,6 +9,7 @@ import type { ChargesTx } from "@/lib/loan/charges-replay"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/document-state"
 import { readBorrowerScreening } from "@/lib/screening/gate"
+import { addPeriods } from "@/lib/product-engine/periods"
 import { PERIOD_DAYS, type EngineInterestModel, type Frequency, type RepaymentStructure } from "@/lib/product-engine/types"
 import type { Tx } from "@/lib/maker-checker/types"
 import { changeRefusal, type ChangeScope, type LoanChangeFacts } from "./eligibility"
@@ -155,7 +156,9 @@ export async function computeChange(db: Reader, tenantId: string, payload: LoanC
     loan: { principal: loan.principal, interestRatePm: loan.interestRatePm, interestModel: engineModel(loan), monthlyServiceFee: loan.monthlyServiceFee ?? 0, startDate: loan.startDate },
     rows, frequency: frequencyOf(loan), structure: structureOf(loan), change: payload, asOf,
   })
-  const termDays = Math.round((plan.maturityDate.getTime() - loan.startDate.getTime()) / 86_400_000)
-  if (termDays > loan.product.maxTermDays) throw new LoanChangeRefused("The change would run this loan past the product's maximum term")
+  // Periods, not calendar days: a product's term counts 30-day months, as every new loan is held to it.
+  let periods = 0
+  while (addPeriods(loan.startDate, frequencyOf(loan), periods) < plan.maturityDate) periods += 1
+  if (periods * PERIOD_DAYS[frequencyOf(loan)] > loan.product.maxTermDays) throw new LoanChangeRefused("The change would run this loan past the product's maximum term")
   return { scope: "IN_PLACE", loan, plan }
 }

@@ -227,6 +227,31 @@ describe("a restructured loan (Loan.restructuredAt, lib/loan-changes)", () => {
     expect(staging).toMatchObject({ stage: 2, inProbation: true, restructured: true, cureStartedOn: "2026-11-30" })
   })
 
+  it("a loan in default when restructured is Stage 3 at the next run, whatever it was before, and holds through the cure clock", () => {
+    const defaulted = { ...paid, defaultedAtRestructure: true }
+    const run = assessLoan(defaulted, at("2026-10-31"), { stage: 2, stageSince: "2026-07-31", cureStartedOn: null, restructured: false, runDate: "2026-09-30" })
+    expect(run.staging).toMatchObject({ stage: 3, restructured: true })
+    const prior = { stage: 3 as const, stageSince: "2026-10-31", cureStartedOn: null, restructured: true, runDate: "2026-10-31" }
+    const later = assessLoan({ ...defaulted, schedule: schedule([115_000, 115_000, 115_000, 115_000, 115_000]) }, at("2026-11-30"), prior)
+    expect(later.staging).toMatchObject({ stage: 3, inProbation: true, restructured: true })
+  })
+
+  it("rescheduling every month with no payment never cures: each change restarts the clock", () => {
+    let prior: Parameters<typeof assessLoan>[2] = { stage: 3, stageSince: "2026-01-31", cureStartedOn: null, restructured: false, runDate: "2026-01-31" }
+    const stages: number[] = []
+    for (let month = 0; month < 26; month++) {
+      const index = 2026 * 12 + 1 + month
+      const y = Math.floor(index / 12)
+      const mm = String((index % 12) + 1).padStart(2, "0")
+      const runDate = `${y}-${mm}-28`
+      const noneDue = [{ dueDate: new Date(`${y + 2}-01-01T00:00:00.000Z`), principalDue: 600_000, interestDue: 0, feesDue: 0, totalDue: 600_000, totalPaid: 0 }]
+      const { staging } = assessLoan(baseLoan({ restructuredOn: `${y}-${mm}-20`, schedule: noneDue }), at(runDate), prior)
+      stages.push(staging.stage)
+      prior = { stage: staging.stage, stageSince: staging.stageSince, cureStartedOn: staging.cureStartedOn, restructured: staging.restructured, runDate }
+    }
+    expect(Math.min(...stages)).toBe(3)
+  })
+
   it("a restructured loan that defaults again is Stage 3: the marker does not hide DEFAULTED", () => {
     const { staging } = assessLoan({ ...paid, status: "DEFAULTED" }, at("2026-10-31"), null)
     expect(staging.stage).toBe(3)
