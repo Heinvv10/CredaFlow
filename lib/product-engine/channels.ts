@@ -8,5 +8,5 @@ export type PricingChannel = (typeof PRICING_CHANNELS)[number]
 
 export const isPricingChannel = (v: unknown): v is PricingChannel => typeof v === "string" && (PRICING_CHANNELS as readonly string[]).includes(v)
 
-/** The channels a customer applies through on their own: they show and schedule monthly instalments only, so no structured schedule is approved for them. */
-export const CUSTOMER_CHANNELS: readonly PricingChannel[] = ["DIGITAL", "API"]
+/** The one channel that offers a structured schedule. Customer channels show and schedule monthly instalments only, so anything else, a missing channel included, gets none. */
+export const STRUCTURED_SCHEDULE_CHANNEL: PricingChannel = "BRANCH"

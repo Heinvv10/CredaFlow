@@ -230,7 +230,7 @@ describe("locked affordability approval verification", () => {
   describe("an approval on a product version with a repayment structure (lib/product-engine)", () => {
     afterEach(() => resetActiveJurisdiction())
     const weekly = { frequency: "WEEKLY" as const, structure: "AMORTISING" as const, graceKind: "NONE" as const, graceInstalments: 0, instalments: 13 }
-    const reference = { id: "pv1", version: 2, baseRatePm: 0.03, pricingRuleId: null, pricingRuleName: null, pricingInputs: { segment: null, channel: null, campaignCode: null, riskRank: null } }
+    const reference = { id: "pv1", version: 2, baseRatePm: 0.03, pricingRuleId: null, pricingRuleName: null, pricingInputs: { segment: null, channel: "BRANCH", campaignCode: null, riskRank: null } }
     const versionRow = (over: Record<string, unknown> = {}) => ({
       id: "pv1", productId: "product-1", version: 2, effectiveFrom: new Date("2026-01-01T00:00:00Z"),
       minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE",
@@ -247,6 +247,7 @@ describe("locked affordability approval verification", () => {
       const application = applicationFixture("UNDER_REVIEW")
       const tx = transactionFor(application)
       tx.productVersion.findFirst.mockResolvedValue(versionRow())
+      tx.applicationPricingInput.findFirst.mockResolvedValue({ segment: null, channel: "BRANCH", campaignCode: null })
       const { approval } = buildEvidence(null, undefined, { repayment: weekly, productVersion: reference })
 
       expect(await candidate(tx, approval)).toEqual({ ok: true, application })
