@@ -605,7 +605,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       )}
       {application.status === "UNDER_REVIEW" && (
         <>
-          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
+          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} keyFacts={application.disclosureRegime === "KEY_FACTS"} openChecks={openChecks} />
           {approvalProgress && <ApprovalProgressPanel applicationId={application.id} progress={approvalProgress} canUseCommittee={canDo(userRole, "view_committee_pack")} today={sastCalendarDate(new Date())} />}
           {pageEvidence.bureauRetry && (
             <ApplicationStartReviewButton applicationId={application.id} mode="retry" />

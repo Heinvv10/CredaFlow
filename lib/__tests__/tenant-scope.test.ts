@@ -225,6 +225,7 @@ describe("tenant-scope — ALS primitives", () => {
       "LoanTerms",
       "ApplicationPricingInput",
       "LoanArrearsLetter",
+      "LoanDocumentIssuance",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

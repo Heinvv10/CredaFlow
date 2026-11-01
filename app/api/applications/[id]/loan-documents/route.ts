@@ -10,7 +10,7 @@ import { loanDocumentState } from "@/lib/non-nca-documents/state"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
-/** The standing key facts statement and loan agreement of an application (its borrower, or staff). */
+/** The standing offer letter, key facts statement and loan agreement of an application (its borrower, or staff). */
 export async function GET(req: NextRequest, { params }: RouteCtx) {
   return withTenantContext(req, async (tenant) => {
     const { id } = await params
@@ -24,8 +24,8 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
 }
 
 /**
- * Issue (or re-issue) the key facts statement and the loan agreement from the
- * lender's current approved templates. A credit officer's action; refused for an
+ * Issue (or re-issue) the offer letter, the key facts statement and the loan agreement
+ * from the lender's current approved templates. A credit officer's action; refused for an
  * application that is not approved and unsigned, or whose template is missing,
  * unapproved or has an unresolved token.
  */

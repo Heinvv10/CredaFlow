@@ -191,6 +191,8 @@ async function main() {
   const loanAdminTwo = await upsertStaff(tenant.id, `loan.admin.two@${STAFF_DOMAIN}`, "Demo Loan Admin Two", "LOAN_ADMIN", "SEED_LOAN_ADMIN_TWO_PASSWORD")
   // The checker of a change to the approval matrix (lib/maker-checker). Only a key-facts demo seeds a matrix.
   const superAdmin = JURISDICTION === "ZA" ? null : await upsertStaff(tenant.id, `super.admin@${STAFF_DOMAIN}`, "Demo Super Admin", "SUPER_ADMIN", "SEED_SUPER_ADMIN_PASSWORD")
+  // A key-facts payout account is confirmed by a second person with no other part in the application.
+  const confirmer = JURISDICTION === "ZA" ? null : await upsertStaff(tenant.id, `payout.confirmer@${STAFF_DOMAIN}`, "Demo Payout Confirmer", "CREDIT_OFFICER", "SEED_PAYOUT_CONFIRMER_PASSWORD")
   // A lender outside the NCA uses its own offer letter, key facts statement, loan agreement and arrears letter (lib/non-nca-documents).
   if (JURISDICTION !== "ZA") {
     const { seedNonNcaTemplates } = await import("./seed/non-nca-templates")
@@ -293,10 +295,10 @@ async function main() {
 
   console.log(`\nSeed complete: tenant "${LENDER.slug}" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {
-    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD, SEED_LOAN_ADMIN_ONE_PASSWORD, SEED_LOAN_ADMIN_TWO_PASSWORD, SEED_SUPER_ADMIN_PASSWORD (a key-facts demo) and SEED_PORTAL_PASSWORD to choose or reset them.")
+    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD, SEED_LOAN_ADMIN_ONE_PASSWORD, SEED_LOAN_ADMIN_TWO_PASSWORD, SEED_SUPER_ADMIN_PASSWORD and SEED_PAYOUT_CONFIRMER_PASSWORD (a key-facts demo) and SEED_PORTAL_PASSWORD to choose or reset them.")
     return
   }
-  for (const s of [...(superAdmin ? [superAdmin] : []), admin, officer, loanAdminOne, loanAdminTwo]) {
+  for (const s of [...(superAdmin ? [superAdmin] : []), ...(confirmer ? [confirmer] : []), admin, officer, loanAdminOne, loanAdminTwo]) {
     console.log(`\n  ${s.user.role}: ${s.user.email}\n    password: ${s.password}\n    TOTP secret (base32): ${s.totpSecret}\n    otpauth: ${s.otpauth}`)
   }
   console.log(`\n  Client portal password (seeded clients created or reset this run): ${portalPasswordUsed ? portalPassword : kept("SEED_PORTAL_PASSWORD")}`)

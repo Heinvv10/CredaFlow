@@ -88,7 +88,7 @@ async function approveSignConfirm(id: string) {
   expect(decided.status, JSON.stringify(await decided.clone().json())).toBe(200)
   await attestKyc(id)
   await issueAndSign(id)
-  expect((await verifyAccount(stack.officer, id)).status).toBe(200)
+  expect((await verifyAccount(stack.confirmer, id)).status).toBe(200)
 }
 
 suite("a key-facts loan on a versioned product (real Postgres, real routes, no bypass)", () => {

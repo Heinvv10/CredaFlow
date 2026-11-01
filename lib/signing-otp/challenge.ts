@@ -43,13 +43,18 @@ export type SigningBinding = {
   purpose: SigningOtpPurpose
   subjectId: string
   documentSha256: string
+  /**
+   * Who asked for the code: the witnessing staff member, or null for the borrower's own portal request. Given, it must match, so
+   * a code from one path cannot sign on the other. Absent, it is not read (the NCA routes).
+   */
+  requestedByUserId?: string | null
 }
 
 export type ConsumeRefusal = "not_found" | "not_verified" | "verification_stale" | "already_used" | "document_changed"
 
 /** Why a challenge cannot authorise this signature; null when it can. */
 export function consumeBlockedReason(
-  row: (ChallengeState & SigningBinding) | null,
+  row: (ChallengeState & SigningBinding & { requestedByUserId?: string | null }) | null,
   binding: SigningBinding,
   now: Date,
 ): ConsumeRefusal | null {
@@ -59,6 +64,7 @@ export function consumeBlockedReason(
     || row.clientId !== binding.clientId
     || row.purpose !== binding.purpose
     || row.subjectId !== binding.subjectId
+    || (binding.requestedByUserId !== undefined && row.requestedByUserId !== binding.requestedByUserId)
   ) return "not_found"
   if (row.consumedAt) return "already_used"
   if (row.documentSha256 !== binding.documentSha256) return "document_changed"

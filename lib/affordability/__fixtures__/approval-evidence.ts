@@ -87,6 +87,8 @@ export const applicationDebt = {
 export const client = {
   id: "client-1",
   idNumber: "9001015800086",
+  email: "client@test.invalid",
+  whatsapp: null,
   firstName: "Jane",
   lastName: "Doe",
   gender: "FEMALE" as const,

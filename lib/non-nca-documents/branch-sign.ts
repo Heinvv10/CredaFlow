@@ -37,14 +37,16 @@ export async function signAtBranch(args: {
   if (typeof args.offerSha256 !== "string" || typeof args.keyFactsSha256 !== "string") {
     return { ok: false, status: 422, error: "The documents shown to the borrower are required" }
   }
-  if (typeof args.signature !== "string" || args.signature.trim().length < 3) return { ok: false, status: 422, error: "The borrower types their full name to sign" }
+  // Before anything is written: the same limits as the signature itself (sign.ts).
+  const typed = typeof args.signature === "string" ? args.signature.trim() : ""
+  if (typed.length < 3 || typed.length > 200) return { ok: false, status: 422, error: "The borrower types their full name to sign" }
   if (args.agreementDocumentSha256 !== application.agreementDocumentSha256 || !application.agreementDocumentSha256) {
     return { ok: false, status: 409, error: "The agreement was replaced after this page loaded. Refresh, read the current one, and sign again." }
   }
 
   // First: without the borrower's own verified code, not even the acceptance is written.
   const refusal = await checkSigningOtp(prisma, args.signingOtpChallengeId, {
-    tenantId, clientId, purpose: "AGREEMENT", subjectId: applicationId, documentSha256: application.agreementDocumentSha256,
+    tenantId, clientId, purpose: "AGREEMENT", subjectId: applicationId, documentSha256: application.agreementDocumentSha256, requestedByUserId: staff.id,
   })
   if (refusal) return { ok: false, status: 409, error: SIGNING_OTP_REFUSAL_MESSAGES[refusal], signingOtp: refusal }
 

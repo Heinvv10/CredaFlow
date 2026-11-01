@@ -55,7 +55,9 @@ template version.
 
 Staff open the documents on the application; the borrower reads them and types their own name. A one-time code goes to the
 borrower's own mailbox or phone, and nothing is recorded until it is verified: the lender's branch exemption does not apply to a
-key-facts agreement. The staff member attests to identity and presence and is recorded as witness. A borrower with no email or
+key-facts agreement. The staff member attests to identity and presence and is recorded as witness, and cannot disburse that loan, whatever the
+segregation-of-duties setting. The borrower's email and WhatsApp number are frozen with the approval, because the code goes there: a change
+before payout refuses until the application is returned to review and approved again. A borrower with no email or
 WhatsApp on file cannot sign this way: capture one first, or the bank chooses a wet-ink route (not built).
 
 ## Paying out
@@ -92,8 +94,8 @@ Tumelo Sekhonyana with `APP-SEED-0005` approved and its documents issued, and Li
 (booked in the seed, not through the flow). A demo stack sets `DEMO_MODE=true`, so `.invalid` mailboxes are simulated and one-time
 codes show on screen.
 
-Staff, at `@basotho-lending.example`: `super.admin`, `admin`, `credit.officer`, `loan.admin.one`, `loan.admin.two`. Passwords come from
-`SEED_SUPER_ADMIN_PASSWORD`, `SEED_ADMIN_PASSWORD`, `SEED_OFFICER_PASSWORD`, `SEED_LOAN_ADMIN_ONE_PASSWORD`, `SEED_LOAN_ADMIN_TWO_PASSWORD`, or are
+Staff, at `@basotho-lending.example`: `super.admin`, `admin`, `credit.officer`, `payout.confirmer`, `loan.admin.one`, `loan.admin.two`. Passwords come from
+`SEED_SUPER_ADMIN_PASSWORD`, `SEED_ADMIN_PASSWORD`, `SEED_OFFICER_PASSWORD`, `SEED_PAYOUT_CONFIRMER_PASSWORD`, `SEED_LOAN_ADMIN_ONE_PASSWORD`, `SEED_LOAN_ADMIN_TWO_PASSWORD`, or are
 printed once with `SEED_PRINT_CREDENTIALS=1`, with each TOTP secret. Borrowers sign in at `/portal/login` with `<first>.<last>@basotho-lending.invalid`
-and `SEED_PORTAL_PASSWORD`. `loan.admin.one` approved `APP-SEED-0005`, so `loan.admin.two` pays it out; in-person KYC is an `admin` step and the account
-confirmation is someone other than the disburser. `APP-SEED-0005` can be paid out on the seed's day only: on a later day return it to review and approve it again.
+and `SEED_PORTAL_PASSWORD`. `loan.admin.one` approved `APP-SEED-0005`, so `loan.admin.two` pays it out; in-person KYC is an `admin` step and `payout.confirmer` confirms
+the account: someone with no other part in the application. `APP-SEED-0005` can be paid out on the seed's day only: on a later day return it to review and approve it again.

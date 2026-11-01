@@ -20,6 +20,8 @@ interface KycError {
 interface Props {
   applicationId: string
   canApprove: boolean
+  /** A key-facts loan is repaid by EFT: the decide route refuses a debit order, so it is not offered. */
+  keyFacts?: boolean
   openChecks: number
 }
 
@@ -76,14 +78,14 @@ function approvalRecordedNotice(body: unknown): string | null {
   return `Your approval is recorded as level ${level} of ${requiredLevels}. The application stays under review.${next}`
 }
 
-export function ApplicationApprovePanel({ applicationId, canApprove, openChecks }: Props) {
+export function ApplicationApprovePanel({ applicationId, canApprove, openChecks, keyFacts = false }: Props) {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>("idle")
   const [bureauGate, setBureauGate] = useState<BureauGate | null>(null)
   const [kycError, setKycError] = useState<KycError | null>(null)
   const [overrideReason, setOverrideReason] = useState("")
   const [decline, setDecline] = useState<DeclineDraft>(EMPTY_DECLINE)
-  const [repaymentMethod, setRepaymentMethod] = useState<RepaymentMethod | null>(null)
+  const [repaymentMethod, setRepaymentMethod] = useState<RepaymentMethod | null>(keyFacts ? "EFT" : null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [submissionEvidenceError, setSubmissionEvidenceError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -292,7 +294,7 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
         <legend className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">
           Repayment method
         </legend>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className={`grid gap-2 ${keyFacts ? "" : "sm:grid-cols-2"}`}>
           <label className="flex cursor-pointer items-start gap-2 rounded-md border border-[var(--cf-border-subtle)] p-3">
             <input
               type="radio"
@@ -307,6 +309,7 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
               <span className="block text-xs text-[var(--cf-text-secondary)]">Client pays by electronic transfer. No debit mandate is required.</span>
             </span>
           </label>
+          {!keyFacts && (
           <label className="flex cursor-pointer items-start gap-2 rounded-md border border-[var(--cf-border-subtle)] p-3">
             <input
               type="radio"
@@ -321,6 +324,7 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
               <span className="block text-xs text-[var(--cf-text-secondary)]">Client must sign the debit mandate before payout.</span>
             </span>
           </label>
+          )}
         </div>
       </fieldset>
       <div className="flex gap-2">

@@ -73,11 +73,11 @@ export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder)
     }))).toMatchObject({ ok: true })
   }
 
-  /** Approved and signed; unless `verified: false`, a second person (the officer) has confirmed the payout account. */
+  /** Approved and signed; unless `verified: false`, a second person (the confirmer) has confirmed the payout account. */
   async function signedApplication(id: string, opts: { documents?: boolean; bank?: boolean; kyc?: boolean; verified?: boolean; dealerId?: string } = {}) {
     await approvedApplication(id, opts)
     await issueAndSign(id)
-    if (opts.verified !== false && opts.bank !== false) expect((await verifyAccount(stack.officer, id)).status).toBe(200)
+    if (opts.verified !== false && opts.bank !== false) expect((await verifyAccount(stack.confirmer, id)).status).toBe(200)
   }
 
   return { as, decideForm, disburseAs, verifyAccount, attestKyc, approvedApplication, issueAndSign, signedApplication }

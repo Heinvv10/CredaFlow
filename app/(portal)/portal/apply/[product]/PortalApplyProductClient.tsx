@@ -57,6 +57,9 @@ interface Props {
   ncaDeclarations?: boolean
 }
 
+/** The English copy names the rand; the figures beside it are already in the lender's currency. */
+const amountRangeLabel = (label: string, nca: boolean) => (nca ? label : label.replace(" (R)", ""))
+
 export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, demoLenderNote, product, client, creditLifeOffer, ncaDeclarations = true }: Props) {
   const router = useRouter()
   const t = useT("portalApply")
@@ -226,7 +229,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
       >
         <div>
           <label htmlFor="amount" className={labelClass}>
-            {t("amountBetween", { min: formatZAR(product.minAmount), max: formatZAR(product.maxAmount) })}
+            {amountRangeLabel(t("amountBetween", { min: formatZAR(product.minAmount), max: formatZAR(product.maxAmount) }), ncaDeclarations)}
           </label>
           <input
             id="amount"

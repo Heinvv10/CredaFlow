@@ -12,6 +12,9 @@
 --    application code believes about the jurisdiction. A ZA instance's loans are NCA_PASQ and
 --    pass through. Nothing else about a ZA loan changes.
 --
+-- 4. A branch witness cannot be the one who disburses that key-facts loan (the gate below).
+-- 5. LoanDocumentIssuance gets the row-level security every tenant table has.
+--
 -- The new enum value is not usable in this migration's transaction, so the CHECKs compare text.
 --
 -- Rollback (hand-written): restore the three functions from 20261030090000_non_nca_documents, restore
@@ -85,6 +88,9 @@ BEGIN
 
   IF disbursing AND NEW."agreementSignedAt" IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A loan cannot be disbursed before the borrower has signed the loan agreement';
+  END IF;
+  IF disbursing AND NEW."agreementSignedMethod" = 'branch' AND NEW."disbursedById" IS NOT DISTINCT FROM NEW."agreementSignedByUserId" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The witness of the borrower''s signature at a branch cannot disburse the loan';
   END IF;
 
   problem := public."loanDocumentProblem"(NEW."id", 'KEY_FACTS_STATEMENT', signing);
@@ -204,6 +210,10 @@ ALTER TABLE "LoanArrearsLetter" ADD CONSTRAINT "LoanArrearsLetter_tenantId_loanI
 ALTER TABLE "LoanArrearsLetter" ADD CONSTRAINT "LoanArrearsLetter_tenantId_templateId_fkey" FOREIGN KEY ("tenantId", "templateId") REFERENCES "DocumentTemplate"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "LoanArrearsLetter" ADD CONSTRAINT "LoanArrearsLetter_templateVersionId_fkey" FOREIGN KEY ("templateVersionId") REFERENCES "DocumentTemplateVersion"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "LoanArrearsLetter" ADD CONSTRAINT "LoanArrearsLetter_tenantId_clientDocumentId_fkey" FOREIGN KEY ("tenantId", "clientDocumentId") REFERENCES "ClientDocument"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+ALTER TABLE "LoanDocumentIssuance" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "LoanDocumentIssuance" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "LoanDocumentIssuance" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
 
 ALTER TABLE "LoanArrearsLetter" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "LoanArrearsLetter" FORCE ROW LEVEL SECURITY;

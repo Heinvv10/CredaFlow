@@ -129,6 +129,8 @@ export async function decideApplication({ tenant, user, id, formData, automation
         select: {
           id: true,
           idNumber: true,
+          email: true,
+          whatsapp: true,
           firstName: true,
           lastName: true,
           gender: true,

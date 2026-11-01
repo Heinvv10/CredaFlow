@@ -36,7 +36,7 @@ export async function issueLoanDocuments(args: {
     where: { id: applicationId, tenantId },
     select: {
       id: true, reference: true, clientId: true, status: true, disclosureRegime: true, agreementSignedAt: true, affordabilityResult: true,
-      client: { select: { id: true, idNumber: true, firstName: true, lastName: true, dateOfBirth: true } },
+      client: { select: { id: true, idNumber: true, firstName: true, lastName: true, dateOfBirth: true, email: true, whatsapp: true } },
     },
   })
   if (!application) return { ok: false, status: 404, error: "Application not found" }

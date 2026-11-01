@@ -4,6 +4,7 @@ import { AuditAction, logAudit } from "@/lib/audit"
 import { simulatesSection129, SECTION129_SIMULATED_NOTE } from "@/lib/collections/section129-email"
 import type { EmailAttachment } from "@/lib/email/service"
 import { sendAgentMessage } from "@/lib/messaging/agent-message"
+import { logger } from "@/lib/observability/logger"
 
 export type DeliveryLeg = { channel: "EMAIL" | "WHATSAPP"; outcome: "sent" | "pending" | "simulated" | "not_sent"; detail?: string }
 
@@ -38,6 +39,8 @@ export async function deliverToBorrower(args: {
   what: string
   subject: string
   text: string
+  /** Said on WhatsApp instead of `text`, which may speak of the attachment only email carries. */
+  textWithoutAttachment?: string
   operationId: string
   attachments?: EmailAttachment[]
   /** A dunning category (lib/messaging/dunning-category.ts) puts a retry under the client's holds. */
@@ -47,7 +50,7 @@ export async function deliverToBorrower(args: {
   const legs: DeliveryLeg[] = []
   const leg = async (channel: DeliveryLeg["channel"], contactId: string) => {
     const sent = await sendAgentMessage({
-      tenantId, contactId, channel, text: args.text, subject: args.subject, agentUserId: staff.id, operationId: args.operationId, category: args.category,
+      tenantId, contactId, channel, text: channel === "WHATSAPP" ? args.textWithoutAttachment ?? args.text : args.text, subject: args.subject, agentUserId: staff.id, operationId: args.operationId, category: args.category,
       ...(entity.type === "Loan" ? { loanId: entity.id } : {}),
       ...(channel === "EMAIL" && args.attachments ? { attachments: args.attachments } : {}),
     })
@@ -65,7 +68,7 @@ export async function deliverToBorrower(args: {
     else legs.push({ channel: "EMAIL", outcome: "not_sent", detail: "no comms Contact on file for this client" })
     if (contact && client?.whatsapp) await leg("WHATSAPP", contact.id)
   } catch (error) {
-    console.error(`[non-nca-documents] notice of ${args.what} failed:`, error instanceof Error ? error.message : "unknown error")
+    logger.error("non-nca-documents: the notice failed", { what: args.what, entityId: entity.id, error: error instanceof Error ? error.message : "unknown error" })
     legs.push({ channel: "EMAIL", outcome: "not_sent", detail: "the notice could not be prepared" })
   }
   await logAudit({

@@ -114,6 +114,7 @@ export async function issueArrearsLetter(args: {
     operationId: operationIdFor(`arrears-letter:${letter.id}`),
     subject: `Your loan account ${loan.reference} is in arrears`,
     text: `Your loan account ${loan.reference} is in arrears. Your letter is attached and is in your portal.`,
+    textWithoutAttachment: `Your loan account ${loan.reference} is in arrears. Your letter is in your portal.`,
     attachments: [{ filename: `arrears-letter-${loan.reference}.pdf`, content: pdf, contentType: "application/pdf" }],
   })
   const summary = deliverySummary(delivery)

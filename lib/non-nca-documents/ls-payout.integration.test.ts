@@ -170,7 +170,7 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect(none.status).toBe(422)
     expect(await none.json()).toMatchObject({ disbursementPrecondition: "payout_account_verification" })
 
-    expect((await verifyAccount(stack.officer, id, "too short")).status).toBe(400)
+    expect((await verifyAccount(stack.confirmer, id, "too short")).status).toBe(400)
     const self = await verifyAccount(stack.disburser, id)
     expect(self.status).toBe(200)
     const own = await disburseAs(stack.disburser, id)
@@ -178,16 +178,16 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect(await own.json()).toMatchObject({ disbursementPrecondition: "payout_account_verification", error: expect.stringMatching(/cannot also pay it out/) })
     expect(await loans(id)).toBe(0)
 
-    const second = await verifyAccount(stack.officer, id)
+    const second = await verifyAccount(stack.confirmer, id)
     const { id: checkId } = await second.json() as { id: string }
     const check = await db().avsCheck.findUniqueOrThrow({ where: { id: checkId } })
-    expect(check).toMatchObject({ provider: SECOND_PERSON_VERIFICATION_PROVIDER, checkedById: stack.officer, applicationId: id, accountNumber: "62000012345", passed: true })
+    expect(check).toMatchObject({ provider: SECOND_PERSON_VERIFICATION_PROVIDER, checkedById: stack.confirmer, applicationId: id, accountNumber: "62000012345", passed: true })
     const audited = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "PAYOUT_ACCOUNT_VERIFIED", userId: stack.officer } })
     expect(audited.newValue).toMatchObject({ avsCheckId: checkId })
 
     expect((await disburseAs(stack.disburser, id)).status).toBe(200)
     const disbursed = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DISBURSED" } })
-    expect(disbursed.newValue).toMatchObject({ payoutAccountVerification: { avsCheckId: checkId, verifiedById: stack.officer } })
+    expect(disbursed.newValue).toMatchObject({ payoutAccountVerification: { avsCheckId: checkId, verifiedById: stack.confirmer } })
   })
 
   it("a confirmation is of one account: a change after it voids it, and it is recorded only for an approved key-facts application", async () => {
@@ -202,8 +202,8 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     const unapproved = `unapproved-${t}`
     await approvedApplication(unapproved, { kyc: false })
     await decideForm(unapproved, { action: "return_to_review", reason: "Synthetic: the borrower asked to change the term." })
-    expect((await verifyAccount(stack.officer, unapproved)).status).toBe(409)
-    expect((await verifyAccount(stack.officer, `absent-${t}`)).status).toBe(404)
+    expect((await verifyAccount(stack.confirmer, unapproved)).status).toBe(409)
+    expect((await verifyAccount(stack.confirmer, `absent-${t}`)).status).toBe(404)
   })
 
   it("KYC at payout is VERIFIED: four verified documents alone are not, an in-person attestation is", async () => {

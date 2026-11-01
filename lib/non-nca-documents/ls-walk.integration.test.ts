@@ -210,7 +210,7 @@ suite("a Lesotho loan, apply to arrears letter (real Postgres, real routes, no b
     expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: applicationId, action: { in: ["LOAN_OFFER_ACCEPTED", "KEY_FACTS_ACKNOWLEDGED", "KEY_FACTS_AGREEMENT_SIGNED"] } } })).toBe(3)
 
     // 4. Disburse: a second person confirms the account, a second officer records the manual transfer.
-    expect((await flow.verifyAccount(stack.officer, applicationId)).status).toBe(200)
+    expect((await flow.verifyAccount(stack.confirmer, applicationId)).status).toBe(200)
     const booked = await ok(await flow.disburseAs(stack.disburser, applicationId))
     expect(booked).toMatchObject({ payout: { channel: "MANUAL" } })
     const loan = await db().loan.findUniqueOrThrow({ where: { applicationId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })

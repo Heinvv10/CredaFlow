@@ -1,3 +1,4 @@
+import { logger } from "@/lib/observability/logger"
 import { issueLoanDocuments } from "./issue"
 
 /**
@@ -8,8 +9,8 @@ import { issueLoanDocuments } from "./issue"
 export async function issueOnApproval(args: { tenantId: string; applicationId: string; staff: { id: string; email: string } }): Promise<void> {
   try {
     const result = await issueLoanDocuments(args)
-    if (!result.ok) console.error(`[non-nca-documents] documents not issued on approval of ${args.applicationId}: ${result.error}`)
+    if (!result.ok) logger.error("non-nca-documents: documents not issued on approval", { applicationId: args.applicationId, error: result.error })
   } catch (error) {
-    console.error(`[non-nca-documents] documents not issued on approval of ${args.applicationId}:`, error instanceof Error ? error.message : "unknown error")
+    logger.error("non-nca-documents: documents not issued on approval", { applicationId: args.applicationId, error: error instanceof Error ? error.message : "unknown error" })
   }
 }

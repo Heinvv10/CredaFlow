@@ -85,6 +85,10 @@ export async function payoutPreconditions(subject: PayoutSubject): Promise<Payou
     ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenantId, applicationId),
   })
   if (conflict && segregation) return refuse(422, "segregation_of_duties", SEGREGATION_OF_DUTIES_REFUSALS[conflict])
+  // Key-facts only, whatever the setting, as the second person is: the witness of the borrower's signature does not also pay them.
+  if (application.agreementSignedMethod === "branch" && application.agreementSignedByUserId === user.id) {
+    return refuse(422, "segregation_of_duties", "You witnessed the borrower's signature at the branch, so another staff member must disburse this loan.")
+  }
 
   const screening = await readBorrowerScreening(tenantId, { clientId, entityId: null })
   if (!screening.allowed) return refuse(422, "screening", `Cannot disburse: ${screening.message}`)

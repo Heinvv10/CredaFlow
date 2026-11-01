@@ -14,10 +14,10 @@ export type SignResult =
 
 /**
  * The borrower signs the loan agreement of a key-facts application. Refused unless
- * the key facts statement has been acknowledged; the signature is recorded over
- * the digest the borrower was shown (and the stored bytes must still match it),
+ * the offer is accepted and the key facts statement acknowledged; the signature is recorded
+ * over the digest the borrower was shown (and the stored bytes must still match it),
  * with the lender's signing one-time code when the lender requires one. The write
- * itself is checked again by the database, which refuses it unless both documents
+ * itself is checked again by the database, which refuses it unless all three documents
  * are standing, from the current approved template versions, with the terms
  * unchanged (guardLoanApplicationKeyFactsDocuments). A typed name is the signature
  * artefact; the signed agreement then awaits disbursement. At a branch (`assistedBy`) the
@@ -66,7 +66,7 @@ export async function signKeyFactsAgreement(args: {
   if (!intact) return { ok: false, status: 422, error: "The stored loan agreement does not match what was issued" }
 
   const otpNeeded = assistedBy !== undefined || await isSigningOtpRequired(tenantId, "portal")
-  const binding = { tenantId, clientId, purpose: "AGREEMENT" as const, subjectId: applicationId, documentSha256: application.agreementDocumentSha256 }
+  const binding = { tenantId, clientId, purpose: "AGREEMENT" as const, subjectId: applicationId, documentSha256: application.agreementDocumentSha256, requestedByUserId: assistedBy?.id ?? null }
   if (otpNeeded) {
     const refusal = await checkSigningOtp(prisma, args.signingOtpChallengeId, binding)
     if (refusal) return { ok: false, status: 409, error: "Verify the one-time code before signing", signingOtp: refusal }
