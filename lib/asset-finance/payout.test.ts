@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-const conditions = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
-vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: conditions.refusal, clearedConditions: vi.fn(async () => []) }))
+const conditions = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null), cleared: vi.fn(async (): Promise<string[]> => []), clearer: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: conditions.refusal, clearedConditions: conditions.cleared, clearerRefusal: conditions.clearer }))
 
 /**
  * createPayout's half of segregation of duties: while the lender's setting is
@@ -56,6 +56,12 @@ describe("createPayout below the dual-approval threshold", () => {
   it("waits for the committee's conditions, like any other credit gate (F9)", async () => {
     conditions.refusal.mockResolvedValueOnce("The credit committee approved this on conditions")
     expect(await createPayout(actor, "deal-1")).toMatchObject({ kind: "credit_gate", reason: "committee_conditions" })
+    expect(h.create).not.toHaveBeenCalled()
+  })
+
+  it("refuses a condition's clearer as the payout's creator (F9)", async () => {
+    conditions.clearer.mockResolvedValueOnce("you cleared a committee condition")
+    expect(await createPayout(actor, "deal-1")).toMatchObject({ kind: "credit_gate", reason: "committee_condition_clearer" })
     expect(h.create).not.toHaveBeenCalled()
   })
 

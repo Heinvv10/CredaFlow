@@ -97,6 +97,25 @@ CREATE TRIGGER "LoanApplication_0_guard_committee_conditions" BEFORE UPDATE ON "
   WHEN ((new."agreementSignedAt" IS NOT NULL AND old."agreementSignedAt" IS NULL) OR (new.status = 'DISBURSED'::"AppStatus" AND old.status IS DISTINCT FROM 'DISBURSED'::"AppStatus"))
   EXECUTE FUNCTION public."guardLoanApplicationCommitteeConditions"();
 
+-- The asset-finance payout: nobody who cleared a condition of the deal's application creates, approves or releases it, while segregation of duties is on.
+CREATE OR REPLACE FUNCTION public."guardPayoutConditionClearer"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+DECLARE
+  application_id TEXT;
+BEGIN
+  IF NOT "tenantRequiresSegregationOfDuties"(NEW."tenantId") THEN RETURN NEW; END IF;
+  SELECT d."applicationId" INTO application_id FROM "AssetFinanceDeal" d WHERE d."id" = NEW."dealId" AND d."tenantId" = NEW."tenantId";
+  IF EXISTS (
+    SELECT 1 FROM "ApprovalConditionClearance" k
+    WHERE k."caseId" = public."committeeConditionsCase"(NEW."tenantId", application_id) AND k."clearedById" IN (NEW."createdById", NEW."approvedById", NEW."releasedById")
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Segregation of duties: a staff member who cleared a committee condition cannot create, approve or release the payout';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "Payout_0_guard_condition_clearer" BEFORE INSERT OR UPDATE ON "Payout" FOR EACH ROW EXECUTE FUNCTION public."guardPayoutConditionClearer"();
+
 ALTER TABLE "ApprovalConditionClearance" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ApprovalConditionClearance" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "ApprovalConditionClearance" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());

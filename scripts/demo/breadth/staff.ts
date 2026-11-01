@@ -1,7 +1,9 @@
 /**
- * The bake's extra staff, created the way a lender's admin adds people
- * (Settings → Users, POST /api/settings/users) and each enrolled in TOTP on
- * first sign-in (GET/POST /api/settings/totp), as the UI forces:
+ * The bake's extra staff, bootstrapped beside the seed (sim/provision-operator.ts --staff) with the operator, so
+ * they carry the seed's exemption from the two-people rule (lib/security/account-control.ts) and a baked admin and
+ * baked staff member can sit a two-person control on day one. Created through Settings → Users they would not:
+ * the admin's USER_CREATED row would keep them apart for 30 days. Likewise the operator, not the admin, assigns their
+ * branches and inbox roster (breadth/setup.ts). The staff are:
  *
  *   - a second credit officer at the Pretoria branch (half the originations,
  *     CRM leads);
@@ -19,14 +21,11 @@
  * kept in scripts/demo/.sim-breadth-staff.json (chmod 600, untracked), keyed by
  * email and tagged with the user id so a fresh database is detected.
  */
-import { randomBytes } from "node:crypto"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
-import { generateTotpCode } from "../../../lib/totp"
 import { demoLender, type DemoLender } from "../../../prisma/demo-lender"
 import { SimClient } from "../sim/api"
-import { appNow, waitForNextTotpStep } from "../sim/clock"
 import type { StaffCredentials } from "../sim/credentials"
 import { SIM_CREDENTIALS_FILE, log } from "../sim/env"
 
@@ -56,6 +55,12 @@ export function staffFor(lender: DemoLender): Readonly<Record<StaffKey, StaffSpe
 
 export const STAFF = staffFor(demoLender())
 
+/** The collections manager (servicing/setup.ts): payouts, debit-order results, reversals, write-off requests. */
+export const COLLECTIONS_MANAGER = { name: "Nomsa Khumalo-Reddy", email: `collections.manager@${demoLender().staffDomain}`, role: "LOAN_ADMIN" } as const
+/** Everyone sim/operator.ts provisionBakeStaff bootstraps. */
+export const BAKE_STAFF = [STAFF.officer2, STAFF.insurance, STAFF.branchManager, COLLECTIONS_MANAGER] as const
+export const COLLECTIONS_MANAGER_FILE = path.join(path.dirname(SIM_CREDENTIALS_FILE), ".sim-staff.json")
+
 export interface StoredStaff extends StaffCredentials {
   userId: string
 }
@@ -83,25 +88,7 @@ interface UserRow {
   email: string
 }
 
-async function createAndEnrol(admin: SimClient, spec: StaffSpec): Promise<StoredStaff> {
-  const password = randomBytes(18).toString("base64url")
-  const created = await admin.post<UserRow>("/api/settings/users", {
-    name: spec.name, email: spec.email, role: spec.role, password, phone: spec.phone,
-  }, { expect: [201] })
-  const userId = created.json?.id
-  if (!userId) throw new Error(`user create returned no id: ${created.text.slice(0, 300)}`)
-
-  const first = new SimClient()
-  await first.loginStaffForEnrolment(spec.email, password)
-  const enrol = (await first.get<{ secret: string }>("/api/settings/totp")).json
-  if (!enrol?.secret) throw new Error("GET /api/settings/totp returned no secret")
-  await first.post("/api/settings/totp", { secret: enrol.secret, code: generateTotpCode(enrol.secret, (await appNow()).getTime()) })
-  await waitForNextTotpStep() // the enrolment code is spent; the next sign-in needs the next step's
-  log(`staff ${spec.email} created (${spec.role}) and enrolled in TOTP`)
-  return { userId, email: spec.email, password, totpSecret: enrol.secret }
-}
-
-/** Creates (once) and returns every breadth staff member (branches are assigned by breadth/setup.ts). */
+/** Returns every breadth staff member, bootstrapped by sim/fresh-stack.sh (branches are assigned by breadth/setup.ts). */
 export async function ensureBreadthStaff(admin: SimClient): Promise<BreadthStaff> {
   const users = (await admin.get<{ users: UserRow[] }>("/api/settings/users")).json?.users ?? []
   const stored = readStored()
@@ -109,16 +96,9 @@ export async function ensureBreadthStaff(admin: SimClient): Promise<BreadthStaff
   for (const key of Object.keys(STAFF) as StaffKey[]) {
     const spec = STAFF[key]
     const existing = users.find((u) => u.email === spec.email)
-    let creds = stored[spec.email]
-    if (existing) {
-      if (creds?.userId !== existing.id) throw new Error(`${spec.email} exists but ${FILE} does not hold its credentials; start from a fresh stack`)
-    } else if (key === "operator") {
-      throw new Error(`no platform operator ${spec.email}; sim/fresh-stack.sh provisions it (sim/provision-operator.ts)`)
-    } else {
-      creds = await createAndEnrol(admin, spec)
-      storeStaffCredentials(creds)
-    }
-    if (!creds) throw new Error(`no credentials for ${spec.email}`)
+    const creds = stored[spec.email]
+    if (!existing) throw new Error(`no ${spec.email}; sim/fresh-stack.sh provisions it (sim/provision-operator.ts)`)
+    if (creds?.userId !== existing.id) throw new Error(`${spec.email} exists but ${FILE} does not hold its credentials; start from a fresh stack`)
     out[key] = { creds, client: new SimClient() }
   }
   return out as BreadthStaff

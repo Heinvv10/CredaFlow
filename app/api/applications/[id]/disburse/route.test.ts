@@ -7,7 +7,7 @@
 // (NCA s106) requires the policy IS bound, not just attempted.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const conditions = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
-vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: conditions.refusal, clearedConditions: vi.fn(async () => []) }))
+vi.mock("@/lib/approval/conditions", () => ({ CLEARER_REFUSAL: "clearer", committeeConditionsRefusal: conditions.refusal, clearedConditions: vi.fn(async () => []) }))
 import { southAfricanCalendarDate } from "@/lib/compliance/sa-business-days"
 import { NextRequest } from "next/server"
 import { POST } from "./route"

@@ -3,6 +3,7 @@ import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import type { UserRole } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { accountControlRefusal } from "@/lib/security/account-control"
+import { isSegregationOfDutiesRequired } from "@/lib/security/segregation-of-duties"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 
 /**
@@ -52,10 +53,18 @@ export async function committeeConditionsRefusal(db: Db, tenantId: string, appli
   return open === 0 ? null : `The credit committee approved this on conditions, and ${open} of ${conditions.length} ${conditions.length === 1 ? "is" : "are"} not yet met. Each must be cleared before the agreement is signed or the loan is paid out.`
 }
 
-/** Whoever said a condition is met does not also pay the loan out (segregation of duties; the database repeats it). */
+/** Who cleared the application's conditions: while segregation of duties is on they stand opposite whoever pays it out, in the two-people rule too. */
 export async function clearedConditions(db: Db, tenantId: string, applicationId: string): Promise<string[]> {
   const { conditions } = await loadConditions(db, tenantId, applicationId)
   return conditions.flatMap((c) => (c.cleared ? [c.cleared.byId] : []))
+}
+
+export const CLEARER_REFUSAL = "Segregation of duties: you cleared a committee condition on this application, so another staff member must pay it out."
+
+/** Whoever said a condition is met does not also pay the loan out, while segregation of duties is on; the database repeats it. */
+export async function clearerRefusal(db: Db & Pick<typeof prisma, "tenantConfig">, tenantId: string, applicationId: string, actorId: string): Promise<string | null> {
+  if (!(await isSegregationOfDutiesRequired(tenantId, db))) return null
+  return (await clearedConditions(db, tenantId, applicationId)).includes(actorId) ? CLEARER_REFUSAL : null
 }
 
 /** Records one condition as met: by someone who did not make the application, or stand in an account relation to who did, with what shows it. Audited. */

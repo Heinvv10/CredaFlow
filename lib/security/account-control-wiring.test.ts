@@ -57,7 +57,7 @@ const moneyDecision = { tenantId, approve: true, note: "Decided after a look", a
 
 interface Case { name: string; rows: Record<string, unknown>; run: () => Promise<unknown>; makers: Array<string | null> }
 const CASES: Case[] = [
-  { name: "asset-finance payout", rows: { payout: { id: "p", status: "PENDING_APPROVAL", createdById: "maker", amountCents: 1 } }, makers: ["maker"], run: () => approvePayout({ tenantId, userId: "checker" } as never, "deal") },
+  { name: "asset-finance payout", rows: { payout: { id: "p", status: "PENDING_APPROVAL", createdById: "maker", amountCents: 1, deal: { applicationId: "app" } } }, makers: ["maker"], run: () => approvePayout({ tenantId, userId: "checker" } as never, "deal") },
   { name: "supplier bank account", rows: { supplierBankAccount: { id: "a", supplierId: "s", status: "PENDING", requestedById: "maker" } }, makers: ["maker"], run: () => decideSupplierBankAccount(tx, { tenantId, supplierId: "s", accountId: "a", decision: "APPROVE", note: "n", decider: { id: "checker" } } as never) },
   { name: "dealer bank account", rows: { dealerBankAccount: { id: "a", dealerId: "d", status: "PENDING", requestedById: "maker" } }, makers: ["maker"], run: () => decideDealerBankAccount(tx, { tenantId, accountId: "a", decision: "APPROVE", note: "n", decider: { id: "checker" } } as never) },
   { name: "dealer payable run", rows: { $queryRaw: [{ id: "r", dealerId: "d", status: "PENDING_APPROVAL", createdById: "maker", bankAccountId: "b", totalVatCents: 0 }] }, makers: ["maker"], run: () => approvePayableRun({ tenantId, userId: "checker", userEmail: "c@test.invalid" } as never, "r") },

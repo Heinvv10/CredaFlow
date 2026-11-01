@@ -73,6 +73,9 @@ sim_sql "DO \$\$ BEGIN EXECUTE format('COMMENT ON DATABASE %I IS %L', current_da
 (umask 077; scripts/demo/sim/seed-faked.sh > scripts/demo/.sim-credentials.txt)
 scripts/demo/sim/seed-faked.sh scripts/demo/sim/provision-operator.ts \
   | npx tsx scripts/demo/sim/provision-operator.ts --store
+# The bake's staff, the same way: no route, so they carry the seed's exemption from the two-people rule.
+scripts/demo/sim/seed-faked.sh scripts/demo/sim/provision-operator.ts --staff \
+  | npx tsx scripts/demo/sim/provision-operator.ts --store-staff
 
 TENANT_ID="$(sim_sql "SELECT id FROM \"Tenant\" WHERE slug = '$SLUG'")"
 [ -n "$TENANT_ID" ] || { echo "fresh-stack: no $SLUG tenant after seeding" >&2; exit 1; }

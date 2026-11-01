@@ -72,7 +72,7 @@ import { PayoutProviderError } from "@/lib/payouts/types"
 import { assertPayoutAvs, PayoutAvsError } from "@/lib/payouts/avs"
 import { lenderHoldsFsp } from "@/lib/insurance/require-fsp"
 import { accountControlRefusal } from "@/lib/security/account-control"
-import { clearedConditions, committeeConditionsRefusal } from "@/lib/approval/conditions"
+import { CLEARER_REFUSAL, clearedConditions, committeeConditionsRefusal } from "@/lib/approval/conditions"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -348,17 +348,18 @@ export async function POST(
           disbursementPrecondition: "segregation_of_duties",
         }, { status: 403 })
       }
+      const conditionClearers = segregationOfDuties ? await clearedConditions(prisma, tenant.id, id) : []
+      if (conditionClearers.includes(user.id)) {
+        return NextResponse.json({ error: CLEARER_REFUSAL, disbursementPrecondition: "segregation_of_duties" }, { status: 403 })
+      }
       if (segregationOfDuties) {
-        const controlled = await accountControlRefusal(prisma, { tenantId: tenant.id, makerIds: segregationOfDutiesMakers("disburse", segregationFacts), checkerId: user.id })
+        const controlled = await accountControlRefusal(prisma, { tenantId: tenant.id, makerIds: [...segregationOfDutiesMakers("disburse", segregationFacts), ...conditionClearers], checkerId: user.id })
         if (controlled) return NextResponse.json({ error: controlled, disbursementPrecondition: "segregation_of_duties" }, { status: 403 })
       }
 
       // The credit committee's conditions (the database refuses the DISBURSED write too, guardLoanApplicationCommitteeConditions).
       const openConditions = await committeeConditionsRefusal(prisma, tenant.id, id)
       if (openConditions) return NextResponse.json({ error: `Cannot disburse: ${openConditions}`, disbursementPrecondition: "committee_conditions" }, { status: 409 })
-      if (segregationOfDuties && (await clearedConditions(prisma, tenant.id, id)).includes(user.id)) {
-        return NextResponse.json({ error: "Segregation of duties: you cleared a committee condition on this application, so another staff member must disburse it.", disbursementPrecondition: "segregation_of_duties" }, { status: 403 })
-      }
 
       // A sanctions hit, or a match a periodic re-screen raised after approval,
       // stops the payout. No provider call here; the trigger

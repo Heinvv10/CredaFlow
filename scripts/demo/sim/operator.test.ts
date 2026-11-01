@@ -2,9 +2,9 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import bcrypt from 'bcryptjs'
 import { describe, expect, it } from 'vitest'
-import { STAFF } from '../breadth/staff'
+import { BAKE_STAFF, STAFF } from '../breadth/staff'
 import {
-  OPERATOR_TENANT_SLUG, SIM_DATABASE_MARKER, parseOperatorCredentials, provisionOperator, retireOperator, targetRefusal, withoutOperator, type OperatorDb,
+  OPERATOR_TENANT_SLUG, SIM_DATABASE_MARKER, parseBakeStaffCredentials, parseOperatorCredentials, provisionOperator, retireOperator, targetRefusal, withoutOperator, type OperatorDb,
 } from './operator'
 import { SIM_DB_SERVICE_ADDRESS } from './env'
 
@@ -201,5 +201,19 @@ describe('parseOperatorCredentials', () => {
     ['no user id', JSON.stringify({ ...good, userId: 7 })],
   ])('rejects %s', (_label, text) => {
     expect(() => parseOperatorCredentials(text)).toThrow(/does not hold the operator's credentials/)
+  })
+})
+
+describe('parseBakeStaffCredentials', () => {
+  const complete = BAKE_STAFF.map((spec, i) => ({ userId: `u-${i}`, email: spec.email, password: 'p', totpSecret: 's' }))
+  it('reads the last line of the provisioning output', () => {
+    expect(parseBakeStaffCredentials(`noise\n${JSON.stringify(complete)}\n`)).toEqual(complete)
+  })
+  it.each([
+    ['nothing', ''],
+    ['one missing', JSON.stringify(complete.slice(1))],
+    ['no secret', JSON.stringify(complete.map((c) => ({ ...c, totpSecret: '' })))],
+  ])('refuses %s', (_label, text) => {
+    expect(() => parseBakeStaffCredentials(text)).toThrow(/bake staff/)
   })
 })
