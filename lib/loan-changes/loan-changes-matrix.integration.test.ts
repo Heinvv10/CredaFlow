@@ -88,7 +88,7 @@ suite("loan changes under an approval matrix (real Postgres, real routes)", () =
     expect(first.status).toBe(202)
     expect(((await first.json()) as { error: string }).error).toMatch(/Level 1 of 3/)
     expect(await pending()).toBe("SUBMITTED")
-    expect((await appOf()).status).toBe("UNDER_REVIEW")
+    expect(await appOf()).toMatchObject({ status: "UNDER_REVIEW", inputStaffIds: expect.arrayContaining([l.makerId]) })
     expect((await db().loan.findUniqueOrThrow({ where: { id: l.loanId } })).status).toBe("ACTIVE")
 
     expect((await approveAs(la, id)).status).toBe(409) // one person, one seat

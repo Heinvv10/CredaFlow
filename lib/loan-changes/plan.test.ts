@@ -64,9 +64,10 @@ describe("planInPlace: what stays and what goes", () => {
 
   it("keeps the dates of the instalments it does not move, month ends included", () => {
     const start = at("2026-01-31")
-    const rows = loanRows({ start }, 1)
-    const plan = planInPlace(input(rows, rate(0.03), { asOf: at("2026-03-05"), shape: { start } }))
-    expect(plan.fresh.map((r) => r.dueDate)).toEqual(rows.slice(1).map((r) => r.dueDate))
+    const rows = loanRows({ start })
+    const plan = planInPlace(input(rows, rate(0.03), { asOf: at("2026-02-10"), shape: { start } }))
+    expect(plan.fresh[1]!.dueDate.toISOString().slice(0, 10)).toBe("2026-03-31")
+    expect(plan.fresh.map((r) => r.dueDate)).toEqual(rows.map((r) => r.dueDate))
   })
 
   it("charges a new rate on the balance", () => {
@@ -248,10 +249,17 @@ describe("planInPlace: the kinds of change", () => {
     expect(plan.fresh[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-03-31")
   })
 
-  it("refuses a reschedule to before the next instalment, or to today", () => {
+  it("refuses a reschedule to before the next instalment, which past maturity is the next period end ahead", () => {
     expect(() => planInPlace(input(threePaid, { type: "RESCHEDULE", firstDueDate: "2026-05-01" }))).toThrow(/next instalment/)
-    const pastMaturity = loanRows({}, 5)
-    expect(() => planInPlace(input(pastMaturity, { type: "RESCHEDULE", firstDueDate: "2026-09-01" }, { asOf: at("2026-09-01") }))).toThrow(/after today/)
+    expect(() => planInPlace(input(loanRows({}, 5), { type: "RESCHEDULE", firstDueDate: "2026-09-01" }, { asOf: at("2026-09-01") }))).toThrow(/next instalment/)
+  })
+
+  it("a FLAT loan's new rate is charged on the original principal, not the balance", () => {
+    const shape = { model: "FLAT" as const, fee: 0, principal: 1_000_000, terms: monthly(12) }
+    const rows = loanRows(shape, 3)
+    const plan = planInPlace(input(rows, rate(0.02), { shape }))
+    expect(plan.scheduleInterest).toBe(1_000_000 * 0.02 * 9)
+    expect(plan.fresh[0]!.interestDue).toBe(20_000)
   })
 
   it("restructure takes rate and term together", () => {

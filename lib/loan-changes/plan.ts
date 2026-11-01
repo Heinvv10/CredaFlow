@@ -224,7 +224,7 @@ export function planInPlace(input: PlanInput): InPlacePlan {
   }
   if (target.firstDueDate) {
     const gapDays = sastDay(target.firstDueDate) - sastDay(next)
-    if (gapDays < 0 || sastDay(target.firstDueDate) <= today) throw new LoanChangeRefused("A rescheduled loan's first instalment must fall after today and on or after its next instalment")
+    if (gapDays < 0) throw new LoanChangeRefused("A rescheduled loan's first instalment must fall on or after its next instalment")
     // The extra days earn simple interest on the balance, carried with the rest.
     carriedInterest += Math.round((gapBase * target.rate * gapDays) / 30)
     first = target.firstDueDate

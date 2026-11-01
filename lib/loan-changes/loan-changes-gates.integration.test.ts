@@ -37,7 +37,7 @@ import { createAppPrismaClient } from "@/lib/prisma"
 import { PATCH as reverseRoute } from "@/app/api/payments/[id]/reverse/route"
 import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
 import { GET as changesRoute } from "@/app/api/loans/[id]/changes/route"
-import { applyManualReceipt } from "@/lib/loan/apply-payment"
+import { applyManualReceipt, applyManualReceiptInTx } from "@/lib/loan/apply-payment"
 import { bookLoan, changeRoutes, type LoanFixture, type LoanOptions } from "./loan-changes.integration-fixture"
 
 const suite = process.env.RUN_LOAN_CHANGES_IT === "1" ? describe.sequential : describe.skip
@@ -143,7 +143,7 @@ suite("loan changes: credit gates and bounds (real Postgres, real routes)", () =
 
   it("the signed paper must be the borrower's own, on file, and not an ID copy", async () => {
     const a = await loan()
-    const stranger = await loan()
+    const stranger = await loan({ sameLenderAs: a })
     expect((await draftAndSubmit(a, { type: "RATE_CHANGE", interestRatePm: 0.03, signedDocumentId: stranger.documentId })).submitted.status).toBe(422)
     const idCopy = await db().clientDocument.findFirstOrThrow({ where: { clientId: a.fx.clientId, docType: "ID_COPY" } })
     expect((await draftAndSubmit(a, { type: "RATE_CHANGE", interestRatePm: 0.03, signedDocumentId: idCopy.id })).submitted.status).toBe(422)
@@ -183,19 +183,24 @@ suite("loan changes: credit gates and bounds (real Postgres, real routes)", () =
     expect(await db().payment.count({ where: { loanId: l.loanId } })).toBe(0)
   })
 
-  it("the approval waits for the loan's lock: no receipt can land between its read and its write", async () => {
+  it("the approval reads the loan under its lock: a receipt that lands first is in the plan, not lost", async () => {
     const l = await loan()
     const { id } = await draftAndSubmit(l, { type: "TERM_CHANGE", instalments: 12 })
     as(l, "checker")
-    let approved = false
+    const client = holder.prisma as { $transaction: <T>(fn: (tx: never) => Promise<T>, options?: { timeout: number }) => Promise<T> }
     let approving: Promise<Response> | null = null
-    await db().$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 1 FROM "Loan" WHERE id = ${l.loanId} FOR UPDATE`
-      approving = actionRoute(req({}), params({ id, action: "approve" })).then((res) => { approved = true; return res as Response })
-      await new Promise((resolve) => setTimeout(resolve, 1_500))
-      expect(approved).toBe(false)
-    }, { timeout: 4_000 })
+    await runWithTenant(l.tenantId, () => client.$transaction(async (tx) => {
+      await (tx as unknown as { $queryRaw: (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown> }).$queryRaw`SELECT 1 FROM "Loan" WHERE id = ${l.loanId} FOR UPDATE`
+      approving = actionRoute(req({}), params({ id, action: "approve" })) as Promise<Response>
+      // The approval is waiting on the lock now: this receipt commits before it reads anything.
+      await new Promise((resolve) => setTimeout(resolve, 1_000))
+      await applyManualReceiptInTx(tx, { loanId: l.loanId, tenantId: l.tenantId, amount: 100_000, capturedById: l.fx.tenant.userId })
+    }, { timeout: 4_000 }))
     expect((await approving!).status).toBe(200)
+    const [row, rows] = await Promise.all([db().loan.findUniqueOrThrow({ where: { id: l.loanId } }), db().repaymentSchedule.findMany({ where: { loanId: l.loanId } })])
+    expect(row.totalPaid).toBe(100_000)
+    expect(rows.reduce((sum, r) => sum + r.totalPaid, 0)).toBe(100_000)
+    expect(rows.reduce((sum, r) => sum + r.principalDue, 0)).toBe(row.principal)
   })
 
   it("a bounced receipt on a loan a new loan settled leaves exactly its amount owed, on the old loan", async () => {
