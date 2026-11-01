@@ -1,4 +1,4 @@
-import { keyFactsRefusal } from "@/lib/non-nca-documents/refusal"
+import { keyFactsDisbursement } from "@/lib/non-nca-documents/disburse-response"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -311,8 +311,9 @@ export async function POST(
       if (!application) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
       }
-      const keyFactsRefused1 = await keyFactsRefusal(tenant.id, id, "disburse")
-      if (keyFactsRefused1) return keyFactsRefused1
+      // A key-facts application (a jurisdiction without the NCA) is booked by its own route (lib/non-nca-documents/disburse.ts).
+      const keyFactsBooking = await keyFactsDisbursement({ tenantId: tenant.id, applicationId: id, user: { id: user.id, email: user.email ?? "" }, bankRef: bankRequest.bankRef ?? null })
+      if (keyFactsBooking) return keyFactsBooking
       // Consumer payout path (PASQ, mandate, credit life); asset finance has its own.
       if (!hasClientBorrower(application)) {
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })

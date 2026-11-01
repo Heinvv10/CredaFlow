@@ -740,6 +740,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
         { status: 400 },
       )
     }
+    // A key-facts loan is collected by EFT: a debit-order mandate is a South African DebiCheck instrument that binds the PASQ contract
+    // evidence (lib/non-nca-documents/disburse.ts). A mandate for a non-NCA loan is a separate item.
+    if (application.disclosureRegime === "KEY_FACTS" && repaymentMethod !== "EFT") {
+      return NextResponse.json(
+        { error: "A loan outside the National Credit Act's jurisdiction is repaid by EFT. Approve for EFT.", repaymentMethod: "key_facts_eft_only" },
+        { status: 400 },
+      )
+    }
     const rateCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, application) // NCA Regulation 42
     if (rateCapRefusal) return rateCapRefusal
     // An OTHER account cannot carry a debit order: the Netcash AVS wire has

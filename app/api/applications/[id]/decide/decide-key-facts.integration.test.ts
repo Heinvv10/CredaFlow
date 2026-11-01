@@ -13,7 +13,7 @@
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run 'app/api/applications/[id]/decide/decide-key-facts.integration.test.ts'
  */
-import { randomBytes, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import { NextRequest } from "next/server"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
@@ -52,12 +52,8 @@ vi.mock("@/lib/notifications", async (importOriginal) => ({
 }))
 
 import { createAppPrismaClient } from "@/lib/prisma"
-import { runWithTenant } from "@/lib/tenant-scope"
-import { createSubmissionAffordabilitySnapshot, readAffordabilitySnapshotStore, withAffordabilitySnapshot } from "@/lib/affordability/snapshot"
-import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
-import { CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION } from "@/lib/insurance/credit-life-election"
-import { createCreditLifeNoOfferDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
-import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
+import { readAffordabilitySnapshotStore } from "@/lib/affordability/snapshot"
+import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "@/lib/non-nca-documents/ls-stack.integration-fixture"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
@@ -66,14 +62,6 @@ import { POST } from "./route"
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
 const t = randomUUID().replaceAll("-", "").slice(0, 10)
-const ids = { tenant: `dkf-${t}`, officer: `dkf-officer-${t}`, product: `dkf-product-${t}` }
-const product = {
-  productType: "MICRO" as const, interestRatePm: 0.05, interestModel: "DAILY_ACCRUAL" as const,
-  initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 6_900,
-}
-const terms = { appliedAmount: 500_000, appliedTermDays: 30 }
-const expenses = { housing: 400_000, transport: 150_000, food: 150_000, insurance: 50_000, medical: 50_000 }
-const longAgo = new Date(Date.now() - 2 * 365 * 86_400_000)
 
 function decide(id: string, fields: Record<string, string>) {
   const form = new FormData()
@@ -84,86 +72,22 @@ function decide(id: string, fields: Record<string, string>) {
 /** One suite on its own throwaway database whose instance is `jurisdiction`. */
 function instanceSuite(label: string, jurisdiction: "LS" | "ZA") {
   const role = `cf_dkf_${jurisdiction.toLowerCase()}_${t}`
+  const stack = stackOf(jurisdiction, t)
   let fresh: ThrowawayDb
   let app: ReturnType<typeof createAppPrismaClient> | undefined
   const db = () => fresh.db
-  const tenant = `${ids.tenant}-${jurisdiction.toLowerCase()}`
-  const clientOf = (id: string) => `${id}-client`
-
-  /**
-   * An UNDER_REVIEW application with intact submission evidence and four verified KYC documents, and
-   * (when `nca`) the South African evidence: credit-life no-offer disclosure, affordability declaration,
-   * reckless-lending assessment and a current bureau check. A KEY_FACTS application has none of it.
-   */
-  async function underReview(id: string, opts: { nca: boolean; documents?: boolean; income?: number }) {
-    const clientId = clientOf(id)
-    const ls = jurisdiction === "LS"
-    await db().client.create({
-      data: {
-        id: clientId, tenantId: tenant, reference: `CLI-${id}`, idNumber: ls ? `99${randomBytes(4).toString("hex").replace(/[a-f]/g, "1").slice(0, 7)}` : syntheticSaIdNumber(), firstName: "Synthetic", lastName: "Borrower",
-        email: `${id}@test.invalid`, phone: ls ? "+26658000011" : "+27820000000", grossMonthlyIncome: 2_200_000, monthlyIncome: opts.income ?? 2_000_000, monthlyExpenses: 800_000,
-        expenseBreakdown: { create: expenses },
-      },
-    })
-    if (opts.documents !== false) {
-      for (const docType of ["ID_COPY", "PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] as const) {
-        await db().clientDocument.create({
-          data: {
-            tenantId: tenant, clientId, docType, fileUrl: `/synthetic/${docType}`, fileName: `${docType}.pdf`, fileSize: 1024, mimeType: "application/pdf",
-            contentSha256: randomBytes(32).toString("hex"), extractionStatus: "skipped", verified: true, verifiedAt: longAgo, verifiedById: ids.officer, createdAt: longAgo, uploadedByType: "staff",
-          },
-        })
-      }
-    }
-    const client = await db().client.findUniqueOrThrow({ where: { id: clientId }, include: { expenseBreakdown: true } })
-    const submittedAt = new Date(Date.now() - 60 * 60_000)
-    const submission = createSubmissionAffordabilitySnapshot({
-      capturedAt: submittedAt, capturedById: ids.officer, client, applicationDebts: [], clientDebts: [],
-      application: { ...terms, productId: ids.product, initiationFeePayment: "DEFERRED" }, product,
-    })
-    const noOffer = { version: CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION, election: "DECLINED" as const, principalCents: terms.appliedAmount, termDays: terms.appliedTermDays }
-    await db().loanApplication.create({
-      data: {
-        id, tenantId: tenant, reference: `APP-${id}`, clientId, productId: ids.product, ...terms, initiationFeePayment: "DEFERRED", status: "UNDER_REVIEW", submittedAt,
-        assignedToId: ids.officer, bureauReviewGeneration: opts.nca ? randomUUID() : null, existingDebtObligations: [],
-        affordabilityResult: withAffordabilitySnapshot(null, submission) as object,
-        ...(opts.nca ? {
-          clientAffordabilityDeclaredAt: submittedAt, recklessLendingAssessed: true, recklessLendingAssessedAt: submittedAt, recklessLendingAssessedById: ids.officer,
-          creditLifeElection: "DECLINED" as const, creditLifeMonthlyPremiumCents: 0, creditLifeDisclosureVersion: noOffer.version,
-          creditLifeDisclosureSha256: createCreditLifeNoOfferDisclosureSha256(noOffer), creditLifeDisclosureAcknowledgedAt: submittedAt, creditLifeDisclosureAcknowledgedBy: clientId,
-        } : {}),
-      },
-    })
+  const underReview = async (id: string, opts: { nca: boolean; documents?: boolean; income?: number; bureau?: boolean }) => {
+    await seedUnderReview(db(), stack, id, opts)
     return db().loanApplication.findUniqueOrThrow({ where: { id } })
-  }
-
-  async function clearFlags(id: string) {
-    await runWithTenant(tenant, () => recomputeApplicationFlags(tenant, id, { userId: ids.officer }))
-    await db().applicationCheckFlag.updateMany({
-      where: { tenantId: tenant, applicationId: id, status: "OPEN" },
-      data: { status: "CLEARED", clearedById: ids.officer, clearedAt: new Date(), clearReason: "Synthetic: income verified by other means." },
-    })
   }
 
   async function setup() {
     fresh = await createThrowawayDb({ instance: { jurisdiction, currency: jurisdiction === "LS" ? "LSL" : "ZAR" } })
-    holder.tenantId = tenant
-    holder.userId = ids.officer
-    await db().tenant.create({ data: { id: tenant, slug: tenant, name: "Decide key facts IT" } })
-    await db().tenantConfig.create({ data: { tenantId: tenant, bureauMinScore: 580 } })
-    await db().user.create({ data: { id: ids.officer, tenantId: tenant, email: `${ids.officer}@test.invalid`, password: "not-a-real-login", name: "Synthetic Officer", role: "LOAN_ADMIN" } })
-    await db().loanProduct.create({ data: { id: ids.product, tenantId: tenant, code: `DKF-${t}`, name: "Decide key facts micro", minAmount: 100_000, maxAmount: 800_000, minTermDays: 1, maxTermDays: 180, ...product } })
-    const password = randomBytes(12).toString("hex")
-    await db().$executeRawUnsafe(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '${password}'`)
-    await db().$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${role}`)
-    await db().$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role}`)
-    await db().$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${role}`)
-    const url = new URL(fresh.url)
-    url.username = role
-    url.password = password
-    url.searchParams.set("connection_limit", "1")
+    holder.tenantId = stack.tenant
+    holder.userId = stack.officer
+    await seedStack(db(), stack, { code: "DKF" })
     vi.stubEnv("TENANT_RLS", "on")
-    app = createAppPrismaClient(url.toString())
+    app = createAppPrismaClient(await createRlsRole(db(), fresh.url, role))
     holder.app = app
     resetActiveJurisdiction()
     resetEnsuredJurisdiction()
@@ -183,7 +107,7 @@ function instanceSuite(label: string, jurisdiction: "LS" | "ZA") {
     resetEnsuredJurisdiction()
   }
 
-  return { label, db, tenant, underReview, clearFlags, setup, teardown }
+  return { label, db, tenant: stack.tenant, officer: stack.officer, underReview, clearFlags: (id: string) => clearOpenFlags(db(), stack, id), setup, teardown }
 }
 
 const ls = instanceSuite("Lesotho", "LS")
@@ -204,7 +128,7 @@ suite("decide, a Lesotho (KEY_FACTS) instance: the South African evidence is not
     expect(res.status, JSON.stringify(await res.clone().json())).toBe(200)
 
     const approved = await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })
-    expect(approved).toMatchObject({ status: "APPROVED", disclosureRegime: "KEY_FACTS", approvedById: ids.officer, repaymentMethod: "EFT", pasqVersion: null, pasqDocumentId: null })
+    expect(approved).toMatchObject({ status: "APPROVED", disclosureRegime: "KEY_FACTS", approvedById: ls.officer, repaymentMethod: "EFT", pasqVersion: null, pasqDocumentId: null })
     expect(await ls.db().auditLog.count({ where: { tenantId: ls.tenant, entityId: id, action: "LOAN_APPROVED" } })).toBe(1)
     const approval = readAffordabilitySnapshotStore(approved.affordabilityResult).approval
     // The bureau slot records that no check applied, not that one was waived; credit life is priced as no offer.
@@ -262,7 +186,7 @@ suite("decide, a South African (NCA_PASQ) instance: the same application still n
 
   it("an NCA application with everything but a bureau check is refused for the bureau", async () => {
     const id = `za3-${t}`
-    await za.underReview(id, { nca: true })
+    await za.underReview(id, { nca: true, bureau: false })
     const res = await decide(id, { action: "approve", repaymentMethod: "EFT" })
     expect(res.status).toBe(422)
     expect(await res.json()).toMatchObject({ bureauMissing: true, requiresOverride: true })

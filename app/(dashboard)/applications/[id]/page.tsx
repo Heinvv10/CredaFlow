@@ -482,9 +482,13 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         }]
       : []
   const statusLabel = application.status.replace(/_/g, " ")
-  const agreementReady = !!application.agreementSignedAt && !!application.agreementCountersignedAt
+  // A key-facts loan has no provider countersignature or debit mandate: the
+  // borrower's signature on the issued agreement is the whole ceremony, and
+  // repayment is by EFT.
+  const keyFactsRegime = application.disclosureRegime === "KEY_FACTS"
+  const agreementReady = !!application.agreementSignedAt && (keyFactsRegime || !!application.agreementCountersignedAt)
   const mandateReady = !!application.debitMandateSignedAt
-  const mandateRequired = application.repaymentMethod !== "EFT"
+  const mandateRequired = !keyFactsRegime && application.repaymentMethod !== "EFT"
   const repaymentSetupReady = !mandateRequired || mandateReady
   const disbursementReady = application.status === "APPROVED" && !application.loan && agreementReady
     && repaymentSetupReady && !decisionPricingUnavailable
@@ -544,7 +548,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     ...(application.agreementSignedAt ? [{ label: `Signed ${formatDate(application.agreementSignedAt)}`, detail: agreementSignedDisplayMethod ?? "Agreement accepted", tone: "success" as const }] : []),
     ...(application.agreementCountersignedAt ? [{ label: `Provider countersigned ${formatDate(application.agreementCountersignedAt)}`, detail: application.agreementCountersignedByName ?? "Authorised representative", tone: "success" as const }] : []),
     ...(application.debitMandateSignedAt ? [{ label: `Debit mandate signed ${formatDate(application.debitMandateSignedAt)}`, detail: "Customer portal signature recorded", tone: "success" as const }] : []),
-    ...(application.agreementSignedAt && !application.agreementCountersignedAt
+    ...(application.agreementSignedAt && !keyFactsRegime && !application.agreementCountersignedAt
       ? [{ label: "Provider countersignature pending", detail: "Disbursement remains blocked until an authorised representative countersigns the exact agreement.", tone: "warning" as const }]
       : []),
   ]
@@ -592,7 +596,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           Awaiting agreement
         </StatusPill>
       )}
-      {application.status === "APPROVED" && !application.loan && application.agreementSignedAt && !application.agreementCountersignedAt && (
+      {application.status === "APPROVED" && !application.loan && application.agreementSignedAt && !keyFactsRegime && !application.agreementCountersignedAt && (
         <StatusPill tone="warning" className="w-full justify-center rounded-md py-2">
           Awaiting provider countersignature
         </StatusPill>
