@@ -12,6 +12,7 @@ import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type Con
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
 import type { PayoutNotification, ProviderPayoutState } from "./types"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 /** A claim older than this with no recorded answer is a question for a person. */
 export const STALE_SUBMITTING_MS = 10 * 60 * 1000
@@ -209,6 +210,8 @@ export async function resolvePayout(db: PayoutDb, args: {
     }, db)
     return { ok: false, status: 403, error: "Another LOAN_ADMIN must confirm this payout: you disbursed the loan, or requested or approved this attempt" }
   }
+  const controlled = await accountControlRefusal(db, { tenantId: args.tenantId, makerIds: [payout.disbursedById, payout.createdById, payout.approvedById], checkerId: args.actor.id })
+  if (controlled) return { ok: false, status: 403, error: controlled }
   if (req.action === "confirm_returned" && payout.paidAt && req.returnedAt.getTime() < payout.paidAt.getTime()) {
     return { ok: false, status: 422, error: "The money cannot come back before it was paid out" }
   }

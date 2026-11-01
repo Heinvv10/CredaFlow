@@ -1,4 +1,6 @@
 import { it, expect, vi, beforeEach } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { NextRequest } from "next/server"
 
 const requireApiRoleMock = vi.fn()

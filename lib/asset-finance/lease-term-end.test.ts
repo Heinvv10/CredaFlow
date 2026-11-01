@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { dbDate } from "./dates"
 import { bestMarketValuation, checkPurchaseValuation, leaseTermEnd } from "./lease-term-end"
 

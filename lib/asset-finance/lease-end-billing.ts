@@ -15,6 +15,7 @@ import { isoOfDbDate } from "./dates"
 import { checkPurchaseValuation, leaseTermEnd } from "./lease-term-end"
 import type { EndResult } from "./lease-end-of-term"
 import type { SigningTx } from "./signing-prepare"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 type Refusal = Extract<EndResult, { kind: "refused" }>
 const refused = (reason: string, error: string): Refusal => ({ kind: "refused", reason, error })
@@ -40,6 +41,10 @@ export async function billingRefusal(
   if (openClaim) return refused("open_claims", "A maintenance claim is still open: pay or reject it first")
   if (row.damageItems.length > 0 && row.inspectedById === input.actorUserId) {
     return refused("four_eyes", "Damage assessed at the inspection is billed by someone other than the inspector")
+  }
+  if (row.damageItems.length > 0) {
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [row.inspectedById], checkerId: input.actorUserId })
+    if (controlled) return refused("account_controlled", controlled)
   }
   return null
 }

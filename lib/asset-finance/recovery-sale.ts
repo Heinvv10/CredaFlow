@@ -11,6 +11,7 @@ import { screenBuyer } from "./recovery-screening"
 import { actorIsBuyer, loadScreeningCandidates } from "./recovery-screening-store"
 import type { SaleInput } from "./recovery-sale-input"
 import type { SigningTx } from "./signing-prepare"
+import { requireTwoPeople } from "./recovery-two-people"
 
 // Remarketing sale of a recovered asset: proposed on a LISTED recovery, screened
 // for related parties, approved by a second person where the price is under the
@@ -132,6 +133,7 @@ export async function approveSale(actor: RecoveryActor, recoveryId: string, sale
     if (!approvalRequired(sale)) throw new RecoveryRefusal("This sale needs no approval: it is at or above the valuation, the buyer matched no screened list and the proposer did not set the valuation")
     if (await actorIsBuyer(tx, actor.tenantId, actor.userId, { name: sale.buyerName, identifier: sale.buyerIdentifier })) throw new RecoveryRefusal(SELF_DEALING)
     if (sale.createdById === actor.userId) throw new RecoveryRefusal("A sale is approved by someone other than the person who proposed it")
+    await requireTwoPeople(tx, actor, [sale.createdById])
     if (sale.approvedById) throw new RecoveryRefusal("The sale is already approved")
     await tx.remarketingSale.update({ where: { id: sale.id, tenantId: actor.tenantId }, data: { approvedById: actor.userId, approvedAt: new Date() } })
     await logAuditStrict({

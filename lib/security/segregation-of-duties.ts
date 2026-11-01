@@ -75,6 +75,16 @@ export function segregationOfDutiesConflict(
     : null
 }
 
+/** Who stands opposite `step` on this application: those the shared two-people rule (./account-control.ts) reads against the actor. */
+export function segregationOfDutiesMakers(step: "disburse" | "countersign", application: Parameters<typeof segregationOfDutiesConflict>[2]): Array<string | null | undefined> {
+  if (step === "countersign") return application.agreementSignedMethod === "branch" ? [application.agreementSignedByUserId] : []
+  const engine = application.approvedBySystem === true
+  return [
+    ...(engine ? [application.recklessLendingAssessedById, application.incomeVerifiedById, application.bureauOverrideById, ...(application.inputStaffIds ?? [])] : [application.approvedById]),
+    ...(application.approvalStepApproverIds ?? []),
+  ]
+}
+
 export type SegregationOfDutiesState = {
   required: boolean
   /** The latest change, from its audit row; null when never changed. */

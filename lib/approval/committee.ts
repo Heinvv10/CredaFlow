@@ -8,9 +8,10 @@ import { delegatorLevels, loadDelegationsFor } from "./matrix-store"
 import { approversForLevel, notifyStaff } from "./notify"
 import { seatConflict, seatMap } from "./seats"
 import type { MatrixLevel } from "./types"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export class CommitteeError extends Error {
-  constructor(readonly code: "NO_CASE" | "NOT_AT_COMMITTEE" | "FORBIDDEN" | "INVALID" | "MAKER" | "APPROVER" | "OVERTURN_NEEDS_ANOTHER_RECORDER", readonly status: number, message: string, readonly problems: readonly string[] = []) {
+  constructor(readonly code: "NO_CASE" | "NOT_AT_COMMITTEE" | "FORBIDDEN" | "INVALID" | "MAKER" | "APPROVER" | "ACCOUNT_CONTROLLED" | "OVERTURN_NEEDS_ANOTHER_RECORDER", readonly status: number, message: string, readonly problems: readonly string[] = []) {
     super(message)
     this.name = "CommitteeError"
   }
@@ -56,6 +57,8 @@ export async function recordCommitteeDecision(input: {
     const own = seatConflict(seats, { actorId: input.actor.id, authorityHolderId: null })
     if (own === "MAKER") throw new CommitteeError("MAKER", 403, "You captured this application or changed its figures, so you cannot record its committee decision.")
     if (own !== null) throw new CommitteeError("APPROVER", 403, "You approved a level of this application, or your authority was used for one, so you cannot record its committee decision.")
+    const controlled = await accountControlRefusal(tx, { tenantId: input.tenantId, makerIds: [...seats.keys()], checkerId: input.actor.id, now })
+    if (controlled) throw new CommitteeError("ACCOUNT_CONTROLLED", 403, controlled)
     // Authority from a delegation counts only when its delegator holds no seat; the one used is stored with the decision.
     const delegations = await loadDelegationsFor(tx, input.tenantId, input.actor.id, now)
     const caps = await delegatorLevels(tx, input.tenantId, delegations, levels)

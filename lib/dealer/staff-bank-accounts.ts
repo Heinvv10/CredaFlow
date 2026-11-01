@@ -14,6 +14,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { BankAccountDecision, BankAccountFields } from "@/lib/asset-finance/supplier-input"
 import type { StaffActor } from "./actor"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 export type DealerBankDecisionTx = Pick<Tx, "$queryRaw" | "dealerBankAccount" | "auditLog">
@@ -80,6 +81,10 @@ export async function decideDealerBankAccount(tx: DealerBankDecisionTx, input: D
   if (account.status !== "PENDING") return dealerRefused(409, `The bank account is already ${account.status}`)
   if (account.requestedById.trim().toLowerCase() === decider.id.trim().toLowerCase()) return { kind: "self_decision" }
   const approved = decision === "APPROVE"
+  if (approved) {
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [account.requestedById], checkerId: decider.id })
+    if (controlled) return dealerRefused(409, controlled)
+  }
   if (approved && !dealerLock[0].active) return dealerRefused(409, "The dealer is deactivated; its accounts cannot be approved")
 
   const decidedAt = new Date()

@@ -72,7 +72,7 @@ describe("maker-checker service (state, permission, staleness; the database rule
       await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
       expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
       const query = (tx.auditLog.findFirst.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where
-      expect(query).toMatchObject({ tenantId: "t", entity: "User", entityId: "u-maker", userId: "u-checker", action: { in: ["USER_CREATED", "USER_UPDATED", "TOTP_RESET_BY_ADMIN"] } })
+      expect(query).toMatchObject({ tenantId: "t", entity: "User", action: { in: ["USER_CREATED", "USER_UPDATED", "TOTP_RESET_BY_ADMIN"] }, OR: expect.arrayContaining([expect.objectContaining({ userId: "u-checker" }), expect.objectContaining({ userId: { in: ["u-maker"] } })]) })
       const since = (query.createdAt as { gte: Date }).gte.getTime()
       expect(Date.now() - since).toBeGreaterThan(29.9 * 86_400_000)
       expect(Date.now() - since).toBeLessThan(30.1 * 86_400_000)

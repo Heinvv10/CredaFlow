@@ -1,5 +1,7 @@
 import { declarationEvidenceData, signatureDigest } from "@/lib/compliance/agreement-declarations.server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { NextRequest, NextResponse } from "next/server"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"

@@ -49,6 +49,7 @@ import { openRecoveryCase } from "./recovery"
 import { recordUnapplied } from "./unapplied-reports"
 import type { PayoutStatus } from "./state"
 import type { ProviderPayoutState } from "./types"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 /** Attempt states a later report may contradict. */
 export const CONFLICTABLE: readonly PayoutStatus[] = ["FAILED", "CANCELLED"]
@@ -213,6 +214,8 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
     }, db)
     return { ok: false, status: 403, error: "Another LOAN_ADMIN must resolve this: you disbursed the loan, or requested or approved this attempt" }
   }
+  const controlled = await accountControlRefusal(db, { tenantId: args.tenantId, makerIds: [p.disbursedById, p.createdById, p.approvedById], checkerId: args.actor.id })
+  if (controlled) return { ok: false, status: 403, error: controlled }
   if (args.outcome !== "not_paid" && p.providerConflictState !== "PAID") {
     return { ok: false, status: 422, error: "The provider did not report this attempt paid" }
   }

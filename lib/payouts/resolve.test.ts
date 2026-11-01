@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { fakePayoutDb, payoutRow } from "./payouts.test-helpers"
 import { signSimulatedWebhook, simulatedPayouts } from "./providers/simulated"
 import { ingestNotification, parseResolveAction, resolvePayout, valueDate } from "./resolve"

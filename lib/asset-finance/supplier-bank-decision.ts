@@ -15,6 +15,7 @@ import { Prisma, type SupplierBankAccount } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { supplierAvsNotRun } from "./supplier-avs"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 export type SupplierBankDecisionTx = Pick<Tx, "$queryRaw" | "supplierBankAccount" | "auditLog">
@@ -33,6 +34,7 @@ export type SupplierBankDecisionResult =
   | { kind: "not_found" }
   | { kind: "not_pending"; status: string }
   | { kind: "self_decision" }
+  | { kind: "account_controlled"; error: string }
   | { kind: "inactive" }
   | { kind: "decided"; account: SupplierBankAccount; supersededId: string | null }
 
@@ -53,6 +55,10 @@ export async function decideSupplierBankAccount(
   if (account.status !== "PENDING") return { kind: "not_pending", status: account.status }
   if (account.requestedById.trim().toLowerCase() === decider.id.trim().toLowerCase()) return { kind: "self_decision" }
   const approved = decision === "APPROVE"
+  if (approved) {
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [account.requestedById], checkerId: decider.id })
+    if (controlled) return { kind: "account_controlled", error: controlled }
+  }
   if (approved && !supplierLock[0].active) return { kind: "inactive" }
 
   const decidedAt = new Date()

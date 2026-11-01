@@ -5,8 +5,9 @@ import { delegatorLevels, loadDelegationsFor, type StoredMatrix } from "./matrix
 import { planApproval, type ApprovalPlan } from "./plan"
 import { seatMap } from "./seats"
 import type { ApplicationFacts, MatrixLevel } from "./types"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
-type Db = Pick<typeof prisma, "approvalStep" | "approvalDelegation" | "creditCommitteeDecision" | "user">
+type Db = Pick<typeof prisma, "approvalStep" | "approvalDelegation" | "creditCommitteeDecision" | "user" | "auditLog">
 
 export interface AssessedCase {
   requiredLevels: number | null
@@ -71,9 +72,14 @@ export async function assessApproval(db: Db, input: {
   const caps = await delegatorLevels(db, tenantId, delegations, levels)
   const authorityFor = (list: typeof delegations) => authorityLevel({ role: user.role as UserRole, levels, delegations: list, amountCents: facts.amountCents, now: input.now, delegatorLevels: caps })
   const authority = authorityFor(delegations.filter((d) => !seats.has(d.delegatorId)))
-  const plan = planApproval({
+  let plan = planApproval({
     required, levels, steps, seatedAs: seats.get(user.id) ?? null, authority, blockedAuthorityLevel: authorityFor(delegations).level,
     automated: input.automated, committeeDecision: committeeRows[0] ?? null,
   })
+  // Two people, not two accounts: nobody already seated on this application created or changed the approver's account, or the reverse.
+  if (plan.kind !== "refuse" && plan.level > 0) {
+    const controlled = await accountControlRefusal(db, { tenantId, makerIds: [...seats.keys()], checkerId: user.id, now: input.now })
+    if (controlled) plan = { kind: "refuse", status: 403, code: "MAKER_ACCOUNT_CONTROLLED", error: controlled }
+  }
   return { required, matchedRuleIds, levels, steps, committeeLevel, committeeRows, authorityLevel: authority.level, plan }
 }

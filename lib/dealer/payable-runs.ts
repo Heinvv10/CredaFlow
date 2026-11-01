@@ -31,6 +31,7 @@ import type { StaffActor } from "./actor"
 import { selectRunLines, type RunCandidate } from "./payable-run-lines"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 import { dealerGuardSentence } from "./staff-guard-message"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 type RunResult<K extends string, X = never> = { kind: K; runId: string } | X | DealerRefusal
@@ -187,10 +188,12 @@ const notIn = (run: LockedRun, statuses: string[], verb: string) =>
   statuses.includes(run.status) ? null : dealerRefused(409, `A ${run.status.toLowerCase().replace("_", " ")} run cannot be ${verb}`)
 
 export function approvePayableRun(staff: StaffActor, runId: string): Promise<RunResult<"approved", SelfApproval>> {
-  return moveRun<"approved", SelfApproval>(staff, runId, "approved", AuditAction.DEALER_PAYABLE_RUN_APPROVED, async (run) => {
+  return moveRun<"approved", SelfApproval>(staff, runId, "approved", AuditAction.DEALER_PAYABLE_RUN_APPROVED, async (run, tx) => {
     const refused = notIn(run, ["PENDING_APPROVAL"], "approved")
     if (refused) return refused
-    return run.createdById === staff.userId ? { kind: "self_approval" as const } : null
+    if (run.createdById === staff.userId) return { kind: "self_approval" as const }
+    const controlled = await accountControlRefusal(tx, { tenantId: staff.tenantId, makerIds: [run.createdById], checkerId: staff.userId })
+    return controlled ? dealerRefused(409, controlled) : null
   }, { status: "APPROVED", approvedById: staff.userId, approvedAt: new Date() })
 }
 

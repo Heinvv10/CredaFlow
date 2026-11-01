@@ -17,6 +17,7 @@ import { INT4_MAX } from "@/lib/product-config/bounds"
 import { checklistLabel, needsDualApproval, payoutAmountCents, requiredChecklistKinds } from "./payout-checklist"
 import { lockDeal, type SigningActor } from "./signing-prepare"
 import { dealCreditGate } from "./deal-credit-gate"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export type CreatePayoutResult =
   | { kind: "not_found" }
@@ -32,6 +33,7 @@ export type ApprovePayoutResult =
   | { kind: "not_found" }
   | { kind: "not_pending"; status: string }
   | { kind: "same_user" }
+  | { kind: "account_controlled"; error: string }
   | { kind: "approved" }
 
 const isUniqueViolation = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
@@ -119,6 +121,8 @@ export async function approvePayout(actor: SigningActor, dealId: string): Promis
     if (!payout) return { kind: "not_found" }
     if (payout.status !== "PENDING_APPROVAL") return { kind: "not_pending", status: payout.status }
     if (payout.createdById === actor.userId) return { kind: "same_user" }
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [payout.createdById], checkerId: actor.userId })
+    if (controlled) return { kind: "account_controlled", error: controlled }
     const approvedAt = new Date()
     const updated = await tx.payout.updateMany({
       where: { id: payout.id, tenantId, status: "PENDING_APPROVAL" },

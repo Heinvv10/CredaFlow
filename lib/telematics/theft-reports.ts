@@ -17,6 +17,7 @@ import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "@/lib/asset-finance/dates"
 import { objectBody, refused, type TelematicsActor, type TelematicsResult } from "./result"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 const CASE_NUMBER = /^CAS\s*([1-9]\d{0,5})\s*\/\s*(0?[1-9]|1[0-2])\s*\/\s*(\d{4})$/i
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -154,6 +155,8 @@ export async function confirmTheftReport(actor: TelematicsActor & { role: string
   if (isoOfDbDate(report.validUntil) < sastCalendarDate(new Date())) return refused(409, "An expired theft report is not confirmed: record a renewal")
   if (report.recordedById === actor.userId) return refused(409, "A second person confirms a theft report: not the one who recorded it")
   if (report.confirmedAt || report.endedAt) return refused(409, "This theft report is already confirmed or ended")
+  const controlled = await accountControlRefusal(prisma, { tenantId, makerIds: [report.recordedById], checkerId: actor.userId })
+  if (controlled) return refused(403, controlled)
   try {
     return await prisma.$transaction(async (tx) => {
       const done = await tx.assetTheftReport.updateMany({ where: { id: reportId, tenantId, confirmedAt: null, endedAt: null }, data: { confirmedById: actor.userId, confirmedAt: new Date() } })
