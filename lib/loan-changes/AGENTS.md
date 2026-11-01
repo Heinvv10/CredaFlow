@@ -44,7 +44,7 @@ ADMIN approves with step-up TOTP (`approve_loan_change`), and `apply.ts` runs in
 - **A bounced receipt on a settled loan** reverses: the settlement stands and exactly that amount is owed on the old loan, due at once.
 - **Book as at a past date** (`lib/reports/book-as-of.ts`): a change after that date is read through `scheduleBefore` and `before`.
 - **`Loan.status` is never RESTRUCTURED**: eight receipt, mandate and reminder paths need ACTIVE or DEFAULTED. A forbearance sets
-  `Loan.restructuredAt`; IFRS 9 reads it (`restructuredInForce`, `lib/ifrs9/staging.ts`), and `defaultedAtRestructure` keeps a loan in default (the lender's `defaultDpd`) at Stage 3 through its clock, sticks across later changes and passes to a replacement loan until a MONTHLY run has staged it; each restructure restarts the clock. The three in-place distress types always
+  `Loan.restructuredAt`; IFRS 9 reads it (`restructuredInForce`, `lib/ifrs9/staging.ts`), and `defaultedAtRestructure` keeps a loan in default (the lender's `defaultDpd`) at Stage 3 through its clock, sticks across later changes and passes to a replacement loan until a MONTHLY run has staged the loan at 3. That spends it for later changes, but the column stays set: replacing that month's run reads it again, and a cleared one would stage the loan at `restructuredStage`. Each restructure restarts the clock. The three in-place distress types always
   mark; any other change marks when a loan is in arrears. A replacement loan inherits the worst prior stage (`inheritPriorStaging`).
 - **Refused on purpose**: default charges in place (the replay would re-derive them from the new rows: refinance settles them),
   daily accrual, credit life, debit orders, debt review, attorney, a live arrangement (`eligibility.ts`).

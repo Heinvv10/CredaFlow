@@ -16,7 +16,7 @@ function recordingTx(defaultDpd = 90, lastRun: string | null = null) {
       if (key === "$queryRaw") return async (_s: TemplateStringsArray, id: string) => { calls.push(`lock ${id}`); return [] }
       if (key === "$executeRawUnsafe") return async (sql: string) => { calls.push(sql); return 0 }
       if (key === "ifrs9Config") return { findUnique: async () => ({ defaultDpd }) }
-      if (key === "ifrs9Run") return { findFirst: async () => (lastRun ? { runDate: new Date(`${lastRun}T00:00:00.000Z`) } : null) }
+      if (key === "ifrs9LoanSnapshot") return { findMany: async () => (lastRun ? [{ loanId: "l2", runDate: new Date(`${lastRun}T00:00:00.000Z`) }] : []) }
       return model(String(key))
     },
   })

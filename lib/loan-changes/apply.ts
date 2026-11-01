@@ -24,15 +24,30 @@ type Ctx = ApplyContext<LoanChangePayload>
 const FORBEARANCE_TYPES: readonly string[] = ["RESCHEDULE", "RESTRUCTURE", "PAYMENT_HOLIDAY"]
 
 /**
- * In default: DEFAULTED, or at the lender's IFRS 9 threshold and not yet marked so by the nightly job, or marked by an earlier change no
- * MONTHLY run has staged yet. So a second change, or a new loan replacing this one, cannot clear the marker first; once a run has
- * staged the loan, its prior stage carries the default on, and a loan that cured is not put back in Stage 3 by a later change.
+ * The marker's loans a MONTHLY run has staged at 3 since it was set. The day of the change is not since it: restructuredInForce
+ * (lib/ifrs9/staging.ts) counts a run that day as not yet having staged the restructure.
+ */
+async function stagedMarkers(tx: Tx, tenantId: string, loans: ChangeLoan[]): Promise<Set<string>> {
+  const marked = loans.filter((loan) => loan.defaultedAtRestructure && loan.restructuredAt)
+  if (marked.length === 0) return new Set()
+  const latest = await tx.ifrs9LoanSnapshot.findMany({
+    where: { tenantId, loanId: { in: marked.map((loan) => loan.id) }, stage: 3, run: { kind: "MONTHLY" } },
+    orderBy: [{ loanId: "asc" }, { runDate: "desc" }], distinct: ["loanId"], select: { loanId: true, runDate: true },
+  })
+  const stagedOn = new Map(latest.map((row) => [row.loanId, row.runDate.toISOString().slice(0, 10)]))
+  return new Set(marked.filter((loan) => (stagedOn.get(loan.id) ?? "") > sastCalendarDate(loan.restructuredAt!)).map((loan) => loan.id))
+}
+
+/**
+ * In default: DEFAULTED, or at the lender's IFRS 9 threshold and not yet marked so by the nightly job, or marked by an earlier change
+ * no MONTHLY run has staged at 3. So a second change, or a new loan replacing this one, cannot lose the marker first. Once a run has
+ * staged it the marker is spent: the Stage 3 hold is the prior stage and the cure clock, and a later rate cut does not send a cured
+ * loan back. The column itself stays set, because replacing that month's run stages the loan from it again.
  */
 async function inDefault(tx: Tx, tenantId: string, loans: ChangeLoan[], asOf: Date): Promise<boolean> {
   const { defaultDpd } = await loadSettings(tx, tenantId)
-  const lastRun = await tx.ifrs9Run.findFirst({ where: { tenantId, kind: "MONTHLY" }, orderBy: { runDate: "desc" }, select: { runDate: true } })
-  const staged = (loan: ChangeLoan) => loan.restructuredAt !== null && lastRun?.runDate != null && sastCalendarDate(loan.restructuredAt) < lastRun.runDate.toISOString().slice(0, 10)
-  return loans.some((loan) => (loan.defaultedAtRestructure && !staged(loan)) || loan.status === "DEFAULTED"
+  const staged = await stagedMarkers(tx, tenantId, loans)
+  return loans.some((loan) => (loan.defaultedAtRestructure && !staged.has(loan.id)) || loan.status === "DEFAULTED"
     || recomputeLoanBalances(loan.principal, loan.repaymentSchedule, asOf).daysInArrears >= defaultDpd)
 }
 
