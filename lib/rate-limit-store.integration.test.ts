@@ -110,7 +110,8 @@ suite("shared rate limit on Postgres", () => {
     await storeA("e", key, { limit: 3, windowMs: 120_000 })
     const rows = await replicaA.$queryRaw<{ ahead: number }[]>`SELECT extract(epoch FROM ("expiresAt" - clock_timestamp()))::float8 AS ahead FROM "RateLimitHit" WHERE "keyHash" = ${keyHash("e", key)}`
     expect(rows[0]!.ahead).toBeGreaterThan(100)
-    expect(rows[0]!.ahead).toBeLessThanOrEqual(120)
+    // expiresAt is stored to the millisecond and clock_timestamp() reads to the microsecond.
+    expect(rows[0]!.ahead).toBeLessThanOrEqual(120.001)
   })
 })
 
