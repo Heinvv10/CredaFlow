@@ -4,6 +4,11 @@
  */
 import { randomUUID } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
+import { NextRequest } from "next/server"
+import { expect } from "vitest"
+import { POST as draftRoute } from "@/app/api/maker-checker/route"
+import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
+import { LOAN_CHANGE_KIND } from "./types"
 import { addCalendarMonths } from "@/lib/product-engine/periods"
 import { generateSchedule } from "@/lib/product-engine/schedule"
 import { createApprovedApplication, issueBoth, signData, type KeyFactsFixture } from "@/lib/non-nca-documents/gate.integration-fixture"
@@ -88,4 +93,37 @@ export async function bookLoan(db: PrismaClient, options: LoanOptions = {}): Pro
   await db.user.create({ data: { id: checkerId, tenantId: fx.tenant.tenantId, email: `${checkerId}@test.invalid`, password: "x", role: "ADMIN", createdAt: old } })
   await db.loanProduct.update({ where: { id: fx.tenant.productId }, data: { maxAmount: 100_000_000, maxTermDays: 1_800 } })
   return { fx, loanId, documentId: document.id, makerId, checkerId, tenantId: fx.tenant.tenantId }
+}
+
+export interface RouteHolder {
+  tenantId: string
+  user: { id: string; email: string; role: string; totpVerified: boolean }
+}
+
+/** Calls the real maker-checker routes as the fixture's maker or checker; a suite's mocks read `holder` for the session. */
+export function changeRoutes(holder: RouteHolder) {
+  const req = (body?: unknown) => new NextRequest("http://lender.test/api", { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+  const params = <T,>(value: T) => ({ params: Promise.resolve(value) })
+  function as(l: LoanFixture, who: "maker" | "checker") {
+    holder.tenantId = l.tenantId
+    const id = who === "maker" ? l.makerId : l.checkerId
+    holder.user = { id, email: `${id}@test.invalid`, role: who === "maker" ? "LOAN_ADMIN" : "ADMIN", totpVerified: true }
+  }
+  async function draftAndSubmit(l: LoanFixture, payload: Record<string, unknown>) {
+    as(l, "maker")
+    const body = { kind: LOAN_CHANGE_KIND, title: `Change ${payload.type as string}`, payload: { loanId: l.loanId, reason: "Borrower asked; income fell", signedDocumentId: l.documentId, ...payload } }
+    const drafted = await draftRoute(req(body))
+    expect(drafted.status).toBe(201)
+    const id = ((await drafted.json()) as { request: { id: string } }).request.id
+    const submitted = await actionRoute(req({}), params({ id, action: "submit" }))
+    return { id, submitted }
+  }
+  async function proposeAndApprove(l: LoanFixture, payload: Record<string, unknown>) {
+    const { id, submitted } = await draftAndSubmit(l, payload)
+    expect(submitted.status).toBe(200)
+    as(l, "checker")
+    expect((await actionRoute(req({ note: "Seen the paper" }), params({ id, action: "approve" }))).status).toBe(200)
+    return id
+  }
+  return { as, req, params, draftAndSubmit, proposeAndApprove }
 }

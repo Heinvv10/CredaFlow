@@ -19,8 +19,9 @@ ADMIN approves with step-up TOTP (`approve_loan_change`), and `apply.ts` runs in
   own wording, uploaded to the client. A template for it is the bank's to supply.
 - **In place** (RESCHEDULE, RESTRUCTURE, PAYMENT_HOLIDAY, RATE_CHANGE, TERM_CHANGE, `plan.ts`): paid rows stay, a part-paid row is cut
   to what was paid, the rest is replaced. The rows always add up to `Loan.principal`: `assertLoanChangeReconciles` at commit.
-  Interest and fees already due are carried and spread (no interest on interest); unearned interest is recomputed from the last
-  due date. Money paid ahead on a row not yet due is principal, or the borrower pays that period's interest twice.
+  Interest and fees already due are carried and spread (no interest on interest; `RepaymentSchedule.carried*` marks them, so a
+  later change carries them again); unearned interest is recomputed from the last due date. Money paid ahead on a row not yet
+  due is principal, or the borrower pays that period's interest twice.
 - **History**: `LoanChange.scheduleBefore` keeps every row as it stood; the live `RepaymentSchedule` holds only the schedule in
   force, so no reader has to skip superseded rows. A replaced row's ledger entry reverses by itself (`deriveEntries`).
   `LoanTerms` is appended; a loan with no terms row gets its origination written first (`productVersionId` null).
@@ -42,4 +43,4 @@ On early settlement s125 pricing rebates carried interest in rows not yet due. A
 with the row that carries it, not through the holiday. Nothing is sent to the borrower.
 
 ## Tests
-Pure: `plan`, `payload`, `eligibility`, `form`. `RUN_LOAN_CHANGES_IT=1`: real routes on throwaway LS and ZA databases.
+Pure: `plan`, `payload`, `eligibility`, `form`. `RUN_LOAN_CHANGES_IT=1`: `loan-changes*.integration.test.ts`, real routes on throwaway LS and ZA databases.
