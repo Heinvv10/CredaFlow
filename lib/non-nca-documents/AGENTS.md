@@ -40,14 +40,10 @@ from the lender's own versioned templates, not by the PASQ. `LoanApplication.dis
 - **The decision engine cannot approve a KEY_FACTS application** until a Lesotho bureau is integrated
   (`lib/decisioning/key-facts-referral.ts`): it refers (`NO_BUREAU`, `MISSING_FACT`) and strips the grade, which was
   scored on facts nobody checked (a grade takes the row out of the matrix's `ungraded` rule and into risk pricing).
-- Staff issue (`CREDIT_OFFICER`); only the borrower acknowledges and signs (`lib/proxy/shared-client-api.ts`).
-- The PASQ/agreement/packet routes answer 409 for a key-facts application (`refusal.ts`).
+- Staff issue (`CREDIT_OFFICER`); only the borrower signs (`lib/proxy/shared-client-api.ts`). PASQ routes answer 409 (`refusal.ts`).
 - **Disbursing** (`disburse.ts`, `payout-gates.ts`): every gate in one SERIALIZABLE transaction on the NCA route's lock
-  protocol, the same run as a dry run for the page (the transfer is made only after it passes). Manual EFT, a required
-  bank reference, a second person in place of AVS, payable on the agreement's start date only. Rules and go-live items:
-  `docs/non-nca-go-live.md`.
-- Statements and certificates of balance print the lender's registration number, not an NCR number, outside the NCA's
-  jurisdiction. A key-facts loan has no debit mandate: it is repaid by EFT.
+  protocol, the same run as a dry run for the page (the transfer is made only after it passes). The rules: `docs/non-nca-go-live.md`.
+- Statements and certificates print the lender's registration number outside the NCA's jurisdiction. No debit mandate: EFT only.
 
 ## Key Files
 | File | Purpose |
@@ -55,3 +51,4 @@ from the lender's own versioned templates, not by the PASQ. `LoanApplication.dis
 | `render.ts` / `quote.ts` | Template + approved terms -> PDF bytes; the quote.* tokens |
 | `issue.ts` / `acknowledge.ts` / `sign.ts` | The three actions (audited) |
 | `state.ts` / `refusal.ts` | What stands and why a signature would fail; the 409s |
+| `payout-gates.ts` / `disburse.ts` / `payout-account.ts` | Every payout gate; booking; the second person |

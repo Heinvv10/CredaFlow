@@ -7,7 +7,7 @@
  */
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 const holder = vi.hoisted(() => ({ app: null as object | null, tenantId: "", userId: "", role: "LOAN_ADMIN", files: new Map<string, Buffer>() }))
 vi.mock("@/lib/prisma", async (importOriginal) => {
