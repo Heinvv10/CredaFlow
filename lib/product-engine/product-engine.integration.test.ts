@@ -218,7 +218,7 @@ suite("product engine (real Postgres)", () => {
     expect(await refusal(db.loanTerms.create({ data: { ...terms, sequence: 1 } }))).toBeTruthy()
     // ... and only an approved loan change appends it (lib/loan-changes).
     expect(await refusal(db.loanTerms.create({ data: { ...terms, sequence: 2, interestRatePm: 0.04, instalments: 24 } }))).toContain("approved LOAN_CHANGE")
-    const change = await db.changeRequest.create({ data: { tenantId: lender.tenantId, kind: "LOAN_CHANGE", title: "Terms", payload: {}, makerId: lender.makerId } })
+    const change = await db.changeRequest.create({ data: { tenantId: lender.tenantId, kind: "LOAN_CHANGE", title: "Terms", payload: { loanId: own.loanId }, makerId: lender.makerId } })
     await db.changeRequest.update({ where: { id: change.id }, data: { status: "SUBMITTED", submittedAt: new Date() } })
     await db.changeRequest.update({ where: { id: change.id }, data: { status: "APPROVED", checkerId: lender.checkerId, decidedAt: new Date(), appliedAt: new Date() } })
     await db.loanTerms.create({ data: { ...terms, sequence: 2, interestRatePm: 0.04, instalments: 24, changeRequestId: change.id } })
