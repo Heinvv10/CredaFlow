@@ -61,10 +61,13 @@ export async function recordAssetFinanceAffordability(
   await tx.loanApplication.update({
     where: { id: deal.applicationId, tenantId: actor.tenantId },
     data: {
-      recklessLendingAssessed: true,
-      recklessLendingAssessedById: actor.userId,
-      recklessLendingAssessedAt: data.assessedAt,
-      recklessLendingNote: note,
+      // Section 81 is the NCA's: a NON_NCA deal's application is not stamped as having had that assessment (the assessment row above holds the working).
+      ...(deal.application.ncaRegime === "NCA" && {
+        recklessLendingAssessed: true,
+        recklessLendingAssessedById: actor.userId,
+        recklessLendingAssessedAt: data.assessedAt,
+        recklessLendingNote: note,
+      }),
       netDisposableIncome: result.combinedNdiAfterProposedCents,
     },
   })
