@@ -43,8 +43,7 @@ from the lender's own versioned templates, not by the PASQ. `LoanApplication.dis
 - Staff issue (`CREDIT_OFFICER`); only the borrower signs (`lib/proxy/shared-client-api.ts`). PASQ routes answer 409 (`refusal.ts`).
   Each step refuses a deceased borrower under the client row lock (`borrower-gate.ts`); the portal's refusal does not say why.
 - **Disbursing** (`disburse.ts`, `payout-gates.ts`): every gate in one SERIALIZABLE transaction on the NCA route's lock
-  protocol, the same run as a dry run for the page (the transfer is made only after it passes). The rules: `docs/non-nca-go-live.md`.
-- Statements and certificates print the lender's registration number outside the NCA's jurisdiction. No debit mandate: EFT only.
+  protocol, the same run as a dry run for the page (no transfer until it passes). No debit mandate: EFT. Rules: `docs/non-nca-go-live.md`.
 
 ## Key Files
 | File | Purpose |
