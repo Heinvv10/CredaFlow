@@ -34,10 +34,10 @@ async function currentCase(db: Pick<Db, "approvalCase">, tenantId: string, appli
 export async function loadConditions(db: Db, tenantId: string, applicationId: string): Promise<{ caseId: string | null; conditions: ConditionState[] }> {
   const theCase = await currentCase(db, tenantId, applicationId)
   if (!theCase) return { caseId: null, conditions: [] }
-  const steps = await db.approvalStep.findMany({ where: { caseId: theCase.id }, orderBy: { level: "asc" }, select: { conditions: true } })
+  const steps = await db.approvalStep.findMany({ where: { tenantId, caseId: theCase.id }, orderBy: { level: "asc" }, select: { conditions: true } })
   const texts = steps.flatMap((s) => (Array.isArray(s.conditions) ? (s.conditions as string[]) : []))
   if (texts.length === 0) return { caseId: theCase.id, conditions: [] }
-  const rows = await db.approvalConditionClearance.findMany({ where: { caseId: theCase.id }, include: { clearedBy: { select: { name: true, email: true } } } })
+  const rows = await db.approvalConditionClearance.findMany({ where: { tenantId, caseId: theCase.id }, include: { clearedBy: { select: { name: true, email: true } } } })
   const conditions = texts.map((text, index) => {
     const row = rows.find((r) => r.conditionIndex === index)
     return { index, text, cleared: row ? { by: row.clearedBy.name || row.clearedBy.email, at: row.createdAt.toISOString(), note: row.note, byId: row.clearedById } : null }
