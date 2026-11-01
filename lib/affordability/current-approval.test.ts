@@ -261,6 +261,7 @@ describe("locked affordability approval verification", () => {
       const application = applicationFixture("UNDER_REVIEW")
       const tx = transactionFor(application)
       tx.productVersion.findFirst.mockResolvedValue(versionRow())
+      tx.applicationPricingInput.findFirst.mockResolvedValue({ segment: null, channel: "BRANCH", campaignCode: null })
 
       expect(await candidate(tx, buildEvidence().approval)).toMatchObject({ ok: false })
     })
@@ -269,6 +270,7 @@ describe("locked affordability approval verification", () => {
       const application = applicationFixture("UNDER_REVIEW")
       const tx = transactionFor(application)
       tx.productVersion.findFirst.mockResolvedValue(versionRow())
+      tx.applicationPricingInput.findFirst.mockResolvedValue({ segment: null, channel: "BRANCH", campaignCode: null })
 
       expect(await candidate(tx, buildEvidence(null, undefined, { repayment: weekly, productVersion: reference }).approval)).toEqual({ ok: false, reason: "changed" })
     })
@@ -286,6 +288,7 @@ describe("locked affordability approval verification", () => {
       setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
       const tx = transactionFor(applicationFixture("UNDER_REVIEW"))
       tx.productVersion.findFirst.mockResolvedValue(versionRow({ maxAmount: 400_000 }))
+      tx.applicationPricingInput.findFirst.mockResolvedValue({ segment: null, channel: "BRANCH", campaignCode: null })
 
       expect(await candidate(tx, buildEvidence(null, undefined, { repayment: weekly, productVersion: reference }).approval)).toEqual({ ok: false, reason: "changed" })
     })
