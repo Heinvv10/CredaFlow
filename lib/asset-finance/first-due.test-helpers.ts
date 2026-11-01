@@ -1,6 +1,6 @@
 import { describe, it } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { addMonthsClamped } from "./dates"
+import { addMonthsClamped, toDayNumber } from "./dates"
 import { dealStartDate } from "./deal-structure"
 
 /**
@@ -18,23 +18,11 @@ export function plannedStartFor(firstDueDate: string, today: string = sastCalend
 }
 
 /**
- * Whether today is a day on which a month on and a month back do not round-trip (the 29th to the 31st): addMonthsClamped(today, 1) is a
- * day short of the same day next month, and a month before THAT is not today. The lease servicing suites book a lease whose first rental
- * is a month on, then move its dates back whole months (`backdateLease`, a Postgres interval) so that its term ends today; on these days
- * it ends the day before, and a claim, a reading or an inspection today is refused ("The lease ended on ...: no claims after it").
- * Those suites do not run on these days (a follow-up: move the lease by the days its own dates are apart, not by whole months).
+ * The days `backdateLease` moves a lease back for `months` months: the days between the lease's own start and the same day `months`
+ * months on (addMonthsClamped). The fixtures book a lease starting today with the first rental a month on; moving it back whole
+ * months (a Postgres interval) does not round-trip on the 29th to the 31st (31 Oct + 1 month clamps to 30 Nov, a month back is 30 Oct),
+ * so the lease ended a day early. Moving by the day gap lands the first rental on the start date exactly.
  */
-export function monthEndClamps(today: string = sastCalendarDate(new Date())): boolean {
-  return addMonthsClamped(addMonthsClamped(today, 1), -1) !== today
-}
-
-/**
- * Call next to a lease servicing suite that does not run on a month-end clamp day (`RUN && !monthEndClamps()`): on such a day, when the
- * suite was asked to run, it registers a skipped entry that says why, so the report names the reason instead of a bare skip.
- */
-export function reportMonthEndSkip(suiteName: string, requested: boolean): void {
-  if (!requested || !monthEndClamps()) return
-  describe.skip(`${suiteName}: skipped on a month-end clamp day (the 29th to the 31st): a lease moved back whole months ends a day early; see monthEndClamps in first-due.test-helpers.ts`, () => {
-    it("is not run today", () => undefined)
-  })
+export function leaseShiftDays(startDate: string, months: number): number {
+  return toDayNumber(addMonthsClamped(startDate, months)) - toDayNumber(startDate)
 }
