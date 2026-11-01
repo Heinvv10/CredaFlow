@@ -1,6 +1,6 @@
 import type { prisma } from "@/lib/prisma"
 import type { UserRole } from "@/lib/permissions"
-import { authorityLevel, requiredLevelsFor } from "./evaluate"
+import { authorityLevel, holdsAtBranch, requiredLevelsFor } from "./evaluate"
 import { delegatorLevels, loadDelegationsFor, type StoredMatrix } from "./matrix-store"
 import { planApproval, type ApprovalPlan } from "./plan"
 import { seatMap } from "./seats"
@@ -70,10 +70,19 @@ export async function assessApproval(db: Db, input: {
   })
   const delegations = await loadDelegationsFor(db, tenantId, user.id, input.now)
   const caps = await delegatorLevels(db, tenantId, delegations, levels)
-  const authorityFor = (list: typeof delegations) => authorityLevel({ role: user.role as UserRole, levels, delegations: list, amountCents: facts.amountCents, now: input.now, delegatorLevels: caps })
-  const authority = authorityFor(delegations.filter((d) => !seats.has(d.delegatorId)))
+  // A branch-scoped pending level: the person's role, and each delegator's authority, count only at their own branch.
+  const pending = levels.find((l) => l.level === steps.length + 1)
+  const branches = new Map<string, string | null>()
+  if (pending?.branchScoped) {
+    for (const u of await db.user.findMany({ where: { tenantId, id: { in: [user.id, ...delegations.map((d) => d.delegatorId)] } }, select: { id: true, branchId: true } })) branches.set(u.id, u.branchId)
+  }
+  const holds = (id: string) => holdsAtBranch(pending, branches.get(id) ?? null, facts.branchId)
+  const authorityFor = (list: typeof delegations, roleCounts = holds(user.id)) => authorityLevel({ role: user.role as UserRole, levels, delegations: list, amountCents: facts.amountCents, now: input.now, delegatorLevels: caps, roleCounts })
+  const unseated = delegations.filter((d) => !seats.has(d.delegatorId))
+  const authority = authorityFor(unseated.filter((d) => holds(d.delegatorId)))
   let plan = planApproval({
-    required, levels, steps, seatedAs: seats.get(user.id) ?? null, authority, blockedAuthorityLevel: authorityFor(delegations).level,
+    required, levels, steps, seatedAs: seats.get(user.id) ?? null, authority, blockedAuthorityLevel: authorityFor(delegations.filter((d) => holds(d.delegatorId))).level,
+    outOfBranchLevel: authorityFor(unseated, true).level,
     automated: input.automated, committeeDecision: committeeRows[0] ?? null,
   })
   // Two people, not two accounts: nobody already seated on this application created or changed the approver's account, or the reverse.

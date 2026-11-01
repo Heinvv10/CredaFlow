@@ -24,6 +24,7 @@ otherwise cut every approval).
   authority (role level, or delegation up to its amount and dates). A level that is not the last is
   recorded; the last runs the real approval, writing its step in the same transaction (`recordFinalStep`).
   It runs after every other gate on approving, so a level is recorded only for an approvable application.
+- **Branch-scoped levels** (`MatrixLevel.branchScoped`, not on the committee): staff assigned to a branch hold the level for that branch's applications, staff with no branch for any; a delegation carries its delegator's branch. Gate, view and `approversForLevel` share `holdsAtBranch`; `guardApprovalStep` repeats it.
 - **Two people, not two accounts**: nobody seated on an application stands in an account-control relation to the approver or the committee recorder (`assess.ts`, `committee.ts`; `lib/security/account-control.ts`).
 - **The requirement follows the facts** (`requiredLevels`, `levelsSnapshot`): recomputed every attempt,
   raised (audited) if a grade or figure now asks for more, never lowered; written only by an attempt

@@ -59,11 +59,16 @@ export interface Authority {
   delegationId: string | null
 }
 
-/** What a user may approve on an application: the higher of their role's level and any delegated one. */
+/** Whether a person of this branch holds `level` on an application of that branch. No branch (head office) holds every branch's. */
+export function holdsAtBranch(level: Pick<MatrixLevel, "branchScoped"> | undefined, personBranchId: string | null, applicationBranchId: string | null): boolean {
+  return level?.branchScoped !== true || personBranchId === null || personBranchId === applicationBranchId
+}
+
+/** What a user may approve on an application: the higher of their role's level and any delegated one. `roleCounts: false`: their role is held elsewhere (./holdsAtBranch). */
 export function authorityLevel(input: {
-  role: UserRole; levels: readonly MatrixLevel[]; delegations: readonly Delegation[]; amountCents: number; now: Date; delegatorLevels?: Record<string, number>
+  role: UserRole; levels: readonly MatrixLevel[]; delegations: readonly Delegation[]; amountCents: number; now: Date; delegatorLevels?: Record<string, number>; roleCounts?: boolean
 }): Authority {
-  const byRole = roleLevel(input.levels, input.role)
+  const byRole = input.roleCounts === false ? 0 : roleLevel(input.levels, input.role)
   const delegated = delegatedLevel(input.delegations, input.amountCents, input.now, input.delegatorLevels)
   if (delegated && delegated.level > byRole) return { level: delegated.level, via: "DELEGATION", delegationId: delegated.delegationId }
   return { level: byRole, via: "ROLE", delegationId: null }

@@ -89,7 +89,7 @@ export async function recordCommitteeDecision(input: {
       newValue: { caseId: theCase.id, level: committee.level, decision: input.decision.decision, conditions: input.decision.conditions.length, attendees: input.decision.attendees.length },
     }, tx)
     if (input.decision.decision === "APPROVED") {
-      const recipients = await approversForLevel(tx, { tenantId: input.tenantId, levels, level: committee.level, amountCents: application.appliedAmount, exclude: [...application.inputStaffIds, input.actor.id], now })
+      const recipients = await approversForLevel(tx, { tenantId: input.tenantId, levels, level: committee.level, amountCents: application.appliedAmount, branchId: null, exclude: [...application.inputStaffIds, input.actor.id], now })
       await notifyStaff(tx, { tenantId: input.tenantId, userIds: recipients, type: "COMMITTEE_APPROVED", title: "Credit committee approved: final approval needed", body: "The committee's decision is recorded; the final approval completes the chain.", applicationId: input.applicationId })
     }
     return created

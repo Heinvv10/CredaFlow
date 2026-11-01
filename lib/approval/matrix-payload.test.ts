@@ -19,6 +19,11 @@ describe("parseMatrixPayload", () => {
     const raw = { ...base(), enabled: false, levels: [level(1), level(2), level(3, { committee: true })], defaultRequiredLevels: 0 }
     expect(parseMatrixPayload(raw).levels[2].committee).toBe(true)
   })
+  it("keeps a branch-scoped level, and refuses a scope on the committee or that is not a boolean (F8)", () => {
+    expect(parseMatrixPayload({ ...base(), levels: [level(1, { branchScoped: true }), level(2), level(3)] }).levels[0].branchScoped).toBe(true)
+    expect(problems({ ...base(), levels: [level(1), level(2), level(3, { committee: true, branchScoped: true })] })).toMatch(/committee sits for the lender/)
+    expect(problems({ ...base(), levels: [level(1, { branchScoped: "yes" }), level(2), level(3)] })).toMatch(/true or false/)
+  })
   it.each([
     ["no levels", { levels: [] }, /levels/],
     ["more than five levels", { levels: [1, 2, 3, 4, 5, 6].map((n) => level(n, { role: "ADMIN" })) }, /levels/],

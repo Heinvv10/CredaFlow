@@ -19,6 +19,11 @@ describe("planApproval", () => {
     expect(planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: loanAdmin, blockedAuthorityLevel: 2 })).toMatchObject({ kind: "refuse", status: 403, code: "DELEGATOR_ALREADY_ACTED" })
     expect(planApproval({ ...base, steps: [{ level: 1, approverId: "u0" }], authority: loanAdmin, blockedAuthorityLevel: 1 })).toMatchObject({ kind: "refuse", code: "LEVEL_AUTHORITY_REQUIRED" })
   })
+  it("a level held elsewhere is refused for the branch, not for want of a role (F8)", () => {
+    const none = { level: 0, via: "ROLE" as const, delegationId: null }
+    expect(planApproval({ ...base, authority: none, blockedAuthorityLevel: 0, outOfBranchLevel: 2 })).toMatchObject({ kind: "refuse", status: 403, code: "BRANCH_AUTHORITY_REQUIRED" })
+    expect(planApproval({ ...base, authority: none, blockedAuthorityLevel: 0, outOfBranchLevel: 0 })).toMatchObject({ kind: "refuse", code: "LEVEL_AUTHORITY_REQUIRED" })
+  })
   it("a delegator whose delegate already approved cannot approve as well", () => {
     expect(planApproval({ ...base, seatedAs: "DELEGATOR_ACTED" })).toMatchObject({ kind: "refuse", status: 403, code: "DELEGATOR_ALREADY_ACTED" })
   })

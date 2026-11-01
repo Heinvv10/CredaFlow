@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { authorityLevel, delegatedLevel, requiredLevelsFor, roleLevel } from "./evaluate"
+import { authorityLevel, delegatedLevel, holdsAtBranch, requiredLevelsFor, roleLevel } from "./evaluate"
 import type { ApplicationFacts, Delegation, MatrixPayload } from "./types"
 
 const matrix = (rules: MatrixPayload["rules"], defaultRequiredLevels = 1): MatrixPayload => ({
@@ -87,5 +87,19 @@ describe("authority", () => {
     expect(authorityLevel({ role: "LOAN_ADMIN", levels, delegations: [delegation()], amountCents: 1, now })).toMatchObject({ level: 2, via: "DELEGATION", delegationId: "d1" })
     expect(authorityLevel({ role: "BRANCH_MANAGER", levels, delegations: [delegation({ level: 1 })], amountCents: 1, now })).toMatchObject({ level: 2, via: "ROLE" })
     expect(authorityLevel({ role: "CREDIT_OFFICER", levels, delegations: [], amountCents: 1, now })).toMatchObject({ level: 0, via: "ROLE" })
+  })
+})
+
+describe("holdsAtBranch (F8)", () => {
+  const scoped = { branchScoped: true }
+  it("a scoped level is held at one's own branch, and everywhere by staff with no branch", () => {
+    expect(holdsAtBranch(scoped, "b1", "b1")).toBe(true)
+    expect(holdsAtBranch(scoped, "b1", "b2")).toBe(false)
+    expect(holdsAtBranch(scoped, "b1", null)).toBe(false)
+    expect(holdsAtBranch(scoped, null, "b2")).toBe(true)
+  })
+  it("a level that is not scoped ignores branches", () => {
+    expect(holdsAtBranch({}, "b1", "b2")).toBe(true)
+    expect(holdsAtBranch(undefined, "b1", "b2")).toBe(true)
   })
 })
