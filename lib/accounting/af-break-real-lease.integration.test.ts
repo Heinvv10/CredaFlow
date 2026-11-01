@@ -40,6 +40,7 @@ const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession(
 const today = () => sastCalendarDate(new Date())
 const FUTURE = new Date("2028-02-05T10:00:00+02:00")
 const MONTHS = ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12", "2028-01"]
+  .filter((month) => month >= today().slice(0, 7))
 const plan = (key: string) => runWithTenant(fx.tenantId, () => planPeriod(prisma, fx.tenantId, parsePeriodKey(key)!, FUTURE))
 const close = (key: string) => runWithTenant(fx.tenantId, () => closePeriod(prisma, { tenantId: fx.tenantId, periodKey: key, userId: fx.adminA, userEmail: "lease@test.invalid", now: FUTURE }))
 
