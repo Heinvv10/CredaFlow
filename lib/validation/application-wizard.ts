@@ -85,9 +85,15 @@ export function validateStep3Affordability(
   return errs
 }
 
+interface Step4ReviewOptions {
+  forReview?: boolean
+  creditLifeOffered?: boolean
+  ncaDeclarations?: boolean
+}
+
 export function validateStep4Review(
   d: ApplicationWizardData,
-  opts: { forReview?: boolean; creditLifeOffered?: boolean } = {},
+  opts: Step4ReviewOptions = {},
 ): ValidationErrors<ApplicationWizardData> {
   const errs: ValidationErrors<ApplicationWizardData> = {}
   if (!opts.forReview) return errs
@@ -105,11 +111,14 @@ export function validateStep4Review(
       errs.creditLifeDisclosureAcknowledged = "Confirm the exact offer was shown before the PASQ"
     }
   }
-  if (!d.pasqAcknowledged) {
-    errs.pasqAcknowledged = "Confirm the client understands the PASQ will follow during review"
-  }
-  if (!d.affordabilityDeclared) {
-    errs.affordabilityDeclared = "Required to submit for review"
+  // Defaults to true for the same reason: only a key-facts application (no NCA) has neither to confirm.
+  if (opts.ncaDeclarations ?? true) {
+    if (!d.pasqAcknowledged) {
+      errs.pasqAcknowledged = "Confirm the client understands the PASQ will follow during review"
+    }
+    if (!d.affordabilityDeclared) {
+      errs.affordabilityDeclared = "Required to submit for review"
+    }
   }
   // `recklessLendingConfirmed` is enforced unconditionally by
   // `validateStep3Affordability` (composed by `validateAllApplication` before
@@ -122,7 +131,7 @@ export function validateStep4Review(
 export function validateAllApplication(
   d: ApplicationWizardData,
   products: ApplicationProduct[],
-  opts: { forReview?: boolean; creditLifeOffered?: boolean } = {},
+  opts: Step4ReviewOptions = {},
 ): ValidationErrors<ApplicationWizardData> {
   return {
     ...validateStep1ClientSelect(d),

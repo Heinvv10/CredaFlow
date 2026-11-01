@@ -34,7 +34,8 @@ import {
   isCreditLifeElection,
 } from "@/lib/insurance/credit-life-election"
 import { isClientPoDocument, parsePoFundingFacts, type PoFundingFacts } from "@/lib/applications/po-funding"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
+import { approvalEvidenceRules, creditLifeOfferableUnder, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import {
   createCreditLifeDisclosureSha256,
   createCreditLifeNoOfferDisclosureSha256,
@@ -43,7 +44,6 @@ import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-contai
 import { loadOwnLenderArrears, OWN_LENDER_ARREARS_CODE, OWN_LENDER_ARREARS_REASON } from "@/lib/affordability/own-lender-arrears-gate"
 import { creditBlock } from "@/lib/clients/status"
 import { CUSTOMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 
 // Client-portal application submission. Distinct from /api/applications
 // (staff-only) and /api/website/apply (anonymous lead capture, creates a
@@ -141,21 +141,22 @@ export async function POST(req: NextRequest) {
 
   const affordabilityDeclared = body.affordabilityDeclared === true
   const pasqDeliveryUnderstood = body.pasqDeliveryUnderstood === true
-  if (!affordabilityDeclared || !pasqDeliveryUnderstood) {
-    return NextResponse.json(
-      { error: "Both the affordability declaration and confirmation that the PASQ will be reviewed later are required." },
-      { status: 400 },
-    )
-  }
 
   return withTenantContext(req, async (tenant) => {
+    // Read inside the tenant context, which loads the jurisdiction. A key-facts applicant is asked for neither.
+    const disclosureRegime = newApplicationRegime()
+    const ncaDeclarations = approvalEvidenceRules({ disclosureRegime }).affordabilityDeclaration
+    if (ncaDeclarations && (!affordabilityDeclared || !pasqDeliveryUnderstood)) {
+      return NextResponse.json(
+        { error: "Both the affordability declaration and confirmation that the PASQ will be reviewed later are required." },
+        { status: 400 },
+      )
+    }
     // With no active credit-life product the apply screen renders no election
     // block, so there is no choice for the client to submit. The transaction
     // below re-reads the offer under lock; this only decides whether the
     // client was expected to send one at all.
-    const offerConfiguredAtRequest = isNcaJurisdiction() // none is offered outside the NCA's jurisdiction
-      ? await prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenant.id))
-      : null
+    const offerConfiguredAtRequest = await loadCreditLifeOffer(prisma, tenant.id, disclosureRegime)
     // Never silently rewrite an election the consumer actually stated. A stale
     // tab or a replayed body can post ACCEPTED with no product configured, and
     // recording that as DECLINED would put an untrue attribution into the
@@ -445,7 +446,7 @@ export async function POST(req: NextRequest) {
         // submission-time gate.) Explicit branches: Prisma silently DROPS an
         // `id: undefined` filter, which would "work" only by
         // accident.
-        const currentCreditLifeProduct = !isNcaJurisdiction() ? null : await tx.insuranceProduct.findFirst({
+        const currentCreditLifeProduct = !creditLifeOfferableUnder(disclosureRegime) ? null : await tx.insuranceProduct.findFirst({
           where: disclosedCreditLifeProductId !== null ? {
             id: disclosedCreditLifeProductId,
             tenantId: tenant.id,
@@ -748,7 +749,7 @@ export async function POST(req: NextRequest) {
             ) as unknown as Prisma.InputJsonValue,
             status: "SUBMITTED",
             submittedAt,
-            clientAffordabilityDeclaredAt: submittedAt,
+            ...(ncaDeclarations && { clientAffordabilityDeclaredAt: submittedAt }),
             creditLifeElection,
             creditLifeProductId: creditLifeOffer?.productId ?? null,
             creditLifeProductName: creditLifeOffer?.productName ?? null,
@@ -776,8 +777,8 @@ export async function POST(req: NextRequest) {
               productType: currentProduct.productType,
               appliedAmount,
               appliedTermDays: lockedTermDays,
-              pasqDeliveryNoticeAcceptedByClient: true,
-              affordabilityDeclaredByClient: true,
+              pasqDeliveryNoticeAcceptedByClient: ncaDeclarations,
+              affordabilityDeclaredByClient: ncaDeclarations,
               snapshotSchemaVersion: AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
               decisionFingerprint: submissionSnapshot.decisionFingerprint,
             },

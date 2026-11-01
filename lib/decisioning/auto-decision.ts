@@ -12,7 +12,7 @@ import { inChallengerGroup, pickChampion } from "./select-version"
 import type { Verdict } from "./types"
 import { parseRules } from "./validate-rules"
 import { parseScorecard } from "./validate-scorecard"
-import { keyFactsReferral } from "./key-facts-referral"
+import { withKeyFactsReferral } from "./key-facts-referral"
 
 export const TRIGGERS = ["REVIEW_STARTED", "DIGITAL_SUBMISSION", "MANUAL"] as const
 export type Trigger = (typeof TRIGGERS)[number]
@@ -94,15 +94,11 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
     let referralNote: string | null = null
     try {
       const rules = parseRules(row.rules)
-      verdict = decide({ facts: loaded.facts, rules, scorecard: parseScorecard(row.scorecard) })
       // A key-facts application has no bureau, and a rule never fires on what is not known: see ./key-facts-referral.ts.
-      const referral = verdict.decision === "APPROVE"
-        ? keyFactsReferral({ regime: loaded.application.disclosureRegime, bureauCheckId: loaded.bureauCheckId, facts: loaded.facts, rules })
-        : null
-      if (referral) {
-        verdict = { ...verdict, decision: "REFER", reasonCodes: [referral.reasonCode], declineCategory: null }
-        referralNote = referral.note
-      }
+      ;({ verdict, note: referralNote } = withKeyFactsReferral(
+        decide({ facts: loaded.facts, rules, scorecard: parseScorecard(row.scorecard) }),
+        { regime: loaded.application.disclosureRegime, bureauCheckId: loaded.bureauCheckId, facts: loaded.facts, rules },
+      ))
     } catch (error) {
       // A stored set that no longer validates is never run: staff decide. Say so where operations will see it.
       logger.error("auto-decision: stored rule set is invalid", { ruleSetVersionId: row.id, error: error instanceof Error ? error.message : String(error) })

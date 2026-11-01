@@ -100,7 +100,7 @@ import {
 } from "@/lib/security/segregation-of-duties"
 import { bureauRailAction } from "@/lib/applications/bureau-rail-action"
 import { selfieLinkNeeded } from "@/lib/kyc/selfie-link-needed"
-import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
+import { applicationPageEvidence } from "@/lib/applications/application-page-evidence"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -503,7 +503,12 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   // action attached to it. Say it on the rail instead, before they click.
   const creditLifeDisclosure = verifyAppliedCreditLifeDisclosure(application)
   // A key-facts application (outside the NCA) is asked for none of the South African consumer evidence (lib/non-nca-documents/regime-evidence.ts).
-  const evidenceRules = approvalEvidenceRules(application)
+  const pageEvidence = applicationPageEvidence({
+    status: application.status,
+    disclosureRegime: application.disclosureRegime,
+    creditLifeDisclosureOk: creditLifeDisclosure.ok,
+    bureauAction: bureauRailAction(bureauDisplay),
+  })
   const currentStage = getApplicationStage(application.status, {
     kycVerified: application.client.kycStatus === "VERIFIED",
     affordabilityDone: !!application.affordabilityNDI,
@@ -529,7 +534,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     ...(showDebtEvidenceBlocker(application, applicationDebtEvidenceInvalid)
       ? [{ label: "Debt evidence invalid", detail: "Re-enter every credit obligation before reassessment. Approval and payout remain blocked.", tone: "danger" as const }]
       : []),
-    ...(application.status === "UNDER_REVIEW" && evidenceRules.creditLifeElection && !creditLifeDisclosure.ok
+    ...(pageEvidence.creditLifeElectionMissing
       ? [{ label: "Credit-life election missing", detail: "Return this application to draft and recapture the consumer election before generating the PASQ.", tone: "danger" as const }]
       : []),
     ...(application.status === "APPROVED" && agreementReady && mandateRequired && !mandateReady
@@ -542,7 +547,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       recklessLendingAssessed: application.recklessLendingAssessed,
       clientAffordabilityDeclared: !!application.clientAffordabilityDeclaredAt,
       openCreditChecks: openChecks,
-      ncaChecksRequired: evidenceRules.recklessLendingAssessment,
+      ncaChecksRequired: pageEvidence.ncaChecks,
     }),
     ...(rateCapGate ? [rateCapGate] : []),
   ]
@@ -565,7 +570,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   // apply server-side; the button surfaces their exact error text after the
   // click rather than pre-computing the full affordability snapshot here.
   const submitBlockedReason =
-    application.status === "DRAFT" && evidenceRules.creditLifeElection && !creditLifeDisclosure.ok
+    pageEvidence.creditLifeBlocksSubmit
       ? "Open Edit draft and record the client's credit-life election and exact-premium disclosure first."
       : null
   const primaryActions = (
@@ -588,7 +593,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         <>
           <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
           {approvalProgress && <ApprovalProgressPanel applicationId={application.id} progress={approvalProgress} canUseCommittee={canDo(userRole, "view_committee_pack")} today={sastCalendarDate(new Date())} />}
-          {evidenceRules.bureauCheck && bureauRailAction(bureauDisplay) === "retry" && (
+          {pageEvidence.bureauRetry && (
             <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
           )}
           {canDo(userRole, "amend_application") && <ApplicationReturnToDraftButton applicationId={application.id} />}
@@ -646,7 +651,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   )
   const secondaryActions = (
     <>
-      {application.status === "UNDER_REVIEW" && evidenceRules.bureauCheck && bureauRailAction(bureauDisplay) === "rerun" && (
+      {pageEvidence.bureauRerun && (
         <ApplicationStartReviewButton applicationId={application.id} mode="rerun" />
       )}
       {canCancelApplication(application) && canDo(userRole, "cancel_application") && (
@@ -935,7 +940,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         )}
 
         {/* Compliance Capture: the NCA reckless-lending checks, asked only of an application under the NCA */}
-        {evidenceRules.recklessLendingAssessment && (
+        {pageEvidence.ncaChecks && (
           <ComplianceCapture
             applicationId={application.id}
             recklessDone={application.recklessLendingAssessed}
@@ -963,7 +968,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         {canReadChecks && <StatementAiCard applicationId={application.id} />}
 
         {/* Credit Bureau Check */}
-        {evidenceRules.bureauCheck && (application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (
+        {pageEvidence.bureauPanel && (
           <DataPanel title="Credit Bureau Check">
             <CreditBureauCheckPanel
               display={bureauDisplay}

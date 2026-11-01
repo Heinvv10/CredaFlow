@@ -255,7 +255,7 @@ export async function readApplicationReadiness(
   // The tenant's bureau freshness window bounds the bureau read below.
   const tenantConfig = await prisma.tenantConfig.findFirst({
     where: { tenantId },
-    select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true, bureauMaxAgeDays: true },
+    select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true, bureauMaxAgeDays: true, screeningProvider: true },
   })
   const [coreDocuments, selfies, exceptions, bureauChecks, mismatches] =
     await Promise.all([
@@ -362,6 +362,7 @@ export async function assembleReadiness(args: {
     bureauMinScore: number
     bureauBlockAdverse: boolean
     ndiBufferPct: number
+    screeningProvider?: string | null
   } | null
   mismatches: readonly { clientId: string; _count: { _all: number } }[]
   /**
@@ -414,6 +415,7 @@ export async function assembleReadiness(args: {
       tenantConfig: tenantConfig
         ? { ...tenantConfig, ndiBufferPct: tenantConfig.ndiBufferPct }
         : null,
+      screeningProviderConfigured: Boolean(tenantConfig?.screeningProvider),
       now,
     })
     if (result) readiness.set(application.id, result)

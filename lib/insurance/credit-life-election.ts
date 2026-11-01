@@ -1,4 +1,4 @@
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { creditLifeOfferableUnder } from "@/lib/non-nca-documents/regime-evidence"
 
 export const CREDIT_LIFE_DISCLOSURE_VERSION = "credit-life-election-v1" as const
 /**
@@ -65,10 +65,26 @@ export function creditLifePrincipalIsEligible(principalCents: number): boolean {
  * (migration 20261016152000_credit_life_no_offer_below_threshold) accepts that
  * record for exactly this case even while a product is active.
  */
-export function creditLifeOfferedFor(productConfigured: boolean, principalCents: number): boolean {
-  // Credit life is sold under the South African Credit Life Insurance Regulations: a lender outside the NCA's
-  // jurisdiction offers none, whatever product rows exist (lib/non-nca-documents/regime-evidence.ts).
-  return productConfigured && isNcaJurisdiction() && creditLifePrincipalIsEligible(principalCents)
+export function creditLifeOfferedFor(productConfigured: boolean, principalCents: number, regime?: string | null): boolean {
+  // Credit life is sold under the South African Credit Life Insurance Regulations: a key-facts application is offered
+  // none, whatever product rows exist (lib/non-nca-documents/regime-evidence.ts). `regime`: the application's; absent for
+  // one not created yet.
+  return productConfigured && creditLifeOfferableUnder(regime) && creditLifePrincipalIsEligible(principalCents)
+}
+
+/**
+ * What the staff wizard posts for an offer it presented, and nothing with none: a no-offer screen sends no identity, so
+ * the server records the no-offer disclosure instead of answering that the offer changed.
+ */
+export function creditLifeOfferFields(offer: CreditLifePresentedOffer | null, principalCents: number) {
+  return offer && {
+    creditLifeProductId: offer.productId,
+    creditLifeProductName: offer.productName,
+    creditLifeInsurerId: offer.insurerId,
+    creditLifeInsurerName: offer.insurerName,
+    creditLifeMonthlyPremiumCents: calculateCreditLifeMonthlyPremiumCents(principalCents),
+    creditLifeDisclosureVersion: CREDIT_LIFE_DISCLOSURE_VERSION,
+  }
 }
 
 // Largest principal for which principalCents * 45 + 5_000 is a safe integer.

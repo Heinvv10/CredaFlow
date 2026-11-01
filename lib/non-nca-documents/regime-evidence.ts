@@ -1,3 +1,5 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+
 /**
  * The consumer evidence an approval needs, by the application's disclosure regime
  * (LoanApplication.disclosureRegime, stamped from the instance's jurisdiction).
@@ -31,6 +33,20 @@ export interface ApprovalEvidenceRules {
 export function approvalEvidenceRules(application: { disclosureRegime?: string | null }): ApprovalEvidenceRules {
   const nca = application.disclosureRegime !== "KEY_FACTS"
   return { creditLifeElection: nca, affordabilityDeclaration: nca, recklessLendingAssessment: nca, bureauCheck: nca, screeningProvider: !nca }
+}
+
+/** The regime the database stamps on an application created now (guardLoanApplicationDisclosureRegime's insert trigger). */
+export function newApplicationRegime(): "NCA_PASQ" | "KEY_FACTS" {
+  return isNcaJurisdiction() ? "NCA_PASQ" : "KEY_FACTS"
+}
+
+/**
+ * The one basis for "may this application be offered credit life": its own stamped regime, or for one not created yet the
+ * regime it will get. Not the instance's jurisdiction alone: an NCA_PASQ application that pre-dates a switch stays under
+ * the NCA, and guardLoanApplicationCreditLifeOffer still judges it against the product rows, so it must keep being offered.
+ */
+export function creditLifeOfferableUnder(regime?: string | null): boolean {
+  return approvalEvidenceRules({ disclosureRegime: regime ?? newApplicationRegime() }).creditLifeElection
 }
 
 /**

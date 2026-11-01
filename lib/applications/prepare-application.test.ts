@@ -28,6 +28,8 @@ vi.mock("@/lib/prisma", () => ({
 
 import { prepareApplicationFields, type PrepareApplicationInput } from "./prepare-application"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
+import { creditLifeOfferFields } from "@/lib/insurance/credit-life-election"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const PRODUCT_ROW = {
@@ -421,13 +423,81 @@ describe("prepareApplicationFields — credit life by jurisdiction", () => {
     expect(insuranceProductFindFirstMock).toHaveBeenCalledTimes(1)
   })
 
-  it("offers no cover on a Lesotho instance: it never looks for a product, and submits with no election", async () => {
+  /** What the wizard really posts: the page reads the offer through the one loader, and the wizard's own fields come from it. */
+  async function wizardFields() {
+    const offer = await loadCreditLifeOffer({ insuranceProduct: { findFirst: insuranceProductFindFirstMock } } as never, "t1")
+    const presented = offer && { productId: offer.id, productName: offer.name, insurerId: offer.insurerId as string, insurerName: offer.insurer?.name as string, autoBundleEnabled: true }
+    return creditLifeOfferFields(presented, 500_000) ?? {}
+  }
+  const withoutWizardIds = { creditLifeProductId: undefined, creditLifeProductName: undefined, creditLifeInsurerId: undefined, creditLifeInsurerName: undefined, creditLifeMonthlyPremiumCents: undefined, creditLifeDisclosureVersion: undefined }
+
+  it("a Lesotho instance with a credit-life product row: the wizard posts no offer, and the server submits it with no election", async () => {
     setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
-    const noOffer = { ...noElection, creditLifeProductId: undefined, creditLifeProductName: undefined, creditLifeInsurerId: undefined, creditLifeInsurerName: undefined, creditLifeMonthlyPremiumCents: undefined }
-    const result = await prepareApplicationFields(validInput(noOffer), "t1", "u1", { action: "create" })
+    const posted = await wizardFields()
+    expect(posted).toEqual({})
+    const result = await prepareApplicationFields(validInput({ ...noElection, ...withoutWizardIds, ...posted }), "t1", "u1", { action: "create" })
 
     expect(insuranceProductFindFirstMock).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
+  })
+
+  it("a South African instance: the same pipeline posts the offer's real ids, and the election is demanded", async () => {
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    const posted = await wizardFields()
+    expect(posted).toMatchObject({ creditLifeProductId: CREDIT_LIFE_PRODUCT.id, creditLifeInsurerId: CREDIT_LIFE_PRODUCT.insurerId })
+    const result = await prepareApplicationFields(validInput({ ...noElection, ...posted }), "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(false)
+  })
+
+  it("a stale tab posting an offer on a Lesotho instance is told the offer changed, not recorded", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const result = await prepareApplicationFields(validInput(noElection), "t1", "u1", { action: "create" })
+    expect(result).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it("an NCA_PASQ draft pre-dating the switch keeps its offer on a Lesotho instance: the wizard's ids are accepted, not refused as stale", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const result = await prepareApplicationFields(validInput({ ...noElection, creditLifeElection: "DECLINED", creditLifeDisclosureAcknowledged: true }), "t1", "u1", { action: "update", disclosureRegime: "NCA_PASQ" })
+
+    expect(insuranceProductFindFirstMock).toHaveBeenCalled()
+    expect(result).toMatchObject({ ok: true, fields: { creditLifeProductId: CREDIT_LIFE_PRODUCT.id, recklessLendingAssessed: true } })
+  })
+
+  it("a KEY_FACTS draft on an instance that reads South African offers nothing", async () => {
+    resetActiveJurisdiction()
+    const result = await prepareApplicationFields(validInput({ ...noElection, ...withoutWizardIds }), "t1", "u1", { action: "update", disclosureRegime: "KEY_FACTS" })
+    expect(insuranceProductFindFirstMock).not.toHaveBeenCalled()
+    expect(result.ok).toBe(true)
+  })
+})
+
+describe("prepareApplicationFields — the NCA declarations by regime", () => {
+  const offerless = { submitForReview: true, creditLifeElection: undefined, creditLifeDisclosureAcknowledged: false, creditLifeProductId: undefined, creditLifeProductName: undefined, creditLifeInsurerId: undefined, creditLifeInsurerName: undefined, creditLifeMonthlyPremiumCents: undefined } as const
+
+  afterEach(() => resetActiveJurisdiction())
+
+  it("asks a KEY_FACTS application for neither the PASQ notice nor the s81 declaration", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const result = await prepareApplicationFields(validInput({ ...offerless, pasqAcknowledged: false, affordabilityDeclared: false }), "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(true)
+  })
+
+  it("stamps neither on a KEY_FACTS application even when both are sent: nobody made an s81 assessment", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const result = await prepareApplicationFields(validInput({ ...offerless, pasqAcknowledged: true, affordabilityDeclared: true, recklessLendingConfirmed: true }), "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(true)
+    const fields = result.ok ? result.fields : null
+    expect(fields).toMatchObject({ status: "SUBMITTED" })
+    expect(fields).not.toHaveProperty("recklessLendingAssessed")
+    expect(fields).not.toHaveProperty("clientAffordabilityDeclaredAt")
+  })
+
+  it("still demands both of an NCA application, and still stamps them", async () => {
+    insuranceProductFindFirstMock.mockResolvedValue(null)
+    const refused = await prepareApplicationFields(validInput({ ...offerless, pasqAcknowledged: false, affordabilityDeclared: false }), "t1", "u1", { action: "create" })
+    expect(refused).toMatchObject({ ok: false, status: 400, body: { errors: { pasqAcknowledged: expect.any(String), affordabilityDeclared: expect.any(String) } } })
+    const stamped = await prepareApplicationFields(validInput({ ...offerless, pasqAcknowledged: true, affordabilityDeclared: true, recklessLendingConfirmed: true }), "t1", "u1", { action: "create" })
+    expect(stamped).toMatchObject({ ok: true, fields: { recklessLendingAssessed: true, recklessLendingAssessedById: "u1", clientAffordabilityDeclaredAt: expect.any(Date) } })
   })
 })
 

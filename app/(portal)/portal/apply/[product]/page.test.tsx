@@ -1,12 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ loanFindMany: vi.fn(), approvedFindMany: vi.fn() }))
+const h = vi.hoisted(() => ({ loanFindMany: vi.fn(), approvedFindMany: vi.fn(), offerFindFirst: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "lerato@example.test", role: "CLIENT" } })) }))
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }))
 vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: vi.fn(async () => ({ tradingName: "Acme Credit", ncrNumber: "NCRCP0" })) }))
 vi.mock("@/lib/config/demo-mode", () => ({ demoLenderNote: () => null }))
-vi.mock("@/lib/insurance/credit-life-offer", () => ({ creditLifeOfferFindFirstArgs: () => ({}) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: {
@@ -21,7 +20,7 @@ vi.mock("@/lib/prisma", () => ({
         minTermDays: 30, maxTermDays: 1_800, interestModel: "REDUCING_BALANCE",
       })),
     },
-    insuranceProduct: { findFirst: vi.fn(async () => null) },
+    insuranceProduct: { findFirst: (a: unknown) => h.offerFindFirst(a) },
     // The real own-lender loader runs over these (lib/affordability/own-lender-debt-load.ts).
     loan: { findMany: (a: unknown) => h.loanFindMany(a) },
     loanApplication: { findMany: (a: unknown) => h.approvedFindMany(a) },
@@ -31,13 +30,31 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { renderToStaticMarkup } from "react-dom/server"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import PortalApplyProductPage from "./page"
 
-type Props = { client: { existingDebt: number }; qualification: { ndi: number } }
+type Props = { client: { existingDebt: number }; qualification: { ndi: number }; creditLifeOffer: { productId: string } | null; ncaDeclarations: boolean }
 const render = async () => (await PortalApplyProductPage({ params: Promise.resolve({ product: "personal" }) })).props as Props
 
 describe("portal apply product page", () => {
-  beforeEach(() => { h.loanFindMany.mockReset().mockResolvedValue([]); h.approvedFindMany.mockReset().mockResolvedValue([]) })
+  beforeEach(() => { h.loanFindMany.mockReset().mockResolvedValue([]); h.approvedFindMany.mockReset().mockResolvedValue([]); h.offerFindFirst.mockReset().mockResolvedValue(null) })
+
+  describe("with a credit-life product row configured", () => {
+    const row = { id: "cl-1", name: "Synthetic Cover", insurerId: "ins-1", insurer: { name: "Synthetic Insurer" } }
+    afterEach(() => resetActiveJurisdiction())
+
+    it("presents the offer and the NCA declarations on a South African instance", async () => {
+      h.offerFindFirst.mockResolvedValue(row)
+      expect(await render()).toMatchObject({ creditLifeOffer: { productId: "cl-1" }, ncaDeclarations: true })
+    })
+
+    it("presents neither on a Lesotho instance: the form would post an offer the server has no record of, and answer 409", async () => {
+      h.offerFindFirst.mockResolvedValue(row)
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      expect(await render()).toMatchObject({ creditLifeOffer: null, ncaDeclarations: false })
+      expect(h.offerFindFirst).not.toHaveBeenCalled()
+    })
+  })
 
   it("counts the client's own active loan with this lender in existing debt and the qualification", async () => {
     h.loanFindMany.mockResolvedValue([{

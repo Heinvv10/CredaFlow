@@ -1,5 +1,5 @@
 import type { DecisionFacts } from "./facts"
-import type { Node, RuleDef } from "./types"
+import type { Node, RuleDef, Verdict } from "./types"
 
 export interface KeyFactsReferral {
   reasonCode: "NO_BUREAU" | "MISSING_FACT"
@@ -41,4 +41,17 @@ export function keyFactsReferral(input: {
     return { reasonCode: "MISSING_FACT", note: `A rule compares a fact that is not known (${missing.join(", ")}), so the engine cannot approve; staff must decide.` }
   }
   return null
+}
+
+/**
+ * The verdict the engine acts on for a key-facts application `keyFactsReferral` applies to. An approval becomes a referral.
+ * Whatever the decision, the grade goes: it was scored on facts nobody checked, and a grade on the row takes the application
+ * out of the approval matrix's `ungraded` rule and into risk pricing. A decline or a referral keeps its decision. Pure.
+ */
+export function withKeyFactsReferral(verdict: Verdict, input: Parameters<typeof keyFactsReferral>[0]): { verdict: Verdict; note: string | null } {
+  const referral = keyFactsReferral(input)
+  if (!referral) return { verdict, note: null }
+  const ungraded = { ...verdict, riskGrade: null, gradeRank: null, score: null, pricingTier: null }
+  if (verdict.decision !== "APPROVE") return { verdict: ungraded, note: null }
+  return { verdict: { ...ungraded, decision: "REFER", reasonCodes: [referral.reasonCode], declineCategory: null }, note: referral.note }
 }

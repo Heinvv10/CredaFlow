@@ -41,7 +41,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
 import { clientDeclineReason, parseDeclineCategory } from "@/lib/applications/decline-category"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
@@ -308,9 +308,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
       // do, and reaching the wizard also discards the bureau enquiry, so
       // correcting one unrelated field cost the consumer a second bureau
       // footprint to re-record byte-identical evidence.
-      const currentCreditLifeProduct = await tx.insuranceProduct.findFirst(
-        creditLifeOfferFindFirstArgs(tenant.id),
-      )
+      const currentCreditLifeProduct = await loadCreditLifeOffer(tx, tenant.id, application.disclosureRegime)
       const currentCreditLifeOffer =
         currentCreditLifeProduct
         && currentCreditLifeProduct.insurerId
@@ -959,6 +957,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
           requiresOverride: true,
         },
         { status: 422 }
+      )
+    }
+
+    // A key-facts application with no bureau check has no gate to override: a reason here would record an exception nobody needed.
+    if (!evidenceRules.bureauCheck && !bureauCheck && bureauOverrideReason) {
+      return NextResponse.json(
+        { error: "There is no bureau check on this application to override.", requiresOverride: false },
+        { status: 422 },
       )
     }
 

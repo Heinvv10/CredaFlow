@@ -51,7 +51,7 @@ vi.mock("@/lib/notifications", async (importOriginal) => ({
   triggerNotification: vi.fn(async () => undefined),
 }))
 
-import { createAppPrismaClient } from "@/lib/prisma"
+import { createAppPrismaClient, prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { createSubmissionAffordabilitySnapshot, readAffordabilitySnapshotStore, withAffordabilitySnapshot } from "@/lib/affordability/snapshot"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
@@ -64,6 +64,8 @@ import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { approve, createDraft, submit } from "@/lib/maker-checker/service"
 import { ENGINE_CONFIG_KIND, RULE_SET_KIND } from "@/lib/decisioning/change-payloads"
 import { runAutoDecision } from "@/lib/decisioning/auto-decision"
+import { verifyLockedApprovalCandidate } from "@/lib/affordability/current-approval"
+import { MATRIX_KIND } from "@/lib/approval/types"
 import { POST } from "./route"
 
 const RUN = process.env.RUN_DB_IT === "1"
@@ -198,7 +200,29 @@ function instanceSuite(label: string, jurisdiction: "LS" | "ZA") {
     await approve({ tenantId: tenant, actor: checker, id: draft.id })
   }
 
-  return { label, db, tenant, underReview, clearFlags, change, setup, teardown }
+  /** The locked re-verification decide runs inside its transaction, reached directly: a pre-check cannot answer for it. */
+  const locked = (id: string, updatedAt: Date) => runWithTenant(tenant, () => prisma.$transaction((tx) => verifyLockedApprovalCandidate(tx as never, {
+    tenantId: tenant, applicationId: id, expectedApplicationUpdatedAt: updatedAt, expectedApproval: {} as never, capturedAt: new Date(), calculationStartDate: new Date(), capturedById: ids.officer, bureauOverrideReason: null, expectedPasqDocumentSha256: null,
+  })))
+
+  return { label, db, tenant, underReview, clearFlags, change, locked, setup, teardown }
+}
+
+const bureauRules = [
+  { id: "dead", name: "Deceased", outcome: "KNOCK_OUT", reasonCode: "BUREAU_DECEASED", declineCategory: "POLICY", when: { field: "bureauDeceased", op: "eq", value: true } },
+  { id: "low", name: "Score below 560", outcome: "KNOCK_OUT", reasonCode: "BUREAU_SCORE_LOW", declineCategory: "BUREAU_SCORE", when: { field: "bureauScore", op: "lt", value: 560 } },
+]
+const liveEngine = () => ({ mode: "LIVE", channels: ["STAFF"], productIds: [ids.product], repaymentMethod: "EFT", challengerVersionId: null, challengerPercent: 0, s71SignOff: false, automatedDeclineNotice: null })
+// A missing bureau score scores 700, grade A: the shape of a lender's South African scorecard run on nobody's bureau report.
+const scoredRules = {
+  productId: null, name: "Scored", effectiveFrom: "2026-01-01", challengerOnly: false, rules: bureauRules,
+  scorecard: { baseScore: 600, characteristics: [{ field: "bureauScore", bins: [{ min: 0, max: 1000, points: 0 }], missingPoints: 100 }], bands: [{ minScore: 650, grade: "A", action: "ALLOW" }, { minScore: 0, grade: "C", action: "ALLOW" }] },
+}
+// The go-live condition of docs/non-nca-go-live.md: an ungraded key-facts application takes both levels.
+const ungradedTwoLevels = {
+  name: "Ungraded two", enabled: true, effectiveFrom: "2026-01-01", defaultRequiredLevels: 1,
+  rules: [{ id: "ungraded", name: "Ungraded", when: { ungraded: true }, requiredLevels: 2 }],
+  levels: [{ level: 1, name: "One", role: "LOAN_ADMIN", slaHours: 24, committee: false }, { level: 2, name: "Two", role: "ADMIN", slaHours: 24, committee: false }],
 }
 
 const ls = instanceSuite("Lesotho", "LS")
@@ -276,14 +300,22 @@ suite("decide, a Lesotho (KEY_FACTS) instance: the South African evidence is not
     }
   })
 
-  it("does not stamp a reckless-lending assessment nobody made when a bureau override reason is sent", async () => {
+  it("refuses a bureau override reason with no bureau check to override: nothing is approved on it and no s81 assessment is stamped", async () => {
     const id = `override-${t}`
     await ls.underReview(id, { nca: false })
     await ls.clearFlags(id)
     const res = await decide(id, { action: "approve", repaymentMethod: "EFT", bureauOverrideReason: "Synthetic override reason, long enough for the minimum length." })
-    expect(res.status, JSON.stringify(await res.clone().json())).toBe(200)
-    const approved = await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })
-    expect(approved).toMatchObject({ recklessLendingAssessed: false, recklessLendingAssessedAt: null, recklessLendingAssessedById: null })
+    expect(res.status).toBe(422)
+    const row = await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })
+    expect(row).toMatchObject({ status: "UNDER_REVIEW", bureauOverrideReason: null, recklessLendingAssessed: false, recklessLendingAssessedAt: null, recklessLendingAssessedById: null })
+  })
+
+  it("the real locked verifier refuses a client the lender recorded as deceased", async () => {
+    const id = `lockdead-${t}`
+    await ls.underReview(id, { nca: false })
+    await ls.db().client.update({ where: { id: `${id}-client` }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    const row = await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })
+    expect(await ls.locked(id, row.updatedAt)).toMatchObject({ ok: false, reason: "compliance_changed" })
   })
 
   it("refuses an ACCEPTED credit-life election through the route (credit life is off outside the NCA's jurisdiction)", async () => {
@@ -310,18 +342,42 @@ suite("decide, a Lesotho (KEY_FACTS) instance: the South African evidence is not
   })
 
   it("a LIVE engine refers a key-facts application to staff instead of approving it on rules that never fired for want of a bureau check", async () => {
-    const rules = [
-      { id: "dead", name: "Deceased", outcome: "KNOCK_OUT", reasonCode: "BUREAU_DECEASED", declineCategory: "POLICY", when: { field: "bureauDeceased", op: "eq", value: true } },
-      { id: "low", name: "Score below 560", outcome: "KNOCK_OUT", reasonCode: "BUREAU_SCORE_LOW", declineCategory: "BUREAU_SCORE", when: { field: "bureauScore", op: "lt", value: 560 } },
-    ]
-    await ls.change(RULE_SET_KIND, "rules", { productId: null, name: "SA-style rules", effectiveFrom: "2026-01-01", challengerOnly: false, rules, scorecard: null })
-    await ls.change(ENGINE_CONFIG_KIND, "live", { mode: "LIVE", channels: ["STAFF"], productIds: [ids.product], repaymentMethod: "EFT", challengerVersionId: null, challengerPercent: 0, s71SignOff: false, automatedDeclineNotice: null })
+    await ls.change(RULE_SET_KIND, "rules", { productId: null, name: "SA-style rules", effectiveFrom: "2026-01-01", challengerOnly: false, rules: bureauRules, scorecard: null })
+    await ls.change(ENGINE_CONFIG_KIND, "live", liveEngine())
     const id = `engine-${t}`
     await ls.underReview(id, { nca: false, generation: true })
     await ls.clearFlags(id)
     const outcome = await runAutoDecision({ tenantId: ls.tenant, applicationId: id, trigger: "MANUAL" })
     expect(outcome).toMatchObject({ status: "RAN", execution: "REFERRED", verdict: { decision: "REFER", reasonCodes: ["NO_BUREAU"] } })
     expect((await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })).status).toBe("UNDER_REVIEW")
+  })
+
+  it("a referred application nobody bureau-checked carries no grade, on a LIVE engine with a scorecard", async () => {
+    await ls.change(RULE_SET_KIND, "scored", scoredRules)
+    await ls.change(ENGINE_CONFIG_KIND, "live", liveEngine())
+    const id = `graded-${t}`
+    await ls.underReview(id, { nca: false, generation: true })
+    await ls.clearFlags(id)
+    expect(await runAutoDecision({ tenantId: ls.tenant, applicationId: id, trigger: "MANUAL" })).toMatchObject({ execution: "REFERRED", verdict: { riskGrade: null, gradeRank: null, score: null, pricingTier: null } })
+    expect(await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ riskGrade: null, riskGradeRank: null, riskScore: null, riskPricingTier: null })
+  })
+
+  it("the referral does not take the application out of the matrix's ungraded rule: it still needs its second approver", async () => {
+    await ls.change(MATRIX_KIND, "matrix", ungradedTwoLevels)
+    await ls.change(ENGINE_CONFIG_KIND, "off", { ...liveEngine(), mode: "OFF" })
+    const control = `ungraded-c-${t}`
+    await ls.underReview(control, { nca: false, generation: true })
+    await ls.clearFlags(control)
+    await decide(control, { action: "approve", repaymentMethod: "EFT" })
+    expect((await ls.db().loanApplication.findUniqueOrThrow({ where: { id: control } })).status).toBe("UNDER_REVIEW")
+
+    await ls.change(ENGINE_CONFIG_KIND, "live", liveEngine())
+    const id = `ungraded-${t}`
+    await ls.underReview(id, { nca: false, generation: true })
+    await ls.clearFlags(id)
+    await runAutoDecision({ tenantId: ls.tenant, applicationId: id, trigger: "MANUAL" })
+    await decide(id, { action: "approve", repaymentMethod: "EFT" })
+    expect(await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "UNDER_REVIEW", riskGrade: null })
   })
 })
 
@@ -355,6 +411,24 @@ suite("decide, a South African (NCA_PASQ) instance: the same application still n
     const res = await decide(id, { action: "approve", repaymentMethod: "EFT" })
     expect(res.status).toBe(422)
     expect(await res.json()).toMatchObject({ bureauMissing: true, requiresOverride: true })
+  })
+
+  it("the real locked verifier refuses a row with no NCA evidence, one with everything but the bureau, and a deceased client", async () => {
+    const bare = `lock1-${t}`
+    await za.underReview(bare, { nca: false, generation: true })
+    const bareRow = await za.db().loanApplication.findUniqueOrThrow({ where: { id: bare } })
+    expect(await za.locked(bare, bareRow.updatedAt)).toMatchObject({ ok: false, reason: "compliance_changed" })
+
+    const noBureau = `lock2-${t}`
+    await za.underReview(noBureau, { nca: true })
+    const noBureauRow = await za.db().loanApplication.findUniqueOrThrow({ where: { id: noBureau } })
+    expect(await za.locked(noBureau, noBureauRow.updatedAt)).toMatchObject({ ok: false, reason: "bureau_missing" })
+
+    const dead = `lock3-${t}`
+    await za.underReview(dead, { nca: true })
+    await za.db().client.update({ where: { id: `${dead}-client` }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    const deadRow = await za.db().loanApplication.findUniqueOrThrow({ where: { id: dead } })
+    expect(await za.locked(dead, deadRow.updatedAt)).toMatchObject({ ok: false, reason: "compliance_changed" })
   })
 
   it("refuses a client the lender recorded as deceased whatever the regime, with no override", async () => {

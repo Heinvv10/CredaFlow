@@ -89,6 +89,8 @@ export interface ReadinessClient {
   bankBranchCode: string | null
   bankAccountNumber: string | null
   accountType: string | null
+  /** The lender's own deceased record: refuses an approval whatever the bureau says. */
+  deceasedAt?: Date | null
 }
 
 export interface ReadinessApplication {
@@ -136,6 +138,8 @@ export interface ReadinessInput {
     bureauMinScore: number
     bureauBlockAdverse: boolean
   } | null
+  /** A screening provider is configured for the lender: /decide requires one of a key-facts application. */
+  screeningProviderConfigured?: boolean
   /**
    * One clock for the whole board. The contract-expiry leg is time-dependent,
    * and two cards in the same paint must not disagree about whether a quote is
@@ -242,6 +246,7 @@ function approvalBlockers(input: ReadinessInput): string[] {
   // Deceased is checked before everything bureau-related and cannot be
   // overridden, so it is reported alone: no other blocker on the card is worth
   // an operator's time once this one is true.
+  if (application.client.deceasedAt) return ["Client recorded as deceased"]
   if (nonOverridableBlock({ deceased: input.bureau?.deceased ?? false }).blocked) {
     return ["Bureau reports deceased"]
   }
@@ -255,6 +260,10 @@ function approvalBlockers(input: ReadinessInput): string[] {
     if (rules.bureauCheck) blockers.push("Bureau check required")
   } else if (evaluateBureauGate(input.bureau, input.bureauPolicy).blocked) {
     blockers.push("Bureau risk gate")
+  }
+  // Fails closed on an absent fact, as /decide does on an unconfigured provider.
+  if (rules.screeningProvider && !input.screeningProviderConfigured) {
+    blockers.push("Screening provider required")
   }
 
   return blockers

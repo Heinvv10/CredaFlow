@@ -75,7 +75,7 @@ export async function PATCH(
 
           const application = await tx.loanApplication.findUnique({
             where: { id, tenantId: tenant.id },
-            select: { id: true, status: true, updatedAt: true, affordabilityResult: true, inputStaffIds: true },
+            select: { id: true, status: true, updatedAt: true, affordabilityResult: true, inputStaffIds: true, disclosureRegime: true },
           })
           if (!application) return { kind: "not_found" as const }
           if (application.status !== "DRAFT") return { kind: "not_draft" as const }
@@ -85,7 +85,7 @@ export async function PATCH(
             body as PrepareApplicationInput,
             tenant.id,
             guard.user.id,
-            { action: "update" },
+            { action: "update", disclosureRegime: application.disclosureRegime },
             tx,
           )
           if (!prepared.ok) return { kind: "prepare_error" as const, prepared }
