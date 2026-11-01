@@ -53,9 +53,11 @@ describe(RULE_PATCH, () => {
     expect(patch).toContain("fee shape changed")
   })
 
-  it("lets a rate or fee off the product row stand only on a rule of this tenant and this product, on the row's base rate", () => {
-    expect(patch).toContain(`rule."tenantId" = NEW."tenantId" AND rule."productId" = product."id"`)
-    expect(patch).toContain("{inputs,productVersion,pricingRuleId}")
-    expect(patch).toContain(`{inputs,productVersion,baseRatePm}'' = TO_JSONB(product."interestRatePm")::TEXT`)
+  it("lets a rate or fee off the product row stand only as a live rule of this tenant gives it, under the NCA ceiling on an NCA application", () => {
+    for (const clause of [
+      `rule."tenantId" = NEW."tenantId"`, `rule."productId" IS NULL OR rule."productId" = product."id"`, `rule."retiredAt" IS NULL`,
+      `rule."validFrom" <=`, `rule."validTo" IS NULL OR rule."validTo" >=`, `CASE rule."rateMode" WHEN 'SET' THEN rule."rateValue"`,
+      "{inputs,productVersion,baseRatePm}", `"ncaRatePmAllowed"(NEW."tenantId"`,
+    ]) expect(patch).toContain(clause)
   })
 })
