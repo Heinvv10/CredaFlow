@@ -183,11 +183,19 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
         LegalMatter: /legal matter is never deleted/, LegalMatterStep: /append-only/, Recovery: /recovery is never deleted/, RecoveryCost: /cost is never deleted/,
         RemarketingSale: /never deleted: cancel it/, RecoveryVatEvent: /VAT event is immutable/, RecoveryRefund: /refund is never deleted/,
       }
+      // TRUNCATE ... CASCADE takes ACCESS EXCLUSIVE locks on every table the foreign keys reach, in an order a session still finishing
+      // an earlier suite's work need not share: Postgres then kills one of the two ("deadlock detected", 40P01). The attempt is rolled
+      // back either way, so retrying the victim is safe and loses no coverage.
+      const settled = async (run: () => Promise<string>): Promise<string> => {
+        let result = await run()
+        for (let retry = 0; retry < 5 && /deadlock detected/.test(result); retry++) result = await run()
+        return result
+      }
       for (const table of TABLES) {
         const truncate = (tx: Tx) => tx.$executeRawUnsafe(`TRUNCATE "${table}" CASCADE`)
-        expect(await attempt(database(), truncate), table).toMatch(messages[table])
+        expect(await settled(() => attempt(database(), truncate)), table).toMatch(messages[table])
         // the table's own trigger is the one that refused: without it, the refusal (if any) is another table's
-        expect(await attempt(database(), truncate, { table, trigger: `${table}_no_truncate` }), table).not.toMatch(messages[table])
+        expect(await settled(() => attempt(database(), truncate, { table, trigger: `${table}_no_truncate` })), table).not.toMatch(messages[table])
       }
     })
   })

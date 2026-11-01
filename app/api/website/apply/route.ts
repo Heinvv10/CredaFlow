@@ -10,7 +10,7 @@ import { AuditAction } from "@/lib/audit"
 import { newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
 import { canonicalIdNumber, idNumberCopy, isValidIdNumber } from "@/lib/validation/client-wizard"
-import { generateReference, maskEmail, maskIdNumber } from "@/lib/utils"
+import { generateReference, maskEmail, maskIdNumber, formatRands } from "@/lib/utils"
 import {
   ContactPromotionConflictError,
   resolveContactForLeadConversion,
@@ -274,13 +274,13 @@ export async function POST(req: NextRequest) {
 
     const notes = [
       `Product: ${productType}`,
-      `Amount: R${Number(amount || 0).toLocaleString()}`,
+      `Amount: ${formatRands(Number(amount || 0), { whole: true })}`,
       hasValidTerm ? `Term: ${submittedTermDays.toLocaleString()} days` : null,
       `Purpose: ${purpose || "Not specified"}`,
       `Employment: ${employmentStatus || "Not specified"}`,
       `Employer: ${employerName || "N/A"}`,
-      `Monthly Income: R${Number(monthlyIncome || 0).toLocaleString()}`,
-      `Monthly Expenses: R${Number(monthlyExpenses || 0).toLocaleString()}`,
+      `Monthly Income: ${formatRands(Number(monthlyIncome || 0), { whole: true })}`,
+      `Monthly Expenses: ${formatRands(Number(monthlyExpenses || 0), { whole: true })}`,
       `ID Number: ${idNumber || "Not provided"}`,
       `Source: ${leadSource}`,
       referralCode ? `Referral Code: ${referralCode}` : null,

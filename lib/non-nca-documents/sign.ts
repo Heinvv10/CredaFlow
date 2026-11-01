@@ -5,7 +5,7 @@ import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
 import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
 import { BORROWER_REFUSAL, requireLivingBorrower } from "./borrower-gate"
-import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
+import { ConcurrentChangeError, databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 import type { BranchAssistant } from "./acknowledge"
 
 export type SignResult =
@@ -41,7 +41,7 @@ export async function signKeyFactsAgreement(args: {
   const application = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId, clientId },
     select: {
-      id: true, status: true, disclosureRegime: true, agreementSignedAt: true, agreementDocumentId: true, agreementDocumentSha256: true,
+      id: true, status: true, disclosureRegime: true, agreementSignedAt: true, agreementDocumentId: true, agreementDocumentSha256: true, affordabilityResult: true,
       client: { select: { firstName: true, lastName: true } },
     },
   })
@@ -76,7 +76,7 @@ export async function signKeyFactsAgreement(args: {
   try {
     await prisma.$transaction(async (tx) => {
       // First, so a refusal spends no one-time code.
-      await requireLivingBorrower(tx, { tenantId, applicationId, clientId, refusal: BORROWER_REFUSAL })
+      await requireLivingBorrower(tx, { tenantId, applicationId, clientId, affordabilityResult: application.affordabilityResult, refusal: BORROWER_REFUSAL, identityRefusal: BORROWER_REFUSAL })
       if (otpNeeded) await consumeSigningOtp(tx, { ...binding, challengeId: args.signingOtpChallengeId!, method, now })
       const claimed = await tx.loanApplication.updateMany({
         where: { id: applicationId, tenantId, status: "APPROVED", agreementSignedAt: null, agreementDocumentId: application.agreementDocumentId, agreementDocumentSha256: application.agreementDocumentSha256 },
@@ -99,6 +99,7 @@ export async function signKeyFactsAgreement(args: {
     if (error instanceof SigningOtpRefusedError) return { ok: false, status: 409, error: "Verify the one-time code before signing", signingOtp: error.reason }
     // Only a change under our feet or a refusal by the database is a conflict; anything else is a fault (500).
     if (error instanceof ConcurrentChangeError) return { ok: false, status: 409, error: error.message }
+    if (isConcurrencyLoss(error)) return { ok: false, status: 409, error: "The application changed while it was being signed. Refresh and try again." }
     if (isDatabaseRefusal(error)) return { ok: false, status: 409, error: databaseMessage(error) }
     throw error
   }

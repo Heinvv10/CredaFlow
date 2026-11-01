@@ -219,6 +219,15 @@ async function createCeremonyScenario(label: string, principalCents = PRINCIPAL_
 
 type Scenario = Awaited<ReturnType<typeof createCeremonyScenario>>
 
+/**
+ * A digest that is certainly not `sha`. The scenario's document digest is two random hex characters repeated, so a fixed tamper value
+ * such as "b".repeat(64) equalled it in 1 run in 256 (a "bb" token): the update then changed nothing and the guard, rightly, had
+ * nothing to refuse.
+ */
+function differentHash(sha: string): string {
+  return (sha.startsWith("e") ? "f" : "e").repeat(64)
+}
+
 /** APPROVED with no quotation — ceremony state (a). */
 async function approve(scenario: Scenario) {
   return prisma.loanApplication.update({
@@ -817,7 +826,7 @@ suite("PASQ signing-ceremony database guards", () => {
 
     await expect(prisma.clientDocument.updateMany({
       where: { id: scenario.documentId, tenantId: scenario.tenantId },
-      data: { contentSha256: "b".repeat(64) },
+      data: { contentSha256: differentHash(scenario.documentSha256) },
     })).rejects.toThrow(/PASQ document is immutable/)
     await expect(prisma.clientDocument.updateMany({
       where: { id: scenario.documentId, tenantId: scenario.tenantId },
@@ -904,7 +913,7 @@ suite("PASQ signing-ceremony database guards", () => {
     // document digest is caught by the document lock, which runs first.
     await expect(prisma.loanApplication.update({
       where: scenario.where,
-      data: { pasqDocumentSha256: "b".repeat(64) },
+      data: { pasqDocumentSha256: differentHash(scenario.documentSha256) },
     })).rejects.toThrow(
       /locked application-bound PASQ document|PASQ evidence is immutable after approval/i,
     )

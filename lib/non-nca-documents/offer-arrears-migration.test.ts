@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { baselineConstraintSql, baselineFunctionSql, baselineTriggerSql } from "@/lib/db-baseline.test-helpers"
 
-// Static pins on migration 20261102090000_key_facts_offer_arrears_letter. Behaviour: ls-letters and gate.integration.test.ts.
-const MIGRATION = "20261102090000_key_facts_offer_arrears_letter"
+// Static pins on migration 20261103090000_key_facts_offer_arrears_letter. Behaviour: ls-letters and gate.integration.test.ts.
+const MIGRATION = "20261103090000_key_facts_offer_arrears_letter"
 const flat = (sql: string) => sql.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim()
 const before = (name: string) => flat(baselineFunctionSql(name, { beforeMigration: MIGRATION }))
 const now = (name: string) => flat(baselineFunctionSql(name))

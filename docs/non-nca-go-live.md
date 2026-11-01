@@ -63,14 +63,14 @@ WhatsApp on file cannot sign this way: capture one first, or the bank chooses a 
 The disburse route books a signed key-facts loan (`lib/non-nca-documents/disburse.ts`). What the bank should know:
 
 - **The payout is manual.** The officer makes the transfer at the bank only after the page shows the loan as ready, then
-  records the bank's reference (required, unique per lender). Nothing in the system moves money.
+  records the bank's reference (required, unique per lender; case, spaces and character width do not make a different reference, punctuation does). Nothing in the system moves money.
 - **KYC at payout is VERIFIED.** Decide needs the documents. The payout needs a biometric or, where none is captured, the
   in-person attestation (`/api/clients/[id]/kyc-in-person-verification`, ADMIN by default).
 - **A second person confirms the payout account**, in place of AVS: a staff member other than the disburser, recorded as an
   `AvsCheck` row with provider `second_person` and audited. Changing the account or the borrower's identity voids it. The
   rule is enforced in code under the client lock, as AVS is, whatever the segregation-of-duties setting.
 - **The borrower's identity is frozen at approval.** A change to the name, ID number or date of birth after
-  approval refuses the agreement and the payout. Staff return the application to review, and the borrower signs again.
+  approval refuses issuing, acknowledging, signing and the payout. Staff return the application to review, and the borrower signs again.
 - **The signed agreement is payable on its start date only**, the SAST day of the approval. The loan is booked on the printed
   schedule, so a later payout would charge printed interest for days the borrower did not have the money. After that day
   staff return the application to review, approve it again and the borrower signs again. So approve, sign and pay fall on

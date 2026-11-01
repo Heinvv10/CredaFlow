@@ -3,7 +3,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { readFile } from "@/lib/storage"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
 import { BORROWER_REFUSAL, requireLivingBorrower } from "./borrower-gate"
-import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
+import { ConcurrentChangeError, databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 
 export type AcknowledgeResult = { ok: true; acknowledgedAt: Date } | { ok: false; status: 404 | 409 | 422; error: string }
 
@@ -37,7 +37,7 @@ async function acknowledge(kind: keyof typeof WORDS, args: AcknowledgeArgs): Pro
   const { name, act, action } = WORDS[kind]
   const application = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId, clientId },
-    select: { id: true, status: true, disclosureRegime: true, agreementSignedAt: true },
+    select: { id: true, status: true, disclosureRegime: true, agreementSignedAt: true, affordabilityResult: true },
   })
   if (!application) return { ok: false, status: 404, error: "Application not found" }
   if (application.disclosureRegime !== "KEY_FACTS") return { ok: false, status: 409, error: `This application has no ${name}` }
@@ -60,7 +60,7 @@ async function acknowledge(kind: keyof typeof WORDS, args: AcknowledgeArgs): Pro
   const now = new Date()
   try {
     await prisma.$transaction(async (tx) => {
-      await requireLivingBorrower(tx, { tenantId, applicationId, clientId, refusal: BORROWER_REFUSAL })
+      await requireLivingBorrower(tx, { tenantId, applicationId, clientId, affordabilityResult: application.affordabilityResult, refusal: BORROWER_REFUSAL, identityRefusal: BORROWER_REFUSAL })
       const claimed = await tx.loanDocumentIssuance.updateMany({
         where: { id: issuance.id, tenantId, supersededAt: null, acknowledgedAt: null },
         data: { acknowledgedAt: now, acknowledgedById: clientId, acknowledgedSha256: issuance.pdfSha256 },
@@ -78,6 +78,7 @@ async function acknowledge(kind: keyof typeof WORDS, args: AcknowledgeArgs): Pro
   } catch (error) {
     // Only a change under our feet or a refusal by the database is a conflict; anything else is a fault (500).
     if (error instanceof ConcurrentChangeError) return { ok: false, status: 409, error: error.message }
+    if (isConcurrencyLoss(error)) return { ok: false, status: 409, error: "The application changed while it was being acknowledged. Refresh and try again." }
     if (isDatabaseRefusal(error)) return { ok: false, status: 409, error: databaseMessage(error) }
     throw error
   }
