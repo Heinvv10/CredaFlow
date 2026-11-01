@@ -123,7 +123,27 @@ describe("planInPlace", () => {
     expect(plan.fresh[0]!.dueDate).toEqual(addCalendarMonths(START, 6))
     expect(plan.terms).toMatchObject({ graceKind: "FULL", graceInstalments: 2, instalments: 5 })
     expect(plan.deferredInterest).toBe(24_000) // 2 periods x 4% of 300 000.00, simple interest
+    expect(plan.carriedInterest).toBe(24_000)
+    expect(plan.carriedFees).toBe(10_000) // the two months' service fee
     reconciles(input, plan)
+  })
+
+  it("a second change keeps what the first carried, every cent of it", () => {
+    const rows = [paid(row(1)), row(2), row(3), row(4), row(5), row(6)] // 20 000.00 interest and 10 000.00 fees fall due unpaid
+    const first = planInPlace(base(rows))
+    const written: PlanRow[] = [...first.keep, ...first.fresh.map((r, i) => ({ ...r, id: `n${i}`, totalPaid: 0, paidAt: null }))]
+    const second = planInPlace({ ...base(written, { asOf: at("2026-04-21") }), loan: { ...base(rows).loan, interestRatePm: 0.03 } })
+    expect(second.carriedInterest).toBe(first.carriedInterest)
+    expect(second.carriedFees).toBe(first.carriedFees)
+    expect(second.totalRepayable).toBe(first.totalRepayable)
+  })
+
+  it("a holiday's deferred interest and fees survive a later change", () => {
+    const first = planInPlace(base(sixRows, { change: { type: "PAYMENT_HOLIDAY", holidayInstalments: 2 } }))
+    const written: PlanRow[] = [...first.keep, ...first.fresh.map((r, i) => ({ ...r, id: `n${i}`, totalPaid: 0, paidAt: null }))]
+    const second = planInPlace(base(written, { change: { type: "TERM_CHANGE", instalments: 3 } }))
+    expect(second.carriedInterest).toBe(first.carriedInterest)
+    expect(second.carriedFees).toBe(first.carriedFees)
   })
 
   it("a reschedule moves the first date and charges the extra days as simple interest", () => {

@@ -7,15 +7,17 @@
  * What it held comes back as:
  *   principal                       the balance the new rows repay, so the rows add up to Loan.principal to the cent;
  *   interest and fees already due   carried, spread evenly over the new rows, never added to the balance: no interest on interest;
+ *   what an earlier change carried  carried again, wherever it sits (RepaymentSchedule.carried*): it was earned, whatever the date;
  *   interest not yet due            gone: the new rows charge the balance from the last instalment date, the period running
  *                                   now included, on the new terms.
+ * A moved first instalment or a payment holiday adds the time it skips as simple interest, carried like the rest.
  */
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { evenly } from "@/lib/product-engine/evenly"
 import { addPeriods } from "@/lib/product-engine/periods"
 import { generateSchedule } from "@/lib/product-engine/schedule"
-import { PERIOD_DAYS, type EngineInterestModel, type Frequency, type RepaymentStructure, type RepaymentTerms } from "@/lib/product-engine/types"
+import { PERIOD_DAYS, PERIODS_PER_YEAR, type EngineInterestModel, type Frequency, type RepaymentStructure, type RepaymentTerms } from "@/lib/product-engine/types"
 import type { InPlaceChange } from "./types"
 
 const DAY_MS = 86_400_000
@@ -32,6 +34,9 @@ export interface PlanRow {
   totalDue: number
   totalPaid: number
   paidAt: Date | null
+  /** What an earlier change carried onto this row. */
+  carriedInterestDue?: number
+  carriedFeesDue?: number
 }
 
 export interface PlanLoan {
@@ -52,7 +57,7 @@ export interface PlanInput {
 }
 
 export type TrimmedRow = Pick<PlanRow, "id" | "principalDue" | "interestDue" | "feesDue" | "totalDue" | "totalPaid">
-export type FreshRow = Pick<PlanRow, "installmentNo" | "dueDate" | "principalDue" | "interestDue" | "feesDue" | "totalDue">
+export type FreshRow = Pick<PlanRow, "installmentNo" | "dueDate" | "principalDue" | "interestDue" | "feesDue" | "totalDue"> & { carriedInterestDue: number; carriedFeesDue: number }
 
 export interface InPlacePlan {
   /** Fully paid rows, unchanged. */
@@ -103,28 +108,30 @@ function trimmed(row: PlanRow, due: boolean): TrimmedRow {
 }
 
 /** Adds what is carried to the rows, spread evenly: every cent lands on a row. */
-export function spreadCarried<T extends { interestDue: number; feesDue: number; totalDue: number }>(rows: T[], interest: number, fees: number): T[] {
+export function spreadCarried<T extends { interestDue: number; feesDue: number; totalDue: number }>(rows: T[], interest: number, fees: number): Array<T & { carriedInterestDue: number; carriedFeesDue: number }> {
   const interestShare = evenly(interest, rows.length)
   const feeShare = evenly(fees, rows.length)
   return rows.map((row, i) => ({
     ...row, interestDue: row.interestDue + interestShare[i]!, feesDue: row.feesDue + feeShare[i]!, totalDue: row.totalDue + interestShare[i]! + feeShare[i]!,
+    carriedInterestDue: interestShare[i]!, carriedFeesDue: feeShare[i]!,
   }))
 }
 
 interface Target {
   rate: number
   instalments: number
-  graceInstalments: number
   /** The first instalment, when the change sets it. */
   firstDueDate: Date | null
+  /** Periods a payment holiday skips. */
+  holiday: number
 }
 
 function targetOf(change: InPlaceChange, rate: number, remaining: number): Target {
-  const same = { rate, instalments: remaining, graceInstalments: 0, firstDueDate: null }
+  const same = { rate, instalments: remaining, firstDueDate: null, holiday: 0 }
   switch (change.type) {
     case "RATE_CHANGE": return { ...same, rate: change.interestRatePm }
     case "TERM_CHANGE": return { ...same, instalments: change.instalments }
-    case "PAYMENT_HOLIDAY": return { ...same, instalments: remaining + change.holidayInstalments, graceInstalments: change.holidayInstalments }
+    case "PAYMENT_HOLIDAY": return { ...same, holiday: change.holidayInstalments }
     case "RESTRUCTURE": return { ...same, rate: change.interestRatePm ?? rate, instalments: change.instalments ?? remaining }
     case "RESCHEDULE": return { ...same, firstDueDate: new Date(`${change.firstDueDate}T10:00:00.000Z`) }
   }
@@ -145,13 +152,13 @@ export function planInPlace(input: PlanInput): InPlacePlan {
   const balance = loan.principal - kept.reduce((sum, cents) => sum + cents, 0)
   if (open.length === 0 || balance <= 0) throw new LoanChangeRefused("No principal is left unpaid on this loan to change")
 
-  // Interest and fees of rows due today or earlier are owed whatever the new terms say.
+  // Interest and fees of rows due today or earlier are owed whatever the new terms say, and what an earlier change carried is too.
   let carriedInterest = 0
   let carriedFees = 0
-  open.filter(isDue).forEach((row) => {
-    const paid = trimmed(row, true)
-    carriedInterest += row.interestDue - paid.interestDue
-    carriedFees += row.feesDue - paid.feesDue
+  open.forEach((row) => {
+    const paid = trimmed(row, isDue(row))
+    carriedInterest += isDue(row) ? row.interestDue - paid.interestDue : Math.max(0, (row.carriedInterestDue ?? 0) - paid.interestDue)
+    carriedFees += isDue(row) ? row.feesDue - paid.feesDue : Math.max(0, (row.carriedFeesDue ?? 0) - paid.feesDue)
   })
 
   // The new rows count from the last date that has passed or been paid, so the first falls where the next instalment would.
@@ -161,11 +168,20 @@ export function planInPlace(input: PlanInput): InPlacePlan {
     ? Math.max(1, Math.round((sastDay(lastDue) - sastDay(anchor)) / PERIOD_DAYS[frequency]))
     : open.length
   const target = targetOf(change, loan.interestRatePm, remaining)
-  if (target.graceInstalments > 0 && structure === "BULLET") throw new LoanChangeRefused("A single-payment loan has no instalments to take a holiday from: reschedule it")
+  if (target.holiday > 0 && structure === "BULLET") throw new LoanChangeRefused("A single-payment loan has no instalments to take a holiday from: reschedule it")
 
-  const terms: RepaymentTerms = {
-    frequency, structure, instalments: target.instalments,
-    graceKind: target.graceInstalments > 0 ? "FULL" : "NONE", graceInstalments: target.graceInstalments,
+  const schedule: RepaymentTerms = { frequency, structure, instalments: target.instalments, graceKind: "NONE", graceInstalments: 0 }
+  // What the terms row records: a holiday's periods are part of the term, as a full grace's are.
+  const terms: RepaymentTerms = target.holiday > 0
+    ? { ...schedule, instalments: target.instalments + target.holiday, graceKind: "FULL", graceInstalments: target.holiday }
+    : schedule
+  let deferredInterest = 0
+  if (target.holiday > 0) {
+    // Simple interest on the balance for the skipped periods, and the service fee of the months they span, as a full grace defers them.
+    const periodRate = frequency === "MONTHLY" ? target.rate : (target.rate * 12) / PERIODS_PER_YEAR[frequency]
+    deferredInterest = Math.round(balance * periodRate) * target.holiday
+    carriedInterest += deferredInterest
+    carriedFees += Math.round((target.holiday * PERIOD_DAYS[frequency]) / 30) * loan.monthlyServiceFee
   }
   if (target.firstDueDate) {
     const next = addPeriods(anchor, frequency, 1)
@@ -175,7 +191,8 @@ export function planInPlace(input: PlanInput): InPlacePlan {
     carriedInterest += Math.round((balance * target.rate * gapDays) / 30)
   }
 
-  const generated = generateSchedule({ principalCents: balance, interestRatePm: target.rate, interestModel: loan.interestModel, monthlyServiceFeeCents: loan.monthlyServiceFee, startDate: anchor, terms })
+  const startDate = target.holiday > 0 ? addPeriods(anchor, frequency, target.holiday) : anchor
+  const generated = generateSchedule({ principalCents: balance, interestRatePm: target.rate, interestModel: loan.interestModel, monthlyServiceFeeCents: loan.monthlyServiceFee, startDate, terms: schedule })
   const nextNo = rows.reduce((max, row) => Math.max(max, settled(row) || row.totalPaid > 0 ? row.installmentNo : 0), 0) + 1
   const generatedRows = generated.schedule.map((row, i) => ({
     installmentNo: nextNo + i, dueDate: target.firstDueDate ? addPeriods(target.firstDueDate, frequency, i) : row.dueDate, principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue,
@@ -184,14 +201,14 @@ export function planInPlace(input: PlanInput): InPlacePlan {
 
   const byId = new Map(rows.map((row) => [row.id, row]))
   const after = [
-    ...keep.map(({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid }) => ({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid })),
-    ...trim.map((row) => ({ ...row, installmentNo: byId.get(row.id)!.installmentNo, dueDate: byId.get(row.id)!.dueDate })),
+    ...keep.map(({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid }) => ({ installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, carriedInterestDue: 0, carriedFeesDue: 0 })),
+    ...trim.map((row) => ({ ...row, installmentNo: byId.get(row.id)!.installmentNo, dueDate: byId.get(row.id)!.dueDate, carriedInterestDue: 0, carriedFeesDue: 0 })),
   ].sort((a, b) => a.installmentNo - b.installmentNo)
   const all = [...after, ...fresh.map((row) => ({ ...row, totalPaid: 0 }))]
   const balances = recomputeLoanBalances(loan.principal, all, asOf)
   return {
     keep, trim, remove, fresh, rows: all, terms, interestRatePm: target.rate, balance, carriedInterest, carriedFees,
-    scheduleInterest: generated.totalInterest, deferredInterest: generated.deferredInterest,
+    scheduleInterest: generated.totalInterest, deferredInterest,
     totalInterest: all.reduce((sum, row) => sum + row.interestDue, 0),
     totalRepayable: all.reduce((sum, row) => sum + row.totalDue, 0),
     maturityDate: fresh.at(-1)!.dueDate,
@@ -227,7 +244,7 @@ export function planNewLoan(input: NewLoanInput): NewLoanPlan {
   const principal = input.settledCents + input.newMoneyCents
   const terms: RepaymentTerms = { frequency: input.frequency, structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: input.instalments }
   const generated = generateSchedule({ principalCents: principal, interestRatePm: input.interestRatePm, interestModel: input.interestModel, monthlyServiceFeeCents: input.monthlyServiceFee, startDate: input.asOf, terms })
-  const rows = generated.schedule.map((row) => ({ installmentNo: row.installmentNo, dueDate: row.dueDate, principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue }))
+  const rows = generated.schedule.map((row) => ({ installmentNo: row.installmentNo, dueDate: row.dueDate, principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue, carriedInterestDue: 0, carriedFeesDue: 0 }))
   return {
     principal, rows, terms, totalInterest: generated.totalInterest,
     totalRepayable: rows.reduce((sum, row) => sum + row.totalDue, 0), maturityDate: rows.at(-1)!.dueDate,

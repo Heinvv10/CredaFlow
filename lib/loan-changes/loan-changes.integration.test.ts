@@ -167,6 +167,16 @@ suite("loan changes on a Lesotho instance (real Postgres, real routes)", () => {
     expect(status.newValue).toMatchObject({ status: "ACTIVE", reason: "loan_change" })
   })
 
+  it("a second change does not lose what the first carried", async () => {
+    const l = await loan() // three instalments overdue
+    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12 })
+    const { row: first } = await reconciled(l.loanId)
+    await proposeAndApprove(l, { type: "TERM_CHANGE", instalments: 12 })
+    const { row: second, rows } = await reconciled(l.loanId)
+    expect(second.totalRepayable).toBe(first.totalRepayable)
+    expect(rows.reduce((sum, r) => sum + r.carriedInterestDue + r.carriedFeesDue, 0)).toBeGreaterThan(0)
+  })
+
   it("a part-paid row stays as what was paid and every receipt still adds up", async () => {
     const l = await loan()
     const first = await dueRowsTotal(l.loanId, 1)

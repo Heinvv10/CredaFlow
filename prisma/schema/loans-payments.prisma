@@ -312,6 +312,10 @@ model RepaymentSchedule {
   assetFinanceOpeningBalanceCents Int?
   creditLifePremiumDue            Int            @default(0)
   feesDue                         Int
+  // The parts of interestDue and feesDue a loan change carried here from rows it replaced (lib/loan-changes): earned already,
+  // so a later change carries them again instead of recomputing them away. 0 on every other row.
+  carriedInterestDue              Int            @default(0)
+  carriedFeesDue                  Int            @default(0)
   totalDue                        Int
   totalPaid                       Int            @default(0)
   status                          ScheduleStatus @default(PENDING)

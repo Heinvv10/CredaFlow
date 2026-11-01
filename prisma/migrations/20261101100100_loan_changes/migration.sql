@@ -9,6 +9,10 @@ ALTER TABLE "Loan" ADD COLUMN     "restructuredAt" TIMESTAMP(3);
 ALTER TABLE "LoanApplication" ADD COLUMN     "loanChangeRequestId" TEXT;
 
 -- AlterTable
+ALTER TABLE "RepaymentSchedule" ADD COLUMN     "carriedFeesDue" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "carriedInterestDue" INTEGER NOT NULL DEFAULT 0;
+
+-- AlterTable
 ALTER TABLE "LoanTerms" ADD COLUMN     "changeRequestId" TEXT,
 ALTER COLUMN "productVersionId" DROP NOT NULL;
 

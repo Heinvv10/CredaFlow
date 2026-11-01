@@ -11,7 +11,7 @@ import { generateReference } from "@/lib/utils"
 import { PERIOD_DAYS } from "@/lib/product-engine/types"
 import type { ApplyContext, Tx } from "@/lib/maker-checker/types"
 import { computeChange, inArrears, involvedLoanIds, type ChangeLoan, type InPlaceComputed, type NewLoanComputed } from "./compute"
-import { LoanChangeRefused } from "./plan"
+import { LoanChangeRefused, type FreshRow } from "./plan"
 import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
 import type { LoanChangePayload } from "./types"
 
@@ -32,12 +32,12 @@ const figures = (loan: ChangeLoan) => ({
 
 const scheduleOf = (loan: ChangeLoan) => ({
   loanId: loan.id,
-  rows: loan.repaymentSchedule.map(({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt }) => ({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt })),
+  rows: loan.repaymentSchedule.map(({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt, carriedInterestDue, carriedFeesDue }) => ({ id, installmentNo, dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid, status, paidAt, carriedInterestDue, carriedFeesDue })),
 })
 
-const scheduleRow = (tenantId: string, loanId: string) => (row: { installmentNo: number; dueDate: Date; principalDue: number; interestDue: number; feesDue: number; totalDue: number }) => ({
+const scheduleRow = (tenantId: string, loanId: string) => (row: FreshRow) => ({
   tenantId, loanId, installmentNo: row.installmentNo, dueDate: row.dueDate, principalDue: row.principalDue, interestDue: row.interestDue,
-  creditLifePremiumDue: 0, feesDue: row.feesDue, totalDue: row.totalDue, status: "PENDING" as const,
+  creditLifePremiumDue: 0, feesDue: row.feesDue, totalDue: row.totalDue, carriedInterestDue: row.carriedInterestDue, carriedFeesDue: row.carriedFeesDue, status: "PENDING" as const,
 })
 
 async function applyInPlace(tx: Tx, ctx: Ctx, { loan, plan }: InPlaceComputed): Promise<void> {
@@ -46,7 +46,7 @@ async function applyInPlace(tx: Tx, ctx: Ctx, { loan, plan }: InPlaceComputed): 
   for (const row of plan.trim) {
     await tx.repaymentSchedule.update({
       where: { id: row.id, tenantId },
-      data: { principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue, status: "PAID", paidAt: loan.lastPaymentDate ?? now },
+      data: { principalDue: row.principalDue, interestDue: row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue, carriedInterestDue: 0, carriedFeesDue: 0, status: "PAID", paidAt: loan.lastPaymentDate ?? now },
     })
   }
   await tx.repaymentSchedule.deleteMany({ where: { tenantId, loanId: loan.id, id: { in: plan.remove } } })

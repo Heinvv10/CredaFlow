@@ -80,7 +80,7 @@ export function LoanChangesPanel({ loanId, reference, view, reason }: { loanId: 
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--cf-text-muted)]">Terms history</h3>
             <table className="mt-1 w-full text-xs">
-              <thead className="text-left text-[var(--cf-text-muted)]"><tr>{["#", "Rate", "Repayment", "Instalments", "From"].map((h) => <th key={h} className="pr-2 font-medium">{h}</th>)}</tr></thead>
+              <thead className="text-left text-[var(--cf-text-muted)]"><tr>{["#", "Rate", "Repayment", "Instalments", "Recorded"].map((h) => <th key={h} className="pr-2 font-medium">{h}</th>)}</tr></thead>
               <tbody>
                 {view.terms.map((t) => (
                   <tr key={t.sequence}>

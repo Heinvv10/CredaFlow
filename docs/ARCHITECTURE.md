@@ -32,7 +32,9 @@ routes, each with its own session secret (`docker-compose.yml`).
   configuration modules use). An automatic approval or decline runs through the
   staff decision path's gates as the lender's system user; the engine is off
   until a lender's settings, approved by a second person, turn it on.
-- **Servicing** — `loan/` (schedules, balances, default charges), `ifrs9/` (staging, ECL,
+- **Servicing** — `loan/` (schedules, balances, default charges), `loan-changes/`
+  (rescheduling, restructuring, top-up, refinance, consolidation, payment holidays, rate and
+  term changes, by maker-checker), `ifrs9/` (staging, ECL,
   interest suspension; `docs/ifrs9/DESIGN.md`), `payments/`,
   `bank-sync/` (statement import and reconciliation), `collections/`
   (escalation, arrangements, Section 129).
