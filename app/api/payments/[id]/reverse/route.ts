@@ -176,7 +176,12 @@ export async function PATCH(
           })
         }
 
-        const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
+        // What the settlement priced was all raised the day it closed the loan, and it is owed now: its rows stay on that day, so
+        // the ledger's receivable and the balance say the same.
+        const settledOn = settledByNewLoan ? loan.closedAt : null
+        if (settledOn) await tx.repaymentSchedule.updateMany({ where: { tenantId: tenant.id, loanId: payment.loanId, dueDate: { gt: settledOn } }, data: { dueDate: settledOn } })
+        const datedRows = settledOn ? postRows.map((row) => (row.dueDate > settledOn ? { ...row, dueDate: settledOn } : row)) : postRows
+        const balances = recomputeLoanBalances(loan.principal, datedRows, asOf)
         const restoredTotalInterest =
           loan.commercialCancelledAt || settledByNewLoan ? loan.totalInterest : loan.contractualTotalInterest ?? loan.totalInterest
         const restoredTotalRepayable =
@@ -205,10 +210,12 @@ export async function PATCH(
             totalPaid: totalReceipts,
             totalInterest: restoredTotalInterest,
             totalRepayable: restoredTotalRepayable,
+            // The priced rows are now the contract of what is left: what pays them closes the loan.
+            ...(settledByNewLoan ? { contractualTotalInterest: restoredTotalInterest, contractualTotalRepayable: restoredTotalRepayable } : {}),
             outstandingPrincipal: balances.outstandingPrincipal,
             arrearsAmount: balances.arrearsAmount,
             daysInArrears: balances.daysInArrears,
-            nextPaymentDate: nextPaymentDueDate(postRows),
+            nextPaymentDate: nextPaymentDueDate(datedRows),
             lastPaymentDate: latestRemaining?.receivedAt ?? null,
             lastPaymentAmount: latestRemaining?.amount ?? null,
             // Only re-open a previously-COMPLETED loan that the remaining

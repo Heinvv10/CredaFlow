@@ -9,7 +9,7 @@ import { applyManualReceiptInTx } from "@/lib/loan/apply-payment"
 import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { PERIOD_DAYS } from "@/lib/product-engine/types"
 import type { ApplyContext, Tx } from "@/lib/maker-checker/types"
-import { loanChangeApplication } from "./approval"
+import { ANOTHER_OPEN_APPLICATION, loanChangeApplication } from "./approval"
 import { computeChange, inArrears, involvedLoanIds, type ChangeLoan, type InPlaceComputed, type NewLoanComputed } from "./compute"
 import { LoanChangeRefused, type FreshRow } from "./plan"
 import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
@@ -106,7 +106,10 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
   const termDays = plan.terms.instalments * PERIOD_DAYS[plan.terms.frequency]
   // The matrix's chain, if one ran, stands on this application; with none it is opened here. Moving it to APPROVED runs the
   // database's chain guard. The checker approves and the maker books, as an approver never disburses: the database holds both.
-  const application = await loanChangeApplication(tx, tenantId, request, computed)
+  const application = await loanChangeApplication(tx, tenantId, request, computed).catch((error: unknown) => {
+    if ((error as { code?: string }).code === "P2002") throw new LoanChangeRefused(ANOTHER_OPEN_APPLICATION)
+    throw error
+  })
   await tx.loanApplication.update({
     where: { id: application.id, tenantId },
     data: { status: "APPROVED", appliedAmount: plan.principal, appliedTermDays: termDays, approvedAt: now, approvedById: checker.id, approvedAmount: plan.principal, approvedTermDays: termDays, repaymentMethod: "EFT" },

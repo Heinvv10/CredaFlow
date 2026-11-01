@@ -41,12 +41,15 @@ export async function loanChangeApplication(tx: Pick<Tx, "loanApplication">, ten
   })
 }
 
+const ANOTHER_OPEN_APPLICATION = "This borrower has another open application on this product: close it before this change can be approved"
+
+/** The unique index on open applications refuses a second one: either this request's own, opened at the same moment, or another. */
 async function openOrLoad(tenantId: string, request: ChangeRequest, computed: NewLoanComputed) {
   try {
     return await loanChangeApplication(prisma, tenantId, request, computed)
   } catch (error) {
     if ((error as { code?: string }).code !== "P2002") throw error
-    return (await applicationOf(prisma, tenantId, request.id))!
+    return await applicationOf(prisma, tenantId, request.id)
   }
 }
 
@@ -60,6 +63,7 @@ export async function loanChangeApprovalGate(ctx: { tenantId: string; request: C
     computed = await computeChange(prisma, tenantId, payload, now)
     if (computed.scope !== "NEW_LOAN") return { proceed: true }
     const application = await openOrLoad(tenantId, request, computed)
+    if (!application) return { proceed: false, levelRecorded: false, message: ANOTHER_OPEN_APPLICATION }
     // The requirement follows today's figure: a settlement grows with time. It is raised if that asks for more, never lowered.
     await prisma.loanApplication.updateMany({ where: { id: application.id, tenantId, status: "UNDER_REVIEW" }, data: { appliedAmount: computed.plan.principal } })
     const gate = await gateApproval({ tenantId, application: { ...application, appliedAmount: computed.plan.principal }, user: actor, automated: false, note: ctx.note })
@@ -76,10 +80,12 @@ export async function loanChangeApprovalGate(ctx: { tenantId: string; request: C
   }
 }
 
-/** A rejected or withdrawn change leaves no application in review: cancelling it closes its chain (the database does). */
+/** A rejected or withdrawn change leaves no application open: cancelling it closes its chain (the database does). */
+export { ANOTHER_OPEN_APPLICATION }
+
 export async function closeLoanChangeApplication(tx: Tx, ctx: { tenantId: string; request: ChangeRequest; actor: Actor }): Promise<void> {
   const { tenantId, request, actor } = ctx
-  const closed = await tx.loanApplication.updateMany({ where: { tenantId, loanChangeRequestId: request.id, status: "UNDER_REVIEW" }, data: { status: "CANCELLED" } })
+  const closed = await tx.loanApplication.updateMany({ where: { tenantId, loanChangeRequestId: request.id, status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW"] } }, data: { status: "CANCELLED" } })
   if (closed.count === 0) return
   await logAuditStrict({
     tenantId, userId: actor.id, userEmail: actor.email, action: AuditAction.LOAN_CHANGE_APPLICATION_CLOSED, entity: "ChangeRequest", entityId: request.id,

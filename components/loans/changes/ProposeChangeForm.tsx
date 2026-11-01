@@ -69,7 +69,7 @@ export function ProposeChangeForm({ loanId, reference, view }: { loanId: string;
         <div className={inputRow}>
           <label htmlFor="lc-first-due" className="font-medium">New first instalment date</label>
           <Input id="lc-first-due" type="date" value={form.firstDueDate} onChange={(e) => set({ firstDueDate: e.target.value })} />
-          <p className={hint}>On or after the next instalment. The extra days earn simple interest.</p>
+          <p className={hint}>On or after the next instalment. Arrears move into the new instalments at the amount owed; the extra days earn simple interest.</p>
         </div>
       )}
       {fields.includes("holiday") && (

@@ -36,6 +36,7 @@ import { loadSourceLoans } from "@/lib/accounting/store"
 import { assessLoan } from "@/lib/ifrs9/snapshot"
 import { inheritPriorStaging, loadRunLoans } from "@/lib/ifrs9/loan-input"
 import { DEFAULT_SETTINGS } from "@/lib/ifrs9/types"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { applyManualReceipt } from "@/lib/loan/apply-payment"
 import { bookLoan, changeRoutes, type LoanFixture, type LoanOptions } from "./loan-changes.integration-fixture"
 
@@ -206,7 +207,8 @@ suite("loan changes that book a new loan, on a Lesotho instance (real Postgres, 
     const load = async () => (await runWithTenant(l.tenantId, () => loadRunLoans(holder.prisma as never, l.tenantId, asOf, asOf))).find((r) => r.id === l.loanId)!
     const before = assessLoan(await load(), ctx, null)
     expect(before.dpd).toBeGreaterThan(90)
-    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12 })
+    const rows = await rowsOf(l.loanId)
+    await proposeAndApprove(l, { type: "RESCHEDULE", firstDueDate: sastCalendarDate(rows[4]!.dueDate) })
     const after = await load()
     expect(after.status).toBe("DEFAULTED")
     expect(assessLoan(after, ctx, null)).toMatchObject({ dpd: before.dpd, staging: { stage: 3 } })

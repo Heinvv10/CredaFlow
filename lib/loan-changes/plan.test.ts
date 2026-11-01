@@ -75,39 +75,34 @@ describe("planInPlace: what stays and what goes", () => {
     expect(plan.fresh[0]!.interestDue).toBe(Math.round(plan.balance * 0.03))
   })
 
-  it("splits a part-paid row that fell due on what the receipts paid: interest, then fees, then principal", () => {
-    const rows = loanRows({}, 2).map((r, i) => (i === 2 ? { ...r, totalPaid: r.interestDue + r.feesDue + 5_000 } : r))
-    const plan = planInPlace(input(rows, rate(0.03)))
-    expect(plan.trim).toEqual([expect.objectContaining({ id: "r3", principalDue: 5_000, interestDue: rows[2]!.interestDue, feesDue: 5_000 })])
-    reconciles(input(rows, rate(0.03)), plan)
-  })
-
-  it("a due row part-paid inside its interest keeps no principal, and what it still owes is carried", () => {
-    const rows = loanRows({}, 2).map((r, i) => (i === 2 ? { ...r, totalPaid: 3_000 } : r))
-    const plan = planInPlace(input(rows, rate(0.03)))
-    expect(plan.trim[0]).toMatchObject({ principalDue: 0, interestDue: 3_000, feesDue: 0, totalDue: 3_000 })
-    expect(plan.carriedInterest).toBe(rows[2]!.interestDue - 3_000)
-    expect(plan.carriedFees).toBe(5_000)
-  })
-
-  it("money paid ahead on a row not yet due is all principal: the borrower does not pay that period's interest twice", () => {
+  it("money paid ahead on a row not yet due is all principal, and at the same rate moves nothing", () => {
     const rows = threePaid.map((r, i) => (i === 3 ? { ...r, totalPaid: 30_000 } : r))
     const plan = planInPlace(input(rows, rate(0.03)))
     expect(plan.trim[0]).toMatchObject({ principalDue: 30_000, interestDue: 0, feesDue: 0, totalDue: 30_000, totalPaid: 30_000 })
     expect(plan.balance).toBe(threePaid.slice(3).reduce((s, r) => s + r.principalDue, 0) - 30_000)
     reconciles(input(rows, rate(0.03)), plan)
+    expect(planInPlace(input(rows, rate(0.04))).totalRepayable).toBe(totalOf(rows))
   })
 
-  it("carries interest and fees already due into the new rows without adding them to the balance", () => {
+  it("leaves rows already due as they are, and owed", () => {
     const rows = loanRows({}, 1) // rows 2 and 3 are overdue on 20 April
+    const given = input(rows, rate(0.03))
+    const plan = planInPlace(given)
+    expect(plan.keep.map((r) => r.id)).toEqual(["r1", "r2", "r3"])
+    expect(plan.remove).toEqual(["r4", "r5", "r6"])
+    expect(plan.carriedInterest).toBe(0)
+    expect(plan.balance).toBe(rows.slice(3).reduce((s, r) => s + r.principalDue, 0))
+    expect(plan.arrearsAmount).toBe(rows[1]!.totalDue + rows[2]!.totalDue)
+    expect(plan.nextPaymentDate).toEqual(rows[1]!.dueDate)
+    expect(plan.fresh).toHaveLength(3)
+    reconciles(given, plan)
+  })
+
+  it("leaves a part-paid row already due as it is", () => {
+    const rows = loanRows({}, 2).map((r, i) => (i === 2 ? { ...r, totalPaid: 3_000 } : r))
     const plan = planInPlace(input(rows, rate(0.03)))
-    expect(plan.carriedInterest).toBe(rows[1]!.interestDue + rows[2]!.interestDue)
-    expect(plan.carriedFees).toBe(10_000)
-    expect(plan.balance).toBe(rows.slice(1).reduce((s, r) => s + r.principalDue, 0))
-    expect(interestOf(plan.fresh)).toBe(plan.scheduleInterest + plan.carriedInterest)
-    expect(plan.fresh.reduce((s, r) => s + r.carriedInterestDue, 0)).toBe(plan.carriedInterest)
-    expect(plan.fresh.reduce((s, r) => s + r.carriedFeesDue, 0)).toBe(plan.carriedFees)
-    reconciles(input(rows, rate(0.03)), plan)
+    expect(plan.trim).toEqual([])
+    expect(plan.rows[2]).toMatchObject({ totalDue: rows[2]!.totalDue, totalPaid: 3_000 })
   })
 
   it("carries nothing on a loan up to date", () => {
@@ -116,11 +111,10 @@ describe("planInPlace: what stays and what goes", () => {
     expect(plan.carriedFees).toBe(0)
   })
 
-  it("every new row falls after the day of the change, so arrears clear", () => {
-    const plan = planInPlace(input(loanRows({}, 1), rate(0.03)))
-    expect(plan.fresh.every((r) => r.dueDate.getTime() > at("2026-04-20").getTime())).toBe(true)
-    expect(plan.arrearsAmount).toBe(0)
-    expect(plan.daysInArrears).toBe(0)
+  it("a loan with every instalment left already due has nothing to change but its arrears", () => {
+    for (const change of [{ type: "TERM_CHANGE" as const, instalments: 6 }, { type: "PAYMENT_HOLIDAY" as const, holidayInstalments: 1 }, rate(0.03)]) {
+      expect(() => planInPlace(input(loanRows({}, 3), change, { asOf: at("2026-12-02") }))).toThrow(/reschedule the arrears/)
+    }
   })
 
   it("refuses when nothing of the principal is left", () => {
@@ -190,11 +184,9 @@ describe("planInPlace: a change that changes nothing changes nothing", () => {
   })
 
   it("a second change keeps what the first carried", () => {
-    const first = planInPlace(input(loanRows({}, 1), rate(0.03)))
-    const second = planInPlace(input(written(first), rate(0.03), { asOf: at("2026-04-21"), shape: { rate: 0.03 } }))
+    const first = planInPlace(input(loanRows({}, 3), { type: "PAYMENT_HOLIDAY", holidayInstalments: 2 }))
+    const second = planInPlace(input(written(first), rate(0.04), { asOf: at("2026-04-21") }))
     expect(second.totalRepayable).toBe(first.totalRepayable)
-    expect(second.carriedInterest).toBe(first.carriedInterest)
-    expect(second.carriedFees).toBe(first.carriedFees)
   })
 })
 
@@ -241,7 +233,45 @@ describe("planInPlace: the kinds of change", () => {
     expect(plan.fresh).toHaveLength(3)
     expect(plan.fresh[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-05-30")
     expect(plan.carriedInterest).toBe(Math.round((plan.balance * 0.04 * 15) / 30))
+    expect(plan.totalRepayable).toBe(totalOf(threePaid) + plan.carriedInterest)
     reconciles(given, plan)
+  })
+
+  it("a reschedule moves arrears into the new rows at the amount owed: no new interest, every row after today", () => {
+    const rows = loanRows({}, 1) // rows 2 and 3 are overdue on 20 April
+    const given = input(rows, { type: "RESCHEDULE", firstDueDate: "2026-05-15" })
+    const plan = planInPlace(given)
+    expect(plan.fresh).toHaveLength(3)
+    expect(plan.totalRepayable).toBe(totalOf(rows))
+    expect(plan.carriedInterest).toBe(rows[1]!.interestDue + rows[2]!.interestDue)
+    expect(plan.carriedFees).toBe(10_000)
+    expect(plan.arrearsAmount).toBe(0)
+    expect(plan.daysInArrears).toBe(0)
+    expect(plan.fresh.every((r) => r.dueDate.getTime() > given.asOf.getTime())).toBe(true)
+    expect(plan.fresh.reduce((s, r) => s + r.carriedInterestDue, 0)).toBe(plan.carriedInterest)
+    reconciles(given, plan)
+  })
+
+  it("a reschedule splits a part-paid due row on what paid it: interest, then fees, then principal", () => {
+    const rows = loanRows({}, 2).map((r, i) => (i === 2 ? { ...r, totalPaid: r.interestDue + r.feesDue + 5_000 } : r))
+    const plan = planInPlace(input(rows, { type: "RESCHEDULE", firstDueDate: "2026-05-15" }))
+    expect(plan.trim).toEqual([expect.objectContaining({ id: "r3", principalDue: 5_000, interestDue: rows[2]!.interestDue, feesDue: 5_000 })])
+    expect(plan.totalRepayable).toBe(totalOf(rows))
+  })
+
+  it("a reschedule keeps what an earlier change carried, and marks it", () => {
+    const first = planInPlace(input(loanRows({}, 1), { type: "RESCHEDULE", firstDueDate: "2026-05-15" }))
+    const again = planInPlace(input(written(first), { type: "RESCHEDULE", firstDueDate: "2026-05-15" }, { asOf: at("2026-04-21") }))
+    expect(again.totalRepayable).toBe(first.totalRepayable)
+    expect(again.fresh.reduce((s, r) => s + r.carriedInterestDue, 0)).toBe(first.carriedInterest)
+  })
+
+  it("a reschedule past maturity makes one row of the arrears, and charges nothing for the time gone", () => {
+    const rows = loanRows({}, 3)
+    const plan = planInPlace(input(rows, { type: "RESCHEDULE", firstDueDate: "2027-01-15" }, { asOf: at("2026-12-20") }))
+    expect(plan.fresh).toHaveLength(1)
+    expect(plan.totalRepayable).toBe(totalOf(rows))
+    expect(plan.daysInArrears).toBe(0)
   })
 
   it("a reschedule to a month end keeps the day it was asked for, across short months", () => {
@@ -276,19 +306,5 @@ describe("planInPlace: the kinds of change", () => {
     const plan = planInPlace(given)
     expect(plan.fresh[1]!.dueDate.getTime() - plan.fresh[0]!.dueDate.getTime()).toBe(7 * DAY)
     reconciles(given, plan)
-  })
-
-  it("a term change past maturity puts every row ahead, so the arrears clear", () => {
-    const given = input(loanRows({}, 3), { type: "TERM_CHANGE", instalments: 6 }, { asOf: at("2026-12-02") })
-    const plan = planInPlace(given)
-    expect(plan.fresh.every((r) => r.dueDate.getTime() > given.asOf.getTime())).toBe(true)
-    expect(plan.arrearsAmount).toBe(0)
-    expect(plan.carriedInterest).toBeGreaterThan(0)
-    reconciles(given, plan)
-  })
-
-  it("a holiday past maturity clears the arrears too", () => {
-    const plan = planInPlace(input(loanRows({}, 3), { type: "PAYMENT_HOLIDAY", holidayInstalments: 1 }, { asOf: at("2026-12-02") }))
-    expect(plan.daysInArrears).toBe(0)
   })
 })

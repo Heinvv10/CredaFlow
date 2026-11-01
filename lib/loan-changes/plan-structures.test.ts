@@ -19,7 +19,7 @@ describe("a single-payment (BULLET) loan", () => {
     expect(plan.fresh).toHaveLength(1)
     expect(plan.fresh[0]!.dueDate.toISOString().slice(0, 10)).toBe("2027-01-01")
     expect(plan.totalInterest).toBeGreaterThanOrEqual(280_000)
-    expect(plan.totalInterest).toBeLessThan(285_000)
+    expect(plan.totalInterest).toBeLessThan(290_000)
   })
 
   it("at the same rate is unchanged", () => {
@@ -28,19 +28,31 @@ describe("a single-payment (BULLET) loan", () => {
     expect(plan.fresh[0]!.dueDate).toEqual(bulletRows(1_000_000)[0]!.dueDate)
   })
 
-  it("takes a new term from the start of the period it is in", () => {
-    const plan = bullet({ type: "TERM_CHANGE", instalments: 9 })
+  const midway = at("2026-10-15") // 4.5 months into 6
+
+  it("keeps the interest of the whole periods gone by, and prices only what remains", () => {
+    const plan = bullet({ type: "RATE_CHANGE", interestRatePm: 0.02 }, midway)
+    expect(plan.totalInterest).toBe(40_000 * 4 + 20_000 * 2)
+    expect(plan.fresh[0]!.dueDate).toEqual(bulletRows(1_000_000)[0]!.dueDate)
+  })
+
+  it("a new term runs from the last period end, never before what accrued", () => {
+    const plan = bullet({ type: "TERM_CHANGE", instalments: 5 }, midway)
     expect(plan.fresh[0]!.dueDate).toEqual(addCalendarMonths(START, 9))
-    expect(plan.totalInterest).toBe(360_000)
+    expect(plan.totalInterest).toBe(40_000 * 9)
+    const shorter = bullet({ type: "TERM_CHANGE", instalments: 1 }, midway)
+    expect(shorter.fresh[0]!.dueDate).toEqual(addCalendarMonths(START, 5))
+    expect(shorter.totalInterest).toBe(40_000 * 5)
   })
 
   it("has no instalments to take a holiday from", () => {
     expect(() => bullet({ type: "PAYMENT_HOLIDAY", holidayInstalments: 1 })).toThrow(/reschedule/)
   })
 
-  it("past its due date gets a date ahead", () => {
-    const plan = bullet({ type: "TERM_CHANGE", instalments: 1 }, at("2027-03-02"))
-    expect(plan.fresh[0]!.dueDate.getTime()).toBeGreaterThan(at("2027-03-02").getTime())
+  it("past its due date can only be rescheduled, at the amount owed", () => {
+    expect(() => bullet({ type: "TERM_CHANGE", instalments: 1 }, at("2027-03-02"))).toThrow(/reschedule the arrears/)
+    const plan = bullet({ type: "RESCHEDULE", firstDueDate: "2027-04-01" }, at("2027-03-02"))
+    expect(plan.totalRepayable).toBe(1_240_000)
     expect(plan.daysInArrears).toBe(0)
   })
 })

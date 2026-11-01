@@ -29,6 +29,7 @@ import { createAppPrismaClient } from "@/lib/prisma"
 import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
 import { GET as changesRoute } from "@/app/api/loans/[id]/changes/route"
 import { POST as previewRoute } from "@/app/api/loans/[id]/changes/preview/route"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { applyManualReceipt } from "@/lib/loan/apply-payment"
 import { bookLoan, changeRoutes, type LoanFixture, type LoanOptions } from "./loan-changes.integration-fixture"
 
@@ -117,25 +118,35 @@ suite("loan changes in place, on a Lesotho instance (real Postgres, real routes)
     expect(readonly.applied).toHaveLength(2)
   })
 
-  it("a restructure cures a defaulted loan's arrears, carries what fell due and records the status change", async () => {
+  it("a restructure leaves a defaulted loan's arrears where they are, due and owed", async () => {
     const l = await loan({ status: "DEFAULTED" })
     const before = await rowsOf(l.loanId)
     await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12, interestRatePm: 0.02 })
     const { row, rows } = await reconciled(l.loanId)
-    expect(row).toMatchObject({ status: "ACTIVE", arrearsAmount: 0, daysInArrears: 0, outstandingPrincipal: 600_000 })
-    expect(rows).toHaveLength(12)
+    expect(row.status).toBe("DEFAULTED")
+    expect(row.arrearsAmount).toBe(before.slice(0, 3).reduce((sum, r) => sum + r.totalDue, 0))
+    expect(rows.slice(0, 3).map((r) => r.id)).toEqual(before.slice(0, 3).map((r) => r.id))
+    expect(rows).toHaveLength(15)
+  })
+
+  it("a reschedule cures a defaulted loan: its arrears move into the new rows at the amount owed, and the status change is recorded", async () => {
+    const l = await loan({ status: "DEFAULTED" })
+    const before = await rowsOf(l.loanId)
+    const next = before[3]!.dueDate
+    await proposeAndApprove(l, { type: "RESCHEDULE", firstDueDate: sastCalendarDate(next) })
+    const { row, rows } = await reconciled(l.loanId)
+    expect(row).toMatchObject({ status: "ACTIVE", arrearsAmount: 0, daysInArrears: 0, outstandingPrincipal: 600_000, totalRepayable: before.reduce((sum, r) => sum + r.totalDue, 0) })
+    expect(rows).toHaveLength(3)
     expect(row.nextPaymentDate!.getTime()).toBeGreaterThan(Date.now())
-    const carried = before.slice(0, 3).reduce((sum, r) => sum + r.interestDue, 0)
-    expect(rows.reduce((sum, r) => sum + r.interestDue, 0)).toBeGreaterThan(carried)
     const status = await db().auditLog.findFirstOrThrow({ where: { tenantId: l.tenantId, action: "LOAN_STATUS_CHANGED", entityId: l.loanId } })
     expect(status.newValue).toMatchObject({ status: "ACTIVE", reason: "loan_change" })
   })
 
   it("a second change does not lose what the first carried", async () => {
     const l = await loan() // three instalments overdue
-    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12 })
-    const { row: first } = await reconciled(l.loanId)
-    await proposeAndApprove(l, { type: "TERM_CHANGE", instalments: 12 })
+    await proposeAndApprove(l, { type: "RESCHEDULE", firstDueDate: sastCalendarDate((await rowsOf(l.loanId))[3]!.dueDate) })
+    const { row: first, rows: moved } = await reconciled(l.loanId)
+    await proposeAndApprove(l, { type: "TERM_CHANGE", instalments: moved.filter((r) => r.totalPaid === 0).length })
     const { row: second, rows } = await reconciled(l.loanId)
     expect(second.totalRepayable).toBe(first.totalRepayable)
     expect(rows.reduce((sum, r) => sum + r.carriedInterestDue + r.carriedFeesDue, 0)).toBeGreaterThan(0)
@@ -145,10 +156,10 @@ suite("loan changes in place, on a Lesotho instance (real Postgres, real routes)
     const l = await loan()
     const first = await dueRowsTotal(l.loanId, 1)
     await pay(l, first + 12_345)
-    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 8 })
+    await proposeAndApprove(l, { type: "RESCHEDULE", firstDueDate: sastCalendarDate((await rowsOf(l.loanId))[3]!.dueDate) })
     const { rows } = await reconciled(l.loanId)
     expect(rows[1]).toMatchObject({ totalDue: 12_345, totalPaid: 12_345, status: "PAID" })
-    expect(rows.filter((r) => r.totalPaid === 0)).toHaveLength(8)
+    expect(rows.filter((r) => r.totalPaid === 0)).toHaveLength(3)
   })
 
   it("a receipt after submission is honoured: the approval computes on the balance of that moment", async () => {
@@ -160,7 +171,7 @@ suite("loan changes in place, on a Lesotho instance (real Postgres, real routes)
     expect((await actionRoute(req({}), params({ id, action: "approve" }))).status).toBe(200)
     const { rows } = await reconciled(l.loanId)
     expect(rows.filter((r) => r.totalPaid > 0)).toHaveLength(2)
-    expect(rows).toHaveLength(6)
+    expect(rows).toHaveLength(7) // three rows that fell due, four new
   })
 
   it("a rejected change leaves the loan alone, and stays on its history with the reason", async () => {
@@ -191,7 +202,7 @@ suite("loan changes in place, on a Lesotho instance (real Postgres, real routes)
     as(l, "maker")
     const preview = await (await previewRoute(req({ type: "RESTRUCTURE", instalments: 10, reason: "Income fell", signedDocumentId: l.documentId }), params({ id: l.loanId }))).json() as { rows: unknown[]; refusal: string | null }
     expect(preview.refusal).toBeNull()
-    expect(preview.rows).toHaveLength(10)
+    expect(preview.rows).toHaveLength(13) // the three already due stay
     expect(await rowsOf(l.loanId)).toEqual(before)
     const refused = await (await previewRoute(req({ type: "REFINANCE", instalments: 10, reason: "Income fell", signedDocumentId: "not-a-document" }), params({ id: l.loanId }))).json() as { refusal: string | null }
     expect(refused.refusal).toMatch(/signed document/)

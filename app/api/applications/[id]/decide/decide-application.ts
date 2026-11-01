@@ -105,6 +105,9 @@ export interface DecideArgs {
  * rules engine, through the same gates).
  */
 export async function decideApplication({ tenant, user, id, formData, automation }: DecideArgs): Promise<Response> {
+  // The application of a top-up, refinance or consolidation (lib/loan-changes) is decided by its change request, and the borrower did not apply for it.
+  const loanChange = await prisma.loanApplication.findFirst({ where: { id, tenantId: tenant.id, loanChangeRequestId: { not: null } }, select: { id: true } })
+  if (loanChange) return NextResponse.json({ error: "This application belongs to a loan change: decide it on the loan." }, { status: 409 })
   const action = formData.get("action") as string
   if (action === "return_to_draft" && !canDo(user.role, "amend_application")) {
     return NextResponse.json({ error: "Your role cannot amend an application." }, { status: 403 })

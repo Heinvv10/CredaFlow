@@ -36,7 +36,10 @@ vi.mock("@/lib/loan/charges-summary", async (original) => {
 import { createAppPrismaClient } from "@/lib/prisma"
 import { PATCH as reverseRoute } from "@/app/api/payments/[id]/reverse/route"
 import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
+import { POST as decideRoute } from "@/app/api/applications/[id]/decide/route"
 import { GET as changesRoute } from "@/app/api/loans/[id]/changes/route"
+import { independentBook } from "@/lib/accounting/reconcile"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { applyManualReceipt, applyManualReceiptInTx } from "@/lib/loan/apply-payment"
 import { bookLoan, changeRoutes, type LoanFixture, type LoanOptions } from "./loan-changes.integration-fixture"
 
@@ -203,6 +206,42 @@ suite("loan changes: credit gates and bounds (real Postgres, real routes)", () =
     expect(rows.reduce((sum, r) => sum + r.principalDue, 0)).toBe(row.principal)
   })
 
+  it("a loan change's application is decided only through its change: /decide refuses it, and the borrower hears nothing", async () => {
+    const l = await loan()
+    const opened = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-LC-${l.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "SUBMITTED" } })
+    await db().loanApplication.update({ where: { id: opened.id }, data: { status: "CANCELLED" } })
+    const { id } = await draftAndSubmit(l, refinance)
+    await db().tenantConfig.findFirstOrThrow({ where: { tenantId: l.tenantId } })
+    const app = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-LC2-${l.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "UNDER_REVIEW", loanChangeRequestId: id } })
+    as(l, "checker")
+    for (const action of ["approve", "decline", "return_to_draft"]) {
+      const form = new FormData()
+      form.set("action", action)
+      form.set("reason", "Trying the other door")
+      const res = await decideRoute(new NextRequest("http://lender.test/api", { method: "POST", body: form }), params({ id: app.id }))
+      expect(res.status).toBe(409)
+    }
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: app.id } })).status).toBe("UNDER_REVIEW")
+    // Whatever state another path left it in, withdrawing the change closes it.
+    await db().loanApplication.update({ where: { id: app.id }, data: { status: "SUBMITTED" } })
+    await db().loanApplication.update({ where: { id: app.id }, data: { status: "DRAFT" } })
+    as(l, "maker")
+    expect((await actionRoute(req({}), params({ id, action: "withdraw" }))).status).toBe(200)
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: app.id } })).status).toBe("CANCELLED")
+  })
+
+  it("another open application on the product is a clean refusal at approval", async () => {
+    const l = await loan()
+    const { id } = await draftAndSubmit(l, refinance)
+    const other = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-OPEN-${l.loanId}`, clientId: l.fx.clientId, productId: l.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "SUBMITTED" } })
+    as(l, "checker")
+    const refused = await actionRoute(req({}), params({ id, action: "approve" }))
+    expect(refused.status).toBe(422)
+    expect(((await refused.json()) as { error: string }).error).toMatch(/another open application/)
+    await db().loanApplication.update({ where: { id: other.id }, data: { status: "CANCELLED" } })
+    expect((await actionRoute(req({}), params({ id, action: "approve" }))).status).toBe(200)
+  })
+
   it("a bounced receipt on a loan a new loan settled leaves exactly its amount owed, on the old loan", async () => {
     const l = await loan()
     await pay(l, 100_000)
@@ -216,6 +255,14 @@ suite("loan changes: credit gates and bounds (real Postgres, real routes)", () =
     const rows = await db().repaymentSchedule.findMany({ where: { loanId: l.loanId } })
     expect(rows.reduce((sum, r) => sum + r.totalDue - r.totalPaid, 0)).toBe(100_000)
     expect(old).toMatchObject({ status: "ACTIVE", closedAt: null, totalRepayable: rows.reduce((sum, r) => sum + r.totalDue, 0) })
+    // It is owed now, and the ledger's receivable and the balance say the same.
+    const book = await runWithTenant(l.tenantId, () => independentBook(holder.prisma as never, l.tenantId, new Date(Date.now() + 1_000)))
+    expect(book.get(l.loanId)!.cents).toBe(100_000)
+    expect(old.outstandingPrincipal).toBe(100_000)
+    expect(old.daysInArrears).toBe(0)
+    expect(old.nextPaymentDate!.getTime()).toBeLessThanOrEqual(Date.now())
+    await pay(l, 100_000)
+    expect((await db().loan.findUniqueOrThrow({ where: { id: l.loanId } })).status).toBe("COMPLETED")
     // The new loan is not touched, and the settlement stands.
     expect((await db().loan.findUniqueOrThrow({ where: { id: change.newLoanId! } })).status).toBe("ACTIVE")
     expect(await db().payment.count({ where: { loanId: l.loanId, paymentMethod: "LOAN_SETTLEMENT", reversed: false } })).toBe(1)
@@ -225,7 +272,7 @@ suite("loan changes: credit gates and bounds (real Postgres, real routes)", () =
     const l = await loan()
     await pay(l, 150_000)
     const receipt = await db().payment.findFirstOrThrow({ where: { loanId: l.loanId } })
-    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12 })
+    await proposeAndApprove(l, { type: "RESCHEDULE", firstDueDate: sastCalendarDate((await db().repaymentSchedule.findMany({ where: { loanId: l.loanId }, orderBy: { installmentNo: "asc" } }))[3]!.dueDate) })
     const owed = async () => (await db().repaymentSchedule.findMany({ where: { loanId: l.loanId } })).reduce((sum, r) => sum + r.totalDue - r.totalPaid, 0)
     const before = await owed()
     as(l, "checker")
