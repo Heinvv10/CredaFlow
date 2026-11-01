@@ -55,7 +55,7 @@ function deal(over: Record<string, unknown> = {}) {
     application: { id: "app-1", status: "APPROVED", ncaRegime: "NON_NCA", productId: "p-1", appliedAmount: 155_250_000, approvedAmount: 155_250_000 },
     asset,
     entity: { id: "e-1", legalName: "TEST Co", vatNumber: null, addressLine1: "1 Test Rd", addressLine2: null, city: "Testville", province: null, postalCode: null },
-    payout: { id: "payout-1", status: "APPROVED", amountCents: 155_250_000, supplierBankAccount: { status: "APPROVED" } },
+    payout: { id: "payout-1", status: "APPROVED", amountCents: 155_250_000, createdById: "maker", approvedById: "approver", supplierBankAccount: { status: "APPROVED" } },
     ...over,
   }
 }
@@ -76,6 +76,7 @@ describe("bookDeal refusals: nothing is written", () => {
     clearer.refusal.mockResolvedValueOnce("you cleared a committee condition")
     m.tx.assetFinanceDeal.findFirst.mockResolvedValue(deal({ contractType: "OPERATING_LEASE" }))
     expect(await book()).toMatchObject({ kind: "refused", reason: "committee_condition_clearer" })
+    expect(clearer.refusal).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.anything(), [deal().payout.createdById, deal().payout.approvedById])
   })
 
   it.each([

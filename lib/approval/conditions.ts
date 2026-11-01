@@ -61,10 +61,17 @@ export async function clearedConditions(db: Db, tenantId: string, applicationId:
 
 export const CLEARER_REFUSAL = "Segregation of duties: you cleared a committee condition on this application, so another staff member must pay it out."
 
-/** Whoever said a condition is met does not also pay the loan out, while segregation of duties is on; the database repeats it. */
-export async function clearerRefusal(db: Db & Pick<typeof prisma, "tenantConfig">, tenantId: string, applicationId: string, actorId: string): Promise<string | null> {
+/**
+ * Whoever said a condition is met does not also pay the loan out, while segregation of duties is on; the database repeats it. With `makerIds`
+ * (the people behind the payout) the two-people rule then reads the payer against them and the clearers.
+ */
+export async function clearerRefusal(
+  db: Db & Pick<typeof prisma, "tenantConfig" | "auditLog">, tenantId: string, applicationId: string, actorId: string, makerIds?: ReadonlyArray<string | null>,
+): Promise<string | null> {
   if (!(await isSegregationOfDutiesRequired(tenantId, db))) return null
-  return (await clearedConditions(db, tenantId, applicationId)).includes(actorId) ? CLEARER_REFUSAL : null
+  const clearers = await clearedConditions(db, tenantId, applicationId)
+  if (clearers.includes(actorId)) return CLEARER_REFUSAL
+  return makerIds ? accountControlRefusal(db, { tenantId, makerIds: [...makerIds, ...clearers], checkerId: actorId }) : null
 }
 
 /** Records one condition as met: by someone who did not make the application, or stand in an account relation to who did, with what shows it. Audited. */

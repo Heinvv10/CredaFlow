@@ -216,6 +216,15 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     staff(clearer, "LOAN_ADMIN")
     expect((await routes().book(fx.dealId)).status).toBe(422)
     expect(await database().payout.findUniqueOrThrow({ where: { id: payout.id } })).toMatchObject({ status: "APPROVED" })
+    // An account the approver minted, and one the clearer minted, are not a second person at booking either (F12).
+    for (const minter of [fx.adminB, clearer]) {
+      const sock = (await database().user.create({ data: { tenantId: fx.tenantId, email: `sock-${minter}@booking-it.test`, password: "not-a-real-login", name: "Second account", role: "LOAN_ADMIN" } })).id
+      await database().auditLog.create({ data: { tenantId: fx.tenantId, userId: minter, action: "USER_CREATED", entity: "User", entityId: sock } })
+      staff(sock, "LOAN_ADMIN")
+      const refused = await routes().book(fx.dealId)
+      expect(refused.status).toBe(422)
+      expect((await refused.json()).error).toContain("Two people")
+    }
     expect(await database().auditLog.count({ where: { entityId: payout.id, action: "ASSET_PAYOUT_APPROVED", userId: fx.adminB } })).toBe(1)
   })
 
