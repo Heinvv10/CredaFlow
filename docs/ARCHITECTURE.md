@@ -256,7 +256,8 @@ the template version and the SHA-256 of its wording.
   screening but not the NCA-only evidence (credit-life election, affordability declaration,
   s81 assessment, SA bureau); `lib/non-nca-documents/regime-evidence.ts` is the one rule. The
   disburse route books a signed key-facts loan as a **manual** payout (audited
-  `payoutChannel: "MANUAL"`). Not built: the automated payout rail (tender 2.5.1 core-banking
+  `payoutChannel: "MANUAL"`, a required bank reference, the NCA route's lock protocol, a second
+  person confirming the account in place of AVS, on the agreement's start date only). Not built: the automated payout rail (tender 2.5.1 core-banking
   API) and debit-order mandates for key-facts loans.
 - Details and rules: `lib/non-nca-documents/.claude.md`.
 
