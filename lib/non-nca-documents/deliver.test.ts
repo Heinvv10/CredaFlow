@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => ({
   client: { email: "a@bank.invalid", whatsapp: null as string | null } as { email: string; whatsapp: string | null } | null,
-  contact: { id: "contact-1" } as { id: string } | null,
+  contact: { id: "contact-1", primaryEmail: "a@bank.invalid", primaryWaJid: null } as { id: string; primaryEmail: string | null; primaryWaJid: string | null } | null,
   simulate: false,
   send: vi.fn(),
   audit: vi.fn(async (..._args: unknown[]) => undefined),
@@ -24,7 +24,7 @@ describe("deliverToBorrower", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     h.client = { email: "a@bank.invalid", whatsapp: null }
-    h.contact = { id: "contact-1" }
+    h.contact = { id: "contact-1", primaryEmail: "a@bank.invalid", primaryWaJid: null }
     h.simulate = false
     h.send.mockResolvedValue({ ok: true, outcome: "sent", messageId: "m1", conversationId: "c", status: "SENT" })
   })
@@ -45,6 +45,7 @@ describe("deliverToBorrower", () => {
 
   it("sends WhatsApp text without the attachment", async () => {
     h.client = { email: "a@bank.invalid", whatsapp: "+26658000001" }
+    h.contact = { id: "contact-1", primaryEmail: "a@bank.invalid", primaryWaJid: "26658000001@s.whatsapp.net" }
     await deliverToBorrower(args)
     expect(h.send.mock.calls[1][0]).toMatchObject({ channel: "WHATSAPP" })
     expect(h.send.mock.calls[1][0]).not.toHaveProperty("attachments")
@@ -55,6 +56,19 @@ describe("deliverToBorrower", () => {
     const legs = await deliverToBorrower(args)
     expect(legs).toEqual([{ channel: "EMAIL", outcome: "not_sent", detail: "opted out" }])
     expect(deliverySummary(legs)).toBe("Email: not sent (opted out)")
+  })
+
+  it("refuses, and audits as not sent, a Contact that no longer reads as the client does: it would reach the old address", async () => {
+    h.client = { email: "new@bank.invalid", whatsapp: "+26658000001" }
+    h.contact = { id: "contact-1", primaryEmail: "old@bank.invalid", primaryWaJid: "26658999999@s.whatsapp.net" }
+    h.simulate = true
+    const legs = await deliverToBorrower(args)
+    expect(legs).toEqual([
+      { channel: "EMAIL", outcome: "not_sent", detail: expect.stringMatching(/does not match/) },
+      { channel: "WHATSAPP", outcome: "not_sent", detail: expect.stringMatching(/does not match/) },
+    ])
+    expect(h.send).not.toHaveBeenCalled()
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ legs }) }))
   })
 
   it("does not throw when the notice cannot be prepared: the document stands and the audit row says so", async () => {

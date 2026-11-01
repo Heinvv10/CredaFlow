@@ -13,6 +13,7 @@ import type { SigningOtpPurpose } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
 import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
+import { identityChangedSinceApproval } from "@/lib/non-nca-documents/identity"
 import type { OtpRecipient } from "./deliver"
 
 export const SIGNING_OTP_PURPOSES: readonly SigningOtpPurpose[] = ["AGREEMENT", "DEBIT_MANDATE", "DOCUMENT", "DEAL_DOCUMENT"]
@@ -104,7 +105,8 @@ async function resolveSubject(
       clientId: true, status: true, repaymentMethod: true,
       agreementDocumentSha256: true, agreementSignedAt: true,
       debitMandateDraftSha256: true, debitMandateSignedAt: true,
-      client: clientSelect,
+      disclosureRegime: true, affordabilityResult: true,
+      client: { select: { ...clientSelect.select, id: true, idNumber: true, dateOfBirth: true } },
     },
   })
   if (!app || !app.clientId || !app.client) return { ok: false, status: 404, error: "Application not found." }
@@ -113,6 +115,8 @@ async function resolveSubject(
   let digest: string | null
   if (purpose === "AGREEMENT") {
     if (app.agreementSignedAt) return notAwaiting("agreement")
+    // A key-facts borrower's contact details are frozen with the approval: no code goes to an address changed since (identity.ts).
+    if (app.disclosureRegime === "KEY_FACTS" && identityChangedSinceApproval({ affordabilityResult: app.affordabilityResult, client: app.client })) return notAwaiting("agreement")
     digest = app.agreementDocumentSha256
   } else {
     if (app.repaymentMethod !== "DEBIT_ORDER" || !app.agreementSignedAt || app.debitMandateSignedAt) {

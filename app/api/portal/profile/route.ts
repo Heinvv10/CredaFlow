@@ -1,3 +1,4 @@
+import { syncClientContactChannels } from "@/lib/contact/sync-client-channels"
 import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -114,9 +115,10 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: true, changed: false })
     }
 
-    await prisma.client.update({
-      where: { id: existing.id },
-      data: update,
+    await prisma.$transaction(async (tx) => {
+      await tx.client.update({ where: { id: existing.id }, data: update })
+      // The Contact follows the client: the next message goes to the number on file, not the replaced one.
+      await syncClientContactChannels(tx, { tenantId: tenant.id, clientId: existing.id, before: { whatsapp: existing.whatsapp }, after: { whatsapp: "whatsapp" in update ? (update.whatsapp as string | null) : existing.whatsapp } })
     })
 
     await logAudit({

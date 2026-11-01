@@ -2,11 +2,14 @@ import { createHash } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAudit } from "@/lib/audit"
 import { simulatesSection129, SECTION129_SIMULATED_NOTE } from "@/lib/collections/section129-email"
+import { contactMatchesClient } from "@/lib/contact/sync-client-channels"
 import type { EmailAttachment } from "@/lib/email/service"
 import { sendAgentMessage } from "@/lib/messaging/agent-message"
 import { logger } from "@/lib/observability/logger"
 
 export type DeliveryLeg = { channel: "EMAIL" | "WHATSAPP"; outcome: "sent" | "pending" | "simulated" | "not_sent"; detail?: string }
+
+const STALE_CONTACT = "the comms record does not match the client's details"
 
 /** A deterministic operation id: a retried delivery of the same document is one Message, not two. */
 export function operationIdFor(what: string): string {
@@ -63,10 +66,16 @@ export async function deliverToBorrower(args: {
       prisma.client.findFirst({ where: { id: clientId, tenantId }, select: { email: true, whatsapp: true } }),
       prisma.contact.findFirst({ where: { tenantId, clientId } }),
     ])
-    if (client?.email && await simulatesSection129(tenantId, client.email)) legs.push({ channel: "EMAIL", outcome: "simulated" })
+    // A message goes out on the Contact's value. If that is not the client's, it would reach whoever held the old address, so it does not go.
+    const stale = (channel: DeliveryLeg["channel"]) => contact !== null && client !== null && !contactMatchesClient(channel, contact, client)
+    if (stale("EMAIL")) legs.push({ channel: "EMAIL", outcome: "not_sent", detail: STALE_CONTACT })
+    else if (client?.email && await simulatesSection129(tenantId, client.email)) legs.push({ channel: "EMAIL", outcome: "simulated" })
     else if (contact) await leg("EMAIL", contact.id)
     else legs.push({ channel: "EMAIL", outcome: "not_sent", detail: "no comms Contact on file for this client" })
-    if (contact && client?.whatsapp) await leg("WHATSAPP", contact.id)
+    if (contact && client?.whatsapp) {
+      if (stale("WHATSAPP")) legs.push({ channel: "WHATSAPP", outcome: "not_sent", detail: STALE_CONTACT })
+      else await leg("WHATSAPP", contact.id)
+    }
   } catch (error) {
     logger.error("non-nca-documents: the notice failed", { what: args.what, entityId: entity.id, error: error instanceof Error ? error.message : "unknown error" })
     legs.push({ channel: "EMAIL", outcome: "not_sent", detail: "the notice could not be prepared" })

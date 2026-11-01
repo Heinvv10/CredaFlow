@@ -17,6 +17,8 @@ const { findFirstClient, updateClient, logAudit, authMock } = vi.hoisted(() => (
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: findFirstClient, update: updateClient },
+    // No Contact here: the sync itself is lib/contact/sync-client-channels.test.ts.
+    $transaction: (fn: (tx: unknown) => unknown) => fn({ client: { update: updateClient }, contact: { findFirst: async () => null } }),
   },
 }))
 

@@ -61,15 +61,19 @@ import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwawa
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { hashSigningOtp } from "@/lib/signing-otp/code"
+import { PUT as putClient } from "@/app/api/clients/[id]/route"
+import { POST as requestCode } from "@/app/api/signing-otp/route"
+import { provisionContactForClient } from "@/lib/contact/provision"
 import { POST as accept } from "@/app/api/applications/[id]/loan-documents/accept/route"
 import { POST as branchSign } from "@/app/api/applications/[id]/loan-documents/branch-sign/route"
 import { POST as acknowledge } from "@/app/api/applications/[id]/loan-documents/acknowledge/route"
 import { POST as sign } from "@/app/api/applications/[id]/loan-documents/sign/route"
 import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { deliverToBorrower, operationIdFor } from "./deliver"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { signKeyFactsAgreement } from "./sign"
-import { createRlsRole, seedStack, stackOf } from "./ls-stack.integration-fixture"
+import { clearOpenFlags, createRlsRole, seedBorrower, seedStack, stackOf } from "./ls-stack.integration-fixture"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
@@ -86,6 +90,11 @@ const post = (body?: unknown) => new NextRequest("http://localhost/x", { method:
 const on = (id: string) => ({ params: Promise.resolve({ id }) })
 const asClient = (id: string) => { holder.session = { user: { id: `${id}-client`, role: "CLIENT", email: `${id}@test.invalid`, tenantId: stack.tenant } } }
 const asStaff = (userId = stack.officer, staffRole = "LOAN_ADMIN") => { holder.userId = userId; holder.role = staffRole; holder.session = { user: { id: userId, role: staffRole, email: `${userId}@test.invalid`, tenantId: stack.tenant } } }
+const provisionContact = (id: string) => db().$transaction(async (tx) => {
+  const c = await tx.client.findUniqueOrThrow({ where: { id: `${id}-client` } })
+  await provisionContactForClient(tx as never, { tenantId: stack.tenant, clientId: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, whatsapp: c.whatsapp, source: "MANUAL" })
+})
+const clearOpenFlagsAgain = (id: string) => clearOpenFlags(db(), stack, id)
 const digests = async (id: string) => {
   const rows = await db().loanDocumentIssuance.findMany({ where: { applicationId: id, supersededAt: null } })
   const of = (kind: string) => rows.find((r) => r.kind === kind)!.pdfSha256
@@ -113,6 +122,8 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
     await db().emailConfig.create({ data: { tenantId: stack.tenant, fromName: "Demo Basotho Lending", fromAddress: "hello@basotho-lending.example" } })
     vi.stubEnv("TENANT_RLS", "on")
     vi.stubEnv("AUTH_SECRET", "synthetic-auth-secret-for-this-suite")
+    vi.stubEnv("UNSUB_TOKEN_SECRET", "synthetic-unsub-secret-for-this-suite")
+    vi.stubEnv("NEXTAUTH_URL", "http://localhost:3000")
     app = createAppPrismaClient(await createRlsRole(db(), fresh.url, role))
     holder.app = app
     resetActiveJurisdiction()
@@ -274,6 +285,51 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       await nothingRecorded(id)
       expect((await flow.decideForm(id, { action: "return_to_review", reason: "Synthetic: the borrower's contact details changed." })).status).toBe(200)
       expect((await db().loanApplication.findUniqueOrThrow({ where: { id } })).status).toBe("UNDER_REVIEW")
+    })
+
+    it("after a real change of address, review and re-approval, the code and the notice reach the new address and not the old", async () => {
+      const id = `move-${t}`
+      await flow.approvedApplication(id)
+      await provisionContact(id)
+      const clientId = `${id}-client`
+      const before = await db().client.findUniqueOrThrow({ where: { id: clientId } })
+      const moved = `moved-${t}@test.invalid`
+      asStaff()
+      const put = await putClient(new NextRequest("http://localhost/x", { method: "PUT", body: JSON.stringify({ email: moved, whatsapp: "+26658123456", expectedUpdatedAt: before.updatedAt.toISOString() }), headers: { "content-type": "application/json" } }), on(clientId))
+      expect(put.status, await put.clone().text()).toBe(200)
+      expect(await db().contact.findFirstOrThrow({ where: { clientId } })).toMatchObject({ primaryEmail: moved, primaryWaJid: "26658123456@s.whatsapp.net" })
+      const identities = await db().contactIdentity.findMany({ where: { tenantId: stack.tenant, contact: { clientId }, channel: { in: ["EMAIL", "WHATSAPP"] } }, select: { value: true } })
+      expect(identities.map((row) => row.value).sort()).toEqual(["26658123456@s.whatsapp.net", moved])
+      // Before the review: no code goes to an address changed since the approval.
+      const early = await requestCode(post({ purpose: "AGREEMENT", subjectId: id, documentSha256: (await digests(id)).agreement, channel: "EMAIL" }))
+      expect(early.status).toBe(409)
+      expect((await flow.decideForm(id, { action: "return_to_review", reason: "Synthetic: the borrower moved to a new mailbox." })).status).toBe(200)
+      await clearOpenFlagsAgain(id)
+      holder.sendEmail.mockClear()
+      const res = await flow.decideForm(id, { action: "approve", repaymentMethod: "EFT" })
+      expect(res.status, await res.clone().text()).toBe(200)
+      expect(holder.sendEmail.mock.calls.map((call) => (call[0] as { to: string }).to)).toEqual([moved])
+      const { agreement } = await digests(id)
+      asStaff()
+      const code = await requestCode(post({ purpose: "AGREEMENT", subjectId: id, documentSha256: agreement, channel: "EMAIL" }))
+      expect(code.status, await code.clone().text()).toBe(200)
+      expect((holder.sendEmail.mock.calls.at(-1)![0] as { to: string }).to).toBe(moved)
+    })
+
+    it("a Contact left stale by any other writer gets no notice, and the audit row says not sent", async () => {
+      const id = `stale-${t}`
+      await seedBorrower(db(), stack, id)
+      await provisionContact(id)
+      await db().client.update({ where: { id: `${id}-client` }, data: { email: `elsewhere-${t}@test.invalid` } })
+      holder.sendEmail.mockClear()
+      const legs = await runWithTenant(stack.tenant, () => deliverToBorrower({
+        tenantId: stack.tenant, clientId: `${id}-client`, staff: { id: stack.officer, email: "o@test.invalid" }, entity: { type: "LoanApplication", id }, what: "loan documents",
+        subject: "s", text: "t", operationId: operationIdFor(id),
+      }))
+      expect(legs[0]).toMatchObject({ channel: "EMAIL", outcome: "not_sent" })
+      expect(holder.sendEmail).not.toHaveBeenCalled()
+      const audit = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DOCUMENT_NOTICE" } })
+      expect(audit.newValue).toMatchObject({ legs: [expect.objectContaining({ outcome: "not_sent" })] })
     })
 
     it("the witness cannot pay out that loan, with segregation of duties off, in the route or a raw write", async () => {
