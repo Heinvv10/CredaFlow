@@ -54,6 +54,7 @@ import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-lo
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
+import * as screeningGate from "@/lib/screening/gate"
 import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
 import { bankRefFor, lsFlow } from "./ls-flow.integration-fixture"
 import { createRlsRole, seedStack, stackOf } from "./ls-stack.integration-fixture"
@@ -212,6 +213,17 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect(await res.json()).toMatchObject({ disbursementPrecondition: "composite_kyc" })
     await attestKyc(id)
     expect((await disburseAs(stack.disburser, id)).status).toBe(200)
+  })
+
+  it("screening is read again under the locks", async () => {
+    const id = `screen-${t}`
+    await signedApplication(id)
+    const spy = vi.spyOn(screeningGate, "lockedBorrowerScreeningAllows").mockResolvedValueOnce(false)
+    const res = await disburseAs(stack.disburser, id)
+    spy.mockRestore()
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "screening" })
+    expect(await loans(id)).toBe(0)
   })
 
   it("a borrower recorded as deceased after approval is not paid", async () => {

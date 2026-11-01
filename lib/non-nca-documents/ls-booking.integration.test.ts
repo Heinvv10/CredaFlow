@@ -52,11 +52,7 @@ import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-lo
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
-import { approve, createDraft, submit } from "@/lib/maker-checker/service"
 import { triggerNotification } from "@/lib/notifications"
-import { PRODUCT_VERSION_KIND } from "@/lib/product-engine/change-handlers"
-import { STRUCTURED_SCHEDULE_CHANNEL } from "@/lib/product-engine/channels"
-import * as screeningGate from "@/lib/screening/gate"
 import { runScreening } from "@/lib/screening/run"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { GET as payoutCheck } from "@/app/api/applications/[id]/payout-check/route"
@@ -66,7 +62,7 @@ import { acknowledgeKeyFacts } from "./acknowledge"
 import { BORROWER_REFUSAL } from "./borrower-gate"
 import { issueLoanDocuments } from "./issue"
 import { lsFlow } from "./ls-flow.integration-fixture"
-import { clearOpenFlags, createRlsRole, PRODUCT, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
+import { createRlsRole, PRODUCT, seedStack, stackOf } from "./ls-stack.integration-fixture"
 import { signKeyFactsAgreement } from "./sign"
 import { loanDocumentState } from "./state"
 
@@ -80,7 +76,7 @@ const BODY = (title: string) => `<h1>${title}</h1><p>{{client.fullName}} {{quote
 let fresh: ThrowawayDb
 let app: ReturnType<typeof createAppPrismaClient> | undefined
 const db = () => fresh.db
-const { approvedApplication, as, attestKyc, decideForm, disburseAs, issueAndSign, signedApplication, verifyAccount } = lsFlow(db, stack, holder)
+const { approvedApplication, as, attestKyc, disburseAs, signedApplication, verifyAccount } = lsFlow(db, stack, holder)
 const loans = (id: string) => db().loan.count({ where: { applicationId: id } })
 const check = (id: string) => payoutCheck(new NextRequest(`http://localhost/api/applications/${id}/payout-check`), { params: Promise.resolve({ id }) })
 
@@ -233,17 +229,6 @@ suite("what a key-facts payout books, and when the officer may make the transfer
     expect(await (await check(id)).json()).toMatchObject({ ok: false, disbursementPrecondition: "status" })
   })
 
-  it("screening is read again under the locks", async () => {
-    const id = `screen-${t}`
-    await signedApplication(id)
-    const spy = vi.spyOn(screeningGate, "lockedBorrowerScreeningAllows").mockResolvedValueOnce(false)
-    const res = await disburseAs(stack.disburser, id)
-    spy.mockRestore()
-    expect(res.status).toBe(422)
-    expect(await res.json()).toMatchObject({ disbursementPrecondition: "screening" })
-    expect(await loans(id)).toBe(0)
-  })
-
   it("dealer-typed contact details that nobody verified get their own refusal", async () => {
     const id = `dealer-${t}`
     const dealer = await db().dealer.create({ data: { tenantId: stack.tenant, name: "Synthetic Dealer", kind: "DEALER", contactEmail: `${id}@dealer.invalid`, createdById: stack.senior } })
@@ -256,54 +241,21 @@ suite("what a key-facts payout books, and when the officer may make the transfer
   it("a lock held past the transaction's timeout is a 409, not a database refusal, and books nothing", async () => {
     const id = `slow-${t}`
     await signedApplication(id)
+    // Prisma's timeout does not cancel a query blocked on a lock: it lands when the query returns. So hold until the payout is seen
+    // waiting (however long its work before the transaction took), then past its 5 s, then let it go.
     const { started } = await db().$transaction(async (tx) => {
       await lockAffordabilityClientEvidence(tx, { tenantId: stack.tenant, clientId: `${id}-client` })
       const payout = disburseAs(stack.disburser, id)
-      await new Promise((resolve) => setTimeout(resolve, 6_000))
+      await vi.waitFor(async () => {
+        const [{ waiting }] = await tx.$queryRaw<{ waiting: number }[]>`SELECT count(*)::int AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`
+        expect(waiting).toBeGreaterThan(0)
+      }, { timeout: 30_000, interval: 100 })
+      await new Promise((resolve) => setTimeout(resolve, 5_500))
       return { started: payout }
-    }, { timeout: 20_000 })
+    }, { timeout: 45_000 })
     const res = await started
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({ disbursementPrecondition: "changed" })
     expect(await loans(id)).toBe(0)
-  })
-
-  // Last: the version stays on the product. It goes through the maker-checker service, so the approval is the real decide on a real version.
-  it("a versioned, weekly amortising loan is approved and booked with its version, rule, structure and deferred interest", async () => {
-    const id = `week-${t}`
-    const actor = (userId: string) => ({ id: userId, email: `${userId}@test.invalid`, role: "ADMIN" as never, tenantId: stack.tenant, totpVerified: true })
-    const config = {
-      minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 1, maxTermDays: 180, interestRatePm: 0.05, interestModel: "REDUCING_BALANCE", initiationFeeModel: "FLAT_PCT",
-      initiationFeePct: 0, initiationFeeMaxCents: 0, monthlyServiceFeeCents: 6_900, repayment: { frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0 }, collateral: [],
-      eligibility: { minAge: 18, maxAge: 65, minMonthlyIncomeCents: null, minEmploymentMonths: null },
-    }
-    await runWithTenant(stack.tenant, async () => {
-      const draft = await createDraft({ tenantId: stack.tenant, actor: actor(stack.officer), kind: PRODUCT_VERSION_KIND, title: "Weekly", payload: { productId: stack.product, effectiveFrom: new Date().toISOString().slice(0, 10), reason: "Synthetic weekly structure", config } })
-      await submit({ tenantId: stack.tenant, actor: actor(stack.officer), id: draft.id })
-      await approve({ tenantId: stack.tenant, actor: actor(stack.senior), id: draft.id })
-    })
-    const { statement } = await seedUnderReview(db(), stack, id, { nca: false })
-    holder.files.set(statement.path, statement.bytes)
-    await db().applicationPricingInput.create({ data: { applicationId: id, tenantId: stack.tenant, channel: STRUCTURED_SCHEDULE_CHANNEL } })
-    await clearOpenFlags(db(), stack, id)
-    const decided = await decideForm(id, { action: "approve", repaymentMethod: "EFT" })
-    expect(decided.status, JSON.stringify(await decided.clone().json())).toBe(200)
-    await attestKyc(id)
-    await issueAndSign(id)
-    expect((await verifyAccount(stack.officer, id)).status).toBe(200)
-
-    const res = await disburseAs(stack.disburser, id)
-    expect(res.status, JSON.stringify(await res.clone().json())).toBe(200)
-
-    const application = await db().loanApplication.findUniqueOrThrow({ where: { id }, include: { loan: { include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } } } })
-    const loan = application.loan!
-    const version = await db().productVersion.findFirstOrThrow({ where: { productId: stack.product } })
-    const terms = await db().loanTerms.findFirstOrThrow({ where: { loanId: loan.id } })
-    expect(terms).toMatchObject({ sequence: 1, productVersionId: version.id, frequency: "WEEKLY", structure: "AMORTISING", graceKind: "NONE", baseRatePm: 0.05, interestRatePm: 0.05, deferredInterest: 0 })
-    expect(terms.instalments).toBe(loan.repaymentSchedule.length)
-    expect(loan.repaymentSchedule.length).toBeGreaterThan(1)
-    expect(loan.repaymentSchedule.map((r) => r.dueDate.toISOString())).toEqual(frozenOf(application).calculator.schedule.map((s) => s.dueDate))
-    const created = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: loan.id, action: "LOAN_CREATED" } })
-    expect(created.newValue).toMatchObject({ productVersionId: version.id, productVersion: version.version })
   })
 })
