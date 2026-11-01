@@ -2,7 +2,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 
 /** What the payout channel is, and is not, for a key-facts loan: shown with every disbursement. */
 export const KEY_FACTS_PAYOUT_NOTE =
-  "Manual payout: no money moved in the system. The officer makes the bank transfer and records its reference. An automated rail needs the core banking adapter (tender 2.5.1)."
+  "Manual payout: no money moves in the system. Make the bank transfer only once every payout check has passed, then record its reference. An automated rail needs the core banking adapter (tender 2.5.1)."
 
 /** AvsCheck.provider of a second person's confirmation (payout-account.ts). */
 export const SECOND_PERSON_VERIFICATION_PROVIDER = "second_person"
@@ -11,18 +11,21 @@ export const KEY_FACTS_BANK_REF_MAX = 64
 export const PAYOUT_VERIFICATION_NOTE_MIN = 20
 export const PAYOUT_VERIFICATION_NOTE_MAX = 500
 
-/** The bank's reference for a manual transfer, trimmed, or null unless it is 1 to 64 characters of a single line. */
+/** The text a person can see: without control and format characters (a zero-width space is one) and without white space. */
+const visible = (text: string) => text.replace(/[\p{Cc}\p{Cf}\s]/gu, "")
+
+/** The bank's reference for a manual transfer, trimmed, or null unless it is 1 to 64 characters of a single line with a letter or digit in it and nothing invisible. */
 export function manualBankRef(value: unknown): string | null {
   if (typeof value !== "string") return null
   const ref = value.trim()
-  return ref.length > 0 && ref.length <= KEY_FACTS_BANK_REF_MAX && !/\p{Cc}/u.test(ref) ? ref : null
+  return ref.length > 0 && ref.length <= KEY_FACTS_BANK_REF_MAX && !/[\p{Cc}\p{Cf}]/u.test(ref) && /[\p{L}\p{N}]/u.test(ref) ? ref : null
 }
 
 /** How the second person confirmed the account, trimmed, or null when it is too short to say or over the limit. */
 export function payoutVerificationNote(value: unknown): string | null {
   if (typeof value !== "string") return null
   const note = value.trim()
-  return note.length >= PAYOUT_VERIFICATION_NOTE_MIN && note.length <= PAYOUT_VERIFICATION_NOTE_MAX ? note : null
+  return visible(note).length >= PAYOUT_VERIFICATION_NOTE_MIN && note.length <= PAYOUT_VERIFICATION_NOTE_MAX ? note : null
 }
 
 /**

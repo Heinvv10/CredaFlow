@@ -62,6 +62,8 @@ import {
   requireClientBorrowerRow,
   type WithClientBorrower,
 } from "@/lib/borrower"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
+import { approvedCalculation, QuoteUnavailableError } from "@/lib/non-nca-documents/quote"
 import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 export type CurrentApprovalEvidenceReason =
@@ -626,6 +628,7 @@ export async function verifyLockedApprovalCandidate(
     productType: application.product.productType,
     initiationFeePayment: application.initiationFeePayment,
     ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+    ...frozenIdentityInput(application),
     ...(terms.repayment ? { repayment: terms.repayment } : {}),
     ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
   }
@@ -724,23 +727,19 @@ function ncaApprovalPricing(application: CurrentApprovalEvidenceApplication, req
 }
 
 /**
- * A key-facts approval's pricing: no PASQ exists, so the instalment comes from the billing helper decide used, with no cover, from
- * the schedule start the approval froze. No PASQ binds the application's approved terms to the frozen ones here, so this does.
+ * A key-facts approval's pricing: no PASQ exists, so the calculation is the one its documents print (quote.ts) and the instalment comes
+ * from the billing helper decide used, with no cover. No PASQ binds the application's approved terms to the frozen ones here, so this does.
  */
 function keyFactsApprovalPricing(application: CurrentApprovalEvidenceApplication): ApprovalPricing {
-  const frozenTerms = frozenApprovedTerms(application.affordabilityResult)
-  if (!frozenTerms.ok) return { ok: false, reason: frozenTerms.reason }
-  const frozen = frozenTerms.terms
-  if (
-    application.approvedAmount !== frozen.principalCents
-    || application.approvedTermDays !== frozen.termDays
-    || application.initiationFeePayment !== frozen.initiationFeePayment
-  ) {
-    return { ok: false, reason: "changed" }
-  }
-  const startDate = new Date(readAffordabilitySnapshotStore(application.affordabilityResult).approval!.calculator.startDate)
   try {
-    const calculation = calculateLoanFromDecisionInputs(frozen, startDate)
+    const { calculation, terms: frozen, startDate } = approvedCalculation(application)
+    if (
+      application.approvedAmount !== frozen.principalCents
+      || application.approvedTermDays !== frozen.termDays
+      || application.initiationFeePayment !== frozen.initiationFeePayment
+    ) {
+      return { ok: false, reason: "changed" }
+    }
     const calculator = createAffordabilityCalculatorEvidence(calculation, startDate)
     const billing = createPasqBillingEvidence({
       calculator,
@@ -748,7 +747,8 @@ function keyFactsApprovalPricing(application: CurrentApprovalEvidenceApplication
       premiumPeriods: calculateCreditLifePremiumPeriods(calculator, frozen.termDays),
     })
     return { ok: true, frozen, calculation, recurringPaymentCents: billing.recurringPaymentCents }
-  } catch {
+  } catch (error) {
+    if (error instanceof QuoteUnavailableError && error.reason !== "no_schedule") return { ok: false, reason: error.reason }
     return { ok: false, reason: "changed" }
   }
 }
@@ -861,6 +861,7 @@ export function verifyCurrentAffordabilityApproval(args: {
       monthlyServiceFeeCents: frozen.monthlyServiceFeeCents,
       initiationFeePayment: frozen.initiationFeePayment,
       ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+      ...frozenIdentityInput(application),
       ...(frozen.repayment ? { repayment: frozen.repayment } : {}),
       ...(frozen.productVersion ? { productVersion: frozen.productVersion } : {}),
     },

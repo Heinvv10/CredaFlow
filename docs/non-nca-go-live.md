@@ -33,7 +33,7 @@ The disburse route books a signed key-facts loan (`lib/non-nca-documents/disburs
 - **A second person confirms the payout account**, in place of AVS: a staff member other than the disburser, recorded as an
   `AvsCheck` row with provider `second_person` and audited. Changing the account or the borrower's identity voids it. The
   rule is enforced in code under the client lock, as AVS is, whatever the segregation-of-duties setting.
-- **The borrower's identity is frozen at approval.** A change to the name, ID number, date of birth or gender after
+- **The borrower's identity is frozen at approval.** A change to the name, ID number or date of birth after
   approval refuses the agreement and the payout. Staff return the application to review, and the borrower signs again.
 - **The signed agreement is payable on its start date only**, the SAST day of the approval. The loan is booked on the printed
   schedule, so a later payout would charge printed interest for days the borrower did not have the money. After that day

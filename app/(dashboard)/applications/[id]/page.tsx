@@ -30,6 +30,7 @@ import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCh
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
 import { PayoutAccountVerificationCard } from "@/components/applications/PayoutAccountVerificationCard"
+import { keyFactsPayoutCheck } from "@/lib/non-nca-documents/payout-gates"
 import { SECOND_PERSON_VERIFICATION_PROVIDER } from "@/lib/non-nca-documents/payout-terms"
 import { AutoDecisionCard } from "@/components/applications/AutoDecisionCard"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
@@ -496,8 +497,12 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   const mandateReady = !!application.debitMandateSignedAt
   const mandateRequired = !keyFactsRegime && application.repaymentMethod !== "EFT"
   const repaymentSetupReady = !mandateRequired || mandateReady
+  // A key-facts payout is manual: the transfer comes first, so every gate runs now, booking nothing, and the form stays closed until they pass.
+  const keyFactsPayoutGate = keyFactsRegime && application.status === "APPROVED" && !application.loan && agreementReady && canDisburse && !disburseConflict
+    ? await keyFactsPayoutCheck({ tenantId, applicationId: application.id, user: { id: viewerId, email: session?.user?.email ?? "" } })
+    : null
   const disbursementReady = application.status === "APPROVED" && !application.loan && agreementReady
-    && repaymentSetupReady && !decisionPricingUnavailable
+    && repaymentSetupReady && !decisionPricingUnavailable && keyFactsPayoutGate?.ok !== false
   // /decide refuses approval without this, but its 422 carries no field the
   // approve panel branches on, so staff previously met a red message with no
   // action attached to it. Say it on the rail instead, before they click.
@@ -633,6 +638,11 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             accountType: application.client.accountType,
           }}
         />
+      )}
+      {keyFactsPayoutGate?.ok === false && (
+        <p role="alert" className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">
+          Do not make the bank transfer yet. {keyFactsPayoutGate.error}
+        </p>
       )}
       {disbursementReady && canDisburse && disburseConflict && (
         <p className="rounded-md border border-[rgba(217,154,58,0.36)] bg-[rgba(217,154,58,0.08)] px-3 py-2 text-xs text-[var(--cf-warning)]">

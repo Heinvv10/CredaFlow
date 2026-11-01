@@ -89,9 +89,24 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
   const [error, setError] = useState<string | null>(null)
   // Set once the payout committed: no second POST, whatever the refresh does.
   const [disbursed, setDisbursed] = useState(false)
+  // A manual payout: the transfer is made before this form is submitted, so it stays closed until every gate has just passed.
+  const [payoutCheck, setPayoutCheck] = useState<"checking" | "ready" | string>("checking")
   // A double click lands before the disabled state renders: the ref holds.
   const inFlight = useRef(false)
   const clientBankMissing = !clientBankDetails.bankName || !clientBankDetails.bankAccountNumber
+
+  async function openForm() {
+    setOpen(true)
+    if (!manualPayout) return
+    setPayoutCheck("checking")
+    try {
+      const res = await fetch(`/api/applications/${applicationId}/payout-check`)
+      const body = await res.json().catch(() => ({})) as { ok?: boolean; error?: string }
+      setPayoutCheck(res.ok && body.ok ? "ready" : body.error ?? `The payout check failed (HTTP ${res.status}).`)
+    } catch {
+      setPayoutCheck("The payout check could not run.")
+    }
+  }
 
   async function submit() {
     if (!bank || !accountNo) { setError("Bank and account number required"); return }
@@ -140,7 +155,7 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
   // A rail button; the payout form opens over the page, where it has room.
   return (
     <>
-      <Button className="w-full" onClick={() => setOpen(true)} disabled={disbursed}>
+      <Button className="w-full" onClick={openForm} disabled={disbursed}>
         <Banknote className="h-4 w-4" />
         {disbursed ? "Disbursed — opening the loan…" : "Disburse Loan"}
       </Button>
@@ -170,9 +185,14 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
               </div>
 
               {manualPayout && (
-                <p className="rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] px-3 py-2 text-xs text-[var(--cf-text-secondary)]">
-                  {KEY_FACTS_PAYOUT_NOTE}
-                </p>
+                <div className="space-y-1 rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] px-3 py-2 text-xs text-[var(--cf-text-secondary)]">
+                  <p>{KEY_FACTS_PAYOUT_NOTE}</p>
+                  <p role="status" className="font-semibold">
+                    {payoutCheck === "checking" ? "Running the payout checks. Do not make the transfer yet."
+                      : payoutCheck === "ready" ? "Every payout check passed. Make the transfer at the bank now, then enter its reference."
+                      : `Do not make the transfer. ${payoutCheck}`}
+                  </p>
+                </div>
               )}
 
               {clientBankMissing && (
@@ -197,7 +217,7 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
                   <input id="disburse-branch-code" value={branchCode} className={`${fieldClass} font-mono`} readOnly />
                 </Field>
                 <Field label={manualPayout ? "Bank reference of the transfer *" : "Payment Reference (optional)"} id="disburse-payment-reference" className="col-span-2">
-                  <input id="disburse-payment-reference" value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} {...(manualPayout ? { maxLength: KEY_FACTS_BANK_REF_MAX, required: true } : {})} />
+                  <input id="disburse-payment-reference" value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} {...(manualPayout ? { maxLength: KEY_FACTS_BANK_REF_MAX, required: true, disabled: payoutCheck !== "ready" } : {})} />
                 </Field>
               </div>
 
@@ -221,7 +241,7 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
 
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => { setOpen(false); setError(null) }}>Cancel</Button>
-                <Button onClick={submit} disabled={loading || disbursed || !confirm || !bank || !accountNo || clientBankMissing || (manualPayout && !manualBankRef(bankRef))}>
+                <Button onClick={submit} disabled={loading || disbursed || !confirm || !bank || !accountNo || clientBankMissing || (manualPayout && (payoutCheck !== "ready" || !manualBankRef(bankRef)))}>
                   <Banknote className="h-4 w-4" />
                   {loading ? "Disbursing..." : `Confirm - Disburse ${formatZAR(disbursementCents)}`}
                 </Button>

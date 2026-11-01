@@ -56,6 +56,7 @@ import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllow
 import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
 import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
@@ -1167,6 +1168,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
       initiationFeePct: terms.initiationFeePct,
       initiationFeeMaxCents: terms.initiationFeeMax,
       monthlyServiceFeeCents: terms.monthlyServiceFee,
+      ...frozenIdentityInput(application),
       ...(terms.repayment ? { repayment: terms.repayment } : {}),
       ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
       initiationFeePayment: application.initiationFeePayment,

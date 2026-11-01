@@ -89,9 +89,9 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
   const partyCols: [string, string][] = [
     [nca ? "Credit Provider" : "Lender", lender.legalName],
     nca ? ["NCR Registration", lender.ncrNumber] : ["Registration No.", lender.companyRegNumber],
-    ["Consumer", `${client.firstName} ${client.lastName}`],
-    ["Consumer ID", client.idNumber],
-    ["Consumer Address", client.addressLine1 ? `${client.addressLine1}${client.city ? `, ${client.city}` : ""}` : "—"],
+    [nca ? "Consumer" : "Borrower", `${client.firstName} ${client.lastName}`],
+    [nca ? "Consumer ID" : "Borrower ID", client.idNumber],
+    [nca ? "Consumer Address" : "Borrower Address", client.addressLine1 ? `${client.addressLine1}${client.city ? `, ${client.city}` : ""}` : "—"],
   ]
   for (const [label, value] of partyCols) {
     drawText(page, `${label}:`, MARGIN + 4, y, bold, 9, DARK)
@@ -101,7 +101,7 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
   y -= 4
 
   // Loan details
-  y = drawSectionTitle(page, y, "2. CREDIT AGREEMENT DETAILS", bold)
+  y = drawSectionTitle(page, y, nca ? "2. CREDIT AGREEMENT DETAILS" : "2. LOAN AGREEMENT DETAILS", bold)
   const loanCols: [string, string][] = [
     ["Agreement Reference", loan.reference],
     ["Agreement Date", formatDatePdf(loan.startDate)],
@@ -150,7 +150,9 @@ export async function generateCertificateOfBalancePdf(opts: CobOpts): Promise<Bu
 
   // Certification
   y = drawSectionTitle(page, y, "4. CERTIFICATION", bold)
-  const certText = `This certificate is issued by ${lender.legalName} and confirms that the outstanding balance on credit agreement ${loan.reference} as at ${formatDatePdf(asAt)} is ${formatZarPdf(settlement?.totalToSettle ?? loan.outstandingPrincipal)}. This certificate is valid for 30 days from the date of issue. In the event of any dispute, the credit provider's records shall prevail unless successfully challenged.`
+  const certText = nca
+    ? `This certificate is issued by ${lender.legalName} and confirms that the outstanding balance on credit agreement ${loan.reference} as at ${formatDatePdf(asAt)} is ${formatZarPdf(settlement?.totalToSettle ?? loan.outstandingPrincipal)}. This certificate is valid for 30 days from the date of issue. In the event of any dispute, the credit provider's records shall prevail unless successfully challenged.`
+    : `This certificate is issued by ${lender.legalName} and confirms that the outstanding balance on loan agreement ${loan.reference} as at ${formatDatePdf(asAt)} is ${formatZarPdf(settlement?.totalToSettle ?? loan.outstandingPrincipal)}. [SAMPLE: the validity period and the evidential wording of this certificate are for the bank's legal team.]`
   const certLines = wrapText(certText, regular, 9, CONTENT_WIDTH - 8)
   for (const line of certLines) { drawText(page, line, MARGIN + 4, y, regular, 9, DARK); y -= 13 }
   y -= 16

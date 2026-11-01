@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { verifyCurrentAffordabilityApproval } from "@/lib/affordability/current-approval"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
 import {
   APPROVAL_AFFORDABILITY_POLICY_VERSION,
   createAffordabilityExpenseEvidence,
@@ -12,6 +13,7 @@ import {
   totalAffordabilityDebt,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import { applicationDebt, applicationFixture, capturedAt, client, debt, product, submittedAt, tenantConfig } from "@/lib/affordability/__fixtures__/approval-evidence"
 
 /** What decide freezes for a key-facts approval: no bureau check, no credit life, the schedule from the decision instant. */
@@ -27,6 +29,7 @@ function keyFactsApplication() {
     principalCents: 500_000, termDays: 90, productId: "product-1", interestRatePm: product.interestRatePm, productType: product.productType,
     interestModel: product.interestModel, initiationFeeModel: product.initiationFeeModel, initiationFeePct: product.initiationFeePct,
     initiationFeeMaxCents: product.initiationFeeMax, monthlyServiceFeeCents: product.monthlyServiceFee, initiationFeePayment: "DEFERRED" as const, ndiBufferPct: tenantConfig.ndiBufferPct,
+    borrowerIdentity: biometricSubjectFingerprint(client),
   }
   const affordability = evaluateAffordabilityGate(inputs)
   const approval = createAffordabilitySnapshot({
@@ -88,6 +91,25 @@ describe("a KEY_FACTS approval at payout: no bureau and no PASQ, everything else
     expect(verify({ ...application, client: { ...application.client, monthlyIncome: 900_000 } })).toEqual({ ok: false, reason: "changed" })
     expect(verify({ ...application, client: { ...application.client, debtObligations: [{ ...debt, monthlyInstalment: 90_000 }] } })).toEqual({ ok: false, reason: "changed" })
     expect(verify(application, { ...tenantConfig, ndiBufferPct: 120 })).toEqual({ ok: false, reason: "changed" })
+  })
+
+  it("the approval fingerprint binds who the borrower is: a changed name, ID number or date of birth is refused", () => {
+    const application = keyFactsApplication()
+    for (const change of [{ lastName: "Other" }, { firstName: "Other" }, { idNumber: "990000002" }, { dateOfBirth: new Date("1991-01-01T00:00:00.000Z") }]) {
+      expect(verify({ ...application, client: { ...application.client, ...change } })).toEqual({ ok: false, reason: "changed" })
+    }
+  })
+
+  it("a schedule that starts when it is checked instead of when it was approved is not the approved one", () => {
+    const result = verify(keyFactsApplication())
+    const frozen = (keyFactsApplication().affordabilityResult as { approval: { calculator: { schedule: { dueDate: string }[] } } }).approval.calculator.schedule
+    expect(result.ok && result.calculation.schedule.map((s) => s.dueDate.toISOString())).toEqual(frozen.map((s) => s.dueDate))
+  })
+
+  it("an NCA approval carries no identity input, so its fingerprints do not move", () => {
+    expect(frozenIdentityInput({ disclosureRegime: "NCA_PASQ", client })).toEqual({})
+    expect(frozenIdentityInput({ client })).toEqual({})
+    expect(frozenIdentityInput({ disclosureRegime: "KEY_FACTS", client })).toEqual({ borrowerIdentity: biometricSubjectFingerprint(client) })
   })
 
   it("is not skipped for the submission snapshot or an incomplete bureau override", () => {
