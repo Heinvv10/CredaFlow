@@ -142,11 +142,14 @@ suite("loan changes that book a new loan, on a Lesotho instance (real Postgres, 
     const again = await loan({ sameLenderAs: l })
     await db().tenantConfig.update({ where: { tenantId: l.tenantId }, data: { screeningProvider: "simulated" } })
     await runWithTenant(l.tenantId, () => runScreening({ tenantId: l.tenantId, subject: { clientId: l.fx.clientId }, trigger: "MANUAL", actor: null }))
-    await proposeAndApprove(l, { type: "TOP_UP", newMoneyCents: 100, payoutReference: "EFT-SYN-ONCE", instalments: 10 })
+    await proposeAndApprove(l, { type: "TOP_UP", newMoneyCents: 100, payoutReference: "EFTXSYNXONCE", instalments: 10 })
     await runWithTenant(l.tenantId, () => runScreening({ tenantId: l.tenantId, subject: { clientId: again.fx.clientId }, trigger: "MANUAL", actor: null }))
-    const { submitted } = await draftAndSubmit(again, { type: "TOP_UP", newMoneyCents: 100, payoutReference: "eft-syn-once", instalments: 10 })
+    const { submitted } = await draftAndSubmit(again, { type: "TOP_UP", newMoneyCents: 100, payoutReference: "eftxsynxonce", instalments: 10 })
     expect(submitted.status).toBe(422)
     expect(((await submitted.json()) as { error: string }).error).toMatch(/already paid out/)
+    // `_` is a character, not a wildcard: EFT_SYN_ONCE is another transfer.
+    const { submitted: another } = await draftAndSubmit(again, { type: "TOP_UP", newMoneyCents: 100, payoutReference: "EFT_SYN_ONCE", instalments: 10 })
+    expect(another.status).toBe(200)
   })
 
   it("a consolidation settles every loan of the borrower into one", async () => {

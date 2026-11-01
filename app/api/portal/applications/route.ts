@@ -642,6 +642,7 @@ export async function POST(req: NextRequest) {
               clientId: currentClient.id,
               productId: currentProduct.id,
               status: { in: [...OPEN_APPLICATION_STATUSES] },
+              loanChangeRequestId: null,
             },
             select: { id: true, reference: true, status: true },
           }),

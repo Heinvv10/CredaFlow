@@ -31,7 +31,7 @@ const LOAN_INCLUDE = {
 
 export type ChangeLoan = Prisma.LoanGetPayload<{ include: typeof LOAN_INCLUDE }>
 
-type Reader = ChargesTx & Pick<Tx, "clientDocument" | "loanApplication">
+type Reader = ChargesTx & Pick<Tx, "clientDocument" | "$queryRaw">
 
 export async function loadChangeLoan(db: Pick<Tx, "loan">, tenantId: string, loanId: string): Promise<ChangeLoan | null> {
   return db.loan.findFirst({ where: { id: loanId, tenantId }, include: LOAN_INCLUDE })
@@ -125,8 +125,10 @@ async function computeNewLoan(db: Reader, tenantId: string, primary: ChangeLoan,
   })
   await refuseBorrower(tenantId, primary.clientId!, payload.type === "TOP_UP")
   // One transfer pays one loan (LoanApplication_key_facts_bank_reference).
-  if (payload.type === "TOP_UP" && await db.loanApplication.findFirst({ where: { tenantId, disbursementRef: { equals: payload.payoutReference, mode: "insensitive" } }, select: { id: true } })) {
-    throw new LoanChangeRefused("That transfer reference already paid out a loan")
+  // Compared as the index does: a case-insensitive `equals` is an ILIKE, and would read `_` in a reference as a wildcard.
+  if (payload.type === "TOP_UP") {
+    const used = await db.$queryRaw<unknown[]>`SELECT 1 FROM "LoanApplication" WHERE "tenantId" = ${tenantId} AND lower("disbursementRef") = lower(${payload.payoutReference}) LIMIT 1`
+    if (used.length > 0) throw new LoanChangeRefused("That transfer reference already paid out a loan")
   }
 
   const settled: SettledLoan[] = []

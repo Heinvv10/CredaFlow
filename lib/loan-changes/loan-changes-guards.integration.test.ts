@@ -28,12 +28,13 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
 }))
 
 import { createAppPrismaClient } from "@/lib/prisma"
+import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
 import { NCA_REFUSAL } from "./eligibility"
 import { bookLoan, changeRoutes, type LoanFixture, type LoanOptions } from "./loan-changes.integration-fixture"
 import { LOAN_CHANGE_KIND } from "./types"
 
 const suite = process.env.RUN_LOAN_CHANGES_IT === "1" ? describe.sequential : describe.skip
-const { draftAndSubmit, proposeAndApprove } = changeRoutes(holder)
+const { req, params, draftAndSubmit, proposeAndApprove } = changeRoutes(holder)
 
 suite("the database holds the rules (real Postgres, a Lesotho instance)", () => {
   let fresh: ThrowawayDb
@@ -122,6 +123,21 @@ suite("the database holds the rules (real Postgres, a Lesotho instance)", () => 
     const deleted = await directRequest(r, { type: "RATE_CHANGE", interestRatePm: 0.01 })
     await db().clientDocument.update({ where: { id: r.documentId }, data: { deletedAt: new Date() } })
     await expect(db().loanChange.create({ data: own(r, deleted) })).rejects.toThrow(/signed document/)
+  })
+
+  it("no application claims a change it is not: an in-place change's, a made-up one, another borrower's, or a withdrawn one", async () => {
+    const a = await loan()
+    const b = await loan()
+    const inPlace = await proposeAndApprove(a, { type: "RATE_CHANGE", interestRatePm: 0.03 })
+    const base = { tenantId: a.tenantId, clientId: a.fx.clientId, productId: a.fx.tenant.productId, appliedAmount: 100_000, appliedTermDays: 31, status: "UNDER_REVIEW" as const }
+    const claim = (loanChangeRequestId: string) => db().loanApplication.create({ data: { ...base, reference: `APP-${randomUUID()}`, loanChangeRequestId } })
+    await expect(claim(inPlace)).rejects.toThrow(/submitted top-up/)
+    await expect(claim("made-up")).rejects.toThrow(/submitted top-up/)
+    const { id } = await draftAndSubmit(b, { type: "REFINANCE", instalments: 12 })
+    await expect(claim(id)).rejects.toThrow(/submitted top-up/)
+    const withdrawn = await draftAndSubmit(a, { type: "REFINANCE", instalments: 12 })
+    await actionRoute(req({}), params({ id: withdrawn.id, action: "withdraw" }))
+    await expect(claim(withdrawn.id)).rejects.toThrow(/submitted top-up/)
   })
 
   it("a loan's terms take only a request of that loan", async () => {

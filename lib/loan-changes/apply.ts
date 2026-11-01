@@ -4,6 +4,7 @@
  */
 import type { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { loadSettings } from "@/lib/ifrs9/store"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
@@ -23,11 +24,17 @@ type Ctx = ApplyContext<LoanChangePayload>
 const FORBEARANCE_TYPES: readonly string[] = ["RESCHEDULE", "RESTRUCTURE", "PAYMENT_HOLIDAY"]
 
 /**
- * In default: DEFAULTED, or at the lender's IFRS 9 threshold and not yet marked so by the nightly job, or marked by an earlier change.
- * The marker sticks, so a second change, or a new loan replacing this one, cannot clear it before a run has staged it.
+ * In default: DEFAULTED, or at the lender's IFRS 9 threshold and not yet marked so by the nightly job, or marked by an earlier change no
+ * MONTHLY run has staged yet. So a second change, or a new loan replacing this one, cannot clear the marker first; once a run has
+ * staged the loan, its prior stage carries the default on, and a loan that cured is not put back in Stage 3 by a later change.
  */
-const inDefault = (loans: ChangeLoan[], asOf: Date, defaultDpd: number) => loans.some((loan) =>
-  loan.defaultedAtRestructure || loan.status === "DEFAULTED" || recomputeLoanBalances(loan.principal, loan.repaymentSchedule, asOf).daysInArrears >= defaultDpd)
+async function inDefault(tx: Tx, tenantId: string, loans: ChangeLoan[], asOf: Date): Promise<boolean> {
+  const { defaultDpd } = await loadSettings(tx, tenantId)
+  const lastRun = await tx.ifrs9Run.findFirst({ where: { tenantId, kind: "MONTHLY" }, orderBy: { runDate: "desc" }, select: { runDate: true } })
+  const staged = (loan: ChangeLoan) => loan.restructuredAt !== null && lastRun?.runDate != null && sastCalendarDate(loan.restructuredAt) < lastRun.runDate.toISOString().slice(0, 10)
+  return loans.some((loan) => (loan.defaultedAtRestructure && !staged(loan)) || loan.status === "DEFAULTED"
+    || recomputeLoanBalances(loan.principal, loan.repaymentSchedule, asOf).daysInArrears >= defaultDpd)
+}
 
 export const isForbearance = (type: string, loans: ChangeLoan[], asOf: Date) =>
   FORBEARANCE_TYPES.includes(type) || loans.some((loan) => inArrears(loan, asOf))
@@ -51,7 +58,7 @@ const scheduleRow = (tenantId: string, loanId: string) => (row: FreshRow) => ({
 
 async function applyInPlace(tx: Tx, ctx: Ctx, { loan, plan }: InPlaceComputed): Promise<void> {
   const { tenantId, request, payload, checker, now } = ctx
-  const defaulted = inDefault([loan], now, (await loadSettings(tx, tenantId)).defaultDpd)
+  const defaulted = await inDefault(tx, tenantId, [loan], now)
   const restructured = defaulted || isForbearance(payload.type, [loan], now)
   for (const row of plan.trim) {
     await tx.repaymentSchedule.update({
@@ -111,7 +118,7 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
   const { tenantId, request, payload, checker, now } = ctx
   const { primary, settled, settledCents, newMoneyCents, interestRatePm, plan } = computed
   const client = primary.client!
-  const defaulted = inDefault(settled.map((s) => s.loan), now, (await loadSettings(tx, tenantId)).defaultDpd)
+  const defaulted = await inDefault(tx, tenantId, settled.map((s) => s.loan), now)
   const restructured = defaulted || isForbearance(payload.type, settled.map((s) => s.loan), now)
   const payoutReference = payload.type === "TOP_UP" ? payload.payoutReference : null
   const termDays = plan.terms.instalments * PERIOD_DAYS[plan.terms.frequency]

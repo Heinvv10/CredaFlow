@@ -7,7 +7,7 @@ vi.mock("@/lib/audit", () => ({ AuditAction: new Proxy({}, { get: (_t, key) => k
 import { applyLoanChange } from "./apply"
 import type { LoanChangePayload } from "./types"
 
-function recordingTx(defaultDpd = 90) {
+function recordingTx(defaultDpd = 90, lastRun: string | null = null) {
   const calls: string[] = []
   const writes: Array<{ call: string; data: Record<string, unknown> }> = []
   const model = (name: string) => new Proxy({}, { get: (_t, method) => async (args: { data?: Record<string, unknown> }) => { calls.push(`${name}.${String(method)}`); writes.push({ call: `${name}.${String(method)}`, data: args?.data ?? {} }); return { id: "x" } } })
@@ -16,6 +16,7 @@ function recordingTx(defaultDpd = 90) {
       if (key === "$queryRaw") return async (_s: TemplateStringsArray, id: string) => { calls.push(`lock ${id}`); return [] }
       if (key === "$executeRawUnsafe") return async (sql: string) => { calls.push(sql); return 0 }
       if (key === "ifrs9Config") return { findUnique: async () => ({ defaultDpd }) }
+      if (key === "ifrs9Run") return { findFirst: async () => (lastRun ? { runDate: new Date(`${lastRun}T00:00:00.000Z`) } : null) }
       return model(String(key))
     },
   })
@@ -26,7 +27,7 @@ const plan = {
   trim: [], remove: [], fresh: [], rows: [], terms: { frequency: "MONTHLY", structure: "AMORTISING", graceKind: "NONE", graceInstalments: 0, instalments: 3 },
   interestRatePm: 0.03, totalInterest: 0, totalRepayable: 0, maturityDate: new Date(0), nextPaymentDate: new Date(0), outstandingPrincipal: 0, arrearsAmount: 0, daysInArrears: 0, deferredInterest: 0,
 }
-const loan = { id: "l2", status: "ACTIVE", principal: 1, defaultedAtRestructure: false, terms: [{ sequence: 1, productVersionId: null }], repaymentSchedule: [], lastPaymentDate: null }
+const loan = { id: "l2", status: "ACTIVE", principal: 1, defaultedAtRestructure: false, restructuredAt: null, terms: [{ sequence: 1, productVersionId: null }], repaymentSchedule: [], lastPaymentDate: null }
 const ctx = (payload: LoanChangePayload) => ({ tenantId: "t", request: { id: "r", makerId: "m" }, payload, checker: { id: "c", email: "c@test.invalid", role: "ADMIN" }, now: new Date(0) }) as never
 
 describe("applyLoanChange", () => {
@@ -72,6 +73,21 @@ describe("applyLoanChange", () => {
     const { tx, writes } = recordingTx()
     await applyLoanChange(tx, ctx({ type: "RATE_CHANGE", loanId: "l2", interestRatePm: 0.03, reason: "reason", signedDocumentId: "d" }))
     expect(writes.find((w) => w.call === "loan.update")?.data).toMatchObject({ restructuredAt: new Date(0), defaultedAtRestructure: true })
+  })
+
+  it("once a run has staged the loan the marker stops: a later change does not put a cured loan back in Stage 3", async () => {
+    const marked = { ...loan, defaultedAtRestructure: true, restructuredAt: new Date("2026-03-10T10:00:00Z") }
+    const rateCut = ctx({ type: "RATE_CHANGE", loanId: "l2", interestRatePm: 0.03, reason: "reason", signedDocumentId: "d" })
+    compute.result = { scope: "IN_PLACE", loan: marked, plan }
+    const beforeRun = recordingTx(90, "2026-02-28")
+    await applyLoanChange(beforeRun.tx, rateCut)
+    expect(beforeRun.writes.find((w) => w.call === "loan.update")?.data).toMatchObject({ defaultedAtRestructure: true })
+    const sameDay = recordingTx(90, "2026-03-10")
+    await applyLoanChange(sameDay.tx, rateCut)
+    expect(sameDay.writes.find((w) => w.call === "loan.update")?.data).toMatchObject({ defaultedAtRestructure: true })
+    const afterRun = recordingTx(90, "2026-03-31")
+    await applyLoanChange(afterRun.tx, rateCut)
+    expect(afterRun.writes.find((w) => w.call === "loan.update")?.data).not.toHaveProperty("restructuredAt")
   })
 
   it("reads default at the lender's own threshold, not a fixed 90 days", async () => {

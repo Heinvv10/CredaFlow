@@ -181,6 +181,7 @@ export async function PATCH(
               clientId: targetClientId,
               productId: targetProductId,
               status: { in: [...OPEN_APPLICATION_STATUSES] },
+              loanChangeRequestId: null,
             },
             select: { id: true, reference: true, status: true },
           })

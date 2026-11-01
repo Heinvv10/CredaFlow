@@ -113,6 +113,61 @@ function afterReschedule() {
   return { tested, lost }
 }
 
+/** Arrears principal a reschedule moved stays marked through any stack of later changes, and the rows always add up. */
+function stackedMarks() {
+  const rnd = maker(4)
+  const asOf = new Date("2026-08-15T10:00:00Z")
+  const lost: unknown[] = []
+  let tested = 0
+  const openMarks = (rows: readonly PlanRow[]) => rows.filter((r) => r.totalPaid < r.totalDue).reduce((s, r) => s + (r.carriedPrincipalDue ?? 0), 0)
+  for (let run = 0; run < 4000; run++) {
+    const P = 10_000 + rnd(3_000_000)
+    const n = 2 + rnd(24)
+    const fee = rnd(2) ? 0 : rnd(5_000)
+    const interestModel = rnd(2) ? "REDUCING_BALANCE" as const : "FLAT" as const
+    const rate = (1 + rnd(9)) / 100
+    const startDate = new Date(asOf.getTime() - rnd(500) * 86_400_000)
+    const structure = (["AMORTISING", "AMORTISING", "INTEREST_ONLY", "BULLET"] as const)[rnd(4)]!
+    const frequency = (["MONTHLY", "MONTHLY", "WEEKLY", "FORTNIGHTLY"] as const)[rnd(4)]!
+    const generated = generateSchedule({ principalCents: P, interestRatePm: rate, interestModel, monthlyServiceFeeCents: fee, startDate, terms: { frequency, structure, graceKind: "NONE", graceInstalments: 0, instalments: n } }).schedule
+    const dueCount = generated.filter((r) => r.dueDate <= asOf).length
+    const paidCount = rnd(dueCount + 1)
+    const rows: PlanRow[] = generated.map((r, i) => ({ id: `r${i}`, installmentNo: r.installmentNo, dueDate: r.dueDate, principalDue: r.principalDue, interestDue: r.interestDue, feesDue: r.feesDue, totalDue: r.totalDue, totalPaid: i < paidCount ? r.totalDue : 0, paidAt: null }))
+    if (rows.every((r) => r.totalPaid >= r.totalDue)) continue
+    const base = { loan: { principal: P, interestRatePm: rate, interestModel, monthlyServiceFee: fee, startDate }, frequency, structure, asOf }
+    const ahead = rows.find((r) => r.dueDate > asOf && r.totalPaid < r.totalDue)
+    const first = new Date((ahead ? ahead.dueDate.getTime() : asOf.getTime() + 70 * 86_400_000) + 2 * 3_600_000).toISOString().slice(0, 10)
+    let current = planInPlace({ ...base, rows, change: { type: "RESCHEDULE", firstDueDate: first } }).rows.map((r, i): PlanRow => ({ ...r, id: `a${i}`, paidAt: null }))
+    let rateNow = rate
+    for (let step = 0; step < 3 && openMarks(current) > 0; step++) {
+      const change = [{ type: "TERM_CHANGE" as const, instalments: 1 + rnd(36) }, { type: "RATE_CHANGE" as const, interestRatePm: rnd(10) / 100 }, { type: "PAYMENT_HOLIDAY" as const, holidayInstalments: 1 + rnd(3) }][rnd(3)]!
+      const before = openMarks(current)
+      let next
+      try {
+        next = planInPlace({ ...base, loan: { ...base.loan, interestRatePm: rateNow }, rows: current, change })
+      } catch (error) {
+        if (/reschedule|No principal/.test(String(error))) break
+        throw error
+      }
+      tested++
+      if (openMarks(next.rows.map((r, i) => ({ ...r, id: `x${i}`, paidAt: null }))) !== before) lost.push({ why: "marks", change, structure, interestModel, frequency })
+      if (next.rows.reduce((s, r) => s + r.principalDue, 0) !== P) lost.push({ why: "principal", change, structure })
+      if (next.rows.some((r) => r.principalDue < 0 || r.interestDue < 0 || r.feesDue < 0 || r.totalDue !== r.principalDue + r.interestDue + r.feesDue)) lost.push({ why: "row", change, structure })
+      current = next.rows.map((r, i): PlanRow => ({ ...r, id: `b${step}${i}`, paidAt: null }))
+      rateNow = next.interestRatePm
+    }
+  }
+  return { tested, lost }
+}
+
+describe("through a stack of changes", () => {
+  it("moved principal stays marked and bears no interest", () => {
+    const { tested, lost } = stackedMarks()
+    expect(tested).toBeGreaterThan(1_000)
+    expect(lost.slice(0, 3)).toEqual([])
+  })
+})
+
 describe("after a reschedule", () => {
   it("carried interest stands, same terms move nothing, the rows add up", () => {
     const { tested, lost } = afterReschedule()

@@ -613,6 +613,7 @@ it("PATCH action:update — maps a database open-tuple collision to a verified 4
       clientId: "c1",
       productId: "p1",
       status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED"] },
+      loanChangeRequestId: null,
     },
     select: { id: true, reference: true, status: true },
   })
