@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
+import { AuditAction } from "@/lib/audit"
+import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 
 export async function PATCH(
   req: NextRequest,
@@ -30,9 +32,27 @@ export async function PATCH(
       const saved = await prisma.$transaction(async (tx) => {
         const app = await tx.loanApplication.findUnique({
           where: { id, tenantId: tenant.id },
-          select: { id: true },
+          select: { id: true, disclosureRegime: true },
         })
         if (!app) return false
+
+        // The NCA s81 assessment and the declaration it rests on are not made on a key-facts application, so nothing may
+        // stamp them (lib/non-nca-documents/regime-evidence.ts). The refusal is committed: the attempt is on the record.
+        const ncaField = body.recklessLendingAssessed !== undefined || body.clientAffordabilityDeclared !== undefined
+        if (ncaField && !approvalEvidenceRules(app).recklessLendingAssessment) {
+          await tx.auditLog.create({
+            data: {
+              tenantId: tenant.id,
+              action: AuditAction.COMPLIANCE_UPDATE_REFUSED,
+              entity: "LoanApplication",
+              entityId: id,
+              userId: guard.user.id,
+              userEmail: guard.user.email,
+              newValue: { reason: "KEY_FACTS", recklessLendingAssessed: body.recklessLendingAssessed, clientAffordabilityDeclared: body.clientAffordabilityDeclared },
+            },
+          })
+          return "refused" as const
+        }
 
         await tx.loanApplication.update({
           where: { id, tenantId: tenant.id },
@@ -70,6 +90,9 @@ export async function PATCH(
       })
       if (!saved) {
         return NextResponse.json({ error: "Application not found" }, { status: 404 })
+      }
+      if (saved === "refused") {
+        return NextResponse.json({ error: "A key-facts application has no NCA reckless-lending assessment or affordability declaration to record." }, { status: 422 })
       }
 
       return NextResponse.json({ success: true })

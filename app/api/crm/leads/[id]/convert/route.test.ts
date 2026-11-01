@@ -71,6 +71,7 @@ vi.mock("@/lib/utils", () => ({
 const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
 vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: screenOnSubmitMock }))
 
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { POST } from "./route"
 
 const context = { params: Promise.resolve({ id: "lead-1" }) }
@@ -381,6 +382,22 @@ describe("POST /api/crm/leads/[id]/convert affordability evidence", () => {
         }),
       }),
     })
+  })
+
+  it("stamps the NCA declarations on a South African conversion and neither on a key-facts one: nobody made an s81 assessment", async () => {
+    await POST(request(), context)
+    expect(applicationCreateMock.mock.calls[0][0].data).toMatchObject({ recklessLendingAssessed: true, recklessLendingAssessedById: "officer-1", clientAffordabilityDeclaredAt: expect.any(Date) })
+
+    applicationCreateMock.mockClear()
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    try {
+      await POST(request(), context)
+      const data = applicationCreateMock.mock.calls[0]?.[0]?.data
+      expect(data).toBeDefined()
+      for (const stamp of ["recklessLendingAssessed", "recklessLendingAssessedAt", "recklessLendingAssessedById", "clientAffordabilityDeclaredAt"]) expect(data).not.toHaveProperty(stamp)
+    } finally {
+      resetActiveJurisdiction()
+    }
   })
 
   it("fails closed when the mandatory submission audit cannot be written", async () => {

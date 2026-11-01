@@ -27,6 +27,7 @@ import { ownAwareSubmissionSnapshot } from "@/lib/affordability/own-lender-debt-
 import { AuditAction } from "@/lib/audit"
 import { verifyStoredCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 
 // PATCH supports two, mutually exclusive request shapes on the same route:
 //   1. `{ action: "update", ...ApplicationWizardData }` — the resumed wizard
@@ -74,7 +75,7 @@ export async function PATCH(
 
           const application = await tx.loanApplication.findUnique({
             where: { id, tenantId: tenant.id },
-            select: { id: true, status: true, updatedAt: true, affordabilityResult: true, inputStaffIds: true },
+            select: { id: true, status: true, updatedAt: true, affordabilityResult: true, inputStaffIds: true, disclosureRegime: true },
           })
           if (!application) return { kind: "not_found" as const }
           if (application.status !== "DRAFT") return { kind: "not_draft" as const }
@@ -84,7 +85,7 @@ export async function PATCH(
             body as PrepareApplicationInput,
             tenant.id,
             guard.user.id,
-            { action: "update" },
+            { action: "update", disclosureRegime: application.disclosureRegime },
             tx,
           )
           if (!prepared.ok) return { kind: "prepare_error" as const, prepared }
@@ -280,6 +281,7 @@ export async function PATCH(
           creditLifeDisclosureAcknowledgedAt: true,
           creditLifeDisclosureAcknowledgedBy: true,
           creditLifeDisclosureSha256: true,
+          disclosureRegime: true,
           client: {
             select: {
               grossMonthlyIncome: true,
@@ -316,7 +318,8 @@ export async function PATCH(
       if (await isAssetFinanceApplication(tx, tenant.id, id)) return { kind: "asset_finance" as const }
       // Submission snapshots consumer affordability; an entity borrower is refused.
       if (!hasClientBorrower(application)) return { kind: "entity_borrower" as const }
-      if (!verifyStoredCreditLifeDisclosure(application, {
+      // A key-facts draft (a jurisdiction without the NCA) records no credit-life election: the page has no step for one.
+      if (approvalEvidenceRules(application).creditLifeElection && !verifyStoredCreditLifeDisclosure(application, {
         principalCents: application.appliedAmount,
         termDays: application.appliedTermDays,
       }).ok) {

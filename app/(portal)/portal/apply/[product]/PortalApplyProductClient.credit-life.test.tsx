@@ -79,3 +79,36 @@ describe("PortalApplyProductClient when credit-life cover is not available", () 
     expect(sent).toMatchObject({ creditLifeElection: "DECLINED", creditLifeDisclosureAcknowledged: true })
   })
 })
+
+describe("PortalApplyProductClient for a key-facts applicant", () => {
+  let renderer!: ReactTestRenderer
+
+  beforeEach(async () => {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    await act(async () => {
+      renderer = create(
+        <PortalApplyProductClient
+          lenderName="Acme Lending" ncrNumber={null} productKey="personal" ncaDeclarations={false}
+          product={{ id: "p1", name: "Personal Loan", code: "PERSONAL", productType: "PERSONAL", minAmount: 200_000, maxAmount: 10_000_000, minTermDays: 90, maxTermDays: 90 }}
+          client={{ firstName: "Synthetic", lastName: "Customer", idNumber: "9912310000085", phone: "0820000301", email: "synthetic@example.test", monthlyIncome: 2_000_000, monthlyExpenses: 500_000, existingDebt: 0 }}
+          qualification={null} creditLifeOffer={null}
+        />,
+      )
+    })
+  })
+
+  afterEach(async () => {
+    await act(async () => renderer.unmount())
+    delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  })
+
+  it("asks for neither the National Credit Act declaration nor the PASQ, and can submit without them", async () => {
+    const text = JSON.stringify(renderer.toJSON())
+    expect(text).not.toContain("National Credit Act")
+    expect(text).not.toContain("Pre-Agreement Statement")
+    const change = (id: string, value: string) => act(async () => renderer.root.findByProps({ id }).props.onChange({ target: { value } }))
+    await change("amount", "5000")
+    await change("purpose", "stock purchase")
+    expect(renderer.root.findAllByType("button").find((b) => b.props.type === "submit")!.props.disabled).toBe(false)
+  })
+})
