@@ -56,6 +56,7 @@ const BOB = "client-bob"
 
 function application(id: string, clientId: string, email: string, firstName: string, tenantId = "tenant-1") {
   return {
+    loanChangeRequestId: null,
     id,
     tenantId,
     clientId,
