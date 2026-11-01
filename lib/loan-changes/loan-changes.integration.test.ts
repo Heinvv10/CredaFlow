@@ -14,6 +14,7 @@ import { NextRequest } from "next/server"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
+import { runScreening } from "@/lib/screening/run"
 import { runWithTenant } from "@/lib/tenant-scope"
 
 const holder = vi.hoisted(() => ({ prisma: null as unknown, tenantId: "", user: { id: "", email: "", role: "", totpVerified: true } }))
@@ -151,6 +152,11 @@ suite("loan changes on a Lesotho instance (real Postgres, real routes)", () => {
     expect(view.applied.map((c) => c.type)).toEqual(["TERM_CHANGE", "PAYMENT_HOLIDAY"])
     expect(view.terms.map((t) => [t.sequence, t.graceKind])).toEqual([[1, null], [2, "FULL"], [3, "NONE"]])
     expect(view.requests).toHaveLength(2)
+    // A read-only user sees what happened to the loan, not the proposals or the borrower's document names.
+    holder.user = { ...holder.user, role: "READONLY" }
+    const readonly = await (await changesRoute(req(), params({ id: l.loanId }))).json() as { applied: unknown[]; requests: unknown[]; documents: unknown[]; canPropose: boolean }
+    expect(readonly).toMatchObject({ canPropose: false, requests: [], documents: [] })
+    expect(readonly.applied).toHaveLength(2)
   })
 
   it("a restructure cures a defaulted loan's arrears, carries what fell due and records the status change", async () => {
@@ -266,9 +272,21 @@ suite("loan changes on a Lesotho instance (real Postgres, real routes)", () => {
     expect(reversal.status).toBe(409)
   })
 
+  it("new money needs a screened borrower: no provider, or a borrower never screened, refuses a top-up", async () => {
+    const l = await loan()
+    const topUp = { type: "TOP_UP", newMoneyCents: 150_000, payoutReference: "EFT-SYN-1", instalments: 10 }
+    const unconfigured = (await draftAndSubmit(l, topUp)).submitted
+    expect(unconfigured.status).toBe(422)
+    expect(((await unconfigured.json()) as { error: string }).error).toMatch(/no screening provider/)
+    await db().tenantConfig.update({ where: { tenantId: l.tenantId }, data: { screeningProvider: "simulated" } })
+    expect((await draftAndSubmit(l, topUp)).submitted.status).toBe(422)
+  })
+
   it("a top-up pays out only the new money: the ledger's bank moves by it, both books tie", async () => {
     const l = await loan()
     await pay(l, await dueRowsTotal(l.loanId, 3))
+    await db().tenantConfig.update({ where: { tenantId: l.tenantId }, data: { screeningProvider: "simulated" } })
+    await runWithTenant(l.tenantId, () => runScreening({ tenantId: l.tenantId, subject: { clientId: l.fx.clientId }, trigger: "MANUAL", actor: null }))
     const id = await proposeAndApprove(l, { type: "TOP_UP", newMoneyCents: 150_000, payoutReference: "EFT-SYN-1", instalments: 10 })
     const change = await db().loanChange.findUniqueOrThrow({ where: { changeRequestId: id } })
     const newLoanId = change.newLoanId!

@@ -85,8 +85,11 @@ export async function loadLoanChangesView(tenantId: string, loanId: string, view
   const ids = [...new Set([...requests.flatMap((r) => [r.makerId, r.checkerId]), ...applied.flatMap((c) => [c.makerId, c.checkerId])].filter((id): id is string => id !== null))]
   const users = new Map((await prisma.user.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true, email: true } })).map((u) => [u.id, u.name ?? u.email]))
   const nameOf = (id: string | null) => (id ? users.get(id) ?? id : null)
+  const mayPropose = canDo(viewer.role, "propose_loan_change")
   const mayApprove = canDo(viewer.role, "approve_loan_change")
-  const presented = await Promise.all(requests.map(async (row) => {
+  // As /api/maker-checker: a request is seen by those who may make or approve its kind. What was applied is the loan's history.
+  const visible = mayPropose || mayApprove ? requests : []
+  const presented = await Promise.all(visible.map(async (row) => {
     const payload = parseLoanChangePayload(row.payload)
     const open = row.status === "DRAFT" || row.status === "SUBMITTED"
     return {
@@ -99,8 +102,8 @@ export async function loadLoanChangesView(tenantId: string, loanId: string, view
   return {
     inPlaceRefusal: changeRefusal(facts, "IN_PLACE"),
     newLoanRefusal: changeRefusal(facts, "NEW_LOAN"),
-    canPropose: canDo(viewer.role, "propose_loan_change"),
-    documents, otherLoans, requests: presented,
+    canPropose: mayPropose,
+    documents: mayPropose ? documents : [], otherLoans: mayPropose ? otherLoans : [], requests: presented,
     applied: applied.map((c) => ({
       id: c.id, type: c.type, reason: c.reason, maker: nameOf(c.makerId)!, checker: nameOf(c.checkerId)!, appliedAt: c.appliedAt.toISOString(), restructured: c.markedRestructured,
       loanId: c.loanId, newLoanId: c.newLoanId, settledCents: c.settledCents, newMoneyCents: c.newMoneyCents, signedDocumentId: c.signedDocumentId, before: c.before, after: c.after, scheduleBefore: c.scheduleBefore,

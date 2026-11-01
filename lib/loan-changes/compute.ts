@@ -101,6 +101,8 @@ async function computeNewLoan(db: Reader, tenantId: string, primary: ChangeLoan,
   })
   const screening = await readBorrowerScreening(tenantId, { clientId: primary.clientId, entityId: null })
   if (!screening.allowed) throw new LoanChangeRefused(screening.message)
+  // New money is a new credit decision: with no screening behind it, it is refused, as a key-facts application is.
+  if (payload.type === "TOP_UP" && screening.state.state === "NOT_CONFIGURED") throw new LoanChangeRefused("New money needs the borrower to be screened, and this lender has no screening provider configured")
 
   const settled: SettledLoan[] = []
   for (const loan of loans) {
