@@ -15,7 +15,7 @@ interface TermsRow {
 const pct = (decimal: number) => `${Math.round(decimal * 1_000_000) / 10_000}%`
 
 /** A variable-rate loan's rates, oldest first: each row is what the terms table holds. Shown only for a loan on a reference rate. */
-export function LoanRateHistory({ terms }: { terms: TermsRow[] }) {
+export function LoanRateHistory({ terms = [] }: { terms?: TermsRow[] }) {
   if (!terms.some((row) => row.rateBasis !== null)) return null
   return (
     <DataPanel title="Rate history" description="Follows the lender's approved reference rate. Each change regenerates the instalments still to come." density="compact">

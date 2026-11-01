@@ -22,8 +22,8 @@ import { GET as deductions } from "@/app/api/products/check-off/deductions/route
 import { POST as createGroup } from "@/app/api/products/groups/route"
 import { DELETE as deactivate, PUT as editProduct } from "@/app/api/products/loan/[id]/route"
 import { POST as createProduct } from "@/app/api/products/loan/route"
-import { POST as decideRate } from "@/app/api/products/reference-rates/[id]/decide/route"
-import { POST as recordRate } from "@/app/api/products/reference-rates/route"
+import { POST as decideRate } from "@/app/api/products/lending-rates/[id]/decide/route"
+import { POST as recordRate } from "@/app/api/products/lending-rates/route"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { purgeAuditRowsForTest } from "@/lib/audit/audit-rows.test-helpers"
 import { sastCalendarDate } from "@/lib/date/sast"
@@ -77,11 +77,11 @@ const proposeVersion = async (productId: string, cfg: Record<string, unknown>) =
 }
 const approveRate = async (effectiveDate: string, rate: string, basis = "PRIME") => {
   signIn("maker")
-  const recorded = await recordRate(request("/api/products/reference-rates", "POST", { basis, effectiveDate, rate }))
+  const recorded = await recordRate(request("/api/products/lending-rates", "POST", { basis, effectiveDate, rate }))
   expect(recorded.status).toBe(201)
   const { id } = await recorded.json()
   signIn("checker")
-  expect((await decideRate(request(`/api/products/reference-rates/${id}/decide`, "POST", { decision: "APPROVE" }), { params: Promise.resolve({ id }) })).status).toBe(200)
+  expect((await decideRate(request(`/api/products/lending-rates/${id}/decide`, "POST", { decision: "APPROVE" }), { params: Promise.resolve({ id }) })).status).toBe(200)
 }
 
 /** A loan booked as the disbursement route books one: the engine's schedule, and terms sequence 1 frozen from the approval. */
@@ -354,10 +354,10 @@ suite("A5b product types, maker-checker and repricing (real Postgres, real route
   })
 
   describe("reference rates outside the NCA", () => {
-    const decide = (id: string, decision = "APPROVE") => decideRate(request(`/api/products/reference-rates/${id}/decide`, "POST", { decision }), { params: Promise.resolve({ id }) })
+    const decide = (id: string, decision = "APPROVE") => decideRate(request(`/api/products/lending-rates/${id}/decide`, "POST", { decision }), { params: Promise.resolve({ id }) })
     const record = async (who: keyof typeof staff, effectiveDate: string, basis = "PRIME") => {
       signIn(who)
-      return recordRate(request("/api/products/reference-rates", "POST", { basis, effectiveDate, rate: "0.1" }))
+      return recordRate(request("/api/products/lending-rates", "POST", { basis, effectiveDate, rate: "0.1" }))
     }
 
     it("takes two people, and only the bases a variable rate may follow", async () => {

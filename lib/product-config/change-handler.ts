@@ -66,7 +66,10 @@ export const loanProductHandler: ChangeHandler<LoanProductPayload> = {
       await logAuditStrict({ ...who, action: AuditAction.LOAN_PRODUCT_DEACTIVATED, entityId: before.id, oldValue: { active: before.active }, newValue: { active: false, ...provenance } }, tx)
       return
     }
-    const updated = await tx.loanProduct.update({ where: { id: before.id, tenantId }, data: payload.product })
+    // The fields as the rules leave them: a stable code pinned, a field a version carries kept as the version made it, whoever drafted the payload.
+    const check = await checkProductUpdate(tx, tenantId, before, payload.product)
+    if ("refusal" in check) throw refused(check.refusal)
+    const updated = await tx.loanProduct.update({ where: { id: before.id, tenantId }, data: check.data })
     await logAuditStrict({ ...who, action: AuditAction.LOAN_PRODUCT_UPDATED, entityId: before.id, oldValue: audited(before), newValue: { ...audited(updated), ...provenance } }, tx)
   },
 }

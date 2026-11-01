@@ -15,7 +15,7 @@ import { VARIABLE_RATE_BASES } from "@/lib/product-engine/types"
 import { prisma } from "@/lib/prisma"
 
 const BASES = { PRIME: "Prime", LENDER_BASE: "Lender base rate" }
-const ENDPOINT = "/api/products/reference-rates"
+const ENDPOINT = "/api/products/lending-rates"
 
 /** The reference rates a non-NCA lender's variable-rate products follow. One person records a value, another approves it; only then does anything reprice. */
 export default async function ProductReferenceRatesPage() {

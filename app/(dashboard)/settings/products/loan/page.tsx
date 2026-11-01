@@ -44,7 +44,7 @@ export default async function LoanProductsPage() {
         <div className="flex items-center gap-4 text-sm">
           <Link href="/settings/products/versions" className="underline">Versions and pricing</Link>
           {!isNcaJurisdiction() && <>
-            <Link href="/settings/products/reference-rates" className="underline">Reference rates</Link>
+            <Link href="/settings/products/lending-rates" className="underline">Reference rates</Link>
             <Link href="/settings/products/groups" className="underline">Lending groups</Link>
             <Link href="/settings/products/check-off" className="underline">Check-off deductions</Link>
           </>}

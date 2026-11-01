@@ -80,6 +80,12 @@ describe("loanProductHandler", () => {
     expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "LOAN_PRODUCT_UPDATED", oldValue: expect.objectContaining({ name: "Salary loan" }), newValue: expect.objectContaining({ name: "Renamed", makerId: "maker" }) }), t)
   })
 
+  it("writes a versioned product's versioned fields as the version made them, whatever the payload carries", async () => {
+    const t = tx({ productVersion: { count: vi.fn(async () => 1) } })
+    await loanProductHandler.apply(t as never, context({ action: "UPDATE", reason: "Renamed", productId: "p1", product: { ...fields, name: "Renamed", interestRatePm: 0.020004 } } as never))
+    expect(t.loanProduct.update).toHaveBeenCalledWith({ where: { id: "p1", tenantId: "t" }, data: expect.objectContaining({ name: "Renamed", interestRatePm: 0.02 }) })
+  })
+
   it("deactivates, audited", async () => {
     const t = tx()
     await loanProductHandler.apply(t as never, context({ action: "DEACTIVATE", reason: "Withdrawn", productId: "p1" } as never))

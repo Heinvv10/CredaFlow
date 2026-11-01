@@ -13,7 +13,7 @@ describe("GET /api/website/loan-pricing (Fair Score E4)", () => {
     const res = await GET(new NextRequest("http://localhost/api/website/loan-pricing"))
     expect(res.status).toBe(200)
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", active: true, productType: { not: "ASSET_FINANCE" }, repaymentStructured: false },
+      where: { tenantId: "tenant-1", active: true, productType: { notIn: ["ASSET_FINANCE", "SALARY_BACKED", "SME", "GROUP", "REVOLVING"] }, repaymentStructured: false },
     }))
   })
 })

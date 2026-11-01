@@ -83,7 +83,7 @@ describe("consumer products only (Fair Score E4)", () => {
     findMany.mockResolvedValue([MICRO30_ROW])
     await getLivePricingServer("tenant-1")
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", active: true, productType: { not: "ASSET_FINANCE" }, repaymentStructured: false },
+      where: { tenantId: "tenant-1", active: true, productType: { notIn: ["ASSET_FINANCE", "SALARY_BACKED", "SME", "GROUP", "REVOLVING"] }, repaymentStructured: false },
     }))
   })
 })
