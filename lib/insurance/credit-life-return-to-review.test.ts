@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import {
   CREDIT_LIFE_DISCLOSURE_VERSION,
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
@@ -148,5 +149,14 @@ describe("creditLifeEvidenceSurvivesReturnToReview", () => {
       TERMS,
       OFFER,
     )).toEqual({ retain: false, reason: "unverifiable" })
+  })
+})
+
+describe("a no-offer election on an NCA_PASQ application of an instance that has since left South Africa", () => {
+  afterEach(() => resetActiveJurisdiction())
+
+  it("goes stale once an offer exists, as it does in South Africa: guardLoanApplicationCreditLifeOffer judges the row on the product rows, not the instance", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(creditLifeEvidenceSurvivesReturnToReview({ ...noOfferRow(), disclosureRegime: "NCA_PASQ" }, TERMS, OFFER)).toEqual({ retain: false, reason: "offer_now_available" })
   })
 })

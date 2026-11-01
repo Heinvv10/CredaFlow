@@ -2,17 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createHash } from "node:crypto"
 import { Prisma } from "@prisma/client"
 
-const m = vi.hoisted(() => ({ application: vi.fn(), issuance: vi.fn(), updateMany: vi.fn(), audit: vi.fn(), readFile: vi.fn() }))
+const m = vi.hoisted(() => ({ application: vi.fn(), issuance: vi.fn(), updateMany: vi.fn(), audit: vi.fn(), readFile: vi.fn(), raw: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findFirst: m.application }, loanDocumentIssuance: { findFirst: m.issuance },
-    $transaction: async (fn: (tx: unknown) => unknown) => fn({ loanDocumentIssuance: { updateMany: m.updateMany } }),
+    $transaction: async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: m.raw, loanDocumentIssuance: { updateMany: m.updateMany } }),
   },
 }))
 vi.mock("@/lib/audit", () => ({ AuditAction: { KEY_FACTS_ACKNOWLEDGED: "KEY_FACTS_ACKNOWLEDGED" }, logAuditStrict: m.audit }))
 vi.mock("@/lib/storage", () => ({ readFile: m.readFile }))
 
 import { acknowledgeKeyFacts } from "./acknowledge"
+import { BORROWER_REFUSAL } from "./borrower-gate"
 
 const BYTES = Buffer.from("%PDF synthetic key facts")
 const SHA = createHash("sha256").update(BYTES).digest("hex")
@@ -26,6 +27,7 @@ beforeEach(() => {
   m.issuance.mockResolvedValue(standing)
   m.readFile.mockResolvedValue(BYTES)
   m.updateMany.mockResolvedValue({ count: 1 })
+  m.raw.mockResolvedValue([{ deceasedAt: null }])
 })
 
 describe("acknowledgeKeyFacts", () => {
@@ -45,6 +47,14 @@ describe("acknowledgeKeyFacts", () => {
     expect(await acknowledgeKeyFacts(args)).toMatchObject({ ok: false, status: 422 })
     m.issuance.mockResolvedValue({ ...standing, clientDocument: { storagePath: null, deletedAt: null } })
     expect(await acknowledgeKeyFacts(args)).toMatchObject({ ok: false, status: 422 })
+    expect(m.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses a borrower recorded as deceased, read under the lock, without saying why", async () => {
+    m.raw.mockResolvedValue([{ deceasedAt: new Date("2026-07-01T00:00:00.000Z") }])
+    const refused = await acknowledgeKeyFacts(args)
+    expect(refused).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(JSON.stringify(refused)).not.toMatch(/deceased/i)
     expect(m.updateMany).not.toHaveBeenCalled()
   })
 

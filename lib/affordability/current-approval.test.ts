@@ -667,6 +667,18 @@ describe("locked affordability approval verification", () => {
     expect(result).toEqual({ ok: false, reason: "compliance_changed" })
   })
 
+  it("refuses to bind or pay a client the lender has since recorded as deceased, in either regime", async () => {
+    for (const disclosureRegime of ["NCA_PASQ", "KEY_FACTS"]) {
+      const application = applicationFixture("APPROVED")
+      const dead = { ...application, disclosureRegime, client: { ...application.client, deceasedAt: new Date("2026-07-01T00:00:00.000Z") } }
+      const result = await verifyLockedCurrentAffordabilityApproval(transactionFor(dead as never) as never, { tenantId: "tenant-1", applicationId: "application-1" })
+      expect(result).toEqual({ ok: false, reason: "changed" })
+    }
+    // The control: the same approval of a living client verifies.
+    const alive = await verifyLockedCurrentAffordabilityApproval(transactionFor(applicationFixture("APPROVED")) as never, { tenantId: "tenant-1", applicationId: "application-1" })
+    expect(alive.ok).toBe(true)
+  })
+
   it("rejects downstream progression when approval is not bound to the PASQ hash", async () => {
     const application = applicationFixture("APPROVED")
     application.approvedPasqDocumentSha256 = null
@@ -688,6 +700,87 @@ describe("locked affordability approval verification", () => {
 // product REDUCING_BALANCE -> FLAT must not silently reprice an approved
 // R10,000 loan from 3 instalments totalling R11,892.91 to a single R12,187.00
 // bullet payment, nor block its agreement from being generated.
+describe("the evidence a locked approval needs depends on the disclosure regime", () => {
+  const candidate = async (application: ReturnType<typeof applicationFixture>, tx = transactionFor(application)) => {
+    const { approval } = buildEvidence()
+    return verifyLockedApprovalCandidate(tx as never, {
+      tenantId: "tenant-1",
+      applicationId: "application-1",
+      expectedApplicationUpdatedAt: applicationUpdatedAt,
+      expectedApproval: approval,
+      capturedAt,
+      calculationStartDate: pasqGeneratedAt,
+      capturedById: "officer-1",
+      bureauOverrideReason: null,
+      // The approval stage: no PASQ exists yet.
+      expectedPasqDocumentSha256: null,
+    })
+  }
+  const withoutNcaEvidence = (application: ReturnType<typeof applicationFixture>) => ({
+    ...application,
+    clientAffordabilityDeclaredAt: null,
+    recklessLendingAssessed: false,
+    recklessLendingAssessedAt: null,
+    recklessLendingAssessedById: null,
+    creditLifeElection: null,
+    creditLifeProductId: null,
+    creditLifeProductName: null,
+    creditLifeInsurerId: null,
+    creditLifeInsurerName: null,
+    creditLifeMonthlyPremiumCents: null,
+    creditLifeDisclosureVersion: null,
+    creditLifeDisclosureSha256: null,
+    creditLifeDisclosureAcknowledgedAt: null,
+    creditLifeDisclosureAcknowledgedBy: null,
+  })
+
+  it("passes the control: the unchanged NCA fixture is verified at the approval stage", async () => {
+    expect(await candidate(applicationFixture("UNDER_REVIEW"))).toMatchObject({ ok: true })
+  })
+
+  it.each([
+    ["the affordability declaration", { clientAffordabilityDeclaredAt: null }],
+    ["the reckless-lending assessment", { recklessLendingAssessed: false, recklessLendingAssessedAt: null, recklessLendingAssessedById: null }],
+    ["the credit-life election", { creditLifeElection: null, creditLifeDisclosureSha256: null }],
+  ])("refuses an NCA_PASQ application missing %s as compliance_changed", async (_label, missing) => {
+    for (const regime of ["NCA_PASQ", undefined]) {
+      const application = { ...applicationFixture("UNDER_REVIEW"), ...missing, disclosureRegime: regime }
+      expect(await candidate(application as never)).toEqual({ ok: false, reason: "compliance_changed" })
+    }
+  })
+
+  it("refuses an NCA_PASQ application with no bureau check and no override as bureau_missing", async () => {
+    const application = { ...applicationFixture("UNDER_REVIEW"), disclosureRegime: "NCA_PASQ" }
+    const tx = transactionFor(application as never)
+    tx.creditBureauCheck.findFirst.mockResolvedValue(null as never)
+    expect(await candidate(application as never, tx)).toEqual({ ok: false, reason: "bureau_missing" })
+  })
+
+  it("does not ask a KEY_FACTS application for any of them: the same evidence missing is not a compliance or bureau refusal", async () => {
+    const application = { ...withoutNcaEvidence(applicationFixture("UNDER_REVIEW")), disclosureRegime: "KEY_FACTS" }
+    const tx = transactionFor(application as never)
+    tx.creditBureauCheck.findFirst.mockResolvedValue(null as never)
+    const result = await candidate(application as never, tx)
+    // It stops later, on the frozen fingerprint (this candidate was built for the NCA fixture's bureau and cover), not on a gate this regime does not have.
+    expect(result).toMatchObject({ ok: false })
+    expect(result).not.toMatchObject({ reason: "compliance_changed" })
+    expect(result).not.toMatchObject({ reason: "bureau_missing" })
+  })
+
+  it("still refuses a KEY_FACTS application that carries ACCEPTED cover, and one whose client is recorded as deceased", async () => {
+    const base = { ...withoutNcaEvidence(applicationFixture("UNDER_REVIEW")), disclosureRegime: "KEY_FACTS" }
+    expect(await candidate({ ...base, creditLifeElection: "ACCEPTED" } as never)).toEqual({ ok: false, reason: "compliance_changed" })
+    const dead = { ...base, client: { ...base.client, deceasedAt: new Date("2026-07-01T00:00:00.000Z") } }
+    expect(await candidate(dead as never)).toEqual({ ok: false, reason: "compliance_changed" })
+  })
+
+  it("refuses a deceased client of an NCA_PASQ application too: the lender's record is regime-independent", async () => {
+    const application = applicationFixture("UNDER_REVIEW")
+    const dead = { ...application, client: { ...application.client, deceasedAt: new Date("2026-07-01T00:00:00.000Z") } }
+    expect(await candidate(dead as never)).toEqual({ ok: false, reason: "compliance_changed" })
+  })
+})
+
 describe("product pricing terms are frozen at approval", () => {
   // The repriced product below is deliberately a WORSE deal on a DIFFERENT
   // interest model, so if the verifier ever re-derives from the live row again
