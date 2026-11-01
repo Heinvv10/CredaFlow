@@ -22,6 +22,7 @@ import { ownAwareSubmissionSnapshot } from "@/lib/affordability/own-lender-debt-
 import { Prisma } from "@prisma/client"
 import { lockNewApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { creditBlock } from "@/lib/clients/status"
+import { approvalEvidenceRules, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 
 interface LockedLead {
   id: string
@@ -653,10 +654,13 @@ export async function POST(
             ) as unknown as Prisma.InputJsonValue,
             status: "SUBMITTED",
             submittedAt: now,
-            clientAffordabilityDeclaredAt: now,
-            recklessLendingAssessed: true,
-            recklessLendingAssessedAt: now,
-            recklessLendingAssessedById: guard.user.id ?? "admin",
+            // The NCA declarations are stamped only where the NCA asks for them: a key-facts application has none to attest.
+            ...(approvalEvidenceRules({ disclosureRegime: newApplicationRegime() }).recklessLendingAssessment && {
+              clientAffordabilityDeclaredAt: now,
+              recklessLendingAssessed: true,
+              recklessLendingAssessedAt: now,
+              recklessLendingAssessedById: guard.user.id ?? "admin",
+            }),
             inputStaffIds: guard.user.id ? [guard.user.id] : [],
           },
         })

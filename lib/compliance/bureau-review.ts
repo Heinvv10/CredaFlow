@@ -41,11 +41,13 @@ async function currentReview(
       status: true,
       clientId: true,
       bureauReviewGeneration: true,
+      disclosureRegime: true,
     },
   })
-  return application?.status === "UNDER_REVIEW" &&
+  const current = application?.status === "UNDER_REVIEW" &&
     application.clientId === opts.clientId &&
     application.bureauReviewGeneration === opts.reviewGeneration
+  return current ? { disclosureRegime: application.disclosureRegime } : null
 }
 
 async function storeComplianceRecordIfCurrent(
@@ -73,7 +75,24 @@ export async function runBureauReviewCheck(
 ): Promise<BureauReviewResult> {
   let primary = "experian"
   try {
-    if (!(await currentReview(prisma, opts))) return "stale"
+    const review = await currentReview(prisma, opts)
+    if (!review) return "stale"
+
+    // A key-facts application (a jurisdiction without the NCA) has no South African bureau to ask: the borrower is not on
+    // one and the enquiry would be a South African identity check on a foreign number. Recorded as skipped, not failed, so the
+    // review does not wait on a retry (lib/non-nca-documents/regime-evidence.ts: approval does not require the check).
+    if (review.disclosureRegime === "KEY_FACTS") {
+      const stored = await storeComplianceRecordIfCurrent(opts, {
+        tenantId: opts.tenantId,
+        type: "CREDIT_BUREAU_CHECK",
+        status: "ACKNOWLEDGED",
+        referenceId: opts.applicationId,
+        completedAt: new Date(),
+        // No provider: no enquiry was made of anyone.
+        data: { clientId: opts.clientId, reviewGeneration: opts.reviewGeneration, skipped: true, reason: "NOT_APPLICABLE_JURISDICTION" },
+      })
+      return stored ? "skipped" : "stale"
+    }
 
     const config = await prisma.tenantConfig.findUnique({
       where: { tenantId: opts.tenantId },
@@ -155,7 +174,7 @@ export async function runBureauReviewCheck(
       // An origination enquiry is for an approval: a bureau whose report could
       // not support one is recorded as skipped, never called and billed.
       eligible: isApprovalBureau,
-      beforeAttempt: () => currentReview(prisma, opts),
+      beforeAttempt: async () => (await currentReview(prisma, opts)) !== null,
     })
     if (run.stale) return "stale"
 

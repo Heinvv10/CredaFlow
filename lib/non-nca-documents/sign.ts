@@ -4,6 +4,7 @@ import { readFile } from "@/lib/storage"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
 import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
+import { BORROWER_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 
 export type SignResult =
@@ -69,6 +70,8 @@ export async function signKeyFactsAgreement(args: {
   const now = new Date()
   try {
     await prisma.$transaction(async (tx) => {
+      // First, so a refusal spends no one-time code.
+      await requireLivingBorrower(tx, { tenantId, applicationId, clientId, refusal: BORROWER_REFUSAL })
       if (otpNeeded) await consumeSigningOtp(tx, { ...binding, challengeId: args.signingOtpChallengeId!, method: "portal", now })
       const claimed = await tx.loanApplication.updateMany({
         where: { id: applicationId, tenantId, status: "APPROVED", agreementSignedAt: null, agreementDocumentId: application.agreementDocumentId, agreementDocumentSha256: application.agreementDocumentSha256 },

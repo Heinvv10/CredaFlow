@@ -130,6 +130,7 @@ vi.mock("@/lib/compliance/sa-business-calendar.server", () => ({
   quotationValidUntilDateFromDatabase: vi.fn().mockResolvedValue("2026-07-30"),
 }))
 
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { GET, POST } from "./route"
 
 const context = { params: Promise.resolve({ id: "app-1" }) }
@@ -594,6 +595,18 @@ describe("versioned PASQ artifact route", () => {
       applicationFindUniqueMock.mockResolvedValue(noOffer(100_000))
       const response = await POST(request("POST"), context)
       expect((await response.json()).creditLifeEvidence).not.toBe("availability_changed")
+    })
+
+    it("goes stale for an NCA_PASQ application on an instance that has left South Africa too: the approval guard judges it on the product rows", async () => {
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      try {
+        applicationFindUniqueMock.mockResolvedValue({ ...noOffer(100_100), disclosureRegime: "NCA_PASQ" })
+        const response = await POST(request("POST"), context)
+        expect(response.status).toBe(409)
+        expect((await response.json()).creditLifeEvidence).toBe("availability_changed")
+      } finally {
+        resetActiveJurisdiction()
+      }
     })
 
     it("goes stale above the threshold once a product is configured", async () => {

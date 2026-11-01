@@ -9,7 +9,8 @@ import { computeQualification } from "@/lib/qualify"
 import { ArrearsApplyBlock, OwnArrearsNotice } from "../OwnArrearsNotice"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
+import { approvalEvidenceRules, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import { CUSTOMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 // Resolve by tenant-scoped UNIQUE product code, never by productType:
@@ -53,7 +54,7 @@ export default async function PortalApplyProductPage({
     prisma.loanProduct.findFirst({
       where: { tenantId, code: productCode, active: true, ...CUSTOMER_PRODUCT_WHERE },
     }),
-    prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId)),
+    loadCreditLifeOffer(prisma, tenantId),
   ])
 
   if (!client) redirect("/portal/login")
@@ -105,6 +106,7 @@ export default async function PortalApplyProductPage({
         existingDebt,
       }}
       qualification={qualification}
+      ncaDeclarations={approvalEvidenceRules({ disclosureRegime: newApplicationRegime() }).affordabilityDeclaration}
       creditLifeOffer={
         creditLifeProduct?.insurerId
         && creditLifeProduct.insurer

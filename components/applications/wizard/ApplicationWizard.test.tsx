@@ -115,3 +115,25 @@ describe("ApplicationWizard restore", () => {
     expect(headings(r)).toContain("Choose the client")
   })
 })
+
+describe("ApplicationWizard, the final step", () => {
+  const data: ApplicationWizardData = { ...EMPTY_APPLICATION_WIZARD_DATA, clientId: "c1", productId: "p1", appliedAmount: "5000", appliedTermDays: "30", affordabilityFlag: "PASS" }
+  const submit = (r: ReactTestRenderer) => r.root.findAllByType("button").find((b) => b.children.join("").includes("Submit for review"))!
+
+  it("holds an NCA application until the declarations are ticked", async () => {
+    params = new URLSearchParams("step=4")
+    const r = await mount({ applicationId: "a1", initialData: data })
+    expect(submit(r).props.disabled).toBe(true)
+    r.unmount()
+    const ticked = await mount({ applicationId: "a1", initialData: { ...data, pasqAcknowledged: true, affordabilityDeclared: true } })
+    expect(submit(ticked).props.disabled).toBe(false)
+    ticked.unmount()
+  })
+
+  it("lets a key-facts application submit with no NCA declaration to tick", async () => {
+    params = new URLSearchParams("step=4")
+    const r = await mount({ applicationId: "a1", initialData: data, ncaDeclarations: false })
+    expect(submit(r).props.disabled).toBe(false)
+    r.unmount()
+  })
+})

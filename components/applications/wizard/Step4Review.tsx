@@ -28,6 +28,8 @@ interface StepProps {
   clients: Client[]
   products: ApplicationProduct[]
   creditLifeOffer: CreditLifePresentedOffer | null
+  /** False for a key-facts application: the PASQ timing notice and the NCA s81 declaration are not asked of it. */
+  ncaDeclarations?: boolean
 }
 
 function Row({ label, value }: { label: string; value: ReactNode }) {
@@ -77,6 +79,7 @@ export function Step4Review({
   clients,
   products,
   creditLifeOffer,
+  ncaDeclarations = true,
 }: StepProps) {
   // A DEFERRED initiation fee is folded into instalment 1, so it can exceed the
   // level instalment. Only then is there a "first" and a "thereafter".
@@ -216,6 +219,8 @@ export function Step4Review({
         </section>
         )}
 
+        {ncaDeclarations && (
+        <>
         <FieldGroup label="" error={errors.pasqAcknowledged}>
           <label className="flex items-start gap-2 text-sm text-[var(--cf-text)] cursor-pointer">
             <input
@@ -246,6 +251,8 @@ export function Step4Review({
             </span>
           </label>
         </FieldGroup>
+        </>
+        )}
 
         {data.affordabilityFlag === "FAIL" && (
           <FieldGroup label="" error={errors.recklessLendingConfirmed}>

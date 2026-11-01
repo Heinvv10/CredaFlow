@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { readFile } from "@/lib/storage"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
+import { BORROWER_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 
 export type AcknowledgeResult = { ok: true; acknowledgedAt: Date } | { ok: false; status: 404 | 409 | 422; error: string }
@@ -48,6 +49,7 @@ export async function acknowledgeKeyFacts(args: {
   const now = new Date()
   try {
     await prisma.$transaction(async (tx) => {
+      await requireLivingBorrower(tx, { tenantId, applicationId, clientId, refusal: BORROWER_REFUSAL })
       const claimed = await tx.loanDocumentIssuance.updateMany({
         where: { id: issuance.id, tenantId, supersededAt: null, acknowledgedAt: null },
         data: { acknowledgedAt: now, acknowledgedById: clientId, acknowledgedSha256: issuance.pdfSha256 },
