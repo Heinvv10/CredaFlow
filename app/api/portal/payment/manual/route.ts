@@ -8,6 +8,7 @@ import { logAudit, AuditAction } from "@/lib/audit"
 import { callerIp, checkRateLimit } from "@/lib/rate-limit"
 import { owesNothing } from "@/lib/loan/charges-summary"
 import { recordPaymentNotification } from "@/lib/payments/payment-notifications"
+import { formatZAR } from "@/lib/utils"
 
 // Proof of payment accepts PDF/JPEG/PNG only (matches the form's accept attr).
 // Narrower than document-auth's ALLOWED_MIME_TYPES, which also permits webp.
@@ -155,7 +156,7 @@ export async function POST(req: Request) {
             documentId: created.id,
             note: [
               `[PORTAL] Client reported manual payment:`,
-              `Amount: R${(amount / 100).toFixed(2)}`,
+              `Amount: ${formatZAR(amount)}`,
               typeof reference === "string" && reference ? `Reference: ${reference}` : "",
               typeof paymentDate === "string" && paymentDate ? `Payment Date: ${paymentDate}` : "",
               typeof notes === "string" && notes ? `Notes: ${notes}` : "",

@@ -9,7 +9,9 @@ import { randomUUID } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
 import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
+import { sastCalendarDate } from "@/lib/date/sast"
 import type { LeaseFixture } from "./lease.integration-fixture"
+import { leaseShiftDays } from "./first-due.test-helpers"
 import { POST as claimsRoute } from "@/app/api/asset-finance/leases/[loanId]/claims/route"
 import { POST as claimActionRoute } from "@/app/api/asset-finance/leases/[loanId]/claims/[claimId]/[action]/route"
 import { POST as readingsRoute } from "@/app/api/asset-finance/leases/[loanId]/readings/route"
@@ -46,7 +48,9 @@ export function leaseRoutes(host: string) {
 
 /** Test setup only (triggers off): move a booked lease's dates, readings and fund `months` back. */
 export async function backdateLease(db: PrismaClient, loanId: string, months: number): Promise<void> {
-  await shiftLease(db, loanId, `${months} months`)
+  // By the lease's own day gap, not whole months: a month back does not undo a clamped month on (31 Oct + 1 month = 30 Nov; 30 Oct back)
+  const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { startDate: true } })
+  await shiftLease(db, loanId, `${leaseShiftDays(sastCalendarDate(loan.startDate), months)} days`)
 }
 
 /**

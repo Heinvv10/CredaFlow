@@ -23,7 +23,7 @@ export async function recordAssetFinanceAffordability(
     where: { id: dealId, tenantId: actor.tenantId },
     select: {
       id: true, applicationId: true, status: true, baseInstalmentCents: true, clientId: true, entityId: true,
-      application: { select: { ncaRegime: true, affordabilityNDI: true } },
+      application: { select: { disclosureRegime: true, affordabilityNDI: true } },
       financials: { select: { turnoverCents: true, avgMonthlyCreditsCents: true, existingDebtServiceCents: true } },
       affordabilityAssessment: { select: { affordable: true, combinedNdiAfterProposedCents: true } },
     },
@@ -61,10 +61,14 @@ export async function recordAssetFinanceAffordability(
   await tx.loanApplication.update({
     where: { id: deal.applicationId, tenantId: actor.tenantId },
     data: {
-      recklessLendingAssessed: true,
-      recklessLendingAssessedById: actor.userId,
-      recklessLendingAssessedAt: data.assessedAt,
-      recklessLendingNote: note,
+      // A KEY_FACTS (non-NCA jurisdiction) application carries no section 81 evidence; every NCA_PASQ one does, a ZA NON_NCA deal included
+      // (the approval evidence rules require the stamp).
+      ...(deal.application.disclosureRegime !== "KEY_FACTS" && {
+        recklessLendingAssessed: true,
+        recklessLendingAssessedById: actor.userId,
+        recklessLendingAssessedAt: data.assessedAt,
+        recklessLendingNote: note,
+      }),
       netDisposableIncome: result.combinedNdiAfterProposedCents,
     },
   })

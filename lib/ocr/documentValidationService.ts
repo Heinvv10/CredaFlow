@@ -40,6 +40,7 @@ function normalizeString(value: string | null | undefined): string {
 // Imported for use below, and re-exported so existing importers of this file
 // are unaffected.
 import { areNamesSimilar } from './name-matching'
+import { formatZAR } from "@/lib/utils"
 export { areNamesSimilar }
 
 
@@ -314,10 +315,10 @@ function validatePayslip(
       mismatches.push({
         field,
         label,
-        documentValue: `R ${(doc / 100).toFixed(2)}`,
-        recordValue: `R ${(record / 100).toFixed(2)}`,
+        documentValue: formatZAR(doc),
+        recordValue: formatZAR(record),
         severity: 'warning',
-        message: `Income differs by more than 20%: Document shows R ${(doc / 100).toFixed(2)}, client record has R ${(record / 100).toFixed(2)}`,
+        message: `Income differs by more than 20%: Document shows ${formatZAR(doc)}, client record has ${formatZAR(record)}`,
       })
     }
   }
