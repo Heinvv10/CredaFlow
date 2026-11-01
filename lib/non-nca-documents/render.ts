@@ -38,13 +38,12 @@ export async function currentApprovedTemplate(tenantId: string, key: string) {
 }
 
 /** The tokens rendered and the page made a PDF; a demo lender's opens with the SAMPLE banner. */
-export async function renderedPdf(bodyHtml: string, ctx: TokenContext, sample: boolean): Promise<Buffer> {
+export async function renderedPdf(bodyHtml: string, ctx: TokenContext, sample: boolean, notice?: string): Promise<Buffer> {
   const { html, missing } = renderTokens(bodyHtml, ctx)
   if (missing.length > 0) throw new MissingTokenError(missing)
-  const banner = sample
-    ? `<p style="border:2px solid #b45309;color:#b45309;font-weight:bold;text-align:center;padding:8px;margin:0 0 16px">${escapeHtmlText(SAMPLE_BANNER_TEXT)}</p>`
-    : ""
-  return htmlToPdf(banner + html)
+  const banners = [...(sample ? [SAMPLE_BANNER_TEXT] : []), ...(notice ? [notice] : [])]
+    .map((text) => `<p style="border:2px solid #b45309;color:#b45309;font-weight:bold;text-align:center;padding:8px;margin:0 0 16px">${escapeHtmlText(text)}</p>`)
+  return htmlToPdf(banners.join("") + html)
 }
 
 /**

@@ -21,6 +21,7 @@ import {
   type ClientInfo,
 } from "./parts"
 import { creditLifePremiumForAmount, validAmountCents } from "./amount"
+import { KeyFactsQuote } from "./KeyFactsQuote"
 import { CreditLifeElectionBox } from "./CreditLifeElectionBox"
 import { EMPTY_PO_INPUT, PoFundingFields, poInputComplete, uploadPoDocument } from "./PoFundingFields"
 import { useT } from "@/lib/i18n/client"
@@ -77,6 +78,8 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
   const [purpose, setPurpose] = useState("")
   const [category, setCategory] = useState<string>(poFunding ? "BUSINESS" : "")
   const [po, setPo] = useState(EMPTY_PO_INPUT)
+  // A key-facts applicant reads the statement for these terms before submitting (lib/non-nca-documents/pre-submission.ts).
+  const [keyFactsSha256, setKeyFactsSha256] = useState<string | null>(null)
   const [affordabilityDeclared, setAffordabilityDeclared] = useState(false)
   const [pasqDeliveryUnderstood, setPasqDeliveryUnderstood] = useState(false)
   const [creditLifeElection, setCreditLifeElection] = useState<CreditLifeElection | "">("")
@@ -120,6 +123,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
     && purpose.trim().length >= 3
     && (!poFunding || poInputComplete(po))
     && (!ncaDeclarations || (affordabilityDeclared && pasqDeliveryUnderstood))
+    && (ncaDeclarations || keyFactsSha256 !== null)
     // With no configured credit-life product there is no cover to offer, so
     // there is no election to make and nothing to acknowledge.
     && (
@@ -163,6 +167,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
           ...(poFunding ? { poNumber: po.poNumber.trim(), poBuyerName: po.poBuyerName.trim(), poDocumentId } : {}),
           affordabilityDeclared,
           pasqDeliveryUnderstood,
+          ...(keyFactsSha256 ? { keyFactsDocumentSha256: keyFactsSha256 } : {}),
           // No offer rendered ⇒ no election exists; never post the "" the
           // state initialises to — the server treats a blank as absent, but
           // the payload should be truthful in the first place.
@@ -340,6 +345,16 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
             />
             </>)}
           </div>
+          )}
+
+          {!ncaDeclarations && amountCents !== null && !amountOutOfRange && !termOutOfRange && (
+            <KeyFactsQuote
+              key={`${amountCents}:${termNum}`}
+              productCode={product.code}
+              amount={amountCents / 100}
+              termDays={fixedTerm ? undefined : termNum * termUnitDays}
+              onRead={setKeyFactsSha256}
+            />
           )}
 
           {ncaDeclarations && (<>

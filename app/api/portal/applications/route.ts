@@ -36,6 +36,7 @@ import {
 import { isClientPoDocument, parsePoFundingFacts, type PoFundingFacts } from "@/lib/applications/po-funding"
 import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
 import { approvalEvidenceRules, creditLifeOfferableUnder, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
+import { indicativeKeyFactsShown } from "@/lib/non-nca-documents/pre-submission"
 import {
   createCreditLifeDisclosureSha256,
   createCreditLifeNoOfferDisclosureSha256,
@@ -629,6 +630,16 @@ export async function POST(req: NextRequest) {
           lockedTermDays = requestedTerm
         }
 
+        // Tender 2.2.4: a key-facts applicant has been shown the statement for exactly these terms.
+        const keyFactsShown = disclosureRegime === "KEY_FACTS"
+          ? await indicativeKeyFactsShown(tx, {
+              tenantId: tenant.id, clientId: currentClient.id, sha256: body.keyFactsDocumentSha256, productId: currentProduct.id, amountCents: appliedAmount, termDays: lockedTermDays,
+            })
+          : null
+        if (disclosureRegime === "KEY_FACTS" && !keyFactsShown) {
+          return { ok: false as const, status: 422, body: { error: "Read the key facts statement for this amount and term before you submit.", keyFacts: "required" } }
+        }
+
         const [currentDefault, currentOpenApplication] = await Promise.all([
           tx.loan.findFirst({
             where: { clientId: currentClient.id, tenantId: tenant.id, status: "DEFAULTED" },
@@ -763,6 +774,7 @@ export async function POST(req: NextRequest) {
           },
           select: { id: true, reference: true, status: true },
         })
+        if (keyFactsShown) await tx.clientDocument.update({ where: { id: keyFactsShown }, data: { issuedForApplicationId: created.id } })
         await tx.auditLog.create({
           data: {
             tenantId: tenant.id,
@@ -779,6 +791,7 @@ export async function POST(req: NextRequest) {
               appliedTermDays: lockedTermDays,
               pasqDeliveryNoticeAcceptedByClient: ncaDeclarations,
               affordabilityDeclaredByClient: ncaDeclarations,
+              ...(keyFactsShown ? { indicativeKeyFactsDocumentId: keyFactsShown } : {}),
               snapshotSchemaVersion: AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
               decisionFingerprint: submissionSnapshot.decisionFingerprint,
             },
