@@ -177,7 +177,7 @@ suite("what a key-facts payout books, and when the officer may make the transfer
     const docs = (await inTenant(() => loanDocumentState(stack.tenant, id)))!.keyFacts!.documents
     const borrower = { tenantId: stack.tenant, applicationId: id, clientId: `${id}-client`, clientEmail: `${id}@test.invalid` }
     await db().client.update({ where: { id: `${id}-client` }, data: { firstName: "Someoneelse" } })
-    expect(await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/identity changed/) })
+    expect(await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/identity or contact details changed/) })
     expect(await inTenant(() => acknowledgeKeyFacts({ ...borrower, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 }))).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
     expect(await inTenant(() => signKeyFactsAgreement({
       ...borrower, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Synthetic Borrower", signingOtpChallengeId: null, ipAddress: "203.0.113.9",

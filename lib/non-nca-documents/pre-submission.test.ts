@@ -19,6 +19,13 @@ describe("indicativeKeyFactsShown", () => {
     })
   })
 
+  it("does not reach back further than a day", async () => {
+    const { tx, findFirst } = db({ id: "doc", extractionResult: terms })
+    await indicativeKeyFactsShown(tx, ask())
+    const since = (findFirst.mock.calls[0][0] as { where: { createdAt: { gte: Date } } }).where.createdAt.gte
+    expect(Math.abs(Date.now() - since.getTime() - 86_400_000)).toBeLessThan(5_000)
+  })
+
   it.each([["amount", { amountCents: 150_100 }], ["term", { termDays: 31 }], ["product", { productId: "p2" }]])("refuses a statement read for another %s", async (_name, over) => {
     expect(await indicativeKeyFactsShown(db({ id: "doc", extractionResult: terms }).tx, ask(over))).toBeNull()
   })

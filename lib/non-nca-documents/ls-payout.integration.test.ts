@@ -182,7 +182,7 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     const { id: checkId } = await second.json() as { id: string }
     const check = await db().avsCheck.findUniqueOrThrow({ where: { id: checkId } })
     expect(check).toMatchObject({ provider: SECOND_PERSON_VERIFICATION_PROVIDER, checkedById: stack.confirmer, applicationId: id, accountNumber: "62000012345", passed: true })
-    const audited = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "PAYOUT_ACCOUNT_VERIFIED", userId: stack.officer } })
+    const audited = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "PAYOUT_ACCOUNT_VERIFIED", userId: stack.confirmer } })
     expect(audited.newValue).toMatchObject({ avsCheckId: checkId })
 
     expect((await disburseAs(stack.disburser, id)).status).toBe(200)

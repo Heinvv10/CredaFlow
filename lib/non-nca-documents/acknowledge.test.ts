@@ -13,12 +13,12 @@ vi.mock("@/lib/audit", () => ({ AuditAction: { KEY_FACTS_ACKNOWLEDGED: "KEY_FACT
 vi.mock("@/lib/storage", () => ({ readFile: m.readFile }))
 
 import { acknowledgeKeyFacts } from "./acknowledge"
-import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
 import { approvedAffordabilityResult } from "./approval.integration-fixture"
 import { BORROWER_REFUSAL } from "./borrower-gate"
 
 const BORROWER = { id: "c1", idNumber: "990000001", firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null }
-const frozen = approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900, borrowerIdentity: biometricSubjectFingerprint(BORROWER) })
+const frozen = approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900, borrowerIdentity: frozenIdentityInput({ disclosureRegime: "KEY_FACTS", client: BORROWER }).borrowerIdentity })
 const BYTES = Buffer.from("%PDF synthetic key facts")
 const SHA = createHash("sha256").update(BYTES).digest("hex")
 const args = { tenantId: "t1", applicationId: "a1", clientId: "c1", clientEmail: "c1@client.invalid", shown: SHA, ipAddress: "203.0.113.5" }

@@ -596,6 +596,11 @@ suite("Lesotho demo seed (DEMO_LENDER=basotho) on a fresh migrated database", ()
     expect(await prisma.loan.findUniqueOrThrow({ where: { reference: "LN-SEED-0001" } })).toMatchObject({ status: "ACTIVE", daysInArrears: expect.any(Number) })
     expect((await prisma.loan.findUniqueOrThrow({ where: { reference: "LN-SEED-0001" } })).daysInArrears).toBeGreaterThan(0)
     expect(await prisma.user.count({ where: { tenantId: tenant.id, role: "SUPER_ADMIN" } })).toBe(1)
+    expect(await prisma.user.findFirstOrThrow({ where: { tenantId: tenant.id, email: { startsWith: "payout.confirmer@" } } })).toMatchObject({ role: "CREDIT_OFFICER", active: true })
+    // A Lesotho mobile is a WhatsApp identity: without it no WhatsApp reaches the borrower.
+    const whatsapp = await prisma.contactIdentity.findMany({ where: { tenantId: tenant.id, channel: "WHATSAPP" }, select: { value: true } })
+    expect(whatsapp.map((w) => w.value).sort()).toContain("26658000001@s.whatsapp.net")
+    expect(whatsapp).toHaveLength(5)
   })
 
   it("refuses to seed a South African lender into the same database (one jurisdiction per instance)", () => {

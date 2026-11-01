@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 const holder = vi.hoisted(() => ({
   app: null as object | null, tenantId: "", userId: "", role: "LOAN_ADMIN", files: new Map<string, Buffer>(),
-  session: null as null | { user: Record<string, unknown> },
+  session: null as null | { user: Record<string, unknown> }, otpRequired: false,
   sendEmail: vi.fn(async (..._args: unknown[]) => ({ ok: true, messageId: `provider-${Math.random()}`, provider: "SMTP", providerOutcome: "ACCEPTED", acceptedAt: new Date() })),
 }))
 vi.mock("@/lib/prisma", async (importOriginal) => {
@@ -50,7 +50,7 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   deleteFile: async (path: string) => { holder.files.delete(path) },
 }))
 vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) => Buffer.from(`%PDF-synthetic ${html} ${randomUUID()}`) }))
-vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<typeof import("@/lib/signing-otp/policy")>()), isSigningOtpRequired: async () => false }))
+vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<typeof import("@/lib/signing-otp/policy")>()), isSigningOtpRequired: async () => holder.otpRequired }))
 vi.mock("@/lib/config/identity", async (importOriginal) => {
   const identity = { legalName: "Demo Basotho Lending (Pty) Ltd", tradingName: "Demo Basotho Lending", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"] }
   return { ...(await importOriginal<typeof import("@/lib/config/identity")>()), findLenderIdentity: async () => identity, getLenderIdentity: async () => identity }
@@ -63,9 +63,12 @@ import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { hashSigningOtp } from "@/lib/signing-otp/code"
 import { POST as accept } from "@/app/api/applications/[id]/loan-documents/accept/route"
 import { POST as branchSign } from "@/app/api/applications/[id]/loan-documents/branch-sign/route"
+import { POST as acknowledge } from "@/app/api/applications/[id]/loan-documents/acknowledge/route"
 import { POST as sign } from "@/app/api/applications/[id]/loan-documents/sign/route"
 import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
+import { runWithTenant } from "@/lib/tenant-scope"
 import { lsFlow } from "./ls-flow.integration-fixture"
+import { signKeyFactsAgreement } from "./sign"
 import { createRlsRole, seedStack, stackOf } from "./ls-stack.integration-fixture"
 
 const RUN = process.env.RUN_DB_IT === "1"
@@ -89,13 +92,13 @@ const digests = async (id: string) => {
   return { offer: of("OFFER_LETTER"), kfs: of("KEY_FACTS_STATEMENT"), agreement: of("LOAN_AGREEMENT") }
 }
 /** A code that reached the borrower and that they read back: what /api/signing-otp and its verify step leave behind. */
-async function verifiedCode(id: string, documentSha256: string, over: { clientId?: string; subjectId?: string; verified?: boolean } = {}) {
+async function verifiedCode(id: string, documentSha256: string, over: { clientId?: string; subjectId?: string; verified?: boolean; requestedByUserId?: string | null } = {}) {
   const challengeId = randomUUID()
   await db().signingOtpChallenge.create({
     data: {
       id: challengeId, tenantId: stack.tenant, clientId: over.clientId ?? `${id}-client`, purpose: "AGREEMENT", subjectId: over.subjectId ?? id, documentSha256,
       codeHash: hashSigningOtp(challengeId, "123456"), channel: "EMAIL", maskedDestination: "s***@test.invalid", expiresAt: new Date(Date.now() + 600_000),
-      deliveryStatus: "ACCEPTED", sentAt: new Date(), verifiedAt: over.verified === false ? null : new Date(), requestedByUserId: stack.officer, attempts: 1, maxAttempts: 5,
+      deliveryStatus: "ACCEPTED", sentAt: new Date(), verifiedAt: over.verified === false ? null : new Date(), requestedByUserId: over.requestedByUserId === undefined ? stack.officer : over.requestedByUserId, attempts: 1, maxAttempts: 5,
     },
   })
   return challengeId
@@ -142,6 +145,14 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_OFFER_ACCEPTED" } })).toBe(1)
       const row = await db().loanDocumentIssuance.findFirstOrThrow({ where: { applicationId: id, kind: "OFFER_LETTER" } })
       expect(row).toMatchObject({ acknowledgedById: `${id}-client`, acknowledgedSha256: offer })
+    })
+
+    it("row-level security: another tenant's session sees no issued document", async () => {
+      const id = `rls-${t}`
+      await flow.approvedApplication(id)
+      const count = (tenantId: string) => runWithTenant(tenantId, () => (holder.app as { $transaction: (fn: (tx: { $queryRaw: (q: TemplateStringsArray) => Promise<{ n: number }[]> }) => Promise<number>) => Promise<number> }).$transaction(async (tx) => (await tx.$queryRaw`SELECT count(*)::int AS n FROM "LoanDocumentIssuance"`)[0].n))
+      expect(await count(stack.tenant)).toBeGreaterThan(0)
+      expect(await count("some-other-tenant")).toBe(0)
     })
 
     it("another borrower cannot accept it", async () => {
@@ -217,6 +228,69 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       expect((await attempt(id, { signingOtpChallengeId: await verifiedCode(other, (await digests(other)).agreement) })).status).toBe(409)
       expect((await attempt(id, { signingOtpChallengeId: await verifiedCode(id, agreement), witnessAttested: false })).status).toBe(422)
       await nothingRecorded(id)
+    })
+
+    it("a code from the other path does not sign: the borrower's portal code, or another witness's", async () => {
+      const id = `branch5-${t}`
+      await flow.approvedApplication(id)
+      const { agreement } = await digests(id)
+      const portal = await attempt(id, { signingOtpChallengeId: await verifiedCode(id, agreement, { requestedByUserId: null }) })
+      expect(portal.status).toBe(409)
+      expect(await portal.json()).toMatchObject({ signingOtp: "not_found" })
+      expect((await attempt(id, { signingOtpChallengeId: await verifiedCode(id, agreement, { requestedByUserId: stack.senior }) })).status).toBe(409)
+      await nothingRecorded(id)
+    })
+
+    it("a witness's code does not sign in the portal", async () => {
+      const id = `branch6-${t}`
+      await flow.approvedApplication(id)
+      const d = await digests(id)
+      asClient(id)
+      expect((await accept(post({ documentSha256: d.offer }), on(id))).status).toBe(200)
+      expect((await acknowledge(post({ documentSha256: d.kfs }), on(id))).status).toBe(200)
+      holder.otpRequired = true
+      const signed = await signKeyFactsAgreement({
+        tenantId: stack.tenant, applicationId: id, clientId: `${id}-client`, clientEmail: null, agreementDocumentSha256: d.agreement, signature: "Synthetic Borrower",
+        signingOtpChallengeId: await verifiedCode(id, d.agreement), ipAddress: "203.0.113.9",
+      })
+      holder.otpRequired = false
+      expect(signed).toMatchObject({ ok: false, status: 409, signingOtp: "not_found" })
+    })
+
+    it("a name too long is refused before anything is written", async () => {
+      const id = `branch7-${t}`
+      await flow.approvedApplication(id)
+      const { agreement } = await digests(id)
+      expect((await attempt(id, { signature: "x".repeat(201), signingOtpChallengeId: await verifiedCode(id, agreement) })).status).toBe(422)
+      await nothingRecorded(id)
+    })
+
+    it("a contact detail changed after approval sends the application back to review: the code cannot be pointed at someone else", async () => {
+      const id = `branch8-${t}`
+      await flow.approvedApplication(id)
+      const { agreement } = await digests(id)
+      await db().client.update({ where: { id: `${id}-client` }, data: { email: `${stack.officer}@test.invalid` } })
+      expect((await attempt(id, { signingOtpChallengeId: await verifiedCode(id, agreement) })).status).toBe(409)
+      await nothingRecorded(id)
+      expect((await flow.decideForm(id, { action: "return_to_review", reason: "Synthetic: the borrower's contact details changed." })).status).toBe(200)
+      expect((await db().loanApplication.findUniqueOrThrow({ where: { id } })).status).toBe("UNDER_REVIEW")
+    })
+
+    it("the witness cannot pay out that loan, with segregation of duties off, in the route or a raw write", async () => {
+      const id = `branch9-${t}`
+      await flow.approvedApplication(id)
+      const { agreement } = await digests(id)
+      const res = await attempt(id, { signingOtpChallengeId: await verifiedCode(id, agreement) })
+      expect(res.status, JSON.stringify(await res.clone().json())).toBe(200)
+      expect((await flow.verifyAccount(stack.confirmer, id)).status).toBe(200)
+      await db().tenantConfig.update({ where: { tenantId: stack.tenant }, data: { requireSegregationOfDuties: false } })
+      const witness = await flow.disburseAs(stack.officer, id)
+      await db().tenantConfig.update({ where: { tenantId: stack.tenant }, data: { requireSegregationOfDuties: true } })
+      expect(witness.status).toBe(422)
+      expect(await witness.json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties" })
+      expect(await db().loan.count({ where: { applicationId: id } })).toBe(0)
+      await expect(db().loanApplication.update({ where: { id }, data: { status: "DISBURSED", disbursedAt: new Date(), disbursedById: stack.officer } })).rejects.toThrow(/witness of the borrower/)
+      expect((await flow.disburseAs(stack.disburser, id)).status).toBe(200)
     })
 
     it("a staff member has no path through the borrower's own routes", async () => {

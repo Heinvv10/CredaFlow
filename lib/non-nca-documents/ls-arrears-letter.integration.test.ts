@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 const holder = vi.hoisted(() => ({
   app: null as object | null, tenantId: "", userId: "", role: "LOAN_ADMIN", files: new Map<string, Buffer>(),
-  session: null as null | { user: Record<string, unknown> },
+  session: null as null | { user: Record<string, unknown> }, duringRender: null as null | (() => Promise<unknown>),
   sendEmail: vi.fn(async (..._args: unknown[]) => ({ ok: true, messageId: `provider-${Math.random()}`, provider: "SMTP", providerOutcome: "ACCEPTED", acceptedAt: new Date() })),
 }))
 vi.mock("@/lib/prisma", async (importOriginal) => {
@@ -49,7 +49,7 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   readFile: async (path: string) => { const b = holder.files.get(path); if (!b) throw new Error("missing"); return b },
   deleteFile: async (path: string) => { holder.files.delete(path) },
 }))
-vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) => Buffer.from(`%PDF-synthetic ${html} ${randomUUID()}`) }))
+vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) => { await holder.duringRender?.(); return Buffer.from(`%PDF-synthetic ${html} ${randomUUID()}`) } }))
 vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<typeof import("@/lib/signing-otp/policy")>()), isSigningOtpRequired: async () => false }))
 vi.mock("@/lib/config/identity", async (importOriginal) => {
   const identity = { legalName: "Demo Basotho Lending (Pty) Ltd", tradingName: "Demo Basotho Lending", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"] }
@@ -64,6 +64,7 @@ import { provisionContactForClient } from "@/lib/contact/provision"
 import { POST as arrearsLetter } from "@/app/api/loans/[id]/arrears-letter/route"
 import { POST as section129 } from "@/app/api/loans/section129/route"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
+import * as chargesSummary from "@/lib/loan/charges-summary"
 import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate, publishVersion, sha } from "./gate.integration-fixture"
 import { ARREARS_LETTER_TEMPLATE_KEY } from "./keys"
 import { lsFlow } from "./ls-flow.integration-fixture"
@@ -166,6 +167,29 @@ suite("the arrears letter and Section 129 on a key-facts loan (real Postgres, re
       await publishVersion(db(), letterTemplateId, 3, LETTER)
     })
 
+    it("a payment landing while the letter is rendered stops it: it would state arrears that are no longer owed", async () => {
+      const before = await db().loan.findUniqueOrThrow({ where: { id: loanId } })
+      holder.duringRender = () => db().loan.update({ where: { id: loanId }, data: { arrearsAmount: before.arrearsAmount - 1_000 } })
+      asStaff()
+      const res = await arrearsLetter(post(), on(loanId))
+      holder.duringRender = null
+      await db().loan.update({ where: { id: loanId }, data: { arrearsAmount: before.arrearsAmount } })
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({ error: expect.stringMatching(/loan changed/) })
+      expect(await db().loanArrearsLetter.count({ where: { loanId } })).toBe(0)
+    })
+
+    it("states the settlement figures, charges included, not the stored column", async () => {
+      const figures = vi.spyOn(chargesSummary, "section129NoticeAmounts").mockReturnValue({ arrearsAmount: 150_000, outstandingPrincipal: 500_000, totalOutstanding: 620_000, chargesOutstanding: 30_000 })
+      const other = `settle-${t}`
+      const loan = await arrearsLoan(other)
+      asStaff()
+      const res = await arrearsLetter(post(), on(loan.id))
+      figures.mockRestore()
+      expect(res.status).toBe(201)
+      expect(await db().loanArrearsLetter.findFirstOrThrow({ where: { loanId: loan.id } })).toMatchObject({ arrearsAmount: 150_000, totalOutstanding: 620_000 })
+    })
+
     it("refuses a deceased borrower", async () => {
       await db().client.update({ where: { id: `${id}-client` }, data: { deceasedAt: new Date() } })
       asStaff()
@@ -199,6 +223,11 @@ suite("the arrears letter and Section 129 on a key-facts loan (real Postgres, re
       const document = await db().clientDocument.create({
         data: { tenantId: stack.tenant, clientId: `${id}-client`, docType: "OTHER", fileName: "f.pdf", fileUrl: "", storagePath: "/mem/f.pdf", fileSize: 1, mimeType: "application/pdf", templateId: letterTemplateId, generatedFromVersionId: draft.id, contentSha256: "e".repeat(64), extractionStatus: "skipped" },
       })
+      const current = await db().documentTemplate.findUniqueOrThrow({ where: { id: letterTemplateId } })
+      const genuine = await db().clientDocument.create({
+        data: { tenantId: stack.tenant, clientId: `${id}-client`, docType: "OTHER", fileName: "g.pdf", fileUrl: "", storagePath: "/mem/g.pdf", fileSize: 1, mimeType: "application/pdf", templateId: letterTemplateId, generatedFromVersionId: current.currentVersionId, contentSha256: "c".repeat(64), extractionStatus: "skipped" },
+      })
+      await expect(db().loanArrearsLetter.create({ data: { ...base, templateContentSha256: "a".repeat(64), clientDocumentId: genuine.id, pdfSha256: "c".repeat(64), noticeDate: tomorrow } })).rejects.toThrow(/wording of its template version/)
       await expect(db().loanArrearsLetter.create({ data: { ...base, templateVersionId: draft.id, templateVersionNumber: 9, clientDocumentId: document.id, pdfSha256: "e".repeat(64), noticeDate: tomorrow } })).rejects.toThrow(/current version of its template/)
     })
 

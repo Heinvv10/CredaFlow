@@ -8,7 +8,7 @@
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/non-nca-documents/flow.integration.test.ts
  */
-import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
@@ -68,7 +68,7 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
         where: { id: app.id },
         data: {
           status: "APPROVED", approvedAt: capturedAt, approvedById: t.userId, approvedAmount: 500_000, approvedTermDays: 90, repaymentMethod: "EFT",
-          affordabilityResult: approvedAffordabilityResult({ borrowerIdentity: biometricSubjectFingerprint({ id: clientId, idNumber: `F${n}`, firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null }), capturedAt, principalCents: 500_000, termDays: 90, productId: t.productId, interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: product.monthlyServiceFee }) as never,
+          affordabilityResult: approvedAffordabilityResult({ borrowerIdentity: frozenIdentityInput({ disclosureRegime: "KEY_FACTS", client: { id: clientId, idNumber: `F${n}`, firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null, email: `${n}@client.invalid` } }).borrowerIdentity, capturedAt, principalCents: 500_000, termDays: 90, productId: t.productId, interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: product.monthlyServiceFee }) as never,
         },
       })
     })

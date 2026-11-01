@@ -7,12 +7,12 @@ vi.mock("@/lib/audit", () => ({ AuditAction: {}, logAuditStrict: vi.fn() }))
 vi.mock("@/lib/storage", () => ({ saveFile: async () => ({ storagePath: "/mem/a.pdf", fileSize: 1 }), deleteFile: m.deleteFile }))
 vi.mock("./render", () => ({ renderLoanDocument: async () => ({ pdf: Buffer.from("%PDF"), kind: "LOAN_AGREEMENT" }) }))
 
-import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
 import { approvedAffordabilityResult } from "./approval.integration-fixture"
 import { issueLoanDocuments } from "./issue"
 
 const client = { id: "c1", idNumber: "990000001", firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null }
-const affordabilityResult = approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900, borrowerIdentity: biometricSubjectFingerprint(client) })
+const affordabilityResult = approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900, borrowerIdentity: frozenIdentityInput({ disclosureRegime: "KEY_FACTS", client: client }).borrowerIdentity })
 const args = { tenantId: "t1", applicationId: "a1", staff: { id: "s1", email: "s@test.invalid" } }
 
 describe("issueLoanDocuments when the transaction loses", () => {
