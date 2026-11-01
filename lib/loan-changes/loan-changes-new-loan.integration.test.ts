@@ -137,6 +137,18 @@ suite("loan changes that book a new loan, on a Lesotho instance (real Postgres, 
     }
   })
 
+  it("a transfer reference pays one loan: a second top-up on it is refused with the reason", async () => {
+    const l = await loan()
+    await db().tenantConfig.update({ where: { tenantId: l.tenantId }, data: { screeningProvider: "simulated" } })
+    await runWithTenant(l.tenantId, () => runScreening({ tenantId: l.tenantId, subject: { clientId: l.fx.clientId }, trigger: "MANUAL", actor: null }))
+    await proposeAndApprove(l, { type: "TOP_UP", newMoneyCents: 100, payoutReference: "EFT-SYN-ONCE", instalments: 10 })
+    const again = await loan({ sameLenderAs: l })
+    await runWithTenant(l.tenantId, () => runScreening({ tenantId: l.tenantId, subject: { clientId: again.fx.clientId }, trigger: "MANUAL", actor: null }))
+    const { submitted } = await draftAndSubmit(again, { type: "TOP_UP", newMoneyCents: 100, payoutReference: "eft-syn-once", instalments: 10 })
+    expect(submitted.status).toBe(422)
+    expect(((await submitted.json()) as { error: string }).error).toMatch(/already paid out/)
+  })
+
   it("a consolidation settles every loan of the borrower into one", async () => {
     const a = await loan()
     const b = await loan({ sameClientAs: a, principal: 300_000, instalments: 4 })
