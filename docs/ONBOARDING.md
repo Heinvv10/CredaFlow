@@ -70,9 +70,15 @@ either is under 30 days old. So if the first admin creates the whole team in Set
 anybody's work for 30 days: the admin created them all, and they all share the admin as creator. Accounts the operator
 provisions leave no such record and are exempt. The rule fails closed on purpose; there is no switch for it.
 
-**Not built yet:** `provision-lender.sh`, `lender:bootstrap-admin` (one-shot, refuses a second SUPER_ADMIN) and the
-operator console each create exactly one person. Until a second-person step exists, a new lender cannot meet this
-requirement with the shipped tooling, and must not be promised a working two-person control in its first 30 days.
+After provisioning, create the second person from the same stack:
+
+```bash
+scripts/lender/admin.sh /srv/lenders/<slug> --second <email> --role ADMIN [--name <name>] [--dry-run]
+```
+
+One per lender, ADMIN or lower, never a second SUPER_ADMIN; a second run refuses. Its one-time password is printed
+once. It carries no TOTP secret: the account enrols at first sign-in under the lender's normal rule. The operator console
+still creates one person, so a lender provisioned there needs this step too.
 
 ## 3. Check it is alive
 

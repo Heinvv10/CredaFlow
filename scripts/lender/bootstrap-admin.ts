@@ -10,12 +10,18 @@
  * fresh TOTP secret (enrolled whatever the lender's staff-2FA setting, because
  * identity and user writes need a TOTP-verified session), return them to the caller to print once, and audit
  * the event without any credential in the audit row.
+ *
+ * The second person (`provisionSecondPerson`, --second) goes beside the first: a lender needs two people from day one, because accounts its own
+ * admin creates sit apart from that admin, and from each other, for 30 days (lib/security/account-control.ts). One per lender, ADMIN or lower, never
+ * a second SUPER_ADMIN; its audit row is the operator's, not USER_CREATED, so the rule reads no hold between the two. It carries no TOTP secret:
+ * the account enrols under the lender's normal rule at first sign-in.
  */
 import bcrypt from "bcryptjs"
 import { randomBytes } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
 import { z } from "zod"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { ROLE_HIERARCHY, type UserRole } from "@/lib/permissions"
 import { auditDb } from "./audit-db"
 import { generateTotpSecret, generateTotpUri } from "@/lib/totp"
 
@@ -44,6 +50,9 @@ export type RefusalCode =
   | "EMAIL_IN_USE"
   | "NO_SUCH_SUPER_ADMIN"
   | "REACTIVATE_REQUIRED"
+  | "ROLE_NOT_ALLOWED"
+  | "NO_FIRST_ADMIN"
+  | "SECOND_PERSON_EXISTS"
 
 export class BootstrapRefusal extends Error {
   readonly code: RefusalCode
@@ -145,6 +154,51 @@ export async function bootstrapSuperAdmin(db: PrismaClient, input: AdminBootstra
       newValue: { email, active: true, reactivated, passwordReset: true, totpReset: true, sessionsRevoked: true, operator: input.operator },
     }, auditDb(tx))
     return { kind: "reset", userId: existing.id, email, reactivated, ...secrets.shown }
+  })
+}
+
+export type SecondPersonInput = { tenantSlug: string; email: string; role: string; name?: string; dryRun: boolean; operator: string }
+export type SecondPersonResult =
+  | { kind: "dry-run"; tenantSlug: string; email: string; role: UserRole }
+  | { kind: "second-created"; userId: string; email: string; role: UserRole; password: string }
+
+/** The roles a second person may hold: any staff role below SUPER_ADMIN. */
+const SECOND_PERSON_ROLES: readonly string[] = ROLE_HIERARCHY.filter((role) => role !== "SUPER_ADMIN")
+
+/** The lender's one operator-provisioned second person. One-shot on the audit trail, which outlives the account. */
+export async function provisionSecondPerson(db: PrismaClient, input: SecondPersonInput): Promise<SecondPersonResult> {
+  const parsed = z.email().max(254).safeParse(input.email.trim().toLowerCase())
+  if (!parsed.success) throw new BootstrapRefusal("INVALID_EMAIL", `"${input.email}" is not a valid email address.`)
+  const email = parsed.data
+  if (!SECOND_PERSON_ROLES.includes(input.role)) throw new BootstrapRefusal("ROLE_NOT_ALLOWED", `The second person is ADMIN or lower, never ${input.role}: a lender has one bootstrapped SUPER_ADMIN.`)
+  const role = input.role as UserRole
+
+  return db.$transaction(async (tx) => {
+    const tenant = await tx.tenant.findUnique({ where: { slug: input.tenantSlug }, select: { id: true } })
+    if (!tenant) throw new BootstrapRefusal("TENANT_NOT_FOUND", `No tenant with slug "${input.tenantSlug}". Run lender:bootstrap-tenant first.`)
+    // Serialised on the tenant row, so two runs cannot both find no second person.
+    await tx.$executeRaw`SELECT 1 FROM "Tenant" WHERE "id" = ${tenant.id} FOR UPDATE`
+    if ((await tx.user.count({ where: { tenantId: tenant.id, role: "SUPER_ADMIN" } })) === 0) {
+      throw new BootstrapRefusal("NO_FIRST_ADMIN", `Tenant "${input.tenantSlug}" has no SUPER_ADMIN yet: bootstrap the first admin first.`)
+    }
+    const earlier = await tx.auditLog.findFirst({ where: { tenantId: tenant.id, action: AuditAction.LENDER_SECOND_PERSON_PROVISIONED }, select: { id: true } })
+    if (earlier) throw new BootstrapRefusal("SECOND_PERSON_EXISTS", `Tenant "${input.tenantSlug}" already has its second person; this step is one-shot. Add further staff under Settings, Users.`)
+    if (await tx.user.findUnique({ where: { email } })) throw new BootstrapRefusal("EMAIL_IN_USE", `A user with email ${email} already exists.`)
+    if (input.dryRun) return { kind: "dry-run", tenantSlug: input.tenantSlug, email, role }
+
+    const password = generateOneTimePassword()
+    const user = await tx.user.create({
+      data: { email, name: input.name ?? "Second admin", role, tenantId: tenant.id, active: true, password: await bcrypt.hash(password, BCRYPT_ROUNDS) },
+    })
+    await logAuditStrict({
+      tenantId: tenant.id,
+      userEmail: SOURCE,
+      action: AuditAction.LENDER_SECOND_PERSON_PROVISIONED,
+      entity: "User",
+      entityId: user.id,
+      newValue: { email, role, operator: input.operator },
+    }, auditDb(tx))
+    return { kind: "second-created", userId: user.id, email, role, password }
   })
 }
 

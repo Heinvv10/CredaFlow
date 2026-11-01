@@ -15,8 +15,7 @@ person does to stand such a lender up, and what the bank must accept.
 The bank accepts these or changes them:
 
 - **At least two people are provisioned through the operator path.** One admin creating the team cannot run a two-person
-  control for 30 days (`docs/ONBOARDING.md`, "Two people from day one"). That step is not built yet: today the
-  operator path creates one person.
+  control for 30 days (`docs/ONBOARDING.md`, "Two people from day one": `admin.sh <dir> --second <email> --role ADMIN`).
 - **A payout needs three people.** With segregation of duties on, the person who confirms the payout account took no
   other part in the application (not its capturer, attester, approver or a condition's clearer), and the payer is
   neither the approver nor the confirmer. A branch needs that many staff on hand.
