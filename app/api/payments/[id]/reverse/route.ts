@@ -1,3 +1,4 @@
+import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
 import { reconcileRateCorrections } from "@/lib/asset-finance/rate-correction"
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -42,11 +43,16 @@ export async function PATCH(
           amount: true,
           reversed: true,
           allocationStatus: true,
+          paymentMethod: true,
         },
       })
 
       if (!payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 })
       if (payment.reversed) return NextResponse.json({ error: "Payment already reversed" }, { status: 409 })
+      // Its balance now sits in the new loan (the database refuses it too: Payment_loan_settlement_update).
+      if (payment.paymentMethod === LOAN_SETTLEMENT_METHOD) {
+        return NextResponse.json({ error: "A settlement by a new loan cannot be reversed" }, { status: 409 })
+      }
       if (payment.allocationStatus !== "ALLOCATED") {
         return NextResponse.json(
           { error: "Only allocated payments can be reversed; use receipt reconciliation instead" },

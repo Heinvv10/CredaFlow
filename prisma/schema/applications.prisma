@@ -43,6 +43,9 @@ model LoanApplication {
   // jurisdiction). Set from InstanceJurisdiction by a trigger at insert, never
   // changed (docs/ARCHITECTURE.md, "Non-NCA documents").
   disclosureRegime                        DisclosureRegime     @default(NCA_PASQ)
+  // The approved LOAN_CHANGE request that booked this application's loan (a top-up, refinance or consolidation,
+  // lib/loan-changes): set at insert only, one application per request. Its paper is that request's signed document.
+  loanChangeRequestId                     String?              @unique
   productId                               String
   branchId                                String?
   branch                                  Branch?              @relation(fields: [branchId], references: [id])

@@ -6,7 +6,7 @@ import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { accruedInterestCents, eclCents, exposureAtDefault, interestRaisedBetween, proportionCents, unpaidScheduleAmounts, type GraceDeferral, type ScheduleRow } from "./ecl"
 import { resolveParameter } from "./parameters"
-import { classifyStage, type PriorStaging, type StagingResult } from "./staging"
+import { classifyStage, restructuredInForce, type PriorStaging, type StagingResult } from "./staging"
 import { suspensionApplies } from "./suspension"
 import type { EclParameter, Ifrs9Settings, InterestBasis, SicrFlagKind } from "./types"
 
@@ -22,6 +22,8 @@ export interface RunLoan {
   principal: number
   outstandingPrincipal: number
   chargesOutstanding: number
+  /** SAST day of Loan.restructuredAt, a change that eased the loan's terms (lib/loan-changes). */
+  restructuredOn?: string | null
   flags: SicrFlagKind[]
   schedule: Array<{ dueDate: Date; principalDue: number; interestDue: number; feesDue: number; totalDue: number; totalPaid: number }>
   /** The interest a full grace deferred (lib/product-engine), earned in the grace although no row carries it. */
@@ -81,8 +83,10 @@ export interface SnapshotData {
 export function assessLoan(loan: RunLoan, ctx: RunContext, prior: PriorStaging | null): Assessment {
   const runDate = sastCalendarDate(ctx.runAt)
   const { daysInArrears: dpd } = recomputeLoanBalances(loan.principal, loan.schedule, ctx.runAt)
+  // Only an ACTIVE loan: a restructured loan that defaults again is DEFAULTED, and Stage 3.
+  const status = loan.status === "ACTIVE" && restructuredInForce(loan.restructuredOn, runDate, prior) ? "RESTRUCTURED" : loan.status
   const staging = classifyStage(
-    { dpd, status: loan.status, collectionsStage: loan.collectionsStage, debtReview: loan.debtReview, flags: loan.flags },
+    { dpd, status, collectionsStage: loan.collectionsStage, debtReview: loan.debtReview, flags: loan.flags },
     ctx.settings, prior, runDate,
   )
   return { dpd, staging, suspended: suspensionApplies(dpd, staging.stage, loan.contractType, ctx.settings), prior }

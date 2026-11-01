@@ -1,0 +1,54 @@
+// Loan changes (tender item 2.6.6, lib/loan-changes): rescheduling, restructuring, a payment holiday and changes to rate or
+// term rewrite the unpaid part of a loan's schedule; a top-up, refinance or consolidation settles the old loan(s) and books a
+// new one. Each is proposed by one person and applied only when a second approves it (lib/maker-checker, kind LOAN_CHANGE).
+
+enum LoanChangeType {
+  RESCHEDULE
+  RESTRUCTURE
+  PAYMENT_HOLIDAY
+  RATE_CHANGE
+  TERM_CHANGE
+  TOP_UP
+  REFINANCE
+  CONSOLIDATION
+}
+
+// One applied change. The table refuses a row no approved request made (guardLoanChange), never changes what it holds, and
+// keeps the schedule(s) the change replaced: the live RepaymentSchedule holds only the schedule in force.
+model LoanChange {
+  id               String         @id @default(cuid())
+  tenantId         String
+  tenant           Tenant         @relation(fields: [tenantId], references: [id])
+  /// The loan the change was proposed on.
+  loanId           String
+  loan             Loan           @relation("LoanChangeLoan", fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  type             LoanChangeType
+  /// The approved ChangeRequest. No relation (lib/maker-checker/.claude.md); the insert trigger requires it.
+  changeRequestId  String         @unique
+  makerId          String
+  checkerId        String
+  reason           String
+  /// The signed variation or new agreement on the lender's own wording, a ClientDocument of the borrower.
+  signedDocumentId String
+  /// Every loan the change settled and closed; empty for a change in place.
+  sourceLoanIds    String[]       @default([])
+  /// The loan it booked; null for a change in place.
+  newLoanId        String?
+  newLoan          Loan?          @relation("LoanChangeNewLoan", fields: [tenantId, newLoanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// Settlement of the old loan(s) carried into the new one, and the new money on top. Cents.
+  settledCents     Int            @default(0)
+  newMoneyCents    Int            @default(0)
+  /// The loan is forborne: IFRS 9 stages it through Loan.restructuredAt.
+  markedRestructured Boolean      @default(false)
+  /// { interestRatePm, maturityDate, outstandingPrincipal, ... } of the changed loan before and after.
+  before           Json
+  after            Json
+  /// [{ loanId, rows: [...] }]: every row of each schedule as it stood when the change was approved, and the schedule after it.
+  scheduleBefore   Json
+  scheduleAfter    Json
+  appliedAt        DateTime       @default(now())
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, newLoanId])
+  @@index([tenantId, loanId])
+}

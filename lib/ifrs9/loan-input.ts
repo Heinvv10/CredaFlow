@@ -11,21 +11,22 @@ import type { RunLoan } from "./snapshot"
 import type { PriorStaging } from "./staging"
 import type { SicrFlagKind, Stage } from "./types"
 
-type Db = Pick<typeof prisma, "loan" | "payment" | "auditLog" | "repaymentSchedule" | "bankTransaction" | "loanCharge" | "ifrs9Run" | "$queryRaw">
+type Db = Pick<typeof prisma, "loan" | "payment" | "auditLog" | "repaymentSchedule" | "bankTransaction" | "loanCharge" | "ifrs9Run" | "loanChange" | "$queryRaw">
 
 const BASE_SELECT = {
   id: true, reference: true, productId: true, contractType: true, status: true, collectionsStage: true, debtReviewNoticeAt: true,
-  startDate: true, principal: true, outstandingPrincipal: true, chargesOutstanding: true,
+  startDate: true, principal: true, outstandingPrincipal: true, chargesOutstanding: true, restructuredAt: true,
   ifrs9Flags: { where: { clearedAt: null }, select: { kind: true } },
-  // The terms the loan was written on (lib/product-engine): a full grace defers interest that is earned in the grace.
-  terms: { orderBy: { sequence: "asc" }, take: 1, select: { frequency: true, graceKind: true, graceInstalments: true, deferredInterest: true } },
+  // The terms in force (lib/product-engine): a full grace defers interest that is earned in the grace.
+  terms: { orderBy: { sequence: "desc" }, take: 1, select: { sequence: true, frequency: true, graceKind: true, graceInstalments: true, deferredInterest: true } },
 } as const
 
 type BaseRow = Prisma.LoanGetPayload<{ select: typeof BASE_SELECT }>
 
 function graceDeferralOf(row: BaseRow): GraceDeferral | undefined {
   const t = row.terms[0]
-  if (!t || t.graceKind !== "FULL" || !t.frequency || t.deferredInterest <= 0) return undefined
+  // A later change's holiday runs from its own date, not the loan's start: its deferred interest accrues with the row that carries it.
+  if (!t || t.sequence !== 1 || t.graceKind !== "FULL" || !t.frequency || t.deferredInterest <= 0) return undefined
   return { endDate: sastCalendarDate(addPeriods(row.startDate, t.frequency, t.graceInstalments)), cents: t.deferredInterest }
 }
 
@@ -36,6 +37,7 @@ function runLoan(row: BaseRow, schedule: RunLoan["schedule"], outstandingPrincip
     id: row.id, reference: row.reference, productId: row.productId, contractType: row.contractType, status,
     collectionsStage: row.collectionsStage, startDate: row.startDate, principal: row.principal, outstandingPrincipal,
     chargesOutstanding: row.chargesOutstanding, debtReview: row.debtReviewNoticeAt !== null, schedule,
+    restructuredOn: row.restructuredAt ? sastCalendarDate(row.restructuredAt) : null,
     flags: [...new Set(row.ifrs9Flags.map((f) => f.kind as SicrFlagKind))],
   }
 }
@@ -92,8 +94,8 @@ export async function loadDefaultInterestRaised(db: Pick<Db, "loanCharge">, tena
  * the database: the history is every loan x every run, too much to fetch and thin out here.
  */
 export async function loadPriorStaging(db: Pick<Db, "$queryRaw">, tenantId: string, before: string): Promise<Map<string, PriorStaging>> {
-  const rows = await db.$queryRaw<Array<{ loanId: string; stage: number; stageSince: string; cureStartedOn: string | null; restructured: boolean }>>(Prisma.sql`
-    SELECT DISTINCT ON (s."loanId") s."loanId", s."stage", s."stageSince"::text AS "stageSince", s."cureStartedOn"::text AS "cureStartedOn", s."restructured"
+  const rows = await db.$queryRaw<Array<{ loanId: string; stage: number; stageSince: string; cureStartedOn: string | null; restructured: boolean; runDate: string }>>(Prisma.sql`
+    SELECT DISTINCT ON (s."loanId") s."loanId", s."stage", s."stageSince"::text AS "stageSince", s."cureStartedOn"::text AS "cureStartedOn", s."restructured", r."runDate"::text AS "runDate"
     FROM "Ifrs9LoanSnapshot" s
     JOIN "Ifrs9Run" r ON r."id" = s."runId" AND r."tenantId" = s."tenantId"
     WHERE s."tenantId" = ${tenantId} AND r."kind" = 'MONTHLY' AND r."runDate" < ${before}::date
@@ -101,8 +103,22 @@ export async function loadPriorStaging(db: Pick<Db, "$queryRaw">, tenantId: stri
     ORDER BY s."loanId", r."runDate" DESC, r."createdAt" DESC
   `)
   return new Map(rows.map((r) => [r.loanId, {
-    stage: r.stage as Stage, stageSince: r.stageSince, cureStartedOn: r.cureStartedOn, restructured: r.restructured,
+    stage: r.stage as Stage, stageSince: r.stageSince, cureStartedOn: r.cureStartedOn, restructured: r.restructured, runDate: r.runDate,
   }]))
+}
+
+/**
+ * A loan booked by a top-up, refinance or consolidation (lib/loan-changes) starts from the worst stage of the loans it paid off,
+ * until it has a run of its own: replacing a Stage 3 loan does not cure it.
+ */
+export async function inheritPriorStaging(db: Pick<Db, "loanChange">, tenantId: string, priors: Map<string, PriorStaging>): Promise<void> {
+  const changes = await db.loanChange.findMany({ where: { tenantId, newLoanId: { not: null } }, select: { newLoanId: true, sourceLoanIds: true } })
+  for (const change of changes) {
+    if (priors.has(change.newLoanId!)) continue
+    const old = change.sourceLoanIds.flatMap((id) => priors.get(id) ?? [])
+    const worst = old.reduce<PriorStaging | null>((max, prior) => (!max || prior.stage > max.stage ? prior : max), null)
+    if (worst) priors.set(change.newLoanId!, worst)
+  }
 }
 
 /**

@@ -25,6 +25,8 @@ export interface PriorStaging {
   cureStartedOn: string | null
   /** The loan was RESTRUCTURED (or still in the probation that follows) at the prior run: see restructuredProbationMonths. */
   restructured: boolean
+  /** The date of the run this was read from. */
+  runDate?: string
 }
 
 export interface StagingResult {
@@ -49,6 +51,16 @@ export function addMonthsIso(iso: string, months: number): string {
   const month = (index % 12) + 1
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(Math.min(d, lastDay)).padStart(2, "0")}`
+}
+
+/**
+ * A live restructured loan keeps its ACTIVE status (receipts, reminders and mandates need it) and carries Loan.restructuredAt
+ * instead. It counts as RESTRUCTURED until a MONTHLY run has staged it that way; from the next run it is a formerly restructured
+ * loan, whose triggers have cleared, serving restructuredProbationMonths from there.
+ */
+export function restructuredInForce(restructuredOn: string | null | undefined, runDate: string, prior: PriorStaging | null): boolean {
+  if (!restructuredOn || restructuredOn > runDate) return false
+  return !prior?.runDate || prior.runDate <= restructuredOn
 }
 
 /** The stage the triggers give on their own, with a reason code for each that fired. */
