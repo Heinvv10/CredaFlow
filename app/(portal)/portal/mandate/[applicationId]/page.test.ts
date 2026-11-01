@@ -122,6 +122,11 @@ describe("portal debit mandate page — whose mandate it renders", () => {
     await expect(render("app-bob")).rejects.toThrow("NOT_FOUND")
   })
 
+  it("does not open a loan change's application: the borrower did not apply for it", async () => {
+    applications.push({ ...application("app-change", ALICE, "alice@portal.invalid", "Alice", "1111111111"), loanChangeRequestId: "request-1" })
+    await expect(render("app-change")).rejects.toThrow("NOT_FOUND")
+  })
+
   it("does not render an application held in another tenant", async () => {
     applications.push(application("app-elsewhere", ALICE, "alice@portal.invalid", "Alice", "1111111111", "tenant-2"))
     authMock.mockResolvedValue(session(ALICE, "alice@portal.invalid"))
