@@ -262,7 +262,14 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect(await loans(id)).toBe(0)
   })
 
-  it("holds the statement FOR SHARE: withdrawing its verification mid-payout is waited for and refuses the payout", async () => {
+  it("holds the KYC and statement documents FOR SHARE: a writer on the document row alone is waited for", async () => {
+    const id = `docrow-${t}`
+    await signedApplication(id)
+    const res = await payoutWhileHolding(id, (tx) => tx.$queryRaw`SELECT "id" FROM "ClientDocument" WHERE "clientId" = ${`${id}-client`} AND "docType" = 'BANK_STATEMENT'::"DocType" FOR UPDATE`)
+    expect(res.status).toBe(200)
+  })
+
+  it("withdrawing the statement's verification mid-payout is waited for and refuses the payout", async () => {
     const id = `statement-${t}`
     await signedApplication(id)
     const res = await payoutWhileHolding(id, async (tx) => {
