@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-node"
 import { createRouteLabeler } from "./route-label"
 import { scrubSpan, scrubbingExporter } from "./span-scrub"
+
+// The path-shape fallback is what these tests pin: a `.next/routes-manifest.json` left by an earlier build must not change the labels.
+vi.mock("./route-label", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./route-label")>()),
+  loadRoutesManifest: () => null,
+}))
 
 const SERVER = 1
 const CLIENT = 2

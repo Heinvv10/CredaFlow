@@ -1,7 +1,7 @@
 import { KpiCard } from "@/components/dashboard/KpiCard"
 import { DisbursementsClient } from "@/components/disbursements/DisbursementsClient"
 import { prisma } from "@/lib/prisma"
-import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
+import { formatZAR, SAST_TIME_ZONE, activeCurrencySymbol } from "@/lib/utils"
 import { getAvatarColor, getInitials, getInitialsFromName } from "@/lib/avatar"
 import { Wallet, CheckCircle2, TrendingUp } from "lucide-react"
 import Link from "next/link"
@@ -92,8 +92,8 @@ async function getDisbursementsData() {
 
 function formatCompactZAR(cents: number): string {
   const val = cents / 100
-  if (val >= 1_000_000) return `R${(val / 1_000_000).toFixed(1)}m`
-  if (val >= 1_000) return `R${(val / 1_000).toFixed(0)}k`
+  if (val >= 1_000_000) return `${activeCurrencySymbol()}${(val / 1_000_000).toFixed(1)}m`
+  if (val >= 1_000) return `${activeCurrencySymbol()}${(val / 1_000).toFixed(0)}k`
   return formatZAR(cents)
 }
 

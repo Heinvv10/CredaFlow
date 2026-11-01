@@ -1,9 +1,17 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { formatIsoDate, formatMoney, formatMoneyInput } from "./format"
 
 const NBSP = " "
 
 describe("formatMoney", () => {
+  afterEach(() => resetActiveJurisdiction())
+
+  it("prints the lender's currency symbol: M for a Lesotho lender", () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(formatMoney(128_773)).toBe(`M${NBSP}1,287.73`)
+  })
+
   it("puts the sign before the currency", () => {
     expect(formatMoney(-128_773)).toBe(`-R${NBSP}1,287.73`)
     expect(formatMoney(128_773)).toBe(`R${NBSP}1,287.73`)

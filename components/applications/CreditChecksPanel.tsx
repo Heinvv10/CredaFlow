@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { CLEAR_REASON_MAX_LENGTH, CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
+import { formatZAR } from "@/lib/utils"
 import type { FlagView as ServerFlagView } from "@/lib/credit-checks/evidence"
 
 /** `explanation`: Statement AI's, sent only for a lender with it on (checks route). */
@@ -28,13 +29,6 @@ const GROUPS: Array<{ check: CheckKind; heading: string }> = [
   { check: "MANUAL_REVIEW", heading: "Manual review" },
   { check: "EXPENSE_UNDERSTATED", heading: "Declared expenses" },
 ]
-
-function formatCents(cents: number): string {
-  const abs = Math.abs(cents)
-  const rands = Math.floor(abs / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ")
-  const sign = cents < 0 ? "-" : ""
-  return `${sign}R ${rands}.${(abs % 100).toString().padStart(2, "0")}`
-}
 
 function errorText(body: unknown, fallback: string): string {
   if (body && typeof body === "object" && "error" in body) {
@@ -132,7 +126,7 @@ export function Evidence({ flag }: { flag: FlagView }) {
           >
             {flag.chainedWith.documentName ?? "View statement"} ({flag.chainedWith.periodStart} to {flag.chainedWith.periodEnd})
           </a>
-          , which {flag.chainedWith.relation === "previous" ? "closes" : "opens"} at {formatCents(flag.chainedWith.balanceCents)}.
+          , which {flag.chainedWith.relation === "previous" ? "closes" : "opens"} at {formatZAR(flag.chainedWith.balanceCents)}.
           Both come from the client&apos;s file, so compare the row with the bank&apos;s original before clearing.
         </p>
       )}
@@ -153,9 +147,9 @@ export function Evidence({ flag }: { flag: FlagView }) {
                 <tr key={r.index} className="border-t border-[var(--cf-border-subtle)] text-[var(--cf-text-secondary)]">
                   <td className="py-1 pr-3 whitespace-nowrap">{r.date}</td>
                   <td className="py-1 pr-3">{r.description}</td>
-                  <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(r.amountCents)}</td>
+                  <td className="py-1 pr-3 text-right whitespace-nowrap">{formatZAR(r.amountCents)}</td>
                   <td className="py-1 pr-3 text-right whitespace-nowrap">
-                    {r.balanceCents === null ? "" : formatCents(r.balanceCents)}
+                    {r.balanceCents === null ? "" : formatZAR(r.balanceCents)}
                   </td>
                   <td className="py-1">{r.page}</td>
                 </tr>

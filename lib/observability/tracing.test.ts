@@ -4,6 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { trace } from "@opentelemetry/api"
 import { startTracing, tracingEnabled } from "./tracing"
 
+// The path-shape fallback is what these tests pin: a `.next/routes-manifest.json` left by an earlier build must not change the labels.
+vi.mock("./route-label", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./route-label")>()),
+  loadRoutesManifest: () => null,
+}))
+
 describe("tracingEnabled", () => {
   it("is off unless an OTLP endpoint is configured", () => {
     expect(tracingEnabled({})).toBe(false)

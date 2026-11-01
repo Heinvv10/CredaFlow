@@ -139,7 +139,7 @@ describe("POST /api/portal/payment/manual", () => {
       data: expect.objectContaining({
         type: "manual_payment_claim",
         documentId: "doc1",
-        note: expect.stringContaining("R3154.00"),
+        note: expect.stringContaining("R 3,154.00"),
       }),
     }))
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({

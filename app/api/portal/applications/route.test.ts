@@ -83,7 +83,10 @@ vi.mock("@/lib/rate-limit", () => ({
   callerIp: () => "127.0.0.1",
   recordedCallerIp: () => null,
 }))
-vi.mock("@/lib/utils", () => ({ generateReference: () => "APP-TEST-0001" }))
+vi.mock("@/lib/utils", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/utils")>()),
+  generateReference: () => "APP-TEST-0001",
+}))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (...a: unknown[]) => triggerNotification(...a),
 }))

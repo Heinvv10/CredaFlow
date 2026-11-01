@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Users, TrendingUp, Target, Clock, Plus, RefreshCw, Banknote } from "lucide-react"
-import { SAST_TIME_ZONE } from "@/lib/utils"
+import { SAST_TIME_ZONE, formatRands } from "@/lib/utils"
 
 type Lead = {
   id: string
@@ -101,7 +101,7 @@ const LOST_REASON_LABELS: Record<string, string> = {
 }
 
 function formatRand(cents: number) {
-  return `R${(cents / 100).toLocaleString("en-ZA", { maximumFractionDigits: 0 })}`
+  return formatRands(cents / 100, { whole: true })
 }
 
 const TYPE_LABELS: Record<string, string> = {
