@@ -607,6 +607,7 @@ export async function verifyLockedApprovalCandidate(
     initiationFeePayment: application.initiationFeePayment,
     ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
     ...(terms.repayment ? { repayment: terms.repayment } : {}),
+    ...(terms.variableRate ? { variableRate: terms.variableRate } : {}),
     ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
   }
   const affordability = evaluateAffordabilityGate(inputs)
@@ -796,6 +797,7 @@ export function verifyCurrentAffordabilityApproval(args: {
       initiationFeePayment: frozen.initiationFeePayment,
       ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
       ...(frozen.repayment ? { repayment: frozen.repayment } : {}),
+      ...(frozen.variableRate ? { variableRate: frozen.variableRate } : {}),
       ...(frozen.productVersion ? { productVersion: frozen.productVersion } : {}),
     },
     applicationDebts,

@@ -6,8 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { currencySymbol } from "@/lib/jurisdiction/money"
 import { Label } from "@/components/ui/label"
-import { FREQUENCIES, GRACE_KINDS, STRUCTURES, type Frequency, type GraceKind, type RepaymentStructure } from "@/lib/product-engine/types"
-import { FREQUENCY_LABEL, GRACE_LABEL, STRUCTURE_LABEL } from "./labels"
+import { FREQUENCIES, GRACE_KINDS, STRUCTURES, VARIABLE_RATE_BASES, type Frequency, type GraceKind, type RepaymentStructure, type VariableRateBasis } from "@/lib/product-engine/types"
+import { BASIS_LABEL, FREQUENCY_LABEL, GRACE_LABEL, STRUCTURE_LABEL } from "./labels"
 import { api, controlClass, type ChangeRow, type EngineOverview, type ProductRow } from "./types"
 
 /** What the form edits: text and numbers as typed (rand, percent), turned into the stored payload on submit. */
@@ -30,6 +30,9 @@ interface FormState {
   structure: RepaymentStructure
   graceKind: GraceKind
   graceInstalments: string
+  balloonPct: string
+  rateBasis: VariableRateBasis | "FIXED"
+  marginPct: string
   collateral: string
   minAge: string
   maxAge: string
@@ -53,6 +56,7 @@ function initialState(product: ProductRow, overview: EngineOverview): FormState 
     feeModel: current?.initiationFeeModel ?? product.initiationFeeModel, feePct: String(Math.round((current?.initiationFeePct ?? product.initiationFeePct) * 10_000) / 100),
     feeMax: String((current?.initiationFeeMaxCents ?? product.initiationFeeMax) / 100), serviceFee: String((current?.monthlyServiceFeeCents ?? product.monthlyServiceFee) / 100),
     structured: r !== undefined && r !== null, frequency: r?.frequency ?? "MONTHLY", structure: r?.structure ?? "AMORTISING", graceKind: r?.graceKind ?? "NONE", graceInstalments: String(r?.graceInstalments ?? 0),
+    balloonPct: r?.balloonPct !== undefined ? String(Math.round(r.balloonPct * 10_000) / 100) : "", rateBasis: current?.variableRate?.basis ?? "FIXED", marginPct: current?.variableRate ? String(Math.round(current.variableRate.marginPa * 1_000_000) / 10_000) : "",
     collateral: (current?.collateral ?? []).map((c) => `${c.code} | ${c.description} | ${c.required ? "required" : "optional"}`).join("\n"),
     minAge: String(current?.eligibility.minAge ?? ""), maxAge: String(current?.eligibility.maxAge ?? ""),
     minIncome: current?.eligibility.minMonthlyIncomeCents != null ? String(current.eligibility.minMonthlyIncomeCents / 100) : "", minEmploymentMonths: String(current?.eligibility.minEmploymentMonths ?? ""),
@@ -70,7 +74,8 @@ function toPayload(s: FormState) {
       minAmountCents: cents(s.minAmount), maxAmountCents: cents(s.maxAmount), minTermDays: Number(s.minTermDays), maxTermDays: Number(s.maxTermDays),
       interestRatePm: Math.round(Number(s.ratePct) * 100) / 10_000, interestModel: s.interestModel, initiationFeeModel: s.feeModel,
       initiationFeePct: Math.round(Number(s.feePct) * 100) / 10_000, initiationFeeMaxCents: cents(s.feeMax), monthlyServiceFeeCents: cents(s.serviceFee),
-      repayment: s.structured && s.interestModel !== "DAILY_ACCRUAL" ? { frequency: s.frequency, structure: s.structure, graceKind: s.graceKind, graceInstalments: s.graceKind === "NONE" ? 0 : Number(s.graceInstalments) } : null,
+      repayment: s.structured && s.interestModel !== "DAILY_ACCRUAL" ? { frequency: s.frequency, structure: s.structure, graceKind: s.graceKind, graceInstalments: s.graceKind === "NONE" ? 0 : Number(s.graceInstalments), ...(s.structure === "BALLOON" ? { balloonPct: Math.round(Number(s.balloonPct) * 100) / 10_000 } : {}) } : null,
+      variableRate: s.rateBasis === "FIXED" ? null : { basis: s.rateBasis, marginPa: Math.round(Number(s.marginPct) * 10_000) / 1_000_000 },
       collateral,
       eligibility: { minAge: optionalInt(s.minAge), maxAge: optionalInt(s.maxAge), minMonthlyIncomeCents: s.minIncome.trim() === "" ? null : cents(s.minIncome), minEmploymentMonths: optionalInt(s.minEmploymentMonths) },
     },
@@ -145,7 +150,16 @@ export function VersionForm({ overview, product, onDone, onCancel }: { overview:
             </Field>
             {text("feePct", "pv-fee", "Initiation fee (% of principal)")}{text("feeMax", "pv-feemax", `Initiation fee cap (${symbol}, 0 = none)`)}
             {text("serviceFee", "pv-svc", `Monthly service fee (${symbol})`)}
+            {!overview.nca && (
+              <Field id="pv-basis" label="Rate type">
+                <select id="pv-basis" className={`${controlClass} w-full`} value={s.rateBasis} onChange={(e) => set("rateBasis", e.target.value as FormState["rateBasis"])}>
+                  <option value="FIXED">Fixed</option>{VARIABLE_RATE_BASES.map((b) => <option key={b} value={b}>Variable: {BASIS_LABEL[b]} + margin</option>)}
+                </select>
+              </Field>
+            )}
+            {s.rateBasis !== "FIXED" && text("marginPct", "pv-margin", "Margin (% a year, may be negative)")}
           </div>
+          {s.rateBasis !== "FIXED" && <p className="text-xs text-[var(--cf-text-muted)]">Loans are priced at the approved reference rate + margin on the day of approval and repriced when it moves. The monthly rate above is only what is advertised.</p>}
         </fieldset>
         <fieldset className="space-y-3" aria-label="Repayment"><legend className="font-semibold">Repayment</legend>
           <label className="flex items-center gap-2 text-sm">
@@ -164,6 +178,7 @@ export function VersionForm({ overview, product, onDone, onCancel }: { overview:
                 <select id="pv-grace" className={`${controlClass} w-full`} value={s.graceKind} onChange={(e) => set("graceKind", e.target.value as GraceKind)}>{GRACE_KINDS.map((g) => <option key={g} value={g}>{GRACE_LABEL[g]}</option>)}</select>
               </Field>
               {s.graceKind !== "NONE" && text("graceInstalments", "pv-graceper", "Grace periods")}
+              {s.structure === "BALLOON" && text("balloonPct", "pv-balloon", "Balloon (% of principal)")}
             </div>
           )}
         </fieldset>

@@ -18,6 +18,7 @@ function summary(row: ChangeRow): string {
   if (row.kind === "DECISION_ENGINE_CONFIG") {
     return `mode ${String(p.mode)} · ${(p.channels as string[]).join(", ") || "no channels"} · ${(p.productIds as string[]).length} product(s) · challenger ${String(p.challengerPercent)}%`
   }
+  if (row.kind === "LOAN_PRODUCT") return `${row.title} · ${String(p.reason)}`
   return row.title
 }
 

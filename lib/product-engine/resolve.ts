@@ -5,11 +5,12 @@
  */
 import type { prisma } from "@/lib/prisma"
 import { dbDate } from "@/lib/asset-finance/dates"
-import type { RepaymentTerms } from "./types"
+import type { RepaymentTerms, VariableRateBasis } from "./types"
 import { repaymentTermsFor, type ProductConfig } from "./terms"
 import { resolvePricing, type PricingContext, type PricingRule, type ResolvedPricing } from "./pricing"
+import { frozenVariableRate, rateFromReference, referenceOn, type FrozenVariableRate } from "./variable-rate"
 
-type Db = Pick<typeof prisma, "productVersion" | "productPricingRule" | "applicationPricingInput">
+type Db = Pick<typeof prisma, "productVersion" | "productPricingRule" | "applicationPricingInput" | "referenceRate">
 
 export interface VersionRecord {
   id: string
@@ -34,6 +35,7 @@ export function versionFromRow(row: VersionRow): VersionRecord {
       repayment: row.frequency && row.structure && row.graceKind
         ? { frequency: row.frequency, structure: row.structure, graceKind: row.graceKind, graceInstalments: row.graceInstalments, ...(row.balloonPct !== null ? { balloonPct: row.balloonPct } : {}) }
         : null,
+      variableRate: row.rateBasis && row.rateMarginPa !== null ? { basis: row.rateBasis as VariableRateBasis, marginPa: row.rateMarginPa } : null,
       collateral: row.collateral as unknown as ProductConfig["collateral"],
       eligibility: row.eligibility as unknown as ProductConfig["eligibility"],
     },
@@ -72,6 +74,10 @@ export interface PricedTerms {
   inputs: { segment: string | null; channel: string | null; campaignCode: string | null; riskRank: number | null }
   /** The engine's terms for this loan's term, or null when the version keeps the product's existing behaviour. */
   repayment: RepaymentTerms | null
+  /** A variable rate: what the loan is priced off, or null when no approved reference value exists yet (it cannot be approved). */
+  variableRate: FrozenVariableRate | null
+  /** The basis a variable rate needs, whether or not a value exists; null on a fixed rate. */
+  variableBasis: VariableRateBasis | null
 }
 
 /**
@@ -88,11 +94,15 @@ export async function priceApplication(
   const input = await db.applicationPricingInput.findFirst({ where: { tenantId, applicationId: args.applicationId } })
   const inputs = { segment: input?.segment ?? null, channel: input?.channel ?? null, campaignCode: input?.campaignCode ?? null, riskRank: args.riskRank }
   const ctx: PricingContext = { productId: args.productId, ...inputs, asOf: args.asOf }
-  const base = { ratePm: version.config.interestRatePm, initiationFeePct: version.config.initiationFeePct }
+  const variable = version.config.variableRate
+  const reference = variable ? await referenceOn(db, tenantId, variable.basis, args.asOf) : null
+  const base = { ratePm: variable && reference ? rateFromReference(reference.rate, variable.marginPa) : version.config.interestRatePm, initiationFeePct: version.config.initiationFeePct }
   const rules = args.useRules === false ? [] : await loadPricingRules(db, tenantId, args.productId, args.asOf)
   const pricing = resolvePricing(rules, ctx, base)
   return {
     version, pricing, base, inputs,
     repayment: version.config.repayment ? repaymentTermsFor(version.config.repayment, args.termDays) : null,
+    variableRate: variable && reference ? frozenVariableRate(variable.basis, reference, pricing.ratePm) : null,
+    variableBasis: variable?.basis ?? null,
   }
 }

@@ -28,6 +28,7 @@ import {
   verifyLockedCurrentAffordabilityApproval,
 } from "@/lib/affordability/current-approval"
 import { verifyCurrentDisbursementEvidence } from "@/lib/affordability/current-disbursement"
+import { dbDate } from "@/lib/asset-finance/dates"
 import { graceDeferredInterest } from "@/lib/product-engine/schedule"
 import { Prisma } from "@prisma/client"
 import { disbursementGuardViolation } from "@/lib/disbursement/guard-violation"
@@ -1414,6 +1415,8 @@ export async function POST(
               deferredInterest: writtenTerms.interestModel === "DAILY_ACCRUAL" ? 0 : graceDeferredInterest({ principalCents: writtenTerms.principalCents, interestRatePm: writtenTerms.interestRatePm, interestModel: writtenTerms.interestModel, startDate: lockedStartDate, repayment: writtenTerms.repayment }),
               frequency: writtenTerms.repayment?.frequency ?? null, structure: writtenTerms.repayment?.structure ?? null, graceKind: writtenTerms.repayment?.graceKind ?? null,
               graceInstalments: writtenTerms.repayment?.graceInstalments ?? 0, instalments: writtenTerms.repayment?.instalments ?? null,
+              balloonCents: writtenTerms.repayment?.balloonPct ? Math.round(writtenTerms.principalCents * writtenTerms.repayment.balloonPct) : 0,
+              ...(writtenTerms.variableRate ? { rateBasis: writtenTerms.variableRate.basis, rateMarginPa: writtenTerms.variableRate.marginPa, referenceRate: writtenTerms.variableRate.referenceRate, referenceEffectiveDate: dbDate(writtenTerms.variableRate.referenceEffectiveDate) } : {}),
               baseRatePm: v.baseRatePm, interestRatePm: writtenTerms.interestRatePm, pricingRuleId: v.pricingRuleId, pricingRuleName: v.pricingRuleName, pricingInputs: v.pricingInputs,
             },
           })

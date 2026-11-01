@@ -1142,6 +1142,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
       initiationFeeMaxCents: terms.initiationFeeMax,
       monthlyServiceFeeCents: terms.monthlyServiceFee,
       ...(terms.repayment ? { repayment: terms.repayment } : {}),
+      ...(terms.variableRate ? { variableRate: terms.variableRate } : {}),
       ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
       initiationFeePayment: application.initiationFeePayment,
       ndiBufferPct,

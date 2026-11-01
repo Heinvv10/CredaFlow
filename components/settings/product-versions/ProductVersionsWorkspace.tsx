@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChangeRequestsPanel } from "@/components/settings/decision-rules/ChangeRequestsPanel"
-import { describeRepayment, money, pct } from "./labels"
+import { BASIS_LABEL, describeRepayment, money, pct } from "./labels"
 import { PricingRuleForm } from "./PricingRuleForm"
 import { VersionForm } from "./VersionForm"
 import { api, type EngineOverview, type ProductRow, type RuleRow } from "./types"
@@ -71,7 +71,7 @@ export function ProductVersionsWorkspace({ overview }: { overview: EngineOvervie
                     <tbody>
                       {versions.map((v) => (
                         <tr key={v.id} className="border-t border-[var(--cf-border-subtle)] align-top">
-                          <td className="py-2">v{v.version}</td><td>{v.effectiveFrom}</td><td>{pct(v.config.interestRatePm)} a month</td>
+                          <td className="py-2">v{v.version}</td><td>{v.effectiveFrom}</td><td>{v.config.variableRate ? `${BASIS_LABEL[v.config.variableRate.basis]} ${v.config.variableRate.marginPa >= 0 ? "+" : "-"} ${pct(Math.abs(v.config.variableRate.marginPa))} a year` : `${pct(v.config.interestRatePm)} a month`}</td>
                           <td>{describeRepayment(v.config.repayment, v.config.interestModel)}<br /><span className="text-xs text-[var(--cf-text-muted)]">{v.reason}</span></td>
                           <td><Badge variant={STATUS[v.status][1]}>{STATUS[v.status][0]}</Badge></td>
                         </tr>
@@ -107,7 +107,7 @@ export function ProductVersionsWorkspace({ overview }: { overview: EngineOvervie
       </TabsContent>
 
       <TabsContent value="approvals">
-        <ChangeRequestsPanel requests={overview.requests} onDone={refresh} onEdit={() => undefined} description="Every product version and pricing rule needs a second person's approval. You cannot approve what you drafted." />
+        <ChangeRequestsPanel requests={overview.requests} onDone={refresh} onEdit={() => undefined} description="Every new product, product edit, version and pricing rule needs a second person's approval. You cannot approve what you drafted." />
       </TabsContent>
     </Tabs>
   )

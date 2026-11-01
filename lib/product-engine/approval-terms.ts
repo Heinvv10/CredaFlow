@@ -14,8 +14,9 @@ import { priceApplication } from "./resolve"
 import { assertValidTerms } from "./schedule"
 import { versionNcaIssues } from "./nca"
 import type { RepaymentTerms } from "./types"
+import type { FrozenVariableRate } from "./variable-rate"
 
-type Db = Pick<typeof prisma, "productVersion" | "productPricingRule" | "applicationPricingInput">
+type Db = Pick<typeof prisma, "productVersion" | "productPricingRule" | "applicationPricingInput" | "referenceRate">
 
 export interface ProductPricing {
   interestRatePm: number
@@ -38,6 +39,10 @@ export interface VersionedTerms {
 
 export interface ApprovalTerms extends ProductPricing {
   repayment: RepaymentTerms | null
+  /** A variable rate as this loan is priced on it: frozen with the approval and carried onto the loan's terms. */
+  variableRate: FrozenVariableRate | null
+  /** The reference a variable rate needs and has no approved value yet: the loan cannot be priced. */
+  referenceMissing: string | null
   /** Null for a product with no version in effect. */
   versioned: VersionedTerms | null
   /** The limits of the version in effect, which an approval's amount and term must be within; null for a product with no version. */
@@ -58,12 +63,14 @@ export async function approvalTermsFor(
   asOf: string = sastCalendarDate(new Date()),
 ): Promise<ApprovalTerms> {
   const priced = await priceApplication(db, tenantId, { productId: application.productId, applicationId: application.id, riskRank: application.riskGradeRank, termDays: application.appliedTermDays, asOf, useRules: !isMicro30Code(product.code) })
-  if (!priced) return { ...pickPricing(product), repayment: null, versioned: null, limits: null, ncaIssues: [] }
+  if (!priced) return { ...pickPricing(product), repayment: null, variableRate: null, referenceMissing: null, versioned: null, limits: null, ncaIssues: [] }
   const c = priced.version.config
   return {
     interestRatePm: priced.pricing.ratePm, interestModel: c.interestModel, initiationFeeModel: c.initiationFeeModel, initiationFeePct: priced.pricing.initiationFeePct,
     initiationFeeMax: c.initiationFeeMaxCents, monthlyServiceFee: c.monthlyServiceFeeCents,
     repayment: priced.repayment,
+    variableRate: priced.variableRate,
+    referenceMissing: priced.variableBasis && !priced.variableRate ? priced.variableBasis : null,
     // The gate activation runs (structure, fee, cap, the MICRO30 contract), so a version one refuses cannot pass the other.
     ncaIssues: await versionNcaIssues(tenantId, { code: product.code ?? "", productType: product.productType ?? "" }, c),
     limits: { minAmountCents: c.minAmountCents, maxAmountCents: c.maxAmountCents, minTermDays: c.minTermDays, maxTermDays: c.maxTermDays },
@@ -130,6 +137,7 @@ export async function previewCalcInput(
  * an application with no recorded channel is refused with them, or null.
  */
 export function versionLimitRefusal(terms: ApprovalTerms, loan: { principalCents: number; termDays: number }): string | null {
+  if (terms.referenceMissing) return `the product's variable rate follows ${terms.referenceMissing}, which has no approved value for today`
   const l = terms.limits
   if (l) {
     if (loan.principalCents < l.minAmountCents || loan.principalCents > l.maxAmountCents) return `the amount is outside the product version's limits of ${l.minAmountCents} to ${l.maxAmountCents} cents`

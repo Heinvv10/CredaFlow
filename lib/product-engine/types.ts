@@ -22,6 +22,13 @@ export type RepaymentStructure = (typeof STRUCTURES)[number]
 export const GRACE_KINDS = ["NONE", "PRINCIPAL_ONLY", "FULL"] as const
 export type GraceKind = (typeof GRACE_KINDS)[number]
 
+/**
+ * The references a variable rate may follow, on the lender's own approved rates. Prime is the rate the tender names; the base
+ * rate is the lender's. The SARB's repo, JIBAR and ZARONIA are South African and stay with asset finance.
+ */
+export const VARIABLE_RATE_BASES = ["PRIME", "LENDER_BASE"] as const
+export type VariableRateBasis = (typeof VARIABLE_RATE_BASES)[number]
+
 /** The interest bases the engine computes; DAILY_ACCRUAL stays with the single-payment products of lib/loan-calculator.ts. */
 export type EngineInterestModel = "FLAT" | "REDUCING_BALANCE"
 

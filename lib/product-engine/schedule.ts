@@ -44,7 +44,7 @@ function periodRate(interestRatePm: number, terms: RepaymentTerms): number {
   return terms.frequency === "MONTHLY" ? interestRatePm : (interestRatePm * 12) / PERIODS_PER_YEAR[terms.frequency]
 }
 
-interface Parts {
+export interface Parts {
   principal: number[]
   interest: number[]
   /** The interest of a full grace, which no row of the grace carries: it is inside the interest of the rows that follow. */
@@ -52,7 +52,7 @@ interface Parts {
 }
 
 /** Principal and interest of every row, before dates and fees. */
-function split(input: ScheduleInput): Parts {
+export function split(input: ScheduleInput): Parts {
   const { principalCents: P, interestModel, terms } = input
   const { instalments: N, structure, graceKind, graceInstalments: G } = terms
   const B = structure === "BALLOON" ? (input.balloonCents ?? Math.round(P * terms.balloonPct!)) : 0

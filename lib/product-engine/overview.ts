@@ -3,6 +3,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { activeCurrency, isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { presentChangeRequest } from "@/lib/maker-checker/http"
 import { listChangeRequests } from "@/lib/maker-checker/service"
+import { LOAN_PRODUCT_KIND } from "@/lib/product-config/product-change"
 import { PRODUCT_VERSION_KIND } from "./change-handlers"
 import { PRICING_RULE_KIND } from "./pricing"
 import { versionFromRow, type VersionRecord } from "./resolve"
@@ -19,7 +20,7 @@ export async function loadProductEngineOverview(tenantId: string, viewer: { id: 
     }),
     prisma.productVersion.findMany({ where: { tenantId }, orderBy: [{ productId: "asc" }, { version: "desc" }] }),
     prisma.productPricingRule.findMany({ where: { tenantId }, orderBy: [{ retiredAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }] }),
-    listChangeRequests(tenantId, { kinds: [PRODUCT_VERSION_KIND, PRICING_RULE_KIND], recentDays: 14, limit: 100 }).then((page) => page.rows),
+    listChangeRequests(tenantId, { kinds: [PRODUCT_VERSION_KIND, PRICING_RULE_KIND, LOAN_PRODUCT_KIND], recentDays: 14, limit: 100 }).then((page) => page.rows),
   ])
   const inEffect = new Map<string, string>()
   for (const row of [...versionRows].sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime())) {

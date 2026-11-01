@@ -18,7 +18,7 @@ import { previewCalcInput } from "@/lib/product-engine/approval-terms"
 import { liveAffordability, snapshotAffordability, type AffordabilityFacts } from "./affordability-facts"
 import type { DecisionFacts } from "./facts"
 
-type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput">
+type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput" | "referenceRate">
 
 export interface LoadedFacts {
   facts: DecisionFacts
