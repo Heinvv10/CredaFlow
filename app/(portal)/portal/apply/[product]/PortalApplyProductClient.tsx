@@ -52,9 +52,11 @@ interface Props {
   client: ClientInfo
   qualification: QualificationResult | null
   creditLifeOffer: CreditLifePresentedOffer | null
+  /** False for a key-facts application: the NCA affordability declaration and the PASQ notice are not asked of it. */
+  ncaDeclarations?: boolean
 }
 
-export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, demoLenderNote, product, client, creditLifeOffer }: Props) {
+export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, demoLenderNote, product, client, creditLifeOffer, ncaDeclarations = true }: Props) {
   const router = useRouter()
   const t = useT("portalApply")
   const productName = productNameLabel(useT("portalLabels"), product.name)
@@ -117,7 +119,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
     && !termOutOfRange
     && purpose.trim().length >= 3
     && (!poFunding || poInputComplete(po))
-    && affordabilityDeclared
+    && (!ncaDeclarations || (affordabilityDeclared && pasqDeliveryUnderstood))
     // With no configured credit-life product there is no cover to offer, so
     // there is no election to make and nothing to acknowledge.
     && (
@@ -131,7 +133,6 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
         && creditLifeDisclosureAcknowledged
       )
     )
-    && pasqDeliveryUnderstood
     && !submitting
 
   async function handleSubmit(e: React.FormEvent) {
@@ -341,6 +342,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
           </div>
           )}
 
+          {ncaDeclarations && (<>
           <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
             <input
               type="checkbox"
@@ -376,6 +378,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
               acknowledgement. This submission does not create a binding loan.
             </span>
           </label>
+          </>)}
         </div>
 
         {error && (

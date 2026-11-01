@@ -51,4 +51,11 @@ describe("headerBlockerLabel", () => {
     expect(headerBlockerLabel(approvalGateBlockers({ ...clear, affordable: false }))).toBe("1 blocker")
     expect(headerBlockerLabel(approvalGateBlockers({ ...clear, affordable: false, openCreditChecks: 1 }))).toBe("2 blockers")
   })
+
+  it("does not ask a key-facts application for the NCA reckless-lending checks, and still asks every other gate", () => {
+    const notConfirmed = { ...clear, recklessLendingAssessed: false, clientAffordabilityDeclared: false }
+    expect(approvalGateBlockers(notConfirmed).map((b) => b.label)).toEqual(["NCA checks not confirmed"])
+    expect(approvalGateBlockers({ ...notConfirmed, ncaChecksRequired: false })).toEqual([])
+    expect(approvalGateBlockers({ ...notConfirmed, ncaChecksRequired: false, openCreditChecks: 2, affordable: false }).map((b) => b.label)).toEqual(["Not affordable", "2 open credit checks"])
+  })
 })

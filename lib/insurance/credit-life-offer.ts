@@ -1,4 +1,6 @@
 import type { Prisma } from "@prisma/client"
+import type { prisma } from "@/lib/prisma"
+import { creditLifeOfferableUnder } from "@/lib/non-nca-documents/regime-evidence"
 
 export function creditLifeOfferFindFirstArgs(tenantId: string) {
   return {
@@ -40,4 +42,18 @@ export function creditLifeOfferFindFirstArgs(tenantId: string) {
       insurer: { select: { name: true } },
     },
   } satisfies Prisma.InsuranceProductFindFirstArgs
+}
+
+/**
+ * The credit-life offer for an application, or null. Every read that decides what a client is offered comes through here,
+ * so a screen and the server it posts to cannot disagree: outside the NCA's regime there is none, whatever rows exist.
+ * `regime`: the application's stamped regime; absent for one not created yet.
+ */
+export async function loadCreditLifeOffer(
+  db: Pick<typeof prisma, "insuranceProduct">,
+  tenantId: string,
+  regime?: string | null,
+) {
+  if (!creditLifeOfferableUnder(regime)) return null
+  return db.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId))
 }
