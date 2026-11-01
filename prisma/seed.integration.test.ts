@@ -577,6 +577,27 @@ suite("Lesotho demo seed (DEMO_LENDER=basotho) on a fresh migrated database", ()
     expect(await prisma.assetFinanceDeal.count()).toBe(0)
   })
 
+  it("is walkable with no database surgery: templates approved, a screening provider, an ungraded matrix rule, an approved application, a loan in arrears", async () => {
+    const prisma = fresh!.prisma
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: "basotho" }, include: { config: true } })
+    expect(tenant.config).toMatchObject({ screeningProvider: "simulated", isDemoLender: true })
+    const templates = await prisma.documentTemplate.findMany({ where: { tenantId: tenant.id, key: { startsWith: "non_nca_" } }, include: { versions: true } })
+    expect(templates.map((t) => t.key).sort()).toEqual(["non_nca_arrears_letter", "non_nca_key_facts", "non_nca_loan_agreement", "non_nca_offer_letter"])
+    for (const t of templates) {
+      expect(t.versions[0]).toMatchObject({ id: t.currentVersionId, status: "ACTIVE" })
+      expect(t.versions[0].approvedById).not.toBe(t.versions[0].createdById)
+      expect(t.versions[0].approvedById).toBeTruthy()
+    }
+    const matrix = await prisma.approvalMatrixVersion.findFirstOrThrow({ where: { tenantId: tenant.id } })
+    expect(matrix.enabled).toBe(true)
+    expect(matrix.rules).toEqual([expect.objectContaining({ when: { ungraded: true } })])
+    const approved = await prisma.loanApplication.findUniqueOrThrow({ where: { reference: "APP-SEED-0005" } })
+    expect(approved).toMatchObject({ status: "APPROVED", disclosureRegime: "KEY_FACTS", repaymentMethod: "EFT" })
+    expect(await prisma.loan.findUniqueOrThrow({ where: { reference: "LN-SEED-0001" } })).toMatchObject({ status: "ACTIVE", daysInArrears: expect.any(Number) })
+    expect((await prisma.loan.findUniqueOrThrow({ where: { reference: "LN-SEED-0001" } })).daysInArrears).toBeGreaterThan(0)
+    expect(await prisma.user.count({ where: { tenantId: tenant.id, role: "SUPER_ADMIN" } })).toBe(1)
+  })
+
   it("refuses to seed a South African lender into the same database (one jurisdiction per instance)", () => {
     expect(failedRunStderr(() => runSeed(fresh!.url, { DEMO_LENDER: "acme" }))).toMatch(/One instance serves one jurisdiction/)
   })

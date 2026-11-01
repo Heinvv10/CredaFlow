@@ -146,6 +146,17 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
         ))}
       </div>
 
+      {(loan.arrearsLetters?.length ?? 0) > 0 && (
+        <section className="mb-6 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-5 text-sm text-[var(--cf-text)]" data-testid="portal-arrears-letters">
+          <h2 className="mb-2 font-semibold">Letters about this account</h2>
+          <ul className="space-y-1">
+            {loan.arrearsLetters.map((letter) => (
+              <li key={letter.id}><a className="underline" href={`/api/documents/${letter.clientDocumentId}/view`} target="_blank" rel="noreferrer">Arrears letter {formatDay(letter.noticeDate, locale)}</a></li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="mb-6 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-5 text-sm text-[var(--cf-text)]">
         <dl className="grid gap-4 sm:grid-cols-2">
           <div><dt className="text-[var(--cf-text-muted)]">{t("principalOutstanding")}</dt><dd className="mt-1 font-semibold">{formatZAR(documentLoanFigures(loan).outstandingPrincipal)}</dd></div>

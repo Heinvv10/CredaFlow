@@ -67,7 +67,8 @@ import { POST as branchSign } from "@/app/api/applications/[id]/loan-documents/b
 import { POST as sign } from "@/app/api/applications/[id]/loan-documents/sign/route"
 import { POST as arrearsLetter } from "@/app/api/loans/[id]/arrears-letter/route"
 import { POST as section129 } from "@/app/api/loans/section129/route"
-import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate, publishVersion } from "./gate.integration-fixture"
+import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate, publishVersion, sha } from "./gate.integration-fixture"
 import { ARREARS_LETTER_TEMPLATE_KEY } from "./keys"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { createRlsRole, seedStack, stackOf } from "./ls-stack.integration-fixture"
@@ -351,5 +352,28 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       await db().complianceRecord.delete({ where: { id: other.id } })
       expect(await db().complianceRecord.count({ where: { tenantId: stack.tenant, type: "SECTION_129_NOTICE" } })).toBe(0)
     })
+  })
+})
+
+suite("South Africa is untouched (real Postgres, a ZA instance)", () => {
+  let za: ThrowawayDb
+  beforeAll(async () => { za = await createThrowawayDb() }, 300_000)
+  afterAll(async () => { await za?.drop() }, 60_000)
+
+  it("a ZA loan cannot be given an arrears letter, and its Section 129 record is not refused", async () => {
+    const tenant = await createChargesTenant(za.db, false)
+    const loan = await createChargesLoan(za.db, tenant)
+    const template = await createTemplate(za.db, tenant.tenantId, ARREARS_LETTER_TEMPLATE_KEY, LETTER)
+    const borrower = (await za.db.loan.findUniqueOrThrow({ where: { id: loan.loanId } })).clientId!
+    const document = await za.db.clientDocument.create({
+      data: { tenantId: tenant.tenantId, clientId: borrower, docType: "OTHER", fileName: "f.pdf", fileUrl: "", storagePath: "/mem/z.pdf", fileSize: 1, mimeType: "application/pdf", templateId: template.templateId, generatedFromVersionId: template.versionId, contentSha256: "d".repeat(64), extractionStatus: "skipped" },
+    })
+    await expect(za.db.loanArrearsLetter.create({
+      data: {
+        tenantId: tenant.tenantId, loanId: loan.loanId, templateId: template.templateId, templateVersionId: template.versionId, templateVersionNumber: 1, templateContentSha256: sha(LETTER), clientDocumentId: document.id, pdfSha256: "d".repeat(64),
+        noticeDate: new Date(), arrearsAmount: 100, totalOutstanding: 100, daysInArrears: 1, issuedById: tenant.userId,
+      },
+    })).rejects.toThrow(/Section 129 notice/)
+    expect(await za.db.complianceRecord.create({ data: { tenantId: tenant.tenantId, type: "SECTION_129_NOTICE", referenceId: loan.loanId, status: "PENDING" } })).toMatchObject({ referenceId: loan.loanId })
   })
 })
