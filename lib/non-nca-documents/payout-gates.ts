@@ -150,6 +150,10 @@ export async function payoutGates(tx: PayoutTransaction, scope: PayoutScope) {
   if (!statement.ok) throw new Refused(refuse(422, statement.reason, "Cannot disburse: no verified bank statement matches the payout account."))
   const verification = await currentPayoutVerification(tx, { tenantId, applicationId, client, disburserId: user.id })
   if (!verification.ok) throw new Refused(refuse(422, "payout_account_verification", verification.error))
+  if (scope.segregation) {
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [verification.verifiedById], checkerId: user.id })
+    if (controlled) throw new Refused(refuse(422, "payout_account_verification", controlled))
+  }
 
   // The one instant of this payout: stamped under the locks, used for every judgement and row that follows.
   const at = new Date()

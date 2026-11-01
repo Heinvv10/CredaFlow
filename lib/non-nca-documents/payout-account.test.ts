@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ application: vi.fn(), create: vi.fn(), audit: vi.fn(), queryRaw: vi.fn() }))
+const h = vi.hoisted(() => ({ application: vi.fn(), create: vi.fn(), audit: vi.fn(), queryRaw: vi.fn(), twoPeople: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/approval/progress", () => ({ approvalStepApproverIds: async () => ["step-approver"] }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: h.twoPeople }))
+vi.mock("@/lib/security/segregation-of-duties", async (original) => ({ ...(await original<typeof import("@/lib/security/segregation-of-duties")>()), isSegregationOfDutiesRequired: async () => true }))
 vi.mock("@/lib/prisma", () => {
   const tx = { $queryRaw: h.queryRaw, loanApplication: { findFirst: h.application }, avsCheck: { create: h.create }, auditLog: { create: h.audit } }
   return { prisma: { loanApplication: { findFirst: h.application }, $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) } }
@@ -14,6 +17,15 @@ const client = { id: "client-1", idNumber: "990001234", firstName: "Synthetic", 
 const args = { tenantId: "t1", applicationId: "app-1", user: { id: "second", email: "second@test.invalid" }, note: "Confirmed with the bank by telephone today." }
 
 describe("recording the second person's confirmation", () => {
+  it("is refused when the two-people rule relates the confirmer to whoever made or approved the application, writing nothing", async () => {
+    h.twoPeople.mockResolvedValueOnce("Two people")
+    h.application.mockResolvedValue({ status: "APPROVED", disclosureRegime: "KEY_FACTS", clientId: "client-1", client, approvedById: "approver", inputStaffIds: ["capturer"] })
+    h.create.mockClear()
+    expect(await recordPayoutAccountVerification(args)).toEqual({ ok: false, status: 409, error: "Two people" })
+    expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: expect.arrayContaining(["approver", "step-approver", "capturer"]), checkerId: "second" }))
+    expect(h.create).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     h.create.mockResolvedValue({ id: "check-1" })

@@ -58,6 +58,15 @@ describe("the gates a real row cannot reach, held anyway", () => {
     expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["approver", "clearer"], checkerId: "u1" }))
   })
 
+  it("reads the two-people rule against whoever confirmed the account, while segregation of duties is on (F12)", async () => {
+    h.twoPeople.mockResolvedValueOnce("Two people")
+    expect(await refusal(payoutGates(tx(), scope))).toMatchObject({ precondition: "payout_account_verification", error: "Two people" })
+    expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["second"], checkerId: "u1" }))
+    h.twoPeople.mockClear()
+    await payoutGates(tx(), { ...scope, segregation: false })
+    expect(h.twoPeople).not.toHaveBeenCalled()
+  })
+
   it("passes a complete row", async () => {
     expect(await payoutGates(tx(), scope)).toMatchObject({ repaymentMethod: "EFT", bank: { accountNo: "62000012345" } })
   })

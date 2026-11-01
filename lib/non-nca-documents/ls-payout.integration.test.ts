@@ -201,6 +201,29 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect(await loans(fine)).toBe(1)
   })
 
+  it("a puppet does not confirm the payout account: the payer's own account is refused at payout, an approver's at the confirmation", async () => {
+    const mint = async (by: string, name: string) => {
+      const puppet = (await db().user.create({ data: { tenantId: stack.tenant, email: `${name}-${t}@test.invalid`, password: "not-a-real-login", name: "Second account", role: "LOAN_ADMIN" } })).id
+      await db().auditLog.create({ data: { tenantId: stack.tenant, userId: by, action: "USER_CREATED", entity: "User", entityId: puppet } })
+      return puppet
+    }
+    const payers = `puppet-payer-${t}`
+    await signedApplication(payers, { verified: false })
+    expect((await verifyAccount(await mint(stack.disburser, "payer-puppet"), payers)).status).toBe(200)
+    const refused = await disburseAs(stack.disburser, payers)
+    expect(refused.status).toBe(422)
+    expect(await refused.json()).toMatchObject({ disbursementPrecondition: "payout_account_verification", error: expect.stringContaining("Two people") })
+    expect(await loans(payers)).toBe(0)
+
+    const approvers = `puppet-approver-${t}`
+    await signedApplication(approvers, { verified: false })
+    const { approvedById } = await db().loanApplication.findUniqueOrThrow({ where: { id: approvers }, select: { approvedById: true } })
+    const puppet = await mint(approvedById!, "approver-puppet")
+    const confirmed = await verifyAccount(puppet, approvers)
+    expect(confirmed.status).toBe(409)
+    expect(await db().avsCheck.count({ where: { applicationId: approvers } })).toBe(0)
+  })
+
   it("a second person records the payout account, audited, and the disburser cannot be that person", async () => {
     const id = `second-${t}`
     await signedApplication(id, { verified: false })
