@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { controlClass } from "@/components/settings/decision-rules/types"
 import type { ApprovalProgress } from "@/lib/approval/progress"
+import { ApprovalConditionsList } from "./ApprovalConditionsList"
 
 const STATE_BADGE = { APPROVED: "success", PENDING: "warning", WAITING: "neutral", NOT_REQUIRED: "neutral" } as const
 const STATE_LABEL = { APPROVED: "Approved", PENDING: "Awaiting", WAITING: "Waiting", NOT_REQUIRED: "Not needed" } as const
@@ -91,6 +92,7 @@ export function ApprovalProgressPanel({ applicationId, progress, canUseCommittee
           </ul>
         </div>
       )}
+      <ApprovalConditionsList applicationId={applicationId} progress={progress} />
       {canUseCommittee && <Link href={`/applications/${applicationId}/committee-pack`} className="inline-block text-xs underline">Credit committee pack</Link>}
       {canRecord && (
         <div className="space-y-2 border-t border-[var(--cf-border-subtle)] pt-3">

@@ -6,6 +6,7 @@ import { LOAN_DOCUMENT_KINDS } from "./keys"
 import { STAFF_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 import { renderLoanDocument, type RenderedLoanDocument } from "./render"
+import { committeeConditionsRefusal } from "@/lib/approval/conditions"
 
 export type IssueResult =
   | { ok: true; issued: { kind: string; issuanceId: string; clientDocumentId: string; pdfSha256: string; templateVersion: number; sample: boolean }[] }
@@ -39,6 +40,8 @@ export async function issueLoanDocuments(args: {
   }
   if (application.status !== "APPROVED") return { ok: false, status: 409, error: "Loan documents are issued for an approved application" }
   if (application.agreementSignedAt) return { ok: false, status: 409, error: "The loan agreement is already signed" }
+  const conditions = await committeeConditionsRefusal(prisma, tenantId, applicationId)
+  if (conditions) return { ok: false, status: 409, error: conditions }
   const clientId = application.clientId
 
   // The terms the documents are rendered from, hashed now: the transaction below refuses if they moved meanwhile.

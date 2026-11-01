@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+const conditions = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: conditions.refusal, clearedConditions: vi.fn(async () => []) }))
 const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
 vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { NextRequest } from "next/server"
@@ -107,6 +109,22 @@ describe("POST /api/applications/[id]/disburse — segregation of duties", () =>
     const response = await POST(request(), ctx)
 
     expect(await response.json()).toEqual(expect.objectContaining({ disbursementPrecondition: "screening" }))
+  })
+
+  it("reads the two-people rule against the approver while the setting is on, and not while it is off (F12)", async () => {
+    h.findUnique.mockResolvedValue(approvedBy("user-2"))
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const refused = await POST(request(), ctx)
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toEqual(expect.objectContaining({ disbursementPrecondition: "segregation_of_duties", error: "Two people, not two accounts" }))
+    expect(twoPeople.refusal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: expect.arrayContaining(["user-2"]) }))
+  })
+
+  it("stops on an open committee condition (F9)", async () => {
+    h.findUnique.mockResolvedValue(approvedBy("user-2"))
+    conditions.refusal.mockResolvedValueOnce("on conditions")
+    const refused = await POST(request(), ctx)
+    expect(await refused.json()).toEqual(expect.objectContaining({ disbursementPrecondition: "committee_conditions" }))
   })
 
   it("lets a different staff member continue while the setting is on", async () => {

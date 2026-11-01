@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { canDo, type UserRole } from "@/lib/permissions"
 import { assessApproval } from "./assess"
+import { loadConditions } from "./conditions"
 import { loadApplicationForMatrix, loadEffectiveMatrix, loadMatrixVersion } from "./matrix-store"
 
 export interface LevelProgress {
@@ -34,12 +35,14 @@ export interface ApprovalProgress {
   escalationCount: number
   escalations: Array<{ fromLevel: number; toLevel: number; at: string; notified: number }>
   committeeDecisions: Array<{ id: string; decision: string; meetingDate: string; attendees: string[]; conditions: string[]; rationale: string; recordedBy: string; recordedAt: string }>
-  viewer: { authorityLevel: number; canApprove: boolean; reason: string | null }
+  /** The approval's conditions: staff who may not read the committee's pack see that one is open or met, not its wording. */
+  conditions: Array<{ index: number; text: string | null; cleared: { by: string; at: string; note: string | null } | null }>
+  viewer: { authorityLevel: number; canApprove: boolean; canClearConditions: boolean; reason: string | null }
 }
 
 const none = (): ApprovalProgress => ({
   applies: false, caseId: null, status: null, matrixName: null, matrixVersion: null, requiredLevels: null, requirementFrozen: false, matchedRules: [], levels: [],
-  pendingLevel: null, dueAt: null, overdue: false, escalationCount: 0, escalations: [], committeeDecisions: [], viewer: { authorityLevel: 0, canApprove: false, reason: null },
+  pendingLevel: null, dueAt: null, overdue: false, escalationCount: 0, escalations: [], committeeDecisions: [], conditions: [], viewer: { authorityLevel: 0, canApprove: false, canClearConditions: false, reason: null },
 })
 
 /** Where an application is in its approval chain, and whether the viewer may approve the next level. Read-only. */
@@ -72,6 +75,7 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
   // The committee's attendees, rationale and conditions are for those who may read its pack (view_committee_pack).
   const mayReadCommittee = canDo(input.viewer.role, "view_committee_pack")
   const plan = theCase && theCase.status === "OPEN" ? assessed.plan : null
+  const { conditions } = await loadConditions(prisma, tenantId, applicationId)
   const pending = theCase?.status === "OPEN" ? steps.length + 1 : null
   return {
     applies: true,
@@ -100,9 +104,14 @@ export async function loadApprovalProgress(input: { tenantId: string; applicatio
       id: d.id, decision: d.decision, meetingDate: d.meetingDate.toISOString().slice(0, 10), attendees: d.attendees,
       conditions: Array.isArray(d.conditions) ? (d.conditions as string[]) : [], rationale: d.rationale, recordedBy: d.recordedBy.name || d.recordedBy.email, recordedAt: d.createdAt.toISOString(),
     })),
+    conditions: conditions.map((c) => ({
+      index: c.index, text: mayReadCommittee ? c.text : null,
+      cleared: c.cleared ? { by: c.cleared.by, at: c.cleared.at, note: mayReadCommittee ? c.cleared.note : null } : null,
+    })),
     viewer: {
       authorityLevel: authority.level,
       canApprove: plan !== null && (plan.kind === "record" || plan.kind === "final"),
+      canClearConditions: mayReadCommittee && canDo(input.viewer.role, "clear_committee_conditions") && !application.inputStaffIds.includes(input.viewer.id),
       reason: plan && plan.kind === "refuse" ? plan.error : null,
     },
   }

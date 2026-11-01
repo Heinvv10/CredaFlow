@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+const conditions = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: conditions.refusal, clearedConditions: vi.fn(async () => []) }))
 
 /**
  * createPayout's half of segregation of duties: while the lender's setting is
@@ -49,6 +51,12 @@ describe("createPayout below the dual-approval threshold", () => {
     expect(await createPayout(actor, "deal-1")).toEqual({ kind: "created", payoutId: "payout-1", status: "PENDING_APPROVAL" })
     expect(h.create.mock.calls[0][0].data).not.toHaveProperty("approvedById")
     expect(h.creditGate).toHaveBeenCalledWith(expect.anything(), "tenant-1", "deal-1")
+  })
+
+  it("waits for the committee's conditions, like any other credit gate (F9)", async () => {
+    conditions.refusal.mockResolvedValueOnce("The credit committee approved this on conditions")
+    expect(await createPayout(actor, "deal-1")).toMatchObject({ kind: "credit_gate", reason: "committee_conditions" })
+    expect(h.create).not.toHaveBeenCalled()
   })
 
   it("is approved by its creation while segregation of duties is off", async () => {

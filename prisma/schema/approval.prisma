@@ -78,8 +78,9 @@ model ApprovalCase {
   completedAt     DateTime?
   createdAt       DateTime               @default(now())
 
-  escalations ApprovalEscalation[]
-  steps       ApprovalStep[]
+  conditionClearances ApprovalConditionClearance[]
+  escalations         ApprovalEscalation[]
+  steps               ApprovalStep[]
 
   @@unique([tenantId, id])
   @@index([tenantId, applicationId])
@@ -149,6 +150,26 @@ model ApprovalDelegation {
 }
 
 /// What the credit committee decided about an application at its level, with the conditions of an approval.
+/// One committee condition of an approved case, met: who says so, on what. Append-only; the agreement is not signed and the loan is not paid out until every condition has a row.
+model ApprovalConditionClearance {
+  id             String       @id @default(cuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id])
+  caseId         String
+  case           ApprovalCase @relation(fields: [tenantId, caseId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  applicationId  String
+  /// The condition's place in the case's list of conditions (lib/approval/conditions.ts), with its wording as the committee set it.
+  conditionIndex Int
+  condition      String
+  note           String
+  clearedById    String
+  clearedBy      User         @relation("ApprovalConditionClearedBy", fields: [tenantId, clearedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt      DateTime     @default(now())
+
+  @@unique([caseId, conditionIndex])
+  @@index([tenantId, applicationId])
+}
+
 model CreditCommitteeDecision {
   id            String                @id @default(cuid())
   tenantId      String
@@ -160,7 +181,7 @@ model CreditCommitteeDecision {
   meetingDate   DateTime              @db.Date
   /// Names of the members present: string[].
   attendees     String[]              @default([])
-  /// Conditions attached to an approval: string[]. Disbursement-blocking conditions precedent are a later module.
+  /// Conditions attached to an approval: string[]. They hold the signature and the payout (lib/approval/conditions.ts).
   conditions    Json
   rationale     String
   recordedById  String

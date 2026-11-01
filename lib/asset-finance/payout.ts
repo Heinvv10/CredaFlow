@@ -18,6 +18,7 @@ import { checklistLabel, needsDualApproval, payoutAmountCents, requiredChecklist
 import { lockDeal, type SigningActor } from "./signing-prepare"
 import { dealCreditGate } from "./deal-credit-gate"
 import { accountControlRefusal } from "@/lib/security/account-control"
+import { committeeConditionsRefusal } from "@/lib/approval/conditions"
 
 export type CreatePayoutResult =
   | { kind: "not_found" }
@@ -48,7 +49,7 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       const deal = await tx.assetFinanceDeal.findFirstOrThrow({
         where: { id: dealId, tenantId },
         select: {
-          contractType: true, supplierId: true, depositCents: true, tradeInCents: true,
+          applicationId: true, contractType: true, supplierId: true, depositCents: true, tradeInCents: true,
           asset: { select: { cashPriceExclVatCents: true, vatCents: true, registrationNumber: true } },
           signers: { where: { document: "SURETYSHIP" }, select: { client: { select: { firstName: true, lastName: true } }, suretyConsent: { select: { maritalRegime: true, evidenceDocumentId: true, suretySignedOn: true, consentSignedOn: true, consentBeforeSurety: true } } } },
           checklist: { select: { item: true, confirmedAt: true } },
@@ -58,6 +59,8 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       if (deal.payout) return { kind: "exists" }
       const credit = await dealCreditGate(tx, tenantId, dealId)
       if (credit.problem) return { kind: "credit_gate", reason: credit.problem.kind, message: credit.problem.message }
+      const conditions = await committeeConditionsRefusal(tx, tenantId, deal.applicationId)
+      if (conditions) return { kind: "credit_gate", reason: "committee_conditions", message: conditions }
       const missingConsent = (deal.signers ?? []).filter((s) => !s.suretyConsent || s.suretyConsent.maritalRegime === "UNKNOWN" || (s.suretyConsent.maritalRegime === "IN_COMMUNITY" && (!s.suretyConsent.evidenceDocumentId || !s.suretyConsent.suretySignedOn || consentTimingProblem(s.suretyConsent.consentSignedOn?.toISOString().slice(0, 10) ?? null, s.suretyConsent.consentBeforeSurety, s.suretyConsent.suretySignedOn) !== null)))
       if (missingConsent.length) return { kind: "checklist_open", open: missingConsent.map((s) => `Surety ${s.client.firstName} ${s.client.lastName}: confirm marital regime and witnessed spouse consent before payout`) }
       const confirmed = new Set(deal.checklist.filter((c) => c.confirmedAt).map((c) => c.item))

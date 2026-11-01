@@ -12,6 +12,7 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "maker-checker: decision rules, engine settings, approval matrix, product versions, pricing (ChangeRequest)", file: "lib/maker-checker/service.ts", constraint: "ChangeRequest_four_eyes" },
   { control: "approval matrix chain (ApprovalStep, levels)", file: "lib/approval/assess.ts" },
   { control: "credit committee recorder", file: "lib/approval/committee.ts" },
+  { control: "clearing a committee condition", file: "lib/approval/conditions.ts" },
   { control: "disbursing an approved application (segregation of duties)", file: "app/api/applications/[id]/disburse/route.ts" },
   { control: "countersigning an in-branch signature (segregation of duties)", file: "app/api/applications/[id]/agreement/countersign/route.ts" },
   { control: "document template approval", file: "app/api/documents/templates/[id]/versions/[versionId]/approve/route.ts" },

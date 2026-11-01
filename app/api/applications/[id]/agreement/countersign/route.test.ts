@@ -910,6 +910,14 @@ describe("provider agreement countersign — refusals the UI must be able to sho
     expect(response.status).toBe(200)
   })
 
+  it("reads the two-people rule against the in-branch witness (F12)", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...branchSignedByCaller, agreementSignedByUserId: "staff-2" })
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const refused = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+    expect(refused.status).toBe(403)
+    expect(twoPeople.refusal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["staff-2"] }))
+  })
+
   it("lets another staff member countersign a branch signature", async () => {
     applicationFindUniqueMock.mockResolvedValue({ ...branchSignedByCaller, agreementSignedByUserId: "staff-2" })
     verifyLockedApprovalMock.mockResolvedValue({

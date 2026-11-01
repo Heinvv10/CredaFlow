@@ -41,6 +41,7 @@ otherwise cut every approval).
   trigger refuses the level unless that decision is an approval. Whoever recorded a decision at that level cannot give its
   approval; nobody who approved a level or captured the application can record one. A decline is
   overturned only by another member holding the role itself. Pack and detail need `view_committee_pack`.
+- **Conditions** (`conditions.ts`): each condition of the latest approved case needs a clearance (not by a maker) before the agreement is generated or signed and before payout, ZA, KEY_FACTS and asset finance. `LoanApplication_0_guard_committee_conditions` refuses the writes whichever code makes them; whoever cleared one does not also disburse. Staff outside `view_committee_pack` see the count, not the wording.
 - **Delegation**: from the delegator's own level only, to a LOAN_ADMIN or above, at most 90 days, never
   backdated, never edited. On someone's behalf (an ADMIN): never naming oneself, never above one's own level.
 
