@@ -6,6 +6,7 @@
  *   structure AMORTISING     equal instalments: principal and interest together clear the balance by the last one
  *   structure INTEREST_ONLY  interest every period, the whole principal with the last instalment
  *   structure BULLET         one payment at the end: principal and all the interest
+ *   structure BALLOON        equal instalments down to `balloonPct` of the principal, paid with the last instalment
  *
  *   grace PRINCIPAL_ONLY     the first `graceInstalments` instalments pay interest only; principal starts after them
  *   grace FULL               nothing is due for the first `graceInstalments` periods (no schedule rows); the interest
@@ -15,7 +16,7 @@
 export const FREQUENCIES = ["WEEKLY", "FORTNIGHTLY", "MONTHLY"] as const
 export type Frequency = (typeof FREQUENCIES)[number]
 
-export const STRUCTURES = ["AMORTISING", "INTEREST_ONLY", "BULLET"] as const
+export const STRUCTURES = ["AMORTISING", "INTEREST_ONLY", "BULLET", "BALLOON"] as const
 export type RepaymentStructure = (typeof STRUCTURES)[number]
 
 export const GRACE_KINDS = ["NONE", "PRINCIPAL_ONLY", "FULL"] as const
@@ -32,6 +33,8 @@ export interface RepaymentTerms {
   graceInstalments: number
   /** Periods in the whole term, grace included. */
   instalments: number
+  /** BALLOON only: the share of the principal left to the last instalment, above 0 and below 1. */
+  balloonPct?: number
 }
 
 export interface ScheduleRowOut {

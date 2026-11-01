@@ -11,5 +11,6 @@ export function graceRuleProblems(structure: RepaymentStructure, graceKind: Grac
   if (graceKind !== "NONE" && graceInstalments < 1) problems.push({ path: "repayment.graceInstalments", message: "a grace kind needs at least 1 grace period" })
   if (graceKind === "PRINCIPAL_ONLY" && structure !== "AMORTISING") problems.push({ path: "repayment", message: "a principal-only grace belongs to an amortising structure: interest-only and bullet already defer the principal" })
   if (graceKind !== "NONE" && structure === "BULLET") problems.push({ path: "repayment", message: "a bullet has a single payment at the end: it has no grace" })
+  if (graceKind !== "NONE" && structure === "BALLOON") problems.push({ path: "repayment", message: "a balloon already defers principal to the end: it has no grace" })
   return problems
 }

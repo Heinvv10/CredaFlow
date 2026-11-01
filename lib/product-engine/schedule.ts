@@ -22,16 +22,22 @@ export interface ScheduleInput {
   monthlyServiceFeeCents: number
   startDate: Date
   terms: RepaymentTerms
+  /** The balloon in cents, when it is already fixed (a repricing keeps the loan's); otherwise balloonPct of the principal. */
+  balloonCents?: number
 }
 
 /** Throws when the terms contradict themselves; the product configuration refuses the same cases before they get here. */
 export function assertValidTerms(terms: RepaymentTerms): void {
-  const { instalments, graceKind, graceInstalments, structure } = terms
+  const { instalments, graceKind, graceInstalments, structure, balloonPct } = terms
   if (!Number.isInteger(instalments) || instalments < 1) throw new Error("instalments must be a whole number of at least 1")
   if (!Number.isInteger(graceInstalments) || graceInstalments < 0) throw new Error("graceInstalments must be a whole number, 0 or more")
   const rule = graceRuleProblems(structure, graceKind, graceInstalments)[0]
   if (rule) throw new Error(rule.message)
   if (graceInstalments >= instalments && graceKind !== "NONE") throw new Error("the grace must leave at least 1 instalment to pay")
+  if (structure === "BALLOON") {
+    if (typeof balloonPct !== "number" || !(balloonPct > 0 && balloonPct < 1)) throw new Error("a balloon needs a share of the principal above 0 and below 1")
+    if (instalments < 2) throw new Error("a balloon needs at least 2 instalments: one payment is a bullet")
+  } else if (balloonPct !== undefined) throw new Error("only a balloon structure has a balloon share")
 }
 
 function periodRate(interestRatePm: number, terms: RepaymentTerms): number {
@@ -49,6 +55,7 @@ interface Parts {
 function split(input: ScheduleInput): Parts {
   const { principalCents: P, interestModel, terms } = input
   const { instalments: N, structure, graceKind, graceInstalments: G } = terms
+  const B = structure === "BALLOON" ? (input.balloonCents ?? Math.round(P * terms.balloonPct!)) : 0
   const r = periodRate(input.interestRatePm, terms)
   const repayRows = graceKind === "FULL" ? N - G : N
   // Rows that pay interest only before the principal starts: the principal-only grace.
@@ -64,7 +71,9 @@ function split(input: ScheduleInput): Parts {
     const rows = repayRows
     const principal = structure === "AMORTISING"
       ? [...Array.from({ length: lead }, () => 0), ...evenly(P, rows - lead)]
-      : Array.from({ length: rows }, (_, i) => (i === rows - 1 ? P : 0))
+      : structure === "BALLOON"
+        ? evenly(P - B, rows).map((share, i) => (i === rows - 1 ? share + B : share))
+        : Array.from({ length: rows }, (_, i) => (i === rows - 1 ? P : 0))
     return { principal, interest: evenly(total, rows), deferred: graceKind === "FULL" ? Math.round((total * G) / N) : 0 }
   }
 
@@ -84,8 +93,9 @@ function split(input: ScheduleInput): Parts {
   }
 
   // AMORTISING: the principal-only grace rows first, then the annuity of the whole principal over the rest.
+  // BALLOON: the annuity of the principal less the balloon's present value, so the last row clears the balloon with its own share.
   const m = repayRows - lead
-  const instalment = r === 0 ? Math.round(P / m) : Math.round((P * r) / (1 - Math.pow(1 + r, -m)))
+  const instalment = r === 0 ? Math.round((P - B) / m) : Math.round(((P - B * Math.pow(1 + r, -m)) * r) / (1 - Math.pow(1 + r, -m)))
   for (let i = 0; i < lead; i++) {
     principal.push(0)
     interest.push(perPeriod)

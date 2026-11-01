@@ -32,7 +32,7 @@ export function versionFromRow(row: VersionRow): VersionRecord {
       interestRatePm: row.interestRatePm, interestModel: row.interestModel, initiationFeeModel: row.initiationFeeModel,
       initiationFeePct: row.initiationFeePct, initiationFeeMaxCents: row.initiationFeeMax, monthlyServiceFeeCents: row.monthlyServiceFee,
       repayment: row.frequency && row.structure && row.graceKind
-        ? { frequency: row.frequency, structure: row.structure, graceKind: row.graceKind, graceInstalments: row.graceInstalments }
+        ? { frequency: row.frequency, structure: row.structure, graceKind: row.graceKind, graceInstalments: row.graceInstalments, ...(row.balloonPct !== null ? { balloonPct: row.balloonPct } : {}) }
         : null,
       collateral: row.collateral as unknown as ProductConfig["collateral"],
       eligibility: row.eligibility as unknown as ProductConfig["eligibility"],

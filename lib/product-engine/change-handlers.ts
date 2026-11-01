@@ -106,7 +106,8 @@ export const productVersionHandler: ChangeHandler<ProductVersionPayload> = {
         interestRatePm: c.interestRatePm, interestModel: c.interestModel, initiationFeeModel: c.initiationFeeModel, initiationFeePct: c.initiationFeePct,
         initiationFeeMax: c.initiationFeeMaxCents, monthlyServiceFee: c.monthlyServiceFeeCents,
         frequency: c.repayment?.frequency ?? null, structure: c.repayment?.structure ?? null, graceKind: c.repayment?.graceKind ?? null,
-        graceInstalments: c.repayment?.graceInstalments ?? 0,
+        graceInstalments: c.repayment?.graceInstalments ?? 0, balloonPct: c.repayment?.balloonPct ?? null,
+        rateBasis: c.variableRate?.basis ?? null, rateMarginPa: c.variableRate?.marginPa ?? null,
         collateral: c.collateral as never, eligibility: c.eligibility as never, reason: payload.reason, changeRequestId: request.id,
       },
     })

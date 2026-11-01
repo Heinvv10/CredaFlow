@@ -16,6 +16,8 @@ export interface RepaymentSpec {
   structure: RepaymentStructure
   graceKind: GraceKind
   graceInstalments: number
+  /** BALLOON only: the share of the principal left to the last instalment. */
+  balloonPct?: number
 }
 
 export interface CollateralRequirement {
@@ -73,7 +75,7 @@ function parseRepayment(raw: unknown, config: { minTermDays: number; interestMod
     problems.add("repayment", "an object, or null for the product's existing behaviour")
     return null
   }
-  rejectUnknownKeys(raw, ["frequency", "structure", "graceKind", "graceInstalments"], "repayment", problems)
+  rejectUnknownKeys(raw, ["frequency", "structure", "graceKind", "graceInstalments", "balloonPct"], "repayment", problems)
   const frequency = (FREQUENCIES as readonly unknown[]).includes(raw.frequency) ? (raw.frequency as Frequency) : null
   const structure = (STRUCTURES as readonly unknown[]).includes(raw.structure) ? (raw.structure as RepaymentStructure) : null
   const graceKind = (GRACE_KINDS as readonly unknown[]).includes(raw.graceKind) ? (raw.graceKind as GraceKind) : null
@@ -90,7 +92,14 @@ function parseRepayment(raw: unknown, config: { minTermDays: number; interestMod
   if (graceKind !== "NONE" && graceInstalments >= instalmentsFor(config.minTermDays, frequency)) {
     problems.add("repayment.graceInstalments", `the shortest term (${config.minTermDays} days) is ${instalmentsFor(config.minTermDays, frequency)} instalments: the grace must leave at least one to pay`)
   }
-  return { frequency, structure, graceKind, graceInstalments }
+  const balloonPct = raw.balloonPct
+  if (structure !== "BALLOON") {
+    if (balloonPct !== undefined) problems.add("repayment.balloonPct", "only a balloon structure has a balloon share")
+    return { frequency, structure, graceKind, graceInstalments }
+  }
+  if (typeof balloonPct !== "number" || !Number.isFinite(balloonPct) || balloonPct <= 0 || balloonPct >= 1) problems.add("repayment.balloonPct", "the share of the principal left to the last instalment, above 0 and below 1")
+  if (instalmentsFor(config.minTermDays, frequency) < 2) problems.add("repayment.balloonPct", `the shortest term (${config.minTermDays} days) is one instalment: a balloon needs at least two`)
+  return { frequency, structure, graceKind, graceInstalments, balloonPct: balloonPct as number }
 }
 
 export function parseProductConfig(raw: unknown): ProductConfig {

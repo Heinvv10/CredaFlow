@@ -677,7 +677,7 @@ export function affordabilityInputFingerprint(inputs: AffordabilityDecisionInput
   }
   // Appended only when there is one, so every existing fingerprint is unchanged.
   if (inputs.repayment !== undefined) {
-    canonical.push(`repayment:${JSON.stringify([inputs.repayment.frequency, inputs.repayment.structure, inputs.repayment.graceKind, inputs.repayment.graceInstalments, inputs.repayment.instalments])}`)
+    canonical.push(`repayment:${JSON.stringify([inputs.repayment.frequency, inputs.repayment.structure, inputs.repayment.graceKind, inputs.repayment.graceInstalments, inputs.repayment.instalments, ...(inputs.repayment.balloonPct !== undefined ? [inputs.repayment.balloonPct] : [])])}`)
   }
   if (inputs.productVersion !== undefined) {
     canonical.push(`version:${JSON.stringify([inputs.productVersion.id, inputs.productVersion.version, inputs.productVersion.baseRatePm, inputs.productVersion.pricingRuleId])}`)
