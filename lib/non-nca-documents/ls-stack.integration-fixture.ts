@@ -8,7 +8,7 @@
  * UNDER_REVIEW application with intact submission evidence. `nca: true` adds the South African evidence a ZA lender needs
  * (credit-life no-offer disclosure, declaration, reckless-lending assessment, a current bureau check).
  */
-import { createHash, randomBytes, randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { createSubmissionAffordabilitySnapshot, withAffordabilitySnapshot } from "@/lib/affordability/snapshot"
 import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
@@ -79,7 +79,7 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
   await db.client.create({
     data: {
       id: clientId, tenantId: stack.tenant, reference: `CLI-${id}`,
-      idNumber: ls ? `99${randomBytes(4).toString("hex").replace(/[a-f]/g, "1").slice(0, 7)}` : syntheticSaIdNumber(),
+      idNumber: ls ? `99${String(randomInt(10_000_000)).padStart(7, "0")}` : syntheticSaIdNumber(),
       firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone: ls ? "+26658000011" : "+27820000000",
       grossMonthlyIncome: 2_200_000, monthlyIncome: opts.income ?? 2_000_000, monthlyExpenses: 800_000,
       ...(opts.bank === false ? {} : bank), expenseBreakdown: { create: EXPENSES },

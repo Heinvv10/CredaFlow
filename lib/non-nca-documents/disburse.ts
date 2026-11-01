@@ -40,7 +40,7 @@ import { triggerNotification } from "@/lib/notifications"
 import { recordDisbursementCommission } from "@/lib/referral-agents/commission"
 import { readBorrowerScreening } from "@/lib/screening/gate"
 import { SEGREGATION_OF_DUTIES_REFUSALS, isSegregationOfDutiesRequired, segregationOfDutiesConflict } from "@/lib/security/segregation-of-duties"
-import { databaseMessage, isDatabaseRefusal } from "./errors"
+import { databaseMessage, isDatabaseRefusal, isSerializationFailure } from "./errors"
 import { currentPayoutVerification } from "./payout-account"
 import { agreementPayableOn, KEY_FACTS_BANK_REF_MAX, KEY_FACTS_PAYOUT_NOTE, manualBankRef } from "./payout-terms"
 import { documentProblem } from "./state"
@@ -218,8 +218,7 @@ export async function disburseKeyFactsLoan(args: {
     return { ok: true, loanId: booked.loan.id, loanRef: booked.loan.reference, disbursementCents: booked.disbursementCents, payoutChannel: "MANUAL" }
   } catch (error) {
     if (error instanceof Refused) return error.refusal
-    // A serialization failure: another transaction moved this evidence first.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") return CHANGED
+    if (isSerializationFailure(error)) return CHANGED
     if (isDatabaseRefusal(error)) return refuse(422, "database_guard", `Cannot disburse: ${databaseMessage(error)}`)
     throw error
   }

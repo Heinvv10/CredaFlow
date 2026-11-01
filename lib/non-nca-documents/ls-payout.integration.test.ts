@@ -77,14 +77,14 @@ const WAIT_MS = 1_000
 const settled = (promise: Promise<unknown>) => Promise.race([promise.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), WAIT_MS))])
 
 /** A payout started while another connection's open transaction holds what `hold` took: it is still waiting when that commits. */
-async function payoutWhileHolding(id: string, hold: (tx: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]) => Promise<void>): Promise<Response> {
-  let payout!: Promise<Response>
-  await db().$transaction(async (tx) => {
+async function payoutWhileHolding(id: string, hold: (tx: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]) => Promise<unknown>): Promise<Response> {
+  const payout = await db().$transaction(async (tx) => {
     await hold(tx)
-    payout = disburseAs(stack.disburser, id)
-    expect(await settled(payout)).toBe(false)
+    const started = disburseAs(stack.disburser, id)
+    expect(await settled(started)).toBe(false)
+    return { started }
   }, { timeout: 30_000 })
-  return payout
+  return payout.started
 }
 
 suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)", () => {
@@ -137,9 +137,13 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     const row = await db().loanApplication.findUniqueOrThrow({ where: { id: terms } })
     const store = JSON.parse(JSON.stringify(row.affordabilityResult)) as { approval: { inputs: { principalCents: number } } }
     store.approval.inputs.principalCents = 800_000
-    // The database refuses both writes; current-approval.key-facts.test.ts proves the fingerprint refuses them behind it.
-    await expect(db().loanApplication.update({ where: { id: terms }, data: { affordabilityResult: store as object } })).rejects.toThrow(/XXX/)
-    await expect(db().loanApplication.update({ where: { id: terms }, data: { approvedAmount: 800_000 } })).rejects.toThrow(/XXX/)
+    // The database refuses the frozen snapshot outright (current-approval.key-facts.test.ts proves the fingerprint refuses it too) ...
+    await expect(db().loanApplication.update({ where: { id: terms }, data: { affordabilityResult: store as object } })).rejects.toThrow(/validated approval transition/)
+    // ... but not the approved amount on the row: the frozen approval does.
+    await db().loanApplication.update({ where: { id: terms }, data: { approvedAmount: 800_000 } })
+    const altered = await disburseAs(stack.disburser, terms)
+    expect(altered.status).toBe(422)
+    expect(await altered.json()).toMatchObject({ disbursementPrecondition: "unchanged_affordability", affordabilitySnapshot: "changed" })
     expect(await db().loan.count({ where: { applicationId: { in: [income, policy, terms] } } })).toBe(0)
   })
 
@@ -239,16 +243,22 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect((await disburseAs(stack.disburser, id)).status).toBe(200)
   })
 
-  it("waits for a transaction holding the client's evidence, then pays nothing to the account it moved to", async () => {
+  it("waits on the client evidence lock the mutation routes hold", async () => {
+    const id = `lockwait-${t}`
+    await signedApplication(id)
+    const res = await payoutWhileHolding(id, (tx) => lockAffordabilityClientEvidence(tx, { tenantId: stack.tenant, clientId: `${id}-client` }))
+    expect(res.status).toBe(200)
+  })
+
+  it("an account changed under the lock is not paid: the payout loses the race and books nothing", async () => {
     const id = `locked-${t}`
     await signedApplication(id)
     const res = await payoutWhileHolding(id, async (tx) => {
       await lockAffordabilityClientEvidence(tx, { tenantId: stack.tenant, clientId: `${id}-client` })
       await tx.client.update({ where: { id: `${id}-client` }, data: { bankAccountNumber: "99999999999" } })
     })
-    const body = await res.json() as { disbursementPrecondition: string }
-    expect(res.status).toBe(422)
-    expect(body.disbursementPrecondition).toBe("verified_bank_statement_mismatch")
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "changed" })
     expect(await loans(id)).toBe(0)
   })
 
@@ -258,7 +268,8 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     const res = await payoutWhileHolding(id, async (tx) => {
       await tx.clientDocument.updateMany({ where: { clientId: `${id}-client`, docType: "BANK_STATEMENT" }, data: { verified: false, verifiedAt: null, verifiedById: null } })
     })
-    expect(res.status).toBeGreaterThanOrEqual(409)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ disbursementPrecondition: "changed" })
     expect(await loans(id)).toBe(0)
   })
 })
