@@ -163,7 +163,7 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
   })
 
   it("a loan repriced on the product engine reads its rates from LoanTerms, so closed days keep theirs", async () => {
-    const loan = makeLoan("NON_NCA") as ReturnType<typeof makeLoan> & { terms?: unknown[] }
+    const loan = { ...makeLoan("NON_NCA"), startDate: d("2026-01-01"), terms: [] as unknown[] }
     loan.nonNcaDefaultInterestMargin = new Prisma.Decimal(0)
     loan.nonNcaCollectionFeeCents = null
     loan.terms = [
@@ -172,7 +172,7 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
     ]
     await syncLoanCharges(makeTx(loan) as unknown as Parameters<typeof syncLoanCharges>[0], ref, d("2026-09-11"), { source: "test" })
     expect(engines.nonNca.mock.calls.at(-1)?.[0].contractRateHistory).toEqual([
-      { effectiveDate: loan.startDate, annualRate: 0.12 },
+      { effectiveDate: d("2026-01-01"), annualRate: 0.12 },
       { effectiveDate: d("2026-09-06"), annualRate: 0.24 },
     ])
   })

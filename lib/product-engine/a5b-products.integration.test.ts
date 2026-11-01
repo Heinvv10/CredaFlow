@@ -14,7 +14,6 @@ vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: vi.
 
 import { DELETE as deactivate, PUT as editProduct } from "@/app/api/products/loan/[id]/route"
 import { POST as createProduct } from "@/app/api/products/loan/route"
-import { POST as act } from "@/app/api/maker-checker/[id]/[action]/route"
 import { POST as draftChange } from "@/app/api/maker-checker/route"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
