@@ -7,7 +7,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { PUT } from "./route"
 
-const { findFirstClient, updateClient, logAudit, authMock } = vi.hoisted(() => ({
+const { findFirstClient, updateClient, logAudit, authMock, findContact, updateContact } = vi.hoisted(() => ({
+  findContact: vi.fn(async () => null as object | null),
+  updateContact: vi.fn(async (_: unknown) => ({})),
   findFirstClient: vi.fn(),
   updateClient: vi.fn().mockResolvedValue({}),
   logAudit: vi.fn().mockResolvedValue(undefined),
@@ -17,8 +19,11 @@ const { findFirstClient, updateClient, logAudit, authMock } = vi.hoisted(() => (
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: findFirstClient, update: updateClient },
-    // No Contact here: the sync itself is lib/contact/sync-client-channels.test.ts.
-    $transaction: (fn: (tx: unknown) => unknown) => fn({ client: { update: updateClient }, contact: { findFirst: async () => null } }),
+    // The sync itself: lib/contact/sync-client-channels.test.ts.
+    $transaction: (fn: (tx: unknown) => unknown) => fn({
+      client: { update: updateClient }, contact: { findFirst: findContact, update: updateContact },
+      contactIdentity: { deleteMany: async () => ({ count: 1 }), findFirst: async () => null, create: async () => ({}) },
+    }),
   },
 }))
 
@@ -128,6 +133,14 @@ describe("PUT /api/portal/profile", () => {
     expect(res.status).toBe(200)
     const payload = updateClient.mock.calls[0][0].data as Record<string, unknown>
     expect(payload.whatsapp).toBeNull()
+  })
+
+  it("a new WhatsApp number moves the borrower's Contact with it", async () => {
+    authMock.mockResolvedValueOnce({ user: { email: "victim@x.co.za" } })
+    findFirstClient.mockResolvedValueOnce(existingClient({ whatsapp: "0821111111" }))
+    findContact.mockResolvedValueOnce({ id: "ct1", primaryEmail: "victim@x.co.za", primaryWaJid: "27821111111@s.whatsapp.net" })
+    expect((await callPut({ whatsapp: "0822222222" })).status).toBe(200)
+    expect(updateContact).toHaveBeenCalledWith({ where: { id: "ct1" }, data: { primaryWaJid: "27822222222@s.whatsapp.net" } })
   })
 
   it("returns 404 when no client matches the session email", async () => {
