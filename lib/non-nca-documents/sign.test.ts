@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const m = vi.hoisted(() => ({
-  application: vi.fn(), document: vi.fn(), updateMany: vi.fn(), tx: vi.fn(), audit: vi.fn(), readFile: vi.fn(), otpRequired: vi.fn(), check: vi.fn(), consume: vi.fn(),
+  application: vi.fn(), document: vi.fn(), updateMany: vi.fn(), tx: vi.fn(), raw: vi.fn(), audit: vi.fn(), readFile: vi.fn(), otpRequired: vi.fn(), check: vi.fn(), consume: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findFirst: m.application }, clientDocument: { findFirst: m.document },
-    $transaction: async (fn: (tx: unknown) => unknown) => fn({ loanApplication: { updateMany: m.updateMany } }),
+    $transaction: async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: m.raw, loanApplication: { updateMany: m.updateMany } }),
   },
 }))
 vi.mock("@/lib/audit", () => ({ AuditAction: { KEY_FACTS_AGREEMENT_SIGNED: "KEY_FACTS_AGREEMENT_SIGNED" }, logAuditStrict: m.audit }))
@@ -20,6 +20,7 @@ vi.mock("@/lib/signing-otp/challenge", () => ({
 import { createHash } from "node:crypto"
 import { Prisma } from "@prisma/client"
 import { SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
+import { BORROWER_REFUSAL } from "./borrower-gate"
 import { signKeyFactsAgreement } from "./sign"
 
 const BYTES = Buffer.from("%PDF synthetic agreement")
@@ -35,6 +36,7 @@ beforeEach(() => {
   m.otpRequired.mockResolvedValue(true)
   m.check.mockResolvedValue(null)
   m.updateMany.mockResolvedValue({ count: 1 })
+  m.raw.mockResolvedValue([{ deceasedAt: null }])
 })
 
 describe("signKeyFactsAgreement", () => {
@@ -44,6 +46,16 @@ describe("signKeyFactsAgreement", () => {
     expect(m.updateMany.mock.calls[0][0].data).toMatchObject({ agreementSignedMethod: "portal", agreementSignedByIp: "203.0.113.5", agreementSignatureData: "Thabo Synthetic" })
     expect(m.updateMany.mock.calls[0][0].where).toMatchObject({ status: "APPROVED", agreementSignedAt: null, agreementDocumentSha256: SHA })
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "KEY_FACTS_AGREEMENT_SIGNED", userEmail: "c1@client.invalid" }), expect.anything())
+  })
+
+  it("refuses a borrower recorded as deceased, read under the lock, without saying why: nothing is signed and no code is spent", async () => {
+    m.raw.mockResolvedValue([{ deceasedAt: new Date("2026-07-01T00:00:00.000Z") }])
+    const refused = await signKeyFactsAgreement(base)
+    expect(refused).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(JSON.stringify(refused)).not.toMatch(/deceased/i)
+    expect(m.consume).not.toHaveBeenCalled()
+    expect(m.updateMany).not.toHaveBeenCalled()
+    expect(String(m.raw.mock.calls[1][0].join(" "))).toMatch(/FROM "Client"[\s\S]*FOR SHARE/)
   })
 
   it("needs the one-time code when the lender requires one, and says why when it is not good", async () => {

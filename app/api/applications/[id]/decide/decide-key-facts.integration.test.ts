@@ -218,6 +218,11 @@ const scoredRules = {
   productId: null, name: "Scored", effectiveFrom: "2026-01-01", challengerOnly: false, rules: bureauRules,
   scorecard: { baseScore: 600, characteristics: [{ field: "bureauScore", bins: [{ min: 0, max: 1000, points: 0 }], missingPoints: 100 }], bands: [{ minScore: 650, grade: "A", action: "ALLOW" }, { minScore: 0, grade: "C", action: "ALLOW" }] },
 }
+// With no bureau score every applicant lands in the declining band.
+const decliningRules = {
+  ...scoredRules, name: "Declining",
+  scorecard: { baseScore: 100, characteristics: scoredRules.scorecard.characteristics.map((c) => ({ ...c, missingPoints: 0 })), bands: [{ minScore: 650, grade: "A", action: "ALLOW" }, { minScore: 0, grade: "E", action: "DECLINE", declineCategory: "BUREAU_SCORE" }] },
+}
 // The go-live condition of docs/non-nca-go-live.md: an ungraded key-facts application takes both levels.
 const ungradedTwoLevels = {
   name: "Ungraded two", enabled: true, effectiveFrom: "2026-01-01", defaultRequiredLevels: 1,
@@ -360,6 +365,28 @@ suite("decide, a Lesotho (KEY_FACTS) instance: the South African evidence is not
     await ls.clearFlags(id)
     expect(await runAutoDecision({ tenantId: ls.tenant, applicationId: id, trigger: "MANUAL" })).toMatchObject({ execution: "REFERRED", verdict: { riskGrade: null, gradeRank: null, score: null, pricingTier: null } })
     expect(await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ riskGrade: null, riskGradeRank: null, riskScore: null, riskPricingTier: null })
+  })
+
+  it("a scorecard built on bureau facts does not auto-decline an applicant nobody bureau-checked, with s71 signed off: it refers them, ungraded", async () => {
+    await ls.change(RULE_SET_KIND, "declining", { ...decliningRules, effectiveFrom: "2026-01-02" })
+    await ls.change(ENGINE_CONFIG_KIND, "signed", { ...liveEngine(), s71SignOff: true, automatedDeclineNotice: "Synthetic automated decision notice approved for this test." })
+    const id = `scoredecline-${t}`
+    await ls.underReview(id, { nca: false, generation: true })
+    await ls.clearFlags(id)
+    expect(await runAutoDecision({ tenantId: ls.tenant, applicationId: id, trigger: "MANUAL" })).toMatchObject({ execution: "REFERRED", verdict: { decision: "REFER", reasonCodes: ["NO_BUREAU"], declineCategory: null, riskGrade: null } })
+    expect(await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "UNDER_REVIEW", declineCategory: null, riskGrade: null })
+  })
+
+  it("a rule's decline on a known fact still declines a key-facts applicant with no bureau check", async () => {
+    const incomeRule = { id: "income", name: "Income under the policy", outcome: "KNOCK_OUT", reasonCode: "INCOME_LOW", declineCategory: "POLICY", when: { field: "monthlyIncomeCents", op: "lt", value: 99_999_999 } }
+    await ls.change(RULE_SET_KIND, "known", { ...decliningRules, name: "known", rules: [incomeRule], scorecard: null, effectiveFrom: "2026-01-03" })
+    await ls.change(ENGINE_CONFIG_KIND, "signed", { ...liveEngine(), s71SignOff: true, automatedDeclineNotice: "Synthetic automated decision notice approved for this test." })
+    const id = `ruledecline-${t}`
+    await ls.underReview(id, { nca: false, generation: true })
+    await ls.clearFlags(id)
+    expect(await runAutoDecision({ tenantId: ls.tenant, applicationId: id, trigger: "MANUAL" })).toMatchObject({ execution: "DECLINED", verdict: { decision: "DECLINE", reasonCodes: ["INCOME_LOW"] } })
+    expect((await ls.db().loanApplication.findUniqueOrThrow({ where: { id } })).status).toBe("DECLINED")
+    await ls.change(ENGINE_CONFIG_KIND, "off", { ...liveEngine(), mode: "OFF" })
   })
 
   it("the referral does not take the application out of the matrix's ungraded rule: it still needs its second approver", async () => {

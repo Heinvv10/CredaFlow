@@ -54,6 +54,20 @@ describe("withKeyFactsReferral", () => {
     expect(withKeyFactsReferral(decline, noBureau)).toEqual({ verdict: { ...decline, ...noGrade }, note: null })
   })
 
+  it("refers a scorecard decline with no bureau check: a score built on missing facts declines nobody", () => {
+    const onScore: Verdict = { ...graded, decision: "DECLINE", reasonCodes: ["SCORE_BELOW_CUTOFF"], declineCategory: "BUREAU_SCORE" }
+    expect(withKeyFactsReferral(onScore, noBureau)).toEqual({
+      verdict: { ...onScore, ...noGrade, decision: "REFER", reasonCodes: ["NO_BUREAU"], declineCategory: null },
+      note: expect.stringContaining("decline it on a score"),
+    })
+  })
+
+  it("keeps a scorecard decline when a bureau check exists: only a missing fact the rules compare refers it, and that is not the score's fault", () => {
+    const onScore: Verdict = { ...graded, decision: "DECLINE", reasonCodes: ["SCORE_BELOW_CUTOFF"], declineCategory: "BUREAU_SCORE" }
+    const missing = { regime: "KEY_FACTS", bureauCheckId: "chk", facts: facts({ bureauScore: null }), rules: [rule("bureauScore")] }
+    expect(withKeyFactsReferral(onScore, missing)).toEqual({ verdict: { ...onScore, ...noGrade }, note: null })
+  })
+
   it("keeps a rule's own referral and its reasons, and strips the grade", () => {
     const refer: Verdict = { ...graded, decision: "REFER", reasonCodes: ["R_TWO"] }
     expect(withKeyFactsReferral(refer, noBureau)).toEqual({ verdict: { ...refer, ...noGrade }, note: null })
