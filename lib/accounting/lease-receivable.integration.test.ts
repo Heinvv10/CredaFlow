@@ -59,15 +59,14 @@ suite.sequential("a lease's end-of-term invoice on the receivable (real Postgres
     expect(loan.principal).toBe(276_000 + 28_750)
     expect(loan.repaymentSchedule.map((r) => r.totalDue)).toEqual([138_000, 138_000, 28_750])
     // A receipt fills the rentals first, then the end-of-term row: money reaches it.
-    await applyManualReceipt(db as unknown as PaymentDb, { loanId: "jrn-q3", tenantId: tenant.tenantId, amount: 276_000 + 10_000, capturedById: tenant.userId, reference: "Q3" })
+    await applyManualReceipt(db as unknown as PaymentDb, { loanId: "jrn-q3", tenantId: tenant.tenantId, amount: 276_000 + 10_000, capturedById: tenant.userId, reference: "Q3", receivedAt: day("2026-10-01") })
     const paid = await db.repaymentSchedule.findMany({ where: { loanId: "jrn-q3" }, orderBy: { installmentNo: "asc" } })
     expect(paid.map((r) => r.totalPaid)).toEqual([138_000, 138_000, 10_000])
   })
 
   it("the independent receivable of the lease counts the invoice with the rentals and nets the receipt", async () => {
     // The lease branch counts rentals invoiced + the other tax invoices - receipts.
-    // As of tomorrow (SAST): the receipt above is dated now, so a literal date stops counting it once the clock passes it (it did on 2026-11-01).
-    const book = await independentAssetFinanceBook(db, tenant.tenantId, day(sastCalendarDate(new Date(Date.now() + 86_400_000))))
+    const book = await independentAssetFinanceBook(db, tenant.tenantId, day("2026-11-01"))
     expect(book.get("jrn-q3")?.cents).toBe(276_000 + 28_750 - 286_000) // two rentals + the end-of-term invoice - the receipt (10 000 reached the end-of-term row)
   })
 })

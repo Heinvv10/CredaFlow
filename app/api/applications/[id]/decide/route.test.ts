@@ -1250,6 +1250,7 @@ describe("approval on a product version with a repayment structure and a pricing
     findUniqueMock.mockResolvedValue({ ...underReviewApplication, riskGradeRank: 0 })
     productVersionFindFirstMock.mockResolvedValue(weeklyVersion)
     pricingRuleFindManyMock.mockResolvedValue([rule])
+    applicationPricingInputFindFirstMock.mockResolvedValue({ segment: null, channel: "BRANCH", campaignCode: null })
   }
 
   it("approves at the rule's price on the version's weekly structure, and freezes the version, the rule and the structure in the approval evidence", async () => {

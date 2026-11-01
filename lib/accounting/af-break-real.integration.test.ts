@@ -10,7 +10,6 @@ import { POST as recordCancellation } from "@/app/api/asset-finance/loans/[loanI
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { addMonthsClamped } from "@/lib/asset-finance/dates"
 import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
 import { cleanupBookedContractFixture, createBookedContractFixture, type BookedContractFixture } from "@/lib/asset-finance/portal-contract.integration-fixture"
 import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration-fixture"
@@ -36,13 +35,9 @@ let fx: BookedContractFixture
 const setSession = (user: SessionUser | null) => { session.current = user && { user } }
 const as = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession({ id, email: `${id}@real-it.test`, role, tenantId: fx.tenantId })
 const today = () => sastCalendarDate(new Date())
-// Every month is relative to the go-live month (the month the suite runs in). These were literal months from 2026-10, which
-// broke the suite on 2026-11-01: go-live became 2026-11 and closing 2026-10 was refused as OUT_OF_ORDER.
-const GO_LIVE = today().slice(0, 7)
-const month = (n: number) => addMonthsClamped(`${GO_LIVE}-01`, n).slice(0, 7)
-const monthStart = (n: number) => new Date(`${month(n)}-01T00:00:00+02:00`)
-const FUTURE = new Date(`${month(16)}-05T10:00:00+02:00`)
-const months = Array.from({ length: 16 }, (_, i) => month(i))
+const FUTURE = new Date("2028-02-05T10:00:00+02:00")
+const months = ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12", "2028-01"]
+  .filter((month) => month >= sastCalendarDate(new Date()).slice(0, 7))
 const plan = (key: string, now = FUTURE) => runWithTenant(fx.tenantId, () => planPeriod(prisma, fx.tenantId, parsePeriodKey(key)!, now))
 const close = (key: string, now = FUTURE) => runWithTenant(fx.tenantId, () => closePeriod(prisma, { tenantId: fx.tenantId, periodKey: key, userId: fx.adminA, userEmail: "real@test.invalid", now }))
 
@@ -74,7 +69,7 @@ suite.sequential("real booked instalment sale: receipts, recovery, write-off thr
     process.env.TRUSTED_PROXY = "1"
     fx = await createBookedContractFixture(db, t, setSession)
     await db.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { bureauReportingStartDate: new Date("2020-01-01T00:00:00Z"), requireStaffTotp: false } })
-    await db.accountingSettings.create({ data: { tenantId: fx.tenantId, mappingConfirmedAt: new Date(), mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], goLiveMonth: GO_LIVE } })
+    await db.accountingSettings.create({ data: { tenantId: fx.tenantId, mappingConfirmedAt: new Date(), mappingConfirmedRoles: [...ASSET_FINANCE_ROLES], goLiveMonth: sastCalendarDate(new Date()).slice(0, 7) } })
   }, 300_000)
   afterAll(async () => {
     session.current = null
@@ -88,8 +83,8 @@ suite.sequential("real booked instalment sale: receipts, recovery, write-off thr
   }, 300_000)
 
   it("R1. the booking month closes: inception posted once, tied, controls nil", async () => {
-    const out = await closeThrough(GO_LIVE)
-    expect(out, JSON.stringify(out)).toEqual([{ key: GO_LIVE, closed: true }])
+    const out = await closeThrough(sastCalendarDate(new Date()).slice(0, 7))
+    expect(out, JSON.stringify(out)).toEqual([{ key: sastCalendarDate(new Date()).slice(0, 7), closed: true }])
     const loan = await db.loan.findUniqueOrThrow({ where: { id: fx.loanId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" }, take: 1 }, taxInvoices: true } })
     const entries = await db.accountingLedgerEntry.findMany({ where: { loanId: fx.loanId } })
     expect(entries.map((e) => e.baseKey)).toContain(`af:${fx.loanId}:inception`)
@@ -106,7 +101,7 @@ suite.sequential("real booked instalment sale: receipts, recovery, write-off thr
       idempotencyKey: `real-1-${t}`, receivedAt: new Date(),
     }))
     expect(receipt.payment.amount).toBe(5_000_000)
-    const out = await closeThrough(month(12))
+    const out = await closeThrough("2027-10")
     expect(out.filter((o) => !o.closed), JSON.stringify(out)).toEqual([])
     expect((await totals()).AF_INSTALMENT_DEBTORS).toBeGreaterThan(0)
   }, 600_000)
@@ -150,20 +145,20 @@ suite.sequential("real booked instalment sale: receipts, recovery, write-off thr
     const proceeds = await readJson(await sr.proceeds(id))
     expect(proceeds.status, JSON.stringify(proceeds.body)).toBe(200)
     // everything above is dated today: inside the months already closed. The next open month takes it.
-    const open = month(13)
+    const open = months.find((m) => m > "2027-10")!
     const p = await plan(open)
     const keys = p.entries.map((x) => x.baseKey)
     expect(new Set(keys).size, "a source twice in one month").toBe(keys.length)
     expect(keys.some((k) => k.startsWith(`af-recovery:${id}:sale:`))).toBe(true)
-    const out = await closeThrough(month(14))
+    const out = await closeThrough("2027-12")
     expect(out.filter((o) => !o.closed), JSON.stringify(out)).toEqual([])
-    const again = await plan(month(15))
+    const again = await plan("2028-01")
     expect(again.entries.filter((x) => x.baseKey.includes(id) || !x.baseKey.includes(":row:")).map((x) => `${x.eventKey} ${x.eventType}`), "events posted again").toEqual([])
     const tt = await totals()
     expect(tt.RECOVERY_CLEARING ?? 0).toBe(0)
     expect(tt.INPUT_VAT).toBeDefined()
     const bankLedger = tt.BANK
-    const bankOracle = await expectedBank(fx.tenantId, monthStart(15), monthStart(0))
+    const bankOracle = await expectedBank(fx.tenantId, new Date("2028-01-01T00:00:00+02:00"), new Date("2026-09-30T22:00:00Z"))
     expect(bankLedger, `BANK ledger ${bankLedger} vs tables ${bankOracle}`).toBe(bankOracle)
     expect((await db.recovery.findUniqueOrThrow({ where: { id } })).status).toBe("PROCEEDS_APPLIED")
   }, 900_000)
@@ -176,7 +171,7 @@ suite.sequential("real booked instalment sale: receipts, recovery, write-off thr
     as(fx.adminB, "LOAN_ADMIN")
     expect((await wo.writeOff(fx.loanId, { action: "approve", confirm: true })).status).toBe(200)
     expect((await db.loan.findUniqueOrThrow({ where: { id: fx.loanId } })).status).toBe("WRITTEN_OFF")
-    const out = await closeThrough(month(15))
+    const out = await closeThrough("2028-01")
     expect(out.filter((o) => !o.closed), JSON.stringify(out)).toEqual([])
     const tt = await totals()
     expect(tt.AF_INSTALMENT_DEBTORS ?? 0, "receivable on a written-off contract").toBe(0)

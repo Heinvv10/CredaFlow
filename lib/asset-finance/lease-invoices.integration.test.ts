@@ -62,13 +62,11 @@ async function book(body: Parameters<typeof leaseBody>[1], start?: string): Prom
 async function backdate(loanId: string, months: number): Promise<void> {
   await database().$transaction([
     database().$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
-    // Shift the SAST calendar date, not the UTC instant: these columns hold SAST midnight (22:00 UTC the day before), and
-    // "-1 month" on the UTC instant lands a day early around month ends (it broke these suites on 2026-11-01). Same
-    // arithmetic as shiftLease in ./lease-servicing.integration-fixture.
-    database().$executeRawUnsafe(`UPDATE "Loan" SET "startDate" = ((("startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - INTERVAL '${months} months') AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC', "maturityDate" = ((("maturityDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - INTERVAL '${months} months') AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC',
-      "nextPaymentDate" = ((("nextPaymentDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - INTERVAL '${months} months') AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC' WHERE "id" = $1`, loanId),
-    database().$executeRawUnsafe(`UPDATE "RepaymentSchedule" SET "dueDate" = ((("dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - INTERVAL '${months} months') AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC' WHERE "loanId" = $1`, loanId),
+    database().$executeRawUnsafe(`UPDATE "Loan" SET "startDate" = "startDate" - INTERVAL '${months} months', "maturityDate" = "maturityDate" - INTERVAL '${months} months',
+      "nextPaymentDate" = "nextPaymentDate" - INTERVAL '${months} months' WHERE "id" = $1`, loanId),
     database().$executeRawUnsafe(`UPDATE "LeaseRental" SET "dueDate" = ("dueDate" - INTERVAL '${months} months')::date WHERE "loanId" = $1`, loanId),
+    database().$executeRawUnsafe(`UPDATE "RepaymentSchedule" s SET "dueDate" = (r."dueDate"::timestamp AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC'
+      FROM "LeaseRental" r WHERE r."scheduleId" = s."id" AND s."loanId" = $1`, loanId),
   ])
 }
 
