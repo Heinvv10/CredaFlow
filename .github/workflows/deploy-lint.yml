@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   chart:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 10
     env:
       HELM_VERSION: 3.19.0
@@ -75,7 +75,7 @@ jobs:
           helm template rel $chart --set image.tag=v1 --set audit.singleLogin=true --set web.appMode=client --set worker.enabled=false --set externalCrons.enabled=false --set migrate.enabled=false --set persistence.existingClaim=uploads | kc
 
   prometheus-rules:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
