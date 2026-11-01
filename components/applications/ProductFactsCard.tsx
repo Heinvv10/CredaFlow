@@ -70,7 +70,7 @@ export function ProductFactsCard({ applicationId }: { applicationId: string }) {
       </CardHeader>
       {data.productType !== "REVOLVING" && (
         <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3">
             {data.productType === "SALARY_BACKED" && <>
               <Text id="pf-employer" label="Employer" value={form.employerName ?? ""} onChange={set("employerName")} disabled={closed} />
               <Text id="pf-payroll" label="Payroll number" value={form.payrollNumber ?? ""} onChange={set("payrollNumber")} disabled={closed} />
