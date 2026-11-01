@@ -201,6 +201,21 @@ suite("loan changes that book a new loan, on a Lesotho instance (real Postgres, 
     expect(priors.get(change.newLoanId!)?.stage).toBe(3)
   })
 
+  it("IFRS 9: a refinance before the next run inherits the default a reschedule marked, though the arrears are gone", async () => {
+    const l = await loan({ status: "DEFAULTED" })
+    await proposeAndApprove(l, { type: "RESCHEDULE", firstDueDate: sastCalendarDate((await rowsOf(l.loanId))[3]!.dueDate) })
+    expect(await db().loan.findUniqueOrThrow({ where: { id: l.loanId } })).toMatchObject({ status: "ACTIVE", arrearsAmount: 0, defaultedAtRestructure: true })
+    const id = await proposeAndApprove(l, { type: "REFINANCE", instalments: 12 })
+    const change = await db().loanChange.findUniqueOrThrow({ where: { changeRequestId: id } })
+    const replacement = await db().loan.findUniqueOrThrow({ where: { id: change.newLoanId! } })
+    expect(replacement.defaultedAtRestructure).toBe(true)
+    expect(replacement.restructuredAt).not.toBeNull()
+    expect(change.markedRestructured).toBe(true)
+    const runAt = new Date()
+    const run = (await runWithTenant(l.tenantId, () => loadRunLoans(holder.prisma as never, l.tenantId, runAt, null))).find((r) => r.id === replacement.id)!
+    expect(assessLoan(run, { settings: DEFAULT_SETTINGS, parameters: [], runAt, chargesLive: false }, null).staging.stage).toBe(3)
+  })
+
   it("IFRS 9: a loan refinanced twice before the next run still starts from the first one's stage, the worst of its sources", async () => {
     const a = await loan({ status: "DEFAULTED" })
     const first = await proposeAndApprove(a, { type: "REFINANCE", instalments: 12 })

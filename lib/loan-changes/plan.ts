@@ -262,7 +262,9 @@ function planTail(input: PlanInput, change: TailChange): InPlacePlan {
   const generated = priced(loan, frequency, structure, { principal: pricedPrincipal, rate: pricedRate(target.rate), instalments: target.instalments, first, dates: first === next ? dates : [] })
   const nextNo = rows.reduce((max, row) => Math.max(max, tail.includes(row) ? 0 : row.installmentNo), trim.length > 0 ? Math.max(...tail.filter((row) => row.totalPaid > 0).map((row) => row.installmentNo)) : 0) + 1
   const generatedRows = generated.map((row, i) => ({ ...row, installmentNo: nextNo + i }))
+  // With nothing bearing interest the rows are all moved principal, and stay marked so: no later change charges on it.
   const fresh = lessShortfall(spreadCarried(generatedRows, carriedInterest, carriedFees, bearing > 0 ? interestFree : 0), excessInterest - keptInterest, excessFees - keptFees)
+    .map((row) => (bearing > 0 ? row : { ...row, carriedPrincipalDue: row.principalDue }))
   const terms: RepaymentTerms = target.holiday > 0
     ? { frequency, structure, instalments: target.instalments + target.holiday, graceKind: "FULL", graceInstalments: target.holiday }
     : { frequency, structure, instalments: target.instalments, graceKind: "NONE", graceInstalments: 0 }

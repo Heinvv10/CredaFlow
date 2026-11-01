@@ -183,6 +183,12 @@ describe("planInPlace: a change that changes nothing changes nothing", () => {
       const allMoved = planInPlace(input(loanRows({}, 3), { type: "RESCHEDULE", firstDueDate: "2027-01-15" }, { asOf: at("2026-12-20") }))
       const plan = planInPlace(input(written(allMoved), rate(0.09), { asOf: at("2026-12-21") }))
       expect(plan.totalRepayable).toBe(allMoved.totalRepayable)
+      expect(plan.fresh.reduce((s, r) => s + r.carriedPrincipalDue, 0)).toBe(plan.balance)
+      const again = planInPlace(input(written(plan), { type: "TERM_CHANGE", instalments: 4 }, { asOf: at("2026-12-22"), shape: { rate: 0.09 } }))
+      expect(again.totalInterest).toBe(allMoved.totalInterest)
+      const third = planInPlace(input(written(again), rate(0.09), { asOf: at("2026-12-23"), shape: { rate: 0.09 } }))
+      expect(third.totalRepayable).toBe(again.totalRepayable)
+      expect(third.totalInterest).toBe(allMoved.totalInterest)
     })
   })
 
