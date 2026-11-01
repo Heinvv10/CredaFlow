@@ -12,6 +12,7 @@ import { inChallengerGroup, pickChampion } from "./select-version"
 import type { Verdict } from "./types"
 import { parseRules } from "./validate-rules"
 import { parseScorecard } from "./validate-scorecard"
+import { keyFactsReferral } from "./key-facts-referral"
 
 export const TRIGGERS = ["REVIEW_STARTED", "DIGITAL_SUBMISSION", "MANUAL"] as const
 export type Trigger = (typeof TRIGGERS)[number]
@@ -90,8 +91,18 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
     const role: AutoDecisionRole = challengerApplies ? "CHALLENGER" : "CHAMPION"
 
     let verdict: Verdict
+    let referralNote: string | null = null
     try {
-      verdict = decide({ facts: loaded.facts, rules: parseRules(row.rules), scorecard: parseScorecard(row.scorecard) })
+      const rules = parseRules(row.rules)
+      verdict = decide({ facts: loaded.facts, rules, scorecard: parseScorecard(row.scorecard) })
+      // A key-facts application has no bureau, and a rule never fires on what is not known: see ./key-facts-referral.ts.
+      const referral = verdict.decision === "APPROVE"
+        ? keyFactsReferral({ regime: loaded.application.disclosureRegime, bureauCheckId: loaded.bureauCheckId, facts: loaded.facts, rules })
+        : null
+      if (referral) {
+        verdict = { ...verdict, decision: "REFER", reasonCodes: [referral.reasonCode], declineCategory: null }
+        referralNote = referral.note
+      }
     } catch (error) {
       // A stored set that no longer validates is never run: staff decide. Say so where operations will see it.
       logger.error("auto-decision: stored rule set is invalid", { ruleSetVersionId: row.id, error: error instanceof Error ? error.message : String(error) })
@@ -117,7 +128,7 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
       else if (verdict.decision === "DECLINE" && config.s71SignedOffAt === null) {
         done = await refer(ctx, [...verdict.reasonCodes, REASON_S71_NOT_SIGNED_OFF], "Automated declines are not yet signed off by the lender's legal team (POPIA s71); staff must decide.")
       } else if (verdict.decision === "DECLINE") done = await declineThroughStaffPath(ctx)
-      else if (verdict.decision === "REFER") done = await refer(ctx, verdict.reasonCodes, null)
+      else if (verdict.decision === "REFER") done = await refer(ctx, verdict.reasonCodes, referralNote)
       else done = await approveThroughStaffPath(ctx, config.repaymentMethod)
       if (!done) return skipped("application_changed")
       return {

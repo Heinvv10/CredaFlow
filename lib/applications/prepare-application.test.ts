@@ -28,6 +28,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { prepareApplicationFields, type PrepareApplicationInput } from "./prepare-application"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const PRODUCT_ROW = {
   id: "p1",
@@ -390,6 +391,43 @@ describe("prepareApplicationFields — NDI/affordability pass-through", () => {
     expect(fields).not.toHaveProperty("pasqAcknowledgedBy")
     expect(fields.clientAffordabilityDeclaredAt).toBeUndefined()
     expect(fields.recklessLendingAssessed).toBeUndefined()
+  })
+})
+
+describe("prepareApplicationFields — credit life by jurisdiction", () => {
+  const noElection = {
+    submitForReview: true,
+    pasqAcknowledged: true,
+    affordabilityDeclared: true,
+    recklessLendingConfirmed: true,
+    creditLifeElection: undefined,
+    creditLifeDisclosureAcknowledged: false,
+  } as const
+
+  afterEach(() => resetActiveJurisdiction())
+
+  it("looks for a credit-life product when the jurisdiction was never loaded (the default is the NCA's), and then demands the election", async () => {
+    resetActiveJurisdiction()
+    const result = await prepareApplicationFields(validInput(noElection), "t1", "u1", { action: "create" })
+
+    expect(insuranceProductFindFirstMock).toHaveBeenCalledTimes(1)
+    expect(result.ok).toBe(false)
+  })
+
+  it("looks for it on a South African instance too", async () => {
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    await prepareApplicationFields(validInput(noElection), "t1", "u1", { action: "create" })
+
+    expect(insuranceProductFindFirstMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("offers no cover on a Lesotho instance: it never looks for a product, and submits with no election", async () => {
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const noOffer = { ...noElection, creditLifeProductId: undefined, creditLifeProductName: undefined, creditLifeInsurerId: undefined, creditLifeInsurerName: undefined, creditLifeMonthlyPremiumCents: undefined }
+    const result = await prepareApplicationFields(validInput(noOffer), "t1", "u1", { action: "create" })
+
+    expect(insuranceProductFindFirstMock).not.toHaveBeenCalled()
+    expect(result.ok).toBe(true)
   })
 })
 

@@ -4,12 +4,12 @@ import { KEY_FACTS_CREDIT_LIFE, approvalEvidenceRules, keyFactsCreditLifeRefusal
 describe("approvalEvidenceRules", () => {
   it("requires every NCA item for an NCA_PASQ application, and for one with no regime recorded (fail closed)", () => {
     for (const application of [{ disclosureRegime: "NCA_PASQ" }, {}, { disclosureRegime: null }, { disclosureRegime: "SOMETHING_ELSE" }]) {
-      expect(approvalEvidenceRules(application)).toEqual({ creditLifeElection: true, affordabilityDeclaration: true, recklessLendingAssessment: true, bureauCheck: true })
+      expect(approvalEvidenceRules(application)).toEqual({ creditLifeElection: true, affordabilityDeclaration: true, recklessLendingAssessment: true, bureauCheck: true, screeningProvider: false })
     }
   })
 
-  it("asks a KEY_FACTS application for none of them", () => {
-    expect(approvalEvidenceRules({ disclosureRegime: "KEY_FACTS" })).toEqual({ creditLifeElection: false, affordabilityDeclaration: false, recklessLendingAssessment: false, bureauCheck: false })
+  it("asks a KEY_FACTS application for none of the four, but for a screening provider", () => {
+    expect(approvalEvidenceRules({ disclosureRegime: "KEY_FACTS" })).toEqual({ creditLifeElection: false, affordabilityDeclaration: false, recklessLendingAssessment: false, bureauCheck: false, screeningProvider: true })
   })
 })
 

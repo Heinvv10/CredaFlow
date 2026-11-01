@@ -20,11 +20,17 @@ export interface ApprovalEvidenceRules {
   recklessLendingAssessment: boolean
   /** A current check with a South African bureau (or a reasoned override). */
   bureauCheck: boolean
+  /**
+   * A configured screening provider. The reverse of the four above: South Africa lets a lender run without one (the
+   * bureau check is its identity-risk evidence), but a key-facts loan has no bureau, so with no provider it would be
+   * approved with no PEP or sanctions check at all. The simulated provider counts where the deployment permits it.
+   */
+  screeningProvider: boolean
 }
 
 export function approvalEvidenceRules(application: { disclosureRegime?: string | null }): ApprovalEvidenceRules {
   const nca = application.disclosureRegime !== "KEY_FACTS"
-  return { creditLifeElection: nca, affordabilityDeclaration: nca, recklessLendingAssessment: nca, bureauCheck: nca }
+  return { creditLifeElection: nca, affordabilityDeclaration: nca, recklessLendingAssessment: nca, bureauCheck: nca, screeningProvider: !nca }
 }
 
 /**

@@ -1,4 +1,3 @@
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { Prisma, type AgreementType, type AppStatus, type LoanPurposeCategory } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import type { ApplicationSubmissionTransaction } from "@/lib/applications/submission-lock"
@@ -36,6 +35,7 @@ import {
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
 import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 
 export type PrepareApplicationInput = Omit<ApplicationWizardData, "appliedAmount" | "appliedTermDays"> & {
   appliedAmount: number // cents (wizard coerces to cents before POST/PATCH)

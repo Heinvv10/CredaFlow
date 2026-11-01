@@ -49,7 +49,8 @@ export const sha256 = (bytes: Buffer | string) => createHash("sha256").update(by
 export async function seedStack(db: PrismaClient, stack: Stack, opts: { code: string; isDemoLender?: boolean } = { code: "STK" }) {
   await db.tenant.create({ data: { id: stack.tenant, slug: stack.tenant, name: "Stack IT" } })
   // An in-band (Experian Sigma) score floor: the default 450 is uncalibrated and refers every approval.
-  await db.tenantConfig.create({ data: { tenantId: stack.tenant, bureauMinScore: 580, isDemoLender: opts.isDemoLender ?? false } })
+  // A key-facts approval needs a screening provider (it has no bureau): the simulated one, which a demo stack may use.
+  await db.tenantConfig.create({ data: { tenantId: stack.tenant, bureauMinScore: 580, isDemoLender: opts.isDemoLender ?? false, ...(stack.jurisdiction === "LS" ? { screeningProvider: "simulated" } : {}) } })
   for (const [id, name] of [[stack.officer, "Synthetic Officer"], [stack.disburser, "Synthetic Disburser"]] as const) {
     await db.user.create({ data: { id, tenantId: stack.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name, role: "LOAN_ADMIN" } })
   }

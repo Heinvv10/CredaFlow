@@ -1,4 +1,3 @@
-import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 import { DOC_TYPE_LABELS } from "@/lib/document-types"
 import { deriveKycBlockers, kycGateStage } from "@/lib/kyc/kyc-blockers"
 import type { CompositeKycResult, CoreDocumentGap } from "@/lib/kyc/document-state"
@@ -32,6 +31,7 @@ import {
   type DisbursementPrecondition,
 } from "@/lib/disbursement/preconditions"
 import type { ApplicationReadiness } from "@/lib/applications/readiness-view"
+import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 
 /**
  * What still stands between an application and its NEXT transition, summarised

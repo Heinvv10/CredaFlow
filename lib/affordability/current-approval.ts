@@ -1,4 +1,3 @@
-import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 import type { LoanCalcResult } from "@/lib/loan-calculator"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { sastCalendarDate } from "@/lib/date/sast"
@@ -62,6 +61,7 @@ import {
   requireClientBorrowerRow,
   type WithClientBorrower,
 } from "@/lib/borrower"
+import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 export type CurrentApprovalEvidenceReason =
   | "missing"
@@ -142,6 +142,7 @@ export const approvalEvidenceApplicationInclude = Prisma.validator<Prisma.LoanAp
       gender: true,
       dateOfBirth: true,
       updatedAt: true,
+      deceasedAt: true,
       kycStatus: true,
       kycVerifiedAt: true,
       kycVerifiedById: true,
@@ -432,6 +433,8 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "application_changed" }
   }
+  // A client the lender recorded as deceased is never approved: the one deceased gate that does not depend on a bureau.
+  if (application.client.deceasedAt) return { ok: false, reason: "compliance_changed" }
   // Approval does not require biometrics; signing and payout do, and they run
   // through verifyLockedCurrentAffordabilityApproval which stays "payout".
   if (!await hasCurrentCompositeKyc(tx, application, "origination")) {
