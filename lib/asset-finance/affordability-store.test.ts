@@ -6,13 +6,13 @@ vi.mock("./deal-submit", () => ({ lockDeal: vi.fn(async () => true) }))
 
 import { recordAssetFinanceAffordability } from "./affordability-store"
 
-function fakeTx(ncaRegime: "NCA" | "NON_NCA") {
+function fakeTx(disclosureRegime: "NCA_PASQ" | "KEY_FACTS") {
   const applicationUpdate = vi.fn(async () => ({}))
   const tx = {
     assetFinanceDeal: {
       findFirst: vi.fn(async () => ({
         id: "deal", applicationId: "app", status: "SUBMITTED", baseInstalmentCents: 100_000, clientId: null, entityId: "entity",
-        application: { ncaRegime, affordabilityNDI: null },
+        application: { disclosureRegime, affordabilityNDI: null },
         financials: { turnoverCents: 120_000_000, avgMonthlyCreditsCents: 10_000_000, existingDebtServiceCents: 500_000 },
         affordabilityAssessment: null,
       })),
@@ -27,14 +27,14 @@ const actor = { tenantId: "t", userId: "u", userEmail: "u@example.test" }
 const NOTE = "Synthetic attestation of affordability."
 
 describe("recordAssetFinanceAffordability: section 81 stamp", () => {
-  it("stamps the application as reckless-lending assessed for an NCA deal", async () => {
-    const { tx, applicationUpdate } = fakeTx("NCA")
+  it("stamps the application as reckless-lending assessed for an NCA_PASQ application", async () => {
+    const { tx, applicationUpdate } = fakeTx("NCA_PASQ")
     expect((await recordAssetFinanceAffordability(tx, actor, "deal", NOTE)).kind).toBe("recorded")
     expect(applicationUpdate.mock.calls[0]).toEqual([expect.objectContaining({ data: expect.objectContaining({ recklessLendingAssessed: true, recklessLendingAssessedById: "u", recklessLendingNote: NOTE }) })])
   })
 
-  it("does not stamp section 81 on a NON_NCA deal, which the NCA does not govern", async () => {
-    const { tx, applicationUpdate } = fakeTx("NON_NCA")
+  it("does not stamp section 81 on a KEY_FACTS application, which carries no NCA evidence", async () => {
+    const { tx, applicationUpdate } = fakeTx("KEY_FACTS")
     expect((await recordAssetFinanceAffordability(tx, actor, "deal", NOTE)).kind).toBe("recorded")
     const data = (applicationUpdate.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data
     expect(data).not.toHaveProperty("recklessLendingAssessed")

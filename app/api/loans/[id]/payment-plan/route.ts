@@ -59,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
     const { regularCents, finalCents } = splitPaymentPlan(totalCents, installments)
-        const amountText = finalCents === regularCents
+    const amountText = finalCents === regularCents
       ? `${installments} × ${formatZAR(regularCents)}/month`
       : `${installments - 1} × ${formatZAR(regularCents)} + final instalment ${formatZAR(finalCents)} (${formatZAR(totalCents)} total), monthly`
 

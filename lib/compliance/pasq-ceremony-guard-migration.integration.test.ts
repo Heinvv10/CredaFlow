@@ -219,7 +219,6 @@ async function createCeremonyScenario(label: string, principalCents = PRINCIPAL_
 
 type Scenario = Awaited<ReturnType<typeof createCeremonyScenario>>
 
-/** APPROVED with no quotation — ceremony state (a). */
 /**
  * A digest that is certainly not `sha`. The scenario's document digest is two random hex characters repeated, so a fixed tamper value
  * such as "b".repeat(64) equalled it in 1 run in 256 (a "bb" token): the update then changed nothing and the guard, rightly, had
@@ -229,6 +228,7 @@ function differentHash(sha: string): string {
   return (sha.startsWith("e") ? "f" : "e").repeat(64)
 }
 
+/** APPROVED with no quotation — ceremony state (a). */
 async function approve(scenario: Scenario) {
   return prisma.loanApplication.update({
     where: scenario.where,
