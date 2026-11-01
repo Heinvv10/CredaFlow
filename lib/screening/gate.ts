@@ -171,9 +171,11 @@ export async function lockedBorrowerScreeningAllows(
   borrower: Borrower,
   /** The approving user: refused if they decided a match relied on (requireSecondReviewer on). */
   approverId: string,
+  /** `providerRequired`: a key-facts approval (no bureau) is refused while no provider is configured. */
+  options: { providerRequired?: boolean } = {},
 ): Promise<boolean> {
   const config = await getScreeningConfig(tenantId, tx)
-  if (!config.provider) return true
+  if (!config.provider) return !options.providerRequired
   const refs = [...(await borrowerSubjects(tx, tenantId, borrower))].sort((a, b) => subjectKey(a).localeCompare(subjectKey(b)))
   if (refs.length === 0) return false
   for (const ref of refs) await lockSubjectScreening(tx, tenantId, ref)

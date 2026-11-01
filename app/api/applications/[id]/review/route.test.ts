@@ -41,6 +41,7 @@ vi.mock("@/lib/compliance/bureau-review", () => ({
 }))
 
 import { POST } from "./route"
+import { startApplicationReview } from "./review-application"
 
 const ctx = { params: Promise.resolve({ id: "app-1" }) }
 function makeReq() {
@@ -150,6 +151,21 @@ beforeEach(() => {
     auditLog: { create: auditLogCreateMock },
   }))
   runBureauReviewCheckMock.mockResolvedValue("stored")
+})
+
+it("charges the daily paid-pull limits to an NCA application only: a key-facts review makes no bureau enquiry", async () => {
+  const review = (admit: () => Promise<boolean>) => startApplicationReview({ tenant: { id: "t1" }, user: { id: "system" } as never, id: "app-1", autoDecisionTrigger: "DIGITAL_SUBMISSION", assignToUser: false, admit })
+  const refused = vi.fn(async () => false)
+
+  findUniqueMock.mockResolvedValue({ ...applicationWithClient, disclosureRegime: "KEY_FACTS" })
+  expect(await review(refused)).toMatchObject({ ok: true })
+  expect(refused).not.toHaveBeenCalled()
+
+  findUniqueMock.mockResolvedValue({ ...applicationWithClient, disclosureRegime: "NCA_PASQ" })
+  const stopped = await review(refused)
+  expect(stopped).toBeInstanceOf(Response)
+  expect((stopped as Response).status).toBe(429)
+  expect(refused).toHaveBeenCalledTimes(1)
 })
 
 it("claims a SUBMITTED application into UNDER_REVIEW (happy path)", async () => {

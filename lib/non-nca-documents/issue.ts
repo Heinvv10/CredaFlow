@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { deleteFile, saveFile } from "@/lib/storage"
 import { LOAN_DOCUMENT_KINDS } from "./keys"
+import { STAFF_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 import { renderLoanDocument, type RenderedLoanDocument } from "./render"
 
@@ -55,6 +56,7 @@ export async function issueLoanDocuments(args: {
     if (!locked || locked.status !== "APPROVED" || locked.signed || locked.terms !== renderedTerms) {
       throw new ConcurrentChangeError("The application changed while the documents were being issued; issue them again")
     }
+    await requireLivingBorrower(tx, { tenantId, applicationId, clientId, refusal: STAFF_REFUSAL })
     const now = new Date()
     await tx.loanDocumentIssuance.updateMany({ where: { tenantId, applicationId, supersededAt: null }, data: { supersededAt: now } })
     const rows = []
