@@ -446,6 +446,40 @@ describe("computeReadiness", () => {
       expect(result?.blockers).toContain("Bureau check required")
     })
 
+    it("asks a key-facts application for none of the South African evidence, and keeps every other blocker", () => {
+      const result = computeReadiness(
+        input({
+          bureau: null,
+          application: {
+            disclosureRegime: "KEY_FACTS",
+            creditLife: { ...creditLifeDisclosure(), creditLifeDisclosureSha256: null },
+            clientAffordabilityDeclaredAt: null,
+            recklessLendingAssessedById: null,
+          },
+        }),
+      )
+      for (const gone of ["Credit-life election missing", "Affordability declaration missing", "Reckless-lending assessment missing", "Bureau check required"]) {
+        expect(result?.blockers).not.toContain(gone)
+      }
+      const nca = computeReadiness(input({ bureau: null, application: { disclosureRegime: "NCA_PASQ", clientAffordabilityDeclaredAt: null } }))
+      expect(nca?.blockers).toEqual(expect.arrayContaining(["Affordability declaration missing", "Bureau check required"]))
+    })
+
+    it("reports the lender's own deceased record alone, in either regime: decide refuses it with no override, whatever the bureau says", () => {
+      for (const disclosureRegime of ["NCA_PASQ", "KEY_FACTS"]) {
+        const result = computeReadiness(input({ application: { disclosureRegime, client: { ...input().application.client, deceasedAt: new Date("2026-07-01T00:00:00.000Z") } }, screeningProviderConfigured: true }))
+        expect(result?.blockers).toEqual(["Client recorded as deceased"])
+      }
+    })
+
+    it("requires a screening provider of a key-facts application only, as decide does", () => {
+      const keyFacts = { disclosureRegime: "KEY_FACTS" }
+      expect(computeReadiness(input({ bureau: null, application: keyFacts, screeningProviderConfigured: false }))?.blockers).toContain("Screening provider required")
+      expect(computeReadiness(input({ bureau: null, application: keyFacts }))?.blockers).toContain("Screening provider required")
+      expect(computeReadiness(input({ bureau: null, application: keyFacts, screeningProviderConfigured: true }))?.blockers).not.toContain("Screening provider required")
+      expect(computeReadiness(input({ application: { disclosureRegime: "NCA_PASQ" }, screeningProviderConfigured: false }))?.blockers).not.toContain("Screening provider required")
+    })
+
     it("blocks on the bureau risk gate", () => {
       const result = computeReadiness(
         input({

@@ -21,14 +21,15 @@ describe("Step4Review when credit-life cover is not available", () => {
   let renderer!: ReactTestRenderer
   const patch = vi.fn()
 
-  async function mount(data: ApplicationWizardData) {
+  async function mount(data: ApplicationWizardData, ncaDeclarations?: boolean) {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     await act(async () => {
       renderer = create(
         <Step4Review data={data} patch={patch} errors={{}} mode="staff" editJump={() => undefined}
           clients={[{ id: "c1", firstName: "Synthetic", lastName: "Client", email: "s@example.test" }] as never}
           products={[PRODUCT] as never}
-          creditLifeOffer={{ productId: "cl", productName: "Synthetic CL", insurerId: "i", insurerName: "Synthetic Insurer", autoBundleEnabled: false }}
+          creditLifeOffer={ncaDeclarations === false ? null : { productId: "cl", productName: "Synthetic CL", insurerId: "i", insurerName: "Synthetic Insurer", autoBundleEnabled: false }}
+          ncaDeclarations={ncaDeclarations}
         />,
       )
     })
@@ -38,6 +39,16 @@ describe("Step4Review when credit-life cover is not available", () => {
     await act(async () => renderer.unmount())
     patch.mockReset()
     delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  })
+
+  it("shows the PASQ notice and the s81 declaration on an NCA application, and neither on a key-facts one", async () => {
+    await mount(DATA)
+    expect(JSON.stringify(renderer.toJSON())).toContain("NCA §81 declaration")
+    expect(JSON.stringify(renderer.toJSON())).toContain("Pre-Agreement Statement")
+    await act(async () => renderer.unmount())
+    await mount(DATA, false)
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("NCA §81 declaration")
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("Pre-Agreement Statement")
   })
 
   it("offers no election radio", async () => {

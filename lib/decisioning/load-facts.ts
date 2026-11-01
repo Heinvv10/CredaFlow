@@ -22,7 +22,7 @@ type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureau
 
 export interface LoadedFacts {
   facts: DecisionFacts
-  application: { id: string; clientId: string; productId: string; status: string; updatedAt: Date; submittedAt: Date | null; humanReviewRequestedAt: Date | null }
+  application: { id: string; clientId: string; productId: string; status: string; updatedAt: Date; submittedAt: Date | null; humanReviewRequestedAt: Date | null; disclosureRegime: string }
   /** The bureau check the facts read (an evidence reference for the decision log), if any. */
   bureauCheckId: string | null
   /** Whether affordability came from the application's recorded submission snapshot or was worked out from the records now. */
@@ -186,7 +186,7 @@ export async function loadDecisionFacts(db: Db, tenantId: string, applicationId:
   }
   return {
     facts,
-    application: { id: application.id, clientId: application.clientId, productId: application.productId, status: application.status, updatedAt: application.updatedAt, submittedAt: application.submittedAt, humanReviewRequestedAt: application.humanReviewRequestedAt },
+    application: { id: application.id, clientId: application.clientId, productId: application.productId, status: application.status, updatedAt: application.updatedAt, submittedAt: application.submittedAt, humanReviewRequestedAt: application.humanReviewRequestedAt, disclosureRegime: application.disclosureRegime },
     bureauCheckId: bureau?.id ?? null,
     affordabilitySource: submission ? "SNAPSHOT" : "LIVE",
   }

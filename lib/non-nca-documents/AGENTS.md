@@ -8,49 +8,42 @@
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
-An application of a jurisdiction without the NCA (`InstanceJurisdiction` not ZA)
-is governed by a **key facts statement and a loan agreement** rendered from the
-lender's own versioned templates, not by the PASQ. `LoanApplication.disclosureRegime`
-(`NCA_PASQ` | `KEY_FACTS`) says which; a trigger stamps it at insert from the
-instance and it never changes. Tender items 2.2.4 and 2.4.3.
+An application of a jurisdiction without the NCA is governed by a **key facts statement and a loan agreement**
+from the lender's own versioned templates, not by the PASQ. `LoanApplication.disclosureRegime` (`NCA_PASQ` |
+`KEY_FACTS`) says which; a trigger stamps it at insert from the instance and it never changes. Tender items
+2.2.4 and 2.4.3. Setting up a lender and the go-live conditions: `docs/non-nca-go-live.md`.
 
 ## Critical Rules
-- **Never invent Lesotho legal wording.** The two templates (keys in `keys.ts`,
-  CUSTOM `DocumentTemplate`s, dual-approved versions under Settings, Documents)
-  are the bank's legal team's. The demo ones (`prisma/seed/non-nca-templates.ts`)
-  are structure and approved figures only; a demo lender's documents open with
-  the SAMPLE banner (`render.ts`, `LoanDocumentIssuance.sample`, derived in the DB).
-- **The ZA path is untouched.** The four PASQ guards, the commit invariant and the
-  approved-status CHECK each gained one `KEY_FACTS` step-aside and nothing else
-  (`migration.test.ts` diffs them against their previous definition). A ZA
-  application is `NCA_PASQ`, still needs its PASQ; NCA PDFs are not touched.
-- **The gate is in the database** (`guardLoanApplicationKeyFactsDocuments`): the
-  borrower's signature needs both documents standing, from the template's
-  CURRENT approved version with the wording hash they were issued with, the key
-  facts statement acknowledged on its exact bytes, the agreement being signed
-  the issued one, the approved terms unchanged. DISBURSED needs a signed
-  agreement and the same wording (a newer version after signing does not unsign
-  a contract). `state.ts documentProblem` calls the same SQL (`loanDocumentProblem`).
-- Figures come from `quote.ts` (the frozen approval, the PASQ's calculator), never
-  from the product row; `loanApplicationTermsSha256` is computed in SQL on both sides.
-- Issuance rows are immutable but for supersession and one acknowledgement. The
-  stored files cannot be deleted or swapped while one references them
-  (`guardLoanDocumentFile`); the gate reads them too. The two keyed templates need
-  approval by someone other than the author, whatever `requiresApproval` says, and
-  cannot be re-keyed or deleted (`guardLoanDocumentTemplate`).
-- **Setting up a lender** (Settings, Documents, "Loan documents"): create both
-  templates, save a draft, a second admin approves it (the author cannot), anyone but
-  the approver publishes it. Nothing is issued until both have a published, approved
-  version. **Applications created before the instance became non-ZA stay
-  `NCA_PASQ`** (the column defaults to it; set the instance jurisdiction first, it
-  is frozen by the first application).
-- Staff issue (`CREDIT_OFFICER`); only the borrower acknowledges and signs
-  (`proxy` allowlist `lib/proxy/shared-client-api.ts`). Signing OTP as the PASQ flow.
-- The PASQ/agreement/disburse routes answer 409 for a key-facts application
-  (`refusal.ts`). **Disbursing a key-facts loan is not built**: the disburse route
-  returns the gate's reason or "payout not available". Approval of an LS
-  application through `decide` still demands NCA evidence (credit-life election,
-  NCA checks): a separate item.
+- **Never invent Lesotho legal wording.** The two templates (`keys.ts`, CUSTOM `DocumentTemplate`s) are the bank's
+  legal team's. The demo ones (`prisma/seed/non-nca-templates.ts`) are structure and approved figures only; a demo
+  lender's documents open with the SAMPLE banner (`render.ts`, `LoanDocumentIssuance.sample`, derived in the DB).
+- **The ZA path is untouched.** The four PASQ guards, the commit invariant and the approved-status CHECK each gained
+  one `KEY_FACTS` step-aside (`migration.test.ts` diffs them). A ZA application is `NCA_PASQ`; NCA PDFs are not touched.
+- **The gate is in the database** (`guardLoanApplicationKeyFactsDocuments`): the borrower's signature needs both
+  documents standing, from the template's CURRENT approved version with their issued wording hash, the key facts
+  statement acknowledged on its exact bytes, the agreement signed the issued one, the approved terms unchanged.
+  DISBURSED needs a signed agreement and the same wording. `state.ts documentProblem` calls the same SQL.
+- Figures come from `quote.ts` (the frozen approval), never the product row; `loanApplicationTermsSha256` is SQL on both sides.
+- Issuance rows are immutable but for supersession and one acknowledgement; `guardLoanDocumentFile` keeps their files.
+  The two keyed templates need an approver other than the author and cannot be re-keyed or deleted (`guardLoanDocumentTemplate`).
+- **Approval evidence by regime** (`regime-evidence.ts`, the one rule): a KEY_FACTS application is not asked for the
+  credit-life election, the affordability declaration, the s81 assessment or a South African bureau check, and none
+  is stamped on it. KYC, the submission snapshot, the affordability gate, credit checks, the matrix and the lender's own
+  deceased record (`Client.deceasedAt`, also in both locked verifiers, no override) apply to both. Reg 23A is NCA-only (`snapshot.ts`).
+- **Credit life is off for a KEY_FACTS loan, outright**: billed under South African regulations. Every offer read goes through
+  `loadCreditLifeOffer` (`lib/insurance/credit-life-offer.ts`) and `creditLifeOfferedFor`, on one basis: the application's
+  stamped regime, or for one not created yet the regime it will get, never the jurisdiction alone (an `NCA_PASQ` application
+  pre-dating a switch keeps its offer). Priced with `KEY_FACTS_CREDIT_LIFE`; ACCEPTED is refused by decide and by the
+  CHECK `LoanApplication_key_facts_no_credit_life`. Offering cover later is a feature (a Lesotho product), not a switch.
+- **Screening is the identity-risk check a KEY_FACTS loan has**: decide and readiness refuse while no provider is
+  configured, also inside the transaction. The simulated provider counts where `SIMULATED_INTEGRATIONS` permits it.
+- **The decision engine cannot approve a KEY_FACTS application** until a Lesotho bureau is integrated
+  (`lib/decisioning/key-facts-referral.ts`): it refers (`NO_BUREAU`, `MISSING_FACT`) and strips the grade, which was scored on
+  facts nobody checked. With no bureau check a scorecard decline refers too; a rule's decline on known facts stands.
+- Staff issue (`CREDIT_OFFICER`); only the borrower acknowledges and signs (`lib/proxy/shared-client-api.ts`). Each step
+  refuses a deceased borrower under the client row lock (`borrower-gate.ts`); the portal's refusal does not say why.
+- The PASQ/agreement/disburse routes answer 409 for a key-facts application (`refusal.ts`). **Disbursing one is not built
+  yet** (A10b PR B): the disburse route returns the gate's reason or "payout not available".
 
 ## Key Files
 | File | Purpose |

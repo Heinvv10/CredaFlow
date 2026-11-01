@@ -383,3 +383,17 @@ describe("validateStep2LoanParams — PO funding", () => {
     expect(validateStep2LoanParams({ ...po, productId: "p1", appliedAmount: "5000", poNumber: "" }, [PRODUCT, PO])).toEqual({})
   })
 })
+
+describe("validateStep4Review: the NCA declarations", () => {
+  const data = { ...EMPTY_APPLICATION_WIZARD_DATA, pasqAcknowledged: false, affordabilityDeclared: false }
+
+  it("demands both unless the caller says the regime has none (a caller that forgets keeps the strict behaviour)", () => {
+    for (const opts of [{}, { ncaDeclarations: true }]) {
+      expect(validateStep4Review(data, { forReview: true, creditLifeOffered: false, ...opts })).toEqual({ pasqAcknowledged: expect.any(String), affordabilityDeclared: expect.any(String) })
+    }
+  })
+
+  it("demands neither of a key-facts application", () => {
+    expect(validateStep4Review(data, { forReview: true, creditLifeOffered: false, ncaDeclarations: false })).toEqual({})
+  })
+})
