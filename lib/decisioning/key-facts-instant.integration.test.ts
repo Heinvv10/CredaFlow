@@ -262,8 +262,6 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     const refused = await ls.change(ENGINE_CONFIG_KIND, "instant, by an admin", ls.engine({ keyFactsInstantApproval: true }), { id: ls.stack.senior, role: "ADMIN" })
     expect(refused.status).toBe(403)
     await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "keyFactsInstantApproval" = true WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/newly approved/)
-    const staleRequest = await ls.db().changeRequest.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, kind: ENGINE_CONFIG_KIND, status: "APPROVED" }, orderBy: { createdAt: "asc" } })
-    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "keyFactsInstantApproval" = true, "changeRequestId" = '${staleRequest.id}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/newly approved|match the approved/)
     await ls.withdraw(refused.id!)
 
     const applied = await ls.change(ENGINE_CONFIG_KIND, "instant", ls.engine({ keyFactsInstantApproval: true }))
@@ -271,6 +269,9 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     const audit = await ls.db().auditLog.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, action: "DECISION_ENGINE_CONFIG_APPLIED" }, orderBy: { createdAt: "desc" } })
     expect(audit).toMatchObject({ userId: ls.checker, oldValue: expect.objectContaining({ keyFactsInstantApproval: false }), newValue: expect.objectContaining({ keyFactsInstantApproval: true, makerId: ls.maker }) })
     expect(await ls.db().decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: ls.stack.tenant } })).toMatchObject({ keyFactsInstantApproval: true })
+    // A real approved request that did not say so cannot carry the setting: what is written is what was approved.
+    const older = await ls.db().changeRequest.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, kind: ENGINE_CONFIG_KIND, status: "APPROVED" }, orderBy: { createdAt: "asc" } })
+    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = '${older.id}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/match the approved/)
   })
 
   it("approves a client's digital submission in under 60 seconds, as an automated decision that names its rule set", async () => {
@@ -435,7 +436,10 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     // No bureau check of this review: the standing decision.
     await expect(update(`${terms}, "approvedById" = '${system.id}', ${attest}`)).rejects.toThrow(/no bureau check of this review/)
     // Outside an approval it does not stand, and it is never there from the start.
-    await expect(update(attest)).rejects.toThrow(/LoanApplication_automated_affordability|only with the engine/)
+    await expect(update(attest)).rejects.toThrow(/only with the engine/)
+    await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" DISABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
+    await expect(update(attest)).rejects.toThrow(/LoanApplication_automated_affordability/)
+    await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" ENABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
     const done = await ls.db().loanApplication.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, status: "APPROVED", automatedAffordabilityAttestedAt: { not: null } } })
     await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = now() WHERE id = '${done.id}'`)).rejects.toThrow(/cannot be changed/)
     await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = NULL, "automatedAffordabilityVersionId" = NULL WHERE id = '${done.id}'`)).rejects.toThrow(/cannot be changed/)
@@ -594,5 +598,9 @@ suite("the same setting cannot be reached on a South African instance (real Post
     }))
     expect(res.status, JSON.stringify(await res.clone().json())).toBe(200)
     expect(await za.applicationOf(id)).toMatchObject({ status: "APPROVED", recklessLendingAssessed: true, automatedAffordabilityAttestedAt: null })
+    // And an approved NCA row refuses the stamp on the regime alone, the guard trigger out of the way.
+    await db.$executeRawUnsafe(`ALTER TABLE "LoanApplication" DISABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
+    await expect(db.$executeRawUnsafe(`UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = now(), "automatedAffordabilityVersionId" = '${version.id}' WHERE id = '${id}'`)).rejects.toThrow(/LoanApplication_automated_affordability/)
+    await db.$executeRawUnsafe(`ALTER TABLE "LoanApplication" ENABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
   })
 })
