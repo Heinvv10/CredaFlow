@@ -8,6 +8,7 @@ import Link from "next/link"
 import { auth } from "@/lib/auth"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
+import { ArrearsLetterButton } from "@/components/collections/ArrearsLetterButton"
 import { Section129Button } from "@/components/collections/Section129Button"
 import { LogContactButton } from "@/components/collections/LogContactButton"
 import { PaymentPlanButton } from "@/components/collections/PaymentPlanButton"
@@ -31,6 +32,8 @@ async function getLoanDetail(loanId: string, tenantId: string) {
     where: { id: loanId, tenantId },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, email: true, idNumber: true } },
+      application: { select: { disclosureRegime: true } },
+      arrearsLetters: { orderBy: { issuedAt: "desc" } },
       entity: { select: { legalName: true } },
       product: { select: { name: true, productType: true } },
       notes: { orderBy: { createdAt: "desc" } },
@@ -63,6 +66,8 @@ export default async function CollectionDetailPage({ params }: { params: Promise
   }
 
   const clientName = `${loan.client.firstName} ${loan.client.lastName}`
+  // A key-facts loan has an arrears letter from the lender's template; Section 129 is South African law.
+  const keyFacts = loan.application.disclosureRegime === "KEY_FACTS"
   const writeOffPending = loan.status === "PENDING_WRITE_OFF"
   const dunningEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
   const section129Eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
@@ -174,7 +179,9 @@ export default async function CollectionDetailPage({ params }: { params: Promise
               {section129Availability.latestIssuedSimulated ? "View simulated S.129 (not sent)" : "View Issued S.129"}
             </a>
           )}
-          {section129Enabled ? (
+          {keyFacts ? (
+            dunningEligibility.eligible && !messageRefusal && <ArrearsLetterButton loanId={loan.id} />
+          ) : section129Enabled ? (
             <Section129Button loanId={loan.id} loanRef={loan.reference} clientName={clientName} />
           ) : (
             <button
@@ -210,6 +217,22 @@ export default async function CollectionDetailPage({ params }: { params: Promise
             />
           )}
         </div>
+      )}
+
+      {loan.arrearsLetters.length > 0 && (
+        <ul className="mb-6 divide-y divide-gray-100 rounded-lg border border-gray-200 text-[12px]" data-testid="arrears-letters">
+          {loan.arrearsLetters.map((letter) => (
+            <li key={letter.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+              <a className="font-semibold underline" href={`/api/documents/${letter.clientDocumentId}/view`} target="_blank" rel="noreferrer">
+                Arrears letter {formatDate(letter.noticeDate)}
+              </a>
+              <span className="text-gray-500">
+                {formatZAR(letter.arrearsAmount)} in arrears, {letter.daysInArrears} days · template v{letter.templateVersionNumber}
+              </span>
+              {letter.sample && <span className="rounded border border-amber-600 px-1.5 font-semibold text-amber-700">SAMPLE</span>}
+            </li>
+          ))}
+        </ul>
       )}
 
       {clientHold && messageRefusal && (

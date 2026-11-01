@@ -65,6 +65,9 @@ export function quoteFor(application: { affordabilityResult: unknown; repaymentM
   }
 }
 
+/** The arrears.* tokens in the template editor's preview: synthetic. */
+export const SAMPLE_ARREARS = { arrearsCents: 195_000, totalOutstandingCents: 1_041_400, daysInArrears: 15, noticeDate: "1 February 2027" }
+
 /** Figures for the template editor's preview (app/api/documents/templates/[id]/preview): synthetic, so the quote.* tokens render before any application exists. */
 export const SAMPLE_QUOTE: QuoteFigures = {
   principalCents: 1_000_000,

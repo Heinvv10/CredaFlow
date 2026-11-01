@@ -48,15 +48,17 @@ export default async function PortalAgreementPage({ params }: Props) {
   if (application.disclosureRegime === "KEY_FACTS") {
     if (application.agreementSignedAt) redirect(`/portal/applications/${application.id}`)
     const state = (await loanDocumentState(tenantId, application.id))?.keyFacts
+    const offer = state?.documents.find((d) => d.kind === "OFFER_LETTER")
     const kfs = state?.documents.find((d) => d.kind === "KEY_FACTS_STATEMENT")
     const agreement = state?.documents.find((d) => d.kind === "LOAN_AGREEMENT")
-    if (!kfs || !agreement) redirect("/portal")
+    if (!offer || !kfs || !agreement) redirect("/portal")
     return (
       <PortalKeyFactsClient
         signingOtp={await signingOtpView(tenantId, application.client, "portal")}
         applicationId={application.id}
         reference={application.reference}
         clientName={`${application.client.firstName} ${application.client.lastName}`}
+        offer={{ documentId: offer.clientDocumentId, sha256: offer.pdfSha256, templateVersion: offer.templateVersion, sample: offer.sample, accepted: offer.acknowledgedAt !== null }}
         keyFacts={{ documentId: kfs.clientDocumentId, sha256: kfs.pdfSha256, templateVersion: kfs.templateVersion, sample: kfs.sample, acknowledged: kfs.acknowledgedAt !== null }}
         agreement={{ documentId: agreement.clientDocumentId, sha256: agreement.pdfSha256, templateVersion: agreement.templateVersion, sample: agreement.sample }}
       />

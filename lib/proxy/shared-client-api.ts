@@ -29,9 +29,9 @@ export function isSharedClientApiPath(pathname: string, method: string): boolean
     return true
   }
   // A key-facts (non-NCA) application's loan documents (lib/non-nca-documents): the borrower
-  // reads their state, acknowledges the key facts statement and signs the agreement. The
-  // base path's POST issues the documents and is staff-only.
-  if (/^\/api\/applications\/[^/]+\/loan-documents\/(acknowledge|sign)$/.test(pathname) && method === "POST") {
+  // reads their state, accepts the offer letter, acknowledges the key facts statement and signs
+  // the agreement. The base path's POST issues the documents and is staff-only, as is branch-sign.
+  if (/^\/api\/applications\/[^/]+\/loan-documents\/(accept|acknowledge|sign)$/.test(pathname) && method === "POST") {
     return true
   }
   if (/^\/api\/applications\/[^/]+\/loan-documents$/.test(pathname) && method === "GET") {

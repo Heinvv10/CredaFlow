@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import type { SigningOtpPurpose } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
 import { callerIp, checkRateLimit, recordedCallerIp } from "@/lib/rate-limit"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
@@ -53,7 +54,10 @@ export async function POST(req: NextRequest) {
     if (caller.kind === "staff" && (purpose === "DEBIT_MANDATE" || purpose === "DEAL_DOCUMENT")) {
       return NextResponse.json({ error: "This document is signed in the customer portal." }, { status: 403 })
     }
-    if (!(await isSigningOtpRequired(tenant.id, caller.method))) {
+    // A key-facts agreement witnessed at a branch always takes the borrower's own code (lib/non-nca-documents/branch-sign.ts).
+    const keyFactsBranch = caller.kind === "staff" && purpose === "AGREEMENT"
+      && (await prisma.loanApplication.findFirst({ where: { id: subjectId, tenantId: tenant.id }, select: { disclosureRegime: true } }))?.disclosureRegime === "KEY_FACTS"
+    if (!keyFactsBranch && !(await isSigningOtpRequired(tenant.id, caller.method))) {
       return NextResponse.json({ error: "A signing code is not required for this signature." }, { status: 409 })
     }
 

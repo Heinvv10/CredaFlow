@@ -1,7 +1,7 @@
 "use client"
 
-// Settings → Document templates, for a lender outside the NCA: the two documents a loan is signed on
-// (lib/non-nca-documents). The wording is the lender's own legal text: nothing is written for it here.
+// Settings → Document templates, for a lender outside the NCA: the documents a loan is offered, signed and
+// chased on (lib/non-nca-documents). The wording is the lender's own legal text: nothing is written for it here.
 // Setup: create the template, save a draft in the editor, a second admin approves it, anyone but the
 // approver publishes it. Loan documents are issued only from the published, approved version.
 import { useState } from "react"
@@ -43,11 +43,11 @@ export function LoanDocumentTemplates({ rows }: { rows: LoanDocumentTemplateRow[
 
   return (
     <div className="mb-6 rounded-2xl border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-5" data-testid="loan-document-templates">
-      <h2 className="text-sm font-semibold text-[var(--cf-text)]">Loan documents: key facts statement and loan agreement</h2>
+      <h2 className="text-sm font-semibold text-[var(--cf-text)]">Loan documents: offer letter, key facts statement, loan agreement and arrears letter</h2>
       <p className="mt-1 text-xs text-[var(--cf-text-muted)]">
-        A loan is signed on these two documents, in your own wording. Create each template, write and save a draft, have a second
-        admin approve it in the version list, then publish it. Nothing is issued until both have a published, approved version.
-        The figures come from the approved loan through the Approved terms tokens.
+        These are your own documents, in your own wording. Create each template, write and save a draft, have a second
+        admin approve it in the version list, then publish it. Nothing is issued until it has a published, approved version.
+        The figures come from the approved loan through the Approved terms tokens, and from the loan through the Arrears tokens.
       </p>
       <ul className="mt-4 divide-y divide-[var(--cf-border-subtle)]">
         {rows.map((r) => (

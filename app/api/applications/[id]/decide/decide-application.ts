@@ -57,6 +57,7 @@ import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
 import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
+import { issueOnApproval } from "@/lib/non-nca-documents/issue-on-approval"
 import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
@@ -1685,6 +1686,9 @@ export async function decideApplication({ tenant, user, id, formData, automation
       loanId: application.id,
       clientId: application.clientId,
     }).catch(() => {})
+    if (application.disclosureRegime === "KEY_FACTS") {
+      await issueOnApproval({ tenantId: tenant.id, applicationId: application.id, staff: { id: user.id, email: user.email } })
+    }
   } else if (action === "decline") {
     const declineCategory = parseDeclineCategory(formData.get("declineCategory"))
     if (!declineCategory) {

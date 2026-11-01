@@ -3,10 +3,11 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { deleteFile, saveFile } from "@/lib/storage"
 import { identityChangedSinceApproval } from "./identity"
-import { LOAN_DOCUMENT_KINDS } from "./keys"
+import { LOAN_DOCUMENT_KINDS, LOAN_DOCUMENT_LABELS } from "./keys"
 import { STAFF_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
 import { renderLoanDocument, type RenderedLoanDocument } from "./render"
+import { deliverToBorrower, operationIdFor } from "./deliver"
 
 export type IssueResult =
   | { ok: true; issued: { kind: string; issuanceId: string; clientDocumentId: string; pdfSha256: string; templateVersion: number; sample: boolean }[] }
@@ -15,13 +16,14 @@ export type IssueResult =
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
 
 /**
- * Issues the key facts statement and the loan agreement of an approved key-facts
- * application from the lender's current approved templates, replacing any
- * standing, unsigned pair. Both are rendered and stored first; then, in one
- * transaction, the application is re-read under a lock (still approved, unsigned,
- * the same terms), the old pair is superseded, the new pair and the agreement
- * binding are written, and the issue is audited. The database re-checks all of it
- * (guardLoanDocumentIssuance, guardLoanApplicationKeyFactsDocuments).
+ * Issues the offer letter, the key facts statement and the loan agreement of an
+ * approved key-facts application from the lender's current approved templates,
+ * replacing any standing, unsigned set. All are rendered and stored first; then, in
+ * one transaction, the application is re-read under a lock (still approved, unsigned,
+ * the same terms), the old set is superseded, the new set and the agreement binding
+ * are written, and the issue is audited. The database re-checks all of it
+ * (guardLoanDocumentIssuance, guardLoanApplicationKeyFactsDocuments). The borrower
+ * is told once it stands; a failed notice never undoes the issue (deliver.ts).
  */
 export async function issueLoanDocuments(args: {
   tenantId: string
@@ -33,7 +35,7 @@ export async function issueLoanDocuments(args: {
   const application = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId },
     select: {
-      id: true, clientId: true, status: true, disclosureRegime: true, agreementSignedAt: true, affordabilityResult: true,
+      id: true, reference: true, clientId: true, status: true, disclosureRegime: true, agreementSignedAt: true, affordabilityResult: true,
       client: { select: { id: true, idNumber: true, firstName: true, lastName: true, dateOfBirth: true } },
     },
   })
@@ -71,7 +73,7 @@ export async function issueLoanDocuments(args: {
       const clientDocument = await tx.clientDocument.create({
         data: {
           tenantId, clientId, docType: doc.kind === "LOAN_AGREEMENT" ? "CREDIT_AGREEMENT" : "OTHER",
-          fileName: `${doc.kind === "LOAN_AGREEMENT" ? "loan-agreement" : "key-facts-statement"}-${applicationId}.pdf`,
+          fileName: `${LOAN_DOCUMENT_LABELS[doc.kind].toLowerCase().replaceAll(" ", "-")}-${applicationId}.pdf`,
           fileUrl: "", storagePath: file.storagePath, fileSize: file.fileSize, mimeType: "application/pdf",
           uploadedByType: "staff", uploadedById: staff.id, templateId: doc.templateId, generatedFromVersionId: doc.versionId,
           contentSha256: sha, issuedForApplicationId: applicationId, extractionStatus: "skipped", verified: false,
@@ -107,6 +109,12 @@ export async function issueLoanDocuments(args: {
     throw error
   })
   if (issued instanceof ConcurrentChangeError) return { ok: false, status: 409, error: issued.message }
+  await deliverToBorrower({
+    tenantId, clientId, staff, entity: { type: "LoanApplication", id: applicationId }, what: "loan documents",
+    operationId: operationIdFor(`loan-documents:${issued.map((r) => r.pdfSha256).join(":")}`),
+    subject: `Your loan documents for ${application.reference} are ready`,
+    text: `Your offer letter, key facts statement and loan agreement for application ${application.reference} are ready. Sign in to your portal to read and accept them.`,
+  })
   return { ok: true, issued }
 }
 

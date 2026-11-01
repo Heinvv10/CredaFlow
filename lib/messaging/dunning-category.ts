@@ -18,6 +18,8 @@ export const DUNNING_MESSAGE_CATEGORIES: ReadonlySet<string> = new Set([
   "collections_stage_reminder",
   // app/api/collections/[loanId]/reminder/route.ts
   "manual_reminder",
+  // lib/non-nca-documents/arrears-letter.ts
+  "arrears_letter",
   // lib/notifications.ts passes the event name as the category
   "loan_overdue",
   "loan_overdue_1d",

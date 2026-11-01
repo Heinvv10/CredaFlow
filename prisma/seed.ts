@@ -70,7 +70,7 @@ const SEED_LOAN_REFERENCE = "LN-SEED-0001"
  * it: the base32 secret in `totpSecret`, `totpEnabled = true`. A rerun keeps
  * an existing secret so an authenticator already set up keeps working.
  */
-async function upsertStaff(tenantId: string, email: string, name: string, role: "ADMIN" | "LOAN_ADMIN" | "CREDIT_OFFICER", passwordEnv: string) {
+async function upsertStaff(tenantId: string, email: string, name: string, role: "SUPER_ADMIN" | "ADMIN" | "LOAN_ADMIN" | "CREDIT_OFFICER", passwordEnv: string) {
   const existing = await prisma.user.findUnique({ where: { email }, select: { tenantId: true, totpSecret: true } })
   // email is globally unique: on a shared database the write below would
   // otherwise rewrite another tenant's user (password, tenantId).
@@ -151,6 +151,9 @@ async function main() {
     jurisdiction: JURISDICTION,
     currency: CURRENCY,
     requireSegregationOfDuties: LENDER.requireSegregationOfDuties,
+    // A key-facts loan has no bureau, so screening is its identity-risk check and decide refuses without a provider.
+    // A demo's is the simulated one; a real lender configures a real one (docs/non-nca-go-live.md).
+    ...(JURISDICTION === "ZA" ? {} : { screeningProvider: "simulated" }),
     // This seed only ever creates a synthetic demo lender. The marker lets a
     // DEMO_MODE stack simulate a Section 129 email to its undeliverable
     // mailboxes (lib/collections/section129-email.ts); provisioning refuses it.
@@ -186,7 +189,9 @@ async function main() {
   // Two loan admins: asset-finance four-eyes steps need a second approver.
   const loanAdminOne = await upsertStaff(tenant.id, `loan.admin.one@${STAFF_DOMAIN}`, "Demo Loan Admin One", "LOAN_ADMIN", "SEED_LOAN_ADMIN_ONE_PASSWORD")
   const loanAdminTwo = await upsertStaff(tenant.id, `loan.admin.two@${STAFF_DOMAIN}`, "Demo Loan Admin Two", "LOAN_ADMIN", "SEED_LOAN_ADMIN_TWO_PASSWORD")
-  // A lender outside the NCA signs a key facts statement and a loan agreement from its own templates (lib/non-nca-documents).
+  // The checker of a change to the approval matrix (lib/maker-checker). Only a key-facts demo seeds a matrix.
+  const superAdmin = JURISDICTION === "ZA" ? null : await upsertStaff(tenant.id, `super.admin@${STAFF_DOMAIN}`, "Demo Super Admin", "SUPER_ADMIN", "SEED_SUPER_ADMIN_PASSWORD")
+  // A lender outside the NCA uses its own offer letter, key facts statement, loan agreement and arrears letter (lib/non-nca-documents).
   if (JURISDICTION !== "ZA") {
     const { seedNonNcaTemplates } = await import("./seed/non-nca-templates")
     await seedNonNcaTemplates(prisma, tenant.id, loanAdminOne.user.id, loanAdminTwo.user.id)
@@ -266,7 +271,8 @@ async function main() {
     })
   }
 
-  await seedLoan(tenant.id, clients[3].id, products.PERSONAL.id)
+  // A key-facts demo's loan is in arrears, so its arrears letter can be walked.
+  await seedLoan(tenant.id, clients[3].id, products.PERSONAL.id, JURISDICTION === "ZA" ? 10 : 45)
 
   if (JURISDICTION === "ZA") {
     // Imported here, not at the top: it imports lib/prisma (see seed-document-templates above).
@@ -275,28 +281,38 @@ async function main() {
     await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
   }
 
+  // Lesotho: an approval matrix for ungraded applications, borrowers with verified evidence and an approved application.
+  if (JURISDICTION !== "ZA") {
+    const { seedKeyFactsWalk } = await import("./seed/key-facts-walk")
+    const actor = (s: { user: { id: string; email: string; role: string } }) => ({ id: s.user.id, email: s.user.email, role: s.user.role })
+    await seedKeyFactsWalk(tenant.id, {
+      maker: actor(admin), checker: actor(superAdmin!), approver: actor(loanAdminOne), officer: actor(officer),
+      borrowers: { approved: clients[2].id, apply: clients[4].id }, productId: products.MICRO30.id,
+    })
+  }
+
   console.log(`\nSeed complete: tenant "${LENDER.slug}" (${BRAND}).`)
   if (process.env.SEED_PRINT_CREDENTIALS !== "1") {
-    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD, SEED_LOAN_ADMIN_ONE_PASSWORD, SEED_LOAN_ADMIN_TWO_PASSWORD and SEED_PORTAL_PASSWORD to choose or reset them.")
+    console.log("Credentials not printed. Generated passwords show only with SEED_PRINT_CREDENTIALS=1 on the run that creates the rows; set SEED_ADMIN_PASSWORD, SEED_OFFICER_PASSWORD, SEED_LOAN_ADMIN_ONE_PASSWORD, SEED_LOAN_ADMIN_TWO_PASSWORD, SEED_SUPER_ADMIN_PASSWORD (a key-facts demo) and SEED_PORTAL_PASSWORD to choose or reset them.")
     return
   }
-  for (const s of [admin, officer, loanAdminOne, loanAdminTwo]) {
+  for (const s of [...(superAdmin ? [superAdmin] : []), admin, officer, loanAdminOne, loanAdminTwo]) {
     console.log(`\n  ${s.user.role}: ${s.user.email}\n    password: ${s.password}\n    TOTP secret (base32): ${s.totpSecret}\n    otpauth: ${s.otpauth}`)
   }
   console.log(`\n  Client portal password (seeded clients created or reset this run): ${portalPasswordUsed ? portalPassword : kept("SEED_PORTAL_PASSWORD")}`)
 }
 
 /**
- * LN-SEED-0001: an ACTIVE R10,000 personal loan, 180 days, booked 10 days ago,
+ * LN-SEED-0001: an ACTIVE R10,000 personal loan, 180 days, booked `bookedDaysAgo` ago,
  * schedule from the real amortiser. Created in one transaction, so a rerun
  * either finds the whole loan or none of it.
  */
-async function seedLoan(tenantId: string, clientId: string, productId: string) {
+async function seedLoan(tenantId: string, clientId: string, productId: string, bookedDaysAgo: number) {
   if (await prisma.loan.findUnique({ where: { reference: SEED_LOAN_REFERENCE } })) return
   const product = await prisma.loanProduct.findUniqueOrThrow({ where: { id: productId } })
   const principal = 1_000_000
   const termDays = 180
-  const startDate = daysAgo(10)
+  const startDate = daysAgo(bookedDaysAgo)
   const calc = calculateLoan({
     productType: product.productType,
     principal,

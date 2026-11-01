@@ -22,8 +22,33 @@ export interface RenderedLoanDocument {
   sample: boolean
 }
 
+/** The current approved version of a keyed template. Refuses (TemplateUnavailableError) when it is missing, not in use or unapproved. */
+export async function currentApprovedTemplate(tenantId: string, key: string) {
+  const template = await prisma.documentTemplate.findFirst({ where: { tenantId, key, deletedAt: null } })
+  if (!template || template.kind !== "CUSTOM" || !template.isActive || !template.currentVersionId) {
+    throw new TemplateUnavailableError(key)
+  }
+  const version = await prisma.documentTemplateVersion.findFirst({
+    where: { id: template.currentVersionId, templateId: template.id, status: "ACTIVE" },
+  })
+  if (!version || (template.requiresApproval && (!version.approvedById || !version.approvedAt))) {
+    throw new TemplateUnavailableError(key)
+  }
+  return { template, version }
+}
+
+/** The tokens rendered and the page made a PDF; a demo lender's opens with the SAMPLE banner. */
+export async function renderedPdf(bodyHtml: string, ctx: TokenContext, sample: boolean): Promise<Buffer> {
+  const { html, missing } = renderTokens(bodyHtml, ctx)
+  if (missing.length > 0) throw new MissingTokenError(missing)
+  const banner = sample
+    ? `<p style="border:2px solid #b45309;color:#b45309;font-weight:bold;text-align:center;padding:8px;margin:0 0 16px">${escapeHtmlText(SAMPLE_BANNER_TEXT)}</p>`
+    : ""
+  return htmlToPdf(banner + html)
+}
+
 /**
- * Renders one of the lender's two loan documents for an application, from the
+ * Renders one of the lender's loan documents for an application, from the
  * current approved version of its template and the approved terms. Nothing is
  * stored here. A template that is missing, not in use, without an approved
  * current version or with an unresolved token refuses (TemplateUnavailableError,
@@ -40,16 +65,7 @@ export async function renderLoanDocument(args: {
   // Every amount below is printed in the instance's currency: know it before formatting anything.
   await ensureActiveJurisdiction()
   const key = LOAN_DOCUMENT_TEMPLATE_KEYS[kind]
-  const template = await prisma.documentTemplate.findFirst({ where: { tenantId, key, deletedAt: null } })
-  if (!template || template.kind !== "CUSTOM" || !template.isActive || !template.currentVersionId) {
-    throw new TemplateUnavailableError(key)
-  }
-  const version = await prisma.documentTemplateVersion.findFirst({
-    where: { id: template.currentVersionId, templateId: template.id, status: "ACTIVE" },
-  })
-  if (!version || (template.requiresApproval && (!version.approvedById || !version.approvedAt))) {
-    throw new TemplateUnavailableError(key)
-  }
+  const { template, version } = await currentApprovedTemplate(tenantId, key)
 
   const application = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId },
@@ -64,13 +80,7 @@ export async function renderLoanDocument(args: {
   ])
   const quote = quoteFor(application)
   const ctx: TokenContext = { tenant, lender, client: application.client, application, staff, quote }
-  const { html, missing } = renderTokens(version.bodyHtml, ctx)
-  if (missing.length > 0) throw new MissingTokenError(missing)
-
   const sample = config?.isDemoLender === true
-  const banner = sample
-    ? `<p style="border:2px solid #b45309;color:#b45309;font-weight:bold;text-align:center;padding:8px;margin:0 0 16px">${escapeHtmlText(SAMPLE_BANNER_TEXT)}</p>`
-    : ""
   return {
     kind,
     templateId: template.id,
@@ -78,7 +88,7 @@ export async function renderLoanDocument(args: {
     versionId: version.id,
     versionNumber: version.version,
     templateContentSha256: sha256Text(version.bodyHtml),
-    pdf: await htmlToPdf(banner + html),
+    pdf: await renderedPdf(version.bodyHtml, ctx, sample),
     sample,
   }
 }
