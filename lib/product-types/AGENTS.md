@@ -28,7 +28,7 @@ Spec 2.1.1 asks for these types. Each ships its smallest real behaviour: a gate 
 | SALARY_BACKED | needs employer + payroll number and an employed borrower; monthly deduction list and CSV (`check-off.ts`) | import or match payroll files (2.6.3), employer portal (2.2.1), remit bulk receipts |
 | SME | needs business name, registration, turnover and a business purpose | lend to the business itself: the applicant is the borrower of record |
 | GROUP | needs a group of 2+ with the borrower in it, no member in arrears, defaulted, pending write-off or written off | joint liability, group collection, group meetings |
-| REVOLVING | the product maximum is the borrower's limit; principal owed in any unsettled status and approved draws count, repaid principal frees it | a per-borrower limit, draws without an application, one statement, interest on a running balance |
+| REVOLVING | the product maximum is the borrower's limit; principal owed in any unsettled status and approved draws, across the revolving products, count; repaid principal frees it | a per-borrower limit, draws without an application, one statement, interest on a running balance |
 
 ## Tests
 `rules.test.ts`, `check-off.test.ts`; `lib/product-engine/a5b.integration.test.ts` (`RUN_A5B_IT=1`); `decide-gate.integration.test.ts` (`RUN_APPROVAL_IT=1`).
