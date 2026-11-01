@@ -41,6 +41,7 @@ vi.mock("@/lib/compliance/bureau-subject", () => ({
   bureauSubjectFingerprint: (...args: unknown[]) => subjectFingerprintMock(...args),
 }))
 
+import { isKeyFactsBureau } from "./bureau"
 import { runBureauReviewCheck } from "./bureau-review"
 
 const request = {
@@ -364,5 +365,18 @@ describe("bureau review generation binding", () => {
     expect(bureauCheckCreateMock.mock.calls[0][0].data.obligations).toMatchObject({
       scoreDropAlert: { previous: 600, current: 500, drop: 100 },
     })
+  })
+})
+
+describe("isKeyFactsBureau", () => {
+  it("is no South African bureau, and the simulated one only where this deployment permits it", () => {
+    expect(isKeyFactsBureau("experian")).toBe(false)
+    expect(isKeyFactsBureau("transunion")).toBe(false)
+    expect(isKeyFactsBureau("simulated")).toBe(true)
+    vi.stubEnv("NODE_ENV", "production")
+    expect(isKeyFactsBureau("simulated")).toBe(false)
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-bureau")
+    expect(isKeyFactsBureau("simulated")).toBe(true)
+    vi.unstubAllEnvs()
   })
 })

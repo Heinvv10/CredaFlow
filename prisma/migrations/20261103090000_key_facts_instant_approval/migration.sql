@@ -41,7 +41,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  approving := NEW."status" = 'APPROVED' AND OLD."status" IS DISTINCT FROM 'APPROVED';
+  approving := NEW."status" = 'APPROVED' AND OLD."status" NOT IN ('APPROVED', 'DISBURSED');
   stamped := NEW."automatedAffordabilityAttestedAt" IS DISTINCT FROM OLD."automatedAffordabilityAttestedAt"
     OR NEW."automatedAffordabilityVersionId" IS DISTINCT FROM OLD."automatedAffordabilityVersionId";
 

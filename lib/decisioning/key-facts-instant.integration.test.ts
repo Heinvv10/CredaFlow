@@ -59,7 +59,7 @@ vi.mock("@/lib/decisioning/schedule-digital", async (original) => {
   return { ...actual, scheduleDigitalDecision: (input: NonNullable<typeof holder.held>) => { if (holder.hold) { holder.held = input; return Promise.resolve() } return actual.scheduleDigitalDecision(input) } }
 })
 
-import { createAppPrismaClient } from "@/lib/prisma"
+import { createAppPrismaClient, prisma } from "@/lib/prisma"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
@@ -71,10 +71,13 @@ import { bankRefFor, lsFlow } from "@/lib/non-nca-documents/ls-flow.integration-
 import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "@/lib/non-nca-documents/ls-stack.integration-fixture"
 import { decideApplication } from "@/app/api/applications/[id]/decide/decide-application"
 import { POST as decideRoute } from "@/app/api/applications/[id]/decide/route"
+import { startApplicationReview } from "@/app/api/applications/[id]/review/review-application"
 import { POST as portalApply } from "@/app/api/portal/applications/route"
 import { POST as draftChange } from "@/app/api/maker-checker/route"
 import { POST as actOnChange } from "@/app/api/maker-checker/[id]/[action]/route"
+import { approveThroughStaffPath } from "./auto-actions"
 import { cleanIdNumber, seedDigitalBorrower } from "./key-facts-instant.integration-fixture"
+import { loadDecisionFacts } from "./load-facts"
 import { scheduleDigitalDecision } from "./schedule-digital"
 import { runWithTenant } from "@/lib/tenant-scope"
 
@@ -207,6 +210,32 @@ function harness(jurisdiction: "LS" | "ZA") {
 const ls = harness("LS")
 const lesothoId = () => cleanIdNumber(() => `99${String(randomInt(10_000_000)).padStart(7, "0")}`)
 const borrower = (id: string, over: { lastName?: string; income?: number } = {}) => seedDigitalBorrower(ls.db(), ls.stack, id, { files: holder.files, idNumber: lesothoId(), ...over })
+
+/**
+ * A digital application a person put under review (so it has its bureau check and no decision), and the staff path as the engine
+ * would call it on a verdict it reached before the setting changed. `on` is the setting while the bureau check is made.
+ */
+async function reviewedByStaff(clientId: string, on: boolean) {
+  await borrower(clientId)
+  holder.hold = true
+  const id = await ls.apply(clientId)
+  holder.held = null
+  holder.hold = false
+  const inTenant = <T,>(fn: () => Promise<T>) => runWithTenant(ls.stack.tenant, fn)
+  if (!on) expect((await ls.change(ENGINE_CONFIG_KIND, "on for the pull", ls.engine({ keyFactsInstantApproval: true, s71SignOff: true, automatedDeclineNotice: NOTICE }))).status).toBe(200)
+  await inTenant(() => startApplicationReview({ tenant: { id: ls.stack.tenant }, user: { id: ls.stack.officer, email: "o@test.invalid" }, id, autoDecisionTrigger: "MANUAL" }))
+  if (!on) expect((await ls.change(ENGINE_CONFIG_KIND, "withdrawn", ls.engine({ keyFactsInstantApproval: false, s71SignOff: true, automatedDeclineNotice: NOTICE }))).status).toBe(200)
+  const version = await ls.db().decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, scopeKey: "ALL" } })
+  const approve = () => inTenant(async () => {
+    const loaded = (await loadDecisionFacts(prisma, ls.stack.tenant, id))!
+    return approveThroughStaffPath({
+      tenantId: ls.stack.tenant, applicationId: id, trigger: "DIGITAL_SUBMISSION", mode: "LIVE", role: "CHAMPION", loaded, attestsAffordability: true, startedAt: performance.now(), now: new Date(),
+      version: { id: version.id, scopeKey: version.scopeKey, version: version.version },
+      verdict: { decision: "APPROVE", reasonCodes: ["RULES_PASSED"], declineCategory: null, riskGrade: null, gradeRank: null, score: null, pricingTier: null, limitCapCents: null, hits: [] },
+    }, "EFT")
+  })
+  return { id, approve }
+}
 
 suite("instant approval of a digital key-facts application (real Postgres, real routes, no bypass)", () => {
   beforeAll(async () => {
@@ -383,8 +412,7 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     const id = await ls.apply(clientId)
     holder.held = null
     holder.hold = false
-    const review = await import("@/app/api/applications/[id]/review/review-application")
-    await runWithTenant(ls.stack.tenant, () => review.startApplicationReview({ tenant: { id: ls.stack.tenant }, user: { id: ls.stack.officer, email: "o@test.invalid" }, id, autoDecisionTrigger: "MANUAL" }))
+    await runWithTenant(ls.stack.tenant, () => startApplicationReview({ tenant: { id: ls.stack.tenant }, user: { id: ls.stack.officer, email: "o@test.invalid" }, id, autoDecisionTrigger: "MANUAL" }))
     expect(await ls.runOf(id)).toMatchObject({ execution: "REFERRED", reasonCodes: ["NOT_A_DIGITAL_SUBMISSION"] })
     expect((await ls.applicationOf(id)).status).toBe("UNDER_REVIEW")
   })
@@ -423,6 +451,11 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     expect((await ls.change(ENGINE_CONFIG_KIND, "off", ls.engine({ keyFactsInstantApproval: false, s71SignOff: true, automatedDeclineNotice: NOTICE }))).status).toBe(200)
     await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET status = 'APPROVED', "approvedAmount" = 500000, "approvedTermDays" = 30, "approvedRate" = 0.05, "repaymentMethod" = 'EFT', "approvedAt" = now(), "approvedById" = '${system.id}', "automatedAffordabilityAttestedAt" = now(), "automatedAffordabilityVersionId" = '${approvedOne.automatedAffordabilityVersionId}' WHERE id = '${id}'`)).rejects.toThrow(/instant key-facts approval setting is not on/)
     await ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { screeningProvider: "simulated" } })
+
+    // The race itself: the engine read the setting as on, and the lender withdrew it before the approval committed. It refers.
+    const stale = await reviewedByStaff(`race-${t}`, false)
+    expect(await stale.approve()).toMatchObject({ execution: "REFERRED", note: "The approval path failed; staff must decide." })
+    expect(await ls.applicationOf(stale.id)).toMatchObject({ status: "UNDER_REVIEW", approvedById: null, automatedAffordabilityAttestedAt: null })
     expect((await ls.change(ENGINE_CONFIG_KIND, "back on", ls.engine({ keyFactsInstantApproval: true, s71SignOff: true, automatedDeclineNotice: NOTICE }))).status).toBe(200)
   })
 
@@ -435,7 +468,15 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     await ls.settled(id)
     expect(await ls.runOf(id)).toMatchObject({ verdict: "APPROVE", execution: "REFERRED", reasonCodes: expect.arrayContaining(["HARD_GATE_REFUSED"]) })
     expect(await ls.applicationOf(id)).toMatchObject({ status: "UNDER_REVIEW", approvedById: null, automatedAffordabilityAttestedAt: null })
-    expect((await ls.change(MATRIX_KIND, "matrix off", { ...matrix, enabled: false })).status).toBe(200)
+
+    // The go-live condition: a rule the bank approves lets its small digital loans through with no level.
+    expect((await ls.change(MATRIX_KIND, "matrix allows small", { ...matrix, effectiveFrom: "2026-01-02", rules: [{ id: "small", name: "Small digital loans", when: { amountMaxCents: 800_000 }, requiredLevels: 0 }] })).status).toBe(200)
+    const smallClient = `small-${t}`
+    await borrower(smallClient)
+    const small = await ls.apply(smallClient)
+    await ls.settled(small)
+    expect(await ls.runOf(small)).toMatchObject({ execution: "APPROVED" })
+    expect((await ls.applicationOf(small)).status).toBe("APPROVED")
   })
 
   it("an engine-approved loan pays out only through a second person, never to staff whose input it rests on, and a return to review clears the attestation", async () => {
