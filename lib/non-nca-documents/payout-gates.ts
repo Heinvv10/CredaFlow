@@ -33,7 +33,9 @@ import { KYC_AND_STATEMENT_DOCUMENTS } from "@/lib/disbursement/document-locks"
 import { DisbursementBankDetailsError, resolveDisbursementBankDetails } from "@/lib/disbursement-bank-details"
 import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/document-state"
 import { lockedBorrowerScreeningAllows, readBorrowerScreening } from "@/lib/screening/gate"
-import { SEGREGATION_OF_DUTIES_REFUSALS, isSegregationOfDutiesRequired, segregationOfDutiesConflict } from "@/lib/security/segregation-of-duties"
+import { CLEARER_REFUSAL, clearedConditions, committeeConditionsRefusal } from "@/lib/approval/conditions"
+import { accountControlRefusal } from "@/lib/security/account-control"
+import { SEGREGATION_OF_DUTIES_REFUSALS, isSegregationOfDutiesRequired, segregationOfDutiesConflict, segregationOfDutiesMakers } from "@/lib/security/segregation-of-duties"
 import { databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 import { currentPayoutVerification } from "./payout-account"
 import { agreementPayableOn } from "./payout-terms"
@@ -81,10 +83,22 @@ export async function payoutPreconditions(subject: PayoutSubject): Promise<Payou
   if (!clientId) return refuse(409, "borrower", "A key-facts loan is made to a client")
 
   const segregation = await isSegregationOfDutiesRequired(tenantId)
-  const conflict = segregationOfDutiesConflict("disburse", user.id, {
+  const segregationFacts = {
     ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenantId, applicationId),
-  })
+  }
+  const conflict = segregationOfDutiesConflict("disburse", user.id, segregationFacts)
   if (conflict && segregation) return refuse(422, "segregation_of_duties", SEGREGATION_OF_DUTIES_REFUSALS[conflict])
+
+  // The credit committee's conditions (the database refuses the DISBURSED write too). With segregation of duties on, whoever cleared one is out
+  // of the payout, and the payer is a different person from the approvers and clearers, not a second account of one.
+  const conditions = await committeeConditionsRefusal(prisma, tenantId, applicationId)
+  if (conditions) return refuse(409, "committee_conditions", `Cannot disburse: ${conditions}`)
+  if (segregation) {
+    const clearers = await clearedConditions(prisma, tenantId, applicationId)
+    if (clearers.includes(user.id)) return refuse(422, "segregation_of_duties", CLEARER_REFUSAL)
+    const controlled = await accountControlRefusal(prisma, { tenantId, makerIds: [...segregationOfDutiesMakers("disburse", segregationFacts), ...clearers], checkerId: user.id })
+    if (controlled) return refuse(422, "segregation_of_duties", controlled)
+  }
 
   const screening = await readBorrowerScreening(tenantId, { clientId, entityId: null })
   if (!screening.allowed) return refuse(422, "screening", `Cannot disburse: ${screening.message}`)

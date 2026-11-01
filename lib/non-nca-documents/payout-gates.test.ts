@@ -1,14 +1,16 @@
 import { Prisma } from "@prisma/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ application: vi.fn(), verifyLocked: vi.fn(), kyc: vi.fn(), statement: vi.fn(), verification: vi.fn(), problem: vi.fn(), screening: vi.fn() }))
+const h = vi.hoisted(() => ({ application: vi.fn(), verifyLocked: vi.fn(), kyc: vi.fn(), statement: vi.fn(), verification: vi.fn(), problem: vi.fn(), screening: vi.fn(), conditions: vi.fn(), cleared: vi.fn(), twoPeople: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({ prisma: { loanApplication: { findFirst: h.application } } }))
 vi.mock("@/lib/approval/progress", () => ({ approvalStepApproverIds: async () => [] }))
 vi.mock("@/lib/affordability/current-approval", () => ({ verifyLockedCurrentAffordabilityApproval: h.verifyLocked }))
 vi.mock("@/lib/compliance/debit-mandate.server", async (original) => ({ ...(await original<typeof import("@/lib/compliance/debit-mandate.server")>()), findVerifiedBankStatementForMandate: h.statement }))
 vi.mock("@/lib/kyc/document-state", () => ({ readCompositeKycState: h.kyc }))
 vi.mock("@/lib/screening/gate", () => ({ readBorrowerScreening: async () => ({ allowed: true }), lockedBorrowerScreeningAllows: h.screening }))
-vi.mock("@/lib/security/segregation-of-duties", () => ({ SEGREGATION_OF_DUTIES_REFUSALS: {}, isSegregationOfDutiesRequired: async () => true, segregationOfDutiesConflict: () => null }))
+vi.mock("@/lib/approval/conditions", () => ({ CLEARER_REFUSAL: "you cleared a committee condition", clearedConditions: h.cleared, committeeConditionsRefusal: h.conditions }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: h.twoPeople }))
+vi.mock("@/lib/security/segregation-of-duties", () => ({ segregationOfDutiesMakers: () => ["approver"], SEGREGATION_OF_DUTIES_REFUSALS: {}, isSegregationOfDutiesRequired: async () => true, segregationOfDutiesConflict: () => null }))
 vi.mock("./payout-account", () => ({ currentPayoutVerification: h.verification }))
 vi.mock("./state", () => ({ documentProblem: h.problem }))
 
@@ -29,6 +31,9 @@ describe("the gates a real row cannot reach, held anyway", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     h.application.mockResolvedValue({ status: "APPROVED", disclosureRegime: "KEY_FACTS", clientId: "c1", approvedBy: null })
+    h.conditions.mockResolvedValue(null)
+    h.cleared.mockResolvedValue([])
+    h.twoPeople.mockResolvedValue(null)
     h.verifyLocked.mockResolvedValue({ ok: true, approval: today, calculation: { schedule: [] } })
     h.screening.mockResolvedValue(true)
     h.problem.mockResolvedValue(null)
@@ -40,6 +45,17 @@ describe("the gates a real row cannot reach, held anyway", () => {
   it("an NCA application is not this route's", async () => {
     h.application.mockResolvedValue({ status: "APPROVED", disclosureRegime: "NCA_PASQ", clientId: "c1" })
     expect(await payoutPreconditions(subject)).toMatchObject({ ok: false, status: 409, precondition: "regime" })
+  })
+
+  it("an open committee condition, a clearer as payer and the two-people rule refuse before any lock (F9, F12)", async () => {
+    h.conditions.mockResolvedValueOnce("on conditions")
+    expect(await payoutPreconditions(subject)).toMatchObject({ ok: false, status: 409, precondition: "committee_conditions" })
+    h.cleared.mockResolvedValueOnce(["u1"])
+    expect(await payoutPreconditions(subject)).toMatchObject({ ok: false, precondition: "segregation_of_duties", error: expect.stringContaining("cleared a committee condition") })
+    h.cleared.mockResolvedValueOnce(["clearer"])
+    h.twoPeople.mockResolvedValueOnce("Two people")
+    expect(await payoutPreconditions(subject)).toMatchObject({ ok: false, precondition: "segregation_of_duties", error: "Two people" })
+    expect(h.twoPeople).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["approver", "clearer"], checkerId: "u1" }))
   })
 
   it("passes a complete row", async () => {

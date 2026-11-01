@@ -162,6 +162,45 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect(await db().loanApplication.findUniqueOrThrow({ where: { id } })).toMatchObject({ disbursementRef: bankRefFor(id) })
   })
 
+  it("the committee's conditions and the two-people rule hold the real route: open, cleared by the payer, cleared by the payer's own account, cleared by someone else", async () => {
+    const condition = "Obtain a signed employer letter before disbursement"
+    /** Signed, then an approved case carrying one condition: what lib/approval/chain.ts leaves when a committee approves on conditions. */
+    const conditioned = async (id: string) => {
+      await signedApplication(id)
+      const theCase = await db().approvalCase.create({ data: { tenantId: stack.tenant, applicationId: id, requiredLevels: 1, levelsSnapshot: [{ level: 1, name: "One", role: "LOAN_ADMIN", slaHours: 24, committee: false }] } })
+      await db().approvalStep.create({ data: { tenantId: stack.tenant, caseId: theCase.id, applicationId: id, level: 1, approverId: stack.senior, via: "ROLE", conditions: [condition] } })
+      await db().approvalCase.update({ where: { id: theCase.id }, data: { status: "APPROVED", completedAt: new Date() } })
+      return theCase.id
+    }
+    const clear = (caseId: string, id: string, by: string) => db().approvalConditionClearance.create({ data: { tenantId: stack.tenant, caseId, applicationId: id, conditionIndex: 0, condition, note: "Letter on file", clearedById: by } })
+
+    const open = `cond-open-${t}`
+    await conditioned(open)
+    const held = await disburseAs(stack.disburser, open)
+    expect(held.status).toBe(409)
+    expect(await held.json()).toMatchObject({ disbursementPrecondition: "committee_conditions" })
+
+    const byPayer = `cond-payer-${t}`
+    await clear(await conditioned(byPayer), byPayer, stack.disburser)
+    const payer = await disburseAs(stack.disburser, byPayer)
+    expect(payer.status).toBe(422)
+    expect(await payer.json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties", error: expect.stringContaining("cleared a committee condition") })
+
+    const byPuppet = `cond-puppet-${t}`
+    const puppet = (await db().user.create({ data: { tenantId: stack.tenant, email: `puppet-${t}@test.invalid`, password: "not-a-real-login", name: "Second account", role: "LOAN_ADMIN" } })).id
+    await db().auditLog.create({ data: { tenantId: stack.tenant, userId: stack.disburser, action: "USER_CREATED", entity: "User", entityId: puppet } })
+    await clear(await conditioned(byPuppet), byPuppet, puppet)
+    const minted = await disburseAs(stack.disburser, byPuppet)
+    expect(minted.status).toBe(422)
+    expect(await minted.json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties", error: expect.stringContaining("Two people") })
+    expect(await loans(open) + await loans(byPayer) + await loans(byPuppet)).toBe(0)
+
+    const fine = `cond-fine-${t}`
+    await clear(await conditioned(fine), fine, stack.senior)
+    expect((await disburseAs(stack.disburser, fine)).status).toBe(200)
+    expect(await loans(fine)).toBe(1)
+  })
+
   it("a second person records the payout account, audited, and the disburser cannot be that person", async () => {
     const id = `second-${t}`
     await signedApplication(id, { verified: false })
