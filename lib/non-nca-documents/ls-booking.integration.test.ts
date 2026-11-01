@@ -62,9 +62,13 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { GET as payoutCheck } from "@/app/api/applications/[id]/payout-check/route"
 import { PUT as clientPut } from "@/app/api/clients/[id]/route"
 import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
+import { acknowledgeKeyFacts } from "./acknowledge"
+import { BORROWER_REFUSAL } from "./borrower-gate"
 import { issueLoanDocuments } from "./issue"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { clearOpenFlags, createRlsRole, PRODUCT, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
+import { signKeyFactsAgreement } from "./sign"
+import { loanDocumentState } from "./state"
 
 const RUN = process.env.RUN_DB_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
@@ -167,12 +171,20 @@ suite("what a key-facts payout books, and when the officer may make the transfer
     expect(await loans(id)).toBe(0)
   })
 
-  it("a changed identity also stops the documents being issued", async () => {
+  it("a changed identity also stops the documents being issued, acknowledged or signed", async () => {
     const id = `issue-${t}`
     await approvedApplication(id, { kyc: false })
+    const staff = { id: stack.officer, email: `${stack.officer}@test.invalid` }
+    const inTenant = <T,>(fn: () => Promise<T>) => runWithTenant(stack.tenant, fn)
+    expect(await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff }))).toMatchObject({ ok: true })
+    const docs = (await inTenant(() => loanDocumentState(stack.tenant, id)))!.keyFacts!.documents
+    const borrower = { tenantId: stack.tenant, applicationId: id, clientId: `${id}-client`, clientEmail: `${id}@test.invalid` }
     await db().client.update({ where: { id: `${id}-client` }, data: { firstName: "Someoneelse" } })
-    const issued = await runWithTenant(stack.tenant, () => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff: { id: stack.officer, email: `${stack.officer}@test.invalid` } }))
-    expect(issued).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/identity changed/) })
+    expect(await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/identity changed/) })
+    expect(await inTenant(() => acknowledgeKeyFacts({ ...borrower, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 }))).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(await inTenant(() => signKeyFactsAgreement({
+      ...borrower, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Synthetic Borrower", signingOtpChallengeId: null, ipAddress: "203.0.113.9",
+    }))).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
   })
 
   it("one transfer pays one loan: a reference used before, in any case, is a clean 409 and the second application stays approved", async () => {
@@ -186,6 +198,19 @@ suite("what a key-facts payout books, and when the officer may make the transfer
     expect(await res.json()).toMatchObject({ disbursementPrecondition: "bank_reference_used" })
     expect(await loans(second)).toBe(0)
     expect((await disburseAs(stack.disburser, second, { bankRef: `DUP2-${t}` })).status).toBe(200)
+  })
+
+  it("spaces and width do not make it another transfer; punctuation does", async () => {
+    const [first, second, third] = [`form1-${t}`, `form2-${t}`, `form3-${t}`]
+    for (const id of [first, second, third]) await signedApplication(id)
+    expect((await disburseAs(stack.disburser, first, { bankRef: `TX-${t}  A` })).status).toBe(200)
+    expect(await db().loanApplication.findUniqueOrThrow({ where: { id: first } })).toMatchObject({ disbursementRef: `TX-${t}A` })
+    for (const bankRef of [`TX-${t} A`, `tx-${t}\u00a0a`, `TX-${t}\uff21`]) {
+      const res = await disburseAs(stack.disburser, second, { bankRef })
+      expect(res.status, bankRef).toBe(409)
+      expect(await res.json()).toMatchObject({ disbursementPrecondition: "bank_reference_used" })
+    }
+    expect((await disburseAs(stack.disburser, third, { bankRef: `TX.${t}A` })).status).toBe(200)
   })
 
   it("the dry run runs every gate and books nothing: refused until the second person confirmed, then ready, with the application untouched", async () => {

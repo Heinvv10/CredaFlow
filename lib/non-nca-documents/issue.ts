@@ -4,8 +4,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { deleteFile, saveFile } from "@/lib/storage"
 import { identityChangedSinceApproval } from "./identity"
 import { LOAN_DOCUMENT_KINDS } from "./keys"
-import { STAFF_REFUSAL, requireLivingBorrower } from "./borrower-gate"
-import { ConcurrentChangeError, databaseMessage, isDatabaseRefusal } from "./errors"
+import { STAFF_IDENTITY_REFUSAL, STAFF_REFUSAL, requireLivingBorrower } from "./borrower-gate"
+import { ConcurrentChangeError, databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 import { renderLoanDocument, type RenderedLoanDocument } from "./render"
 
 export type IssueResult =
@@ -44,7 +44,7 @@ export async function issueLoanDocuments(args: {
   if (application.status !== "APPROVED") return { ok: false, status: 409, error: "Loan documents are issued for an approved application" }
   if (application.agreementSignedAt) return { ok: false, status: 409, error: "The loan agreement is already signed" }
   if (identityChangedSinceApproval({ affordabilityResult: application.affordabilityResult, client: application.client })) {
-    return { ok: false, status: 409, error: "The borrower's identity changed after approval: return the application to review and approve it again" }
+    return { ok: false, status: 409, error: STAFF_IDENTITY_REFUSAL }
   }
   const clientId = application.clientId
 
@@ -63,7 +63,7 @@ export async function issueLoanDocuments(args: {
     if (!locked || locked.status !== "APPROVED" || locked.signed || locked.terms !== renderedTerms) {
       throw new ConcurrentChangeError("The application changed while the documents were being issued; issue them again")
     }
-    await requireLivingBorrower(tx, { tenantId, applicationId, clientId, refusal: STAFF_REFUSAL })
+    await requireLivingBorrower(tx, { tenantId, applicationId, clientId, affordabilityResult: application.affordabilityResult, refusal: STAFF_REFUSAL, identityRefusal: STAFF_IDENTITY_REFUSAL })
     const now = new Date()
     await tx.loanDocumentIssuance.updateMany({ where: { tenantId, applicationId, supersededAt: null }, data: { supersededAt: now } })
     const rows = []
@@ -103,6 +103,7 @@ export async function issueLoanDocuments(args: {
     // A refused or failed issue leaves no file behind.
     await Promise.all(stored.map(({ file }) => deleteFile(file.storagePath).catch(() => undefined)))
     if (error instanceof ConcurrentChangeError) return error
+    if (isConcurrencyLoss(error)) return new ConcurrentChangeError("The application changed while the documents were being issued; issue them again")
     if (isDatabaseRefusal(error)) return new ConcurrentChangeError(databaseMessage(error))
     throw error
   })

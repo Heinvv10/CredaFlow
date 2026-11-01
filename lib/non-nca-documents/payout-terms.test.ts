@@ -11,6 +11,21 @@ describe("the bank reference of a manual transfer", () => {
   })
 })
 
+describe("one form of a reference, for the unique index", () => {
+  it("spaces and width do not make a different reference", () => {
+    const one = "TX-777A"
+    for (const form of ["TX-777  A", "TX-777 A", "TX-777\u00a0A", " TX-777A ", "\uff34\uff38-\uff17\uff17\uff17\uff21", "TX-777\u3000A"]) expect(manualBankRef(form)).toBe(one)
+  })
+  it("punctuation does", () => {
+    expect(manualBankRef("TX-777")).not.toBe(manualBankRef("TX777"))
+    expect(manualBankRef("TX.777")).not.toBe(manualBankRef("TX-777"))
+  })
+  it("the length is of the form stored", () => {
+    expect(manualBankRef(`${"x".repeat(KEY_FACTS_BANK_REF_MAX)}   `)).toHaveLength(KEY_FACTS_BANK_REF_MAX)
+    expect(manualBankRef(`${"x ".repeat(KEY_FACTS_BANK_REF_MAX)}`)).toHaveLength(KEY_FACTS_BANK_REF_MAX)
+  })
+})
+
 describe("the second person's note", () => {
   it("says how the account was confirmed, within bounds", () => {
     expect(payoutVerificationNote("x".repeat(PAYOUT_VERIFICATION_NOTE_MIN))).toHaveLength(PAYOUT_VERIFICATION_NOTE_MIN)

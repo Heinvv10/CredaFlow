@@ -14,11 +14,17 @@ export const PAYOUT_VERIFICATION_NOTE_MAX = 500
 /** The text a person can see: without control and format characters (a zero-width space is one) and without white space. */
 const visible = (text: string) => text.replace(/[\p{Cc}\p{Cf}\s]/gu, "")
 
-/** The bank's reference for a manual transfer, trimmed, or null unless it is 1 to 64 characters of a single line with a letter or digit in it and nothing invisible. */
+/**
+ * The bank's reference for a manual transfer in the one form it is stored and held unique in, or null unless it is 1 to 64 characters on a
+ * single line with a letter or digit in it and nothing invisible. Width (NFKC) and white space do not make a different reference, so
+ * "TX-777  A" and "TX-777 A" are one transfer; punctuation does ("TX-777" and "TX777" are two). The index folds case.
+ */
 export function manualBankRef(value: unknown): string | null {
   if (typeof value !== "string") return null
-  const ref = value.trim()
-  return ref.length > 0 && ref.length <= KEY_FACTS_BANK_REF_MAX && !/[\p{Cc}\p{Cf}]/u.test(ref) && /[\p{L}\p{N}]/u.test(ref) ? ref : null
+  const folded = value.normalize("NFKC").trim()
+  if (/[\p{Cc}\p{Cf}]/u.test(folded)) return null
+  const ref = folded.replace(/\s/gu, "")
+  return ref.length <= KEY_FACTS_BANK_REF_MAX && /[\p{L}\p{N}]/u.test(ref) ? ref : null
 }
 
 /** How the second person confirmed the account, trimmed, or null when it is too short to say or over the limit. */
