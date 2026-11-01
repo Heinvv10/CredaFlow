@@ -1,4 +1,5 @@
 import type { DecisionFacts } from "./facts"
+import { REASON_SCORE_BELOW_CUTOFF } from "./decide"
 import type { Node, RuleDef, Verdict } from "./types"
 
 export interface KeyFactsReferral {
@@ -32,7 +33,7 @@ export function keyFactsReferral(input: {
 }): KeyFactsReferral | null {
   if (input.regime !== "KEY_FACTS") return null
   if (!input.bureauCheckId) {
-    return { reasonCode: "NO_BUREAU", note: "A key-facts application has no bureau check, so the engine cannot approve it; staff must decide." }
+    return { reasonCode: "NO_BUREAU", note: "A key-facts application has no bureau check, so the engine cannot approve it or decline it on a score; staff must decide." }
   }
   const fields = new Set<keyof DecisionFacts>()
   for (const rule of input.rules) comparedFields(rule.when, fields)
@@ -44,14 +45,17 @@ export function keyFactsReferral(input: {
 }
 
 /**
- * The verdict the engine acts on for a key-facts application `keyFactsReferral` applies to. An approval becomes a referral.
- * Whatever the decision, the grade goes: it was scored on facts nobody checked, and a grade on the row takes the application
- * out of the approval matrix's `ungraded` rule and into risk pricing. A decline or a referral keeps its decision. Pure.
+ * The verdict the engine acts on for a key-facts application `keyFactsReferral` applies to. An approval becomes a referral,
+ * and so does a scorecard decline with no bureau check: that score is built on missing facts, so it says nothing about the
+ * person. Whatever the decision, the grade goes: it was scored on facts nobody checked, and a grade on the row takes the
+ * application out of the approval matrix's `ungraded` rule and into risk pricing. A rule's decline on known facts, and a
+ * rule's referral, keep their decision. Pure.
  */
 export function withKeyFactsReferral(verdict: Verdict, input: Parameters<typeof keyFactsReferral>[0]): { verdict: Verdict; note: string | null } {
   const referral = keyFactsReferral(input)
   if (!referral) return { verdict, note: null }
   const ungraded = { ...verdict, riskGrade: null, gradeRank: null, score: null, pricingTier: null }
-  if (verdict.decision !== "APPROVE") return { verdict: ungraded, note: null }
+  const declinedOnScore = referral.reasonCode === "NO_BUREAU" && verdict.reasonCodes.includes(REASON_SCORE_BELOW_CUTOFF)
+  if (verdict.decision !== "APPROVE" && !declinedOnScore) return { verdict: ungraded, note: null }
   return { verdict: { ...ungraded, decision: "REFER", reasonCodes: [referral.reasonCode], declineCategory: null }, note: referral.note }
 }
