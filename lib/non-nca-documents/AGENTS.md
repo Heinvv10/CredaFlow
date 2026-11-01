@@ -6,7 +6,6 @@
 # Module: non-nca-documents
 <!-- summary: Offer letter, key facts statement, loan agreement and arrears letter of a non-NCA (Lesotho) loan: templates, issue, accept, sign, the DB gate -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
-
 ## Purpose
 An application of a jurisdiction without the NCA is governed by an **offer letter, a key facts statement and a loan
 agreement** from the lender's own versioned templates, not by the PASQ. `LoanApplication.disclosureRegime` (`NCA_PASQ` |
