@@ -13,12 +13,18 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 const holder = vi.hoisted(() => ({
   app: null as object | null, tenantId: "", userId: "", role: "LOAN_ADMIN",
   session: null as null | { user: Record<string, unknown> },
+  /** Runs after the two-people check and before the claim: a write that lands between them. */
+  afterCheck: null as null | (() => Promise<unknown>),
   sendEmail: vi.fn(async (..._args: unknown[]) => ({ ok: true, messageId: `provider-${Math.random()}`, provider: "SMTP", providerOutcome: "ACCEPTED", acceptedAt: new Date() })),
 }))
 vi.mock("@/lib/prisma", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/prisma")>()
   const prisma = new Proxy({}, { get(_t, key) { if (!holder.app) throw new Error("no client"); const v: unknown = Reflect.get(holder.app, key); return typeof v === "function" ? v.bind(holder.app) : v } })
   return { ...actual, prisma }
+})
+vi.mock("@/lib/security/account-control", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/security/account-control")>()
+  return { ...actual, accountControlRefusal: async (...args: Parameters<typeof actual.accountControlRefusal>) => { const refusal = await actual.accountControlRefusal(...args); await holder.afterCheck?.(); return refusal } }
 })
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => holder.session) }))
 vi.mock("@/lib/auth-guards", async (importOriginal) => ({
@@ -244,6 +250,19 @@ function regime(jurisdiction: StackJurisdiction) {
       expect((await res.json()).error).toContain("Two people")
       expect((await identityOf(email)).confirmedAt).toBeNull()
       expect((await confirmAs(clientId, email, stack.confirmer)).status).toBe(200)
+    })
+
+    it.each([
+      ["another setter", { setByStaffUserId: "other" }], ["another value", { value: "moved@test.invalid" }],
+    ])("a row changed to %s between the check and the claim is not confirmed", async (name, change) => {
+      holder.tenantId = stack.tenant
+      const clientId = await borrower(`race-${name.split(" ")[1]}`)
+      const email = await staffChangesEmail(clientId, stack.officer)
+      const { id } = await identityOf(email)
+      const data = "setByStaffUserId" in change ? { setByStaffUserId: stack.disburser } : { value: `moved-${t}@test.invalid` }
+      holder.afterCheck = () => { holder.afterCheck = null; return db().contactIdentity.update({ where: { id }, data }) }
+      expect((await confirmAs(clientId, email, stack.confirmer)).status).toBe(409)
+      expect(await db().contactIdentity.findUniqueOrThrow({ where: { id } })).toMatchObject({ ...data, confirmedAt: null, confirmedByUserId: null })
     })
 
     it("the borrower's own change needs no one", async () => {

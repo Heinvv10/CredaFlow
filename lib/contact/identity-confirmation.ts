@@ -71,7 +71,8 @@ export async function confirmContactIdentity(args: {
     const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [identity.setByStaffUserId], checkerId: by.id })
     if (controlled) return { ok: false as const, status: 403 as const, error: controlled }
     const claimed = await tx.contactIdentity.updateMany({
-      where: { id: identityId, tenantId, confirmedAt: null },
+      // What was checked above, or nothing: the sync can have pointed this row at another setter since.
+      where: { id: identityId, tenantId, confirmedAt: null, setByStaffUserId: identity.setByStaffUserId, value: identity.value },
       data: { confirmedAt: new Date(), confirmedByUserId: by.id },
     })
     if (claimed.count !== 1) return { ok: false as const, status: 409 as const, error: NOTHING_TO_CONFIRM }
