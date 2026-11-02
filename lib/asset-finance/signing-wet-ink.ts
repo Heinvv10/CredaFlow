@@ -12,6 +12,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { storeEntityDocument, type ParsedEntityUpload } from "./entity-document-io"
 import { SIGNED_DOC_TYPE, signerState } from "./signing"
 import type { SigningActor } from "./signing-prepare"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 const SIGNER_SELECT = {
   id: true, dealId: true, clientId: true, document: true, method: true, signedAt: true, signatureSha256: true,
@@ -28,7 +29,7 @@ export class SignerChangedError extends Error {
 
 type Common = { kind: "not_found" } | { kind: "not_open"; reason: string } | { kind: "done"; scanDocumentId: string }
 export type UploadResult = Common | { kind: "wrong_type"; expected: string }
-export type ConfirmResult = Common | { kind: "four_eyes" } | { kind: "scan_changed" }
+export type ConfirmResult = Common | { kind: "four_eyes" } | { kind: "account_controlled"; error: string } | { kind: "scan_changed" }
 
 function findSigner(tenantId: string, dealId: string, signerId: string) {
   return prisma.dealSigner.findFirst({ where: { id: signerId, dealId, tenantId }, select: SIGNER_SELECT })
@@ -98,6 +99,8 @@ export async function confirmWetInkScan(
   }
   if (signer.scanDocumentId !== reviewedScanDocumentId) return { kind: "scan_changed" }
   if (signer.scanUploadedById?.trim().toLowerCase() === actor.userId.trim().toLowerCase()) return { kind: "four_eyes" }
+  const controlled = await accountControlRefusal(prisma, { tenantId: actor.tenantId, makerIds: [signer.scanUploadedById], checkerId: actor.userId })
+  if (controlled) return { kind: "account_controlled", error: controlled }
 
   const scanDocumentId = reviewedScanDocumentId
   const confirmed = await prisma.$transaction(async (tx) => {

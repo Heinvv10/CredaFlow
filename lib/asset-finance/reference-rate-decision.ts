@@ -20,6 +20,7 @@ import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { dbDate, isoOfDbDate } from "./dates"
 import { alertLoanAdmins } from "./reprice-notice"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export type DecisionDb = Pick<typeof prisma, "$queryRaw" | "referenceRate" | "loan" | "user" | "notification" | "auditLog">
 
@@ -37,6 +38,7 @@ export type DecisionOutcome =
   | { kind: "not_found" }
   | { kind: "not_pending"; status: string }
   | { kind: "self_decision" }
+  | { kind: "account_controlled"; error: string }
   | { kind: "decided"; rate: ReferenceRate; reach: ApprovalReach | null }
 
 const percent = (rate: Prisma.Decimal): string => `${rate.mul(100).toString()}%`
@@ -88,6 +90,10 @@ export async function decideReferenceRate(
   if (!pending) return { kind: "not_found" }
   if (pending.status !== "PENDING") return { kind: "not_pending", status: pending.status }
   if (pending.requestedById === input.deciderId) return { kind: "self_decision" }
+  if (input.decision === "APPROVE") {
+    const controlled = await accountControlRefusal(tx, { tenantId: input.tenantId, makerIds: [pending.requestedById], checkerId: input.deciderId })
+    if (controlled) return { kind: "account_controlled", error: controlled }
+  }
 
   const status = input.decision === "APPROVE" ? "APPROVED" : "REJECTED"
   const rate = await tx.referenceRate.update({

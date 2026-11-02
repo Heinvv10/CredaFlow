@@ -33,7 +33,10 @@ import { KYC_AND_STATEMENT_DOCUMENTS } from "@/lib/disbursement/document-locks"
 import { DisbursementBankDetailsError, resolveDisbursementBankDetails } from "@/lib/disbursement-bank-details"
 import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/document-state"
 import { lockedBorrowerScreeningAllows, readBorrowerScreening } from "@/lib/screening/gate"
+import { CLEARER_REFUSAL, clearedConditions, committeeConditionsRefusal } from "@/lib/approval/conditions"
+import { accountControlRefusal } from "@/lib/security/account-control"
 import { SEGREGATION_OF_DUTIES_REFUSALS, isSegregationOfDutiesRequired, segregationOfDutiesConflict } from "@/lib/security/segregation-of-duties"
+import { confirmerRefusal, payoutPeople } from "./payout-people"
 import { databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 import { currentPayoutVerification } from "./payout-account"
 import { agreementPayableOn } from "./payout-terms"
@@ -86,6 +89,17 @@ export async function payoutPreconditions(subject: PayoutSubject): Promise<Payou
   })
   if (conflict && segregation) return refuse(422, "segregation_of_duties", SEGREGATION_OF_DUTIES_REFUSALS[conflict])
 
+  // The credit committee's conditions (the database refuses the DISBURSED write too). With segregation of duties on, whoever cleared one is out
+  // of the payout, and the payer is a different person from the approvers and clearers, not a second account of one.
+  const conditions = await committeeConditionsRefusal(prisma, tenantId, applicationId)
+  if (conditions) return refuse(409, "committee_conditions", `Cannot disburse: ${conditions}`)
+  if (segregation) {
+    const clearers = await clearedConditions(prisma, tenantId, applicationId)
+    if (clearers.includes(user.id)) return refuse(422, "segregation_of_duties", CLEARER_REFUSAL)
+    const controlled = await accountControlRefusal(prisma, { tenantId, makerIds: await payoutPeople(prisma, tenantId, applicationId, application), checkerId: user.id })
+    if (controlled) return refuse(422, "segregation_of_duties", controlled)
+  }
+
   const screening = await readBorrowerScreening(tenantId, { clientId, entityId: null })
   if (!screening.allowed) return refuse(422, "screening", `Cannot disburse: ${screening.message}`)
   return { ok: true, scope: { ...subject, clientId, segregation } }
@@ -108,7 +122,7 @@ export async function payoutGates(tx: PayoutTransaction, scope: PayoutScope) {
   await lockKycDocuments(tx, tenantId, clientId)
 
   // From here on every gate reads this: the row as it stands under the locks, not the one read before them.
-  const current = await tx.loanApplication.findFirst({ where: { id: applicationId, tenantId, status: "APPROVED", clientId }, include: { client: true } })
+  const current = await tx.loanApplication.findFirst({ where: { id: applicationId, tenantId, status: "APPROVED", clientId }, include: { client: true, approvedBy: { select: { isSystem: true } } } })
   if (!current?.client) throw new Refused(CHANGED)
   const { client } = current
   if (!(await lockedBorrowerScreeningAllows(tx, tenantId, { clientId, entityId: null }, current.approvedById ?? user.id, { providerRequired: true }))) {
@@ -136,6 +150,13 @@ export async function payoutGates(tx: PayoutTransaction, scope: PayoutScope) {
   if (!statement.ok) throw new Refused(refuse(422, statement.reason, "Cannot disburse: no verified bank statement matches the payout account."))
   const verification = await currentPayoutVerification(tx, { tenantId, applicationId, client, disburserId: user.id })
   if (!verification.ok) throw new Refused(refuse(422, "payout_account_verification", verification.error))
+  // Read again under the locks: a step or a clearance since the confirmation can have put the confirmer behind this payout.
+  if (scope.segregation) {
+    const people = await payoutPeople(tx, tenantId, applicationId, current)
+    const refused = await confirmerRefusal(tx, tenantId, people, verification.verifiedById)
+      ?? await accountControlRefusal(tx, { tenantId, makerIds: [...people, verification.verifiedById], checkerId: user.id })
+    if (refused) throw new Refused(refuse(422, "payout_account_verification", refused))
+  }
 
   // The one instant of this payout: stamped under the locks, used for every judgement and row that follows.
   const at = new Date()

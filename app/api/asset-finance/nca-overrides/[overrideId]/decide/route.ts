@@ -10,6 +10,7 @@ import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { isTransactionConflict } from "@/lib/asset-finance/transaction-conflict"
 import { isRegimeOpen, lockApplicationForRegime, STALE_OVERRIDE_NOTE } from "@/lib/asset-finance/classification"
 import { overrideMatchesApplication } from "@/lib/asset-finance/override-snapshot"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 const MIN_NOTE = 5
 const MAX_NOTE = 2000
@@ -116,6 +117,8 @@ export async function POST(
       if (override.status !== "PENDING") return { kind: "not_pending" as const, status: override.status }
       if (override.requestedById === guard.user.id) return { kind: "self_decision" as const }
       const approve = decision === "APPROVE"
+      const controlled = approve ? await accountControlRefusal(tx, { tenantId: tenant.id, makerIds: [override.requestedById], checkerId: guard.user.id }) : null
+      if (controlled) return { kind: "account_controlled" as const, error: controlled }
       if (approve && !isRegimeOpen(override.application.status)) {
         return { kind: "regime_frozen" as const, status: override.application.status }
       }
@@ -187,6 +190,8 @@ export async function POST(
         return NextResponse.json({ error: "Override not found" }, { status: 404 })
       case "not_pending":
         return NextResponse.json({ error: `The override is already ${result.status}` }, { status: 409 })
+      case "account_controlled":
+        return NextResponse.json({ error: result.error }, { status: 403 })
       case "self_decision":
         return refuse(
           "four_eyes_self_decision",

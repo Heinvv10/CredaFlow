@@ -17,6 +17,7 @@ import { dbDate, isoOfDbDate } from "@/lib/asset-finance/dates"
 import { caseFoldClashes } from "./case-fold"
 import { GUIDE_EFFECTIVE_REFUSAL, GUIDE_TIMES_CHECK, isDbRefusal } from "./db-refusal"
 import type { GuideProblem, ValuationProvider } from "./types"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export interface GuideActor { tenantId: string; userId: string; userEmail: string }
 
@@ -29,6 +30,7 @@ export type PublishGuideResult =
   | { kind: "not_found" }
   | { kind: "not_draft"; status: string }
   | { kind: "self_publish" }
+  | { kind: "account_controlled"; error: string }
   | { kind: "not_yet_effective"; effectiveOn: string }
   | { kind: "older_than_current"; currentEffectiveOn: string }
   | { kind: "simulation_refused" }
@@ -113,6 +115,8 @@ export async function publishGuide(actor: GuideActor, id: string): Promise<Publi
     if (!guide) return { kind: "not_found" }
     if (guide.status !== "DRAFT") return { kind: "not_draft", status: guide.status }
     if (guide.uploadedById === actor.userId) return { kind: "self_publish" }
+    const controlled = await accountControlRefusal(tx, { tenantId: actor.tenantId, makerIds: [guide.uploadedById], checkerId: actor.userId })
+    if (controlled) return { kind: "account_controlled", error: controlled }
     effectiveOn = isoOfDbDate(guide.effectiveOn)
     if (effectiveOn > sastCalendarDate(new Date())) return { kind: "not_yet_effective", effectiveOn }
     if (guide.simulated && !isSimulationPermitted("simulated-valuation-guide")) return { kind: "simulation_refused" }

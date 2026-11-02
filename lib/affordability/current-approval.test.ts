@@ -301,9 +301,10 @@ describe("locked affordability approval verification", () => {
       }
       expect(await payout(0.06)).toEqual({ ok: false, reason: "changed" })
       expect(await payout(0.03)).toEqual(expect.objectContaining({ ok: true }))
-      // an approval with no version is not held to the cap again here: only a versioned one is
-      const legacy = await verifyLockedCurrentAffordabilityApproval(transactionFor(applicationFixture("APPROVED")) as never, { tenantId: "tenant-1", applicationId: "application-1" })
-      expect(legacy).toEqual(expect.objectContaining({ ok: true }))
+      // an approval with no version is held to the cap again just the same (F10)
+      const legacy = (rate: number) => verifyLockedCurrentAffordabilityApproval(transactionFor(applicationFixture("APPROVED", null, undefined, { interestRatePm: rate } as never)) as never, { tenantId: "tenant-1", applicationId: "application-1" })
+      expect(await legacy(0.06)).toEqual({ ok: false, reason: "changed" })
+      expect(await legacy(0.03)).toEqual(expect.objectContaining({ ok: true }))
     })
   })
 

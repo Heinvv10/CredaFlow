@@ -8,7 +8,7 @@ const levels: MatrixLevel[] = [
 ]
 const now = new Date("2026-11-02T10:00:00Z")
 
-interface Person { id: string; role: string; active: boolean; isSystem: boolean }
+interface Person { id: string; role: string; active: boolean; isSystem: boolean; branchId?: string | null }
 interface UserWhere { id?: { in?: string[]; notIn?: string[] }; active?: boolean; isSystem?: boolean; role?: { in: string[] } }
 
 /** A staff directory the queries are run against (honouring the filters the code passes), and the delegations in force. */
@@ -20,11 +20,11 @@ function tx(directory: Person[], delegateIds: string[]) {
         && (!where.id?.in || where.id.in.includes(u.id)) && (!where.id?.notIn || !where.id.notIn.includes(u.id)) && (!where.role || where.role.in.includes(u.role))
       ))),
     },
-    approvalDelegation: { findMany: vi.fn(async () => delegateIds.map((delegateId) => ({ delegateId }))) },
+    approvalDelegation: { findMany: vi.fn(async () => delegateIds.map((delegateId) => ({ delegateId, delegatorId: `boss-of-${delegateId}` }))) },
   }
 }
 const person = (id: string, role: string, over: Partial<Person> = {}): Person => ({ id, role, active: true, isSystem: false, ...over })
-const input = { tenantId: "t1", levels, level: 2, amountCents: 500_000, exclude: ["maker"], now }
+const input = { tenantId: "t1", levels, level: 2, amountCents: 500_000, branchId: "b1", exclude: ["maker"], now }
 
 describe("approversForLevel", () => {
   it("is the active people whose own role level is exactly this one, plus current delegates, never the maker", async () => {
@@ -35,5 +35,15 @@ describe("approversForLevel", () => {
   it("does not wake a delegate who has since left, or is the system account", async () => {
     const db = tx([person("gone", "LOAN_ADMIN", { active: false }), person("robot", "LOAN_ADMIN", { isSystem: true }), person("la2", "LOAN_ADMIN")], ["gone", "robot", "la2"])
     expect(await approversForLevel(db as never, input)).toEqual(["la2"])
+  })
+  it("a branch-scoped level wakes only those who hold it at the application's branch, and head office, not staff with no branch (F8)", async () => {
+    const scoped = levels.map((l) => (l.level === 2 ? { ...l, branchScoped: true } : l))
+    const directory = [
+      person("here", "BRANCH_MANAGER", { branchId: "b1" }), person("elsewhere", "BRANCH_MANAGER", { branchId: "b2" }), person("unassigned", "BRANCH_MANAGER", { branchId: null }), person("office", "ADMIN", { branchId: null }),
+      person("deputy-here", "LOAN_ADMIN"), person("boss-of-deputy-here", "BRANCH_MANAGER", { branchId: "b1" }),
+      person("deputy-there", "LOAN_ADMIN"), person("boss-of-deputy-there", "BRANCH_MANAGER", { branchId: "b2" }),
+    ]
+    const found = await approversForLevel(tx(directory, ["deputy-here", "deputy-there"]) as never, { ...input, levels: scoped })
+    expect(found.sort()).toEqual(["boss-of-deputy-here", "deputy-here", "here", "office"])
   })
 })

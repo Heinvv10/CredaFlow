@@ -67,6 +67,7 @@ model Tenant {
   applicationPricingInputs   ApplicationPricingInput[]
   applicationProductFacts    ApplicationProductFacts[]
   approvalCases              ApprovalCase[]
+  approvalConditionClearances ApprovalConditionClearance[]
   approvalDelegations        ApprovalDelegation[]
   approvalEscalations        ApprovalEscalation[]
   approvalMatrixVersions     ApprovalMatrixVersion[]

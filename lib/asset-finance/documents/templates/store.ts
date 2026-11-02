@@ -12,6 +12,7 @@ import { familyDef, parseTemplateKey } from "./families"
 import { systemFingerprint } from "./fingerprint"
 import { tokensIn } from "./tokens"
 import { contentProblems, validContent, type ContentProblem } from "./validate"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export interface TemplateActor {
   tenantId: string
@@ -157,6 +158,8 @@ export async function approveVersion(
   if (version.status !== "DRAFT") return refuse(409, "Only a draft is approved; to change published wording, save a new draft")
   if (version.approvedById) return refuse(409, "This draft is already approved")
   if (version.createdById === actor.userId) return refuse(409, "Cannot approve your own draft")
+  const controlled = await accountControlRefusal(prisma, { tenantId: actor.tenantId, makerIds: [version.createdById], checkerId: actor.userId })
+  if (controlled) return refuse(409, controlled)
   if (input.contentSha256 !== version.contentSha256) return refuse(409, "The wording changed since you previewed it; preview this version again before approving")
   if (input.attestation !== true) return refuse(422, "Confirm that you have read the full preview and that the wording changes no fee, rate, schedule, statutory right or system process")
   const checked = validContent(template.key, version.content ?? "")
@@ -212,6 +215,8 @@ export async function publishVersion(actor: TemplateActor, templateId: string, v
       return refuse(409, "This version requires approval by a second admin before it can be published")
     }
     if (version.approvedById === actor.userId) return refuse(409, "The approver cannot also publish; a different admin must publish")
+    const controlled = await accountControlRefusal(tx, { tenantId: actor.tenantId, makerIds: [version.approvedById], checkerId: actor.userId })
+    if (controlled) return refuse(409, controlled)
     if (version.approvalBasis !== basis) return refuse(409, "This approval no longer matches your lender's approval basis; approve a new draft")
     if (version.approvedSystemSha256 !== system) return refuse(409, "CredaFlow's protected wording for this document changed after this approval; save it as a new draft and approve it again")
     const checked = validContent(template.key, version.content ?? "")

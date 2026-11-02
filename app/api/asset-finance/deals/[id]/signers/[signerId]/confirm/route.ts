@@ -18,6 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     switch (result.kind) {
       case "not_found":
         return NextResponse.json({ error: "Signer not found" }, { status: 404 })
+      case "account_controlled":
+        return refuse("four_eyes_account_controlled", 403, result.error, { signerId })
       case "four_eyes":
         return refuse("four_eyes", 403, "A scan is confirmed by someone other than the user who uploaded it", { signerId })
       case "not_open":

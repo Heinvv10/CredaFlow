@@ -49,6 +49,7 @@ import {
   readFaceModelSimilarity,
   readFaceVerdict,
 } from "@/lib/kyc/override-policy"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 const DECISION_REASON_MIN = 20
 type ScopedTransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
@@ -327,6 +328,10 @@ export async function PUT(
         return { kind: "expired" as const }
       }
       if (request.requestedById === guard.user.id) return { kind: "self_approve" as const }
+      if (body.decision !== "DECLINED") {
+        const controlled = await accountControlRefusal(tx, { tenantId: tenant.id, makerIds: [request.requestedById], checkerId: guard.user.id })
+        if (controlled) return { kind: "account_controlled" as const, error: controlled }
+      }
 
       // A policy change or newly conclusive evidence may close the approval
       // path, but a different authorized senior must still be able to decline
@@ -408,6 +413,7 @@ export async function PUT(
     if (outcome.kind === "missing") return NextResponse.json({ error: "Override request not found." }, { status: 404 })
     if (outcome.kind === "already_decided") return NextResponse.json({ error: `Override request is already ${outcome.status.toLowerCase()}.` }, { status: 409 })
     if (outcome.kind === "expired") return NextResponse.json({ error: "Override request expired after 7 days." }, { status: 409 })
+    if (outcome.kind === "account_controlled") return NextResponse.json({ error: outcome.error }, { status: 403 })
     if (outcome.kind === "self_approve") return NextResponse.json({ error: "The requester cannot approve or decline their own override request." }, { status: 403 })
     if (outcome.kind === "requester_ineligible") return NextResponse.json({ error: "The requester no longer meets the lender policy. Decline this request and ask an eligible senior to create a new one." }, { status: 409 })
     if (outcome.kind === "refused") return NextResponse.json({ error: "Override decision refused by the current lender policy.", code: outcome.code }, { status: 403 })

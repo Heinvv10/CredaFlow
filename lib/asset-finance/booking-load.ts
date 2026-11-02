@@ -55,7 +55,7 @@ const BOOKING_SELECT = {
   client: {
     select: { id: true, firstName: true, lastName: true, addressLine1: true, city: true, province: true, postalCode: true },
   },
-  payout: { select: { id: true, status: true, amountCents: true, supplierBankAccount: { select: { status: true } } } },
+  payout: { select: { id: true, status: true, amountCents: true, createdById: true, approvedById: true, supplierBankAccount: { select: { status: true } } } },
 } as const satisfies Prisma.AssetFinanceDealSelect
 
 type Loaded = Prisma.AssetFinanceDealGetPayload<{ select: typeof BOOKING_SELECT }>

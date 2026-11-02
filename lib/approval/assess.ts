@@ -1,12 +1,13 @@
 import type { prisma } from "@/lib/prisma"
 import type { UserRole } from "@/lib/permissions"
-import { authorityLevel, requiredLevelsFor } from "./evaluate"
+import { authorityLevel, holdsAtBranch, requiredLevelsFor } from "./evaluate"
 import { delegatorLevels, loadDelegationsFor, type StoredMatrix } from "./matrix-store"
 import { planApproval, type ApprovalPlan } from "./plan"
 import { seatMap } from "./seats"
 import type { ApplicationFacts, MatrixLevel } from "./types"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
-type Db = Pick<typeof prisma, "approvalStep" | "approvalDelegation" | "creditCommitteeDecision" | "user">
+type Db = Pick<typeof prisma, "approvalStep" | "approvalDelegation" | "creditCommitteeDecision" | "user" | "auditLog">
 
 export interface AssessedCase {
   requiredLevels: number | null
@@ -53,7 +54,7 @@ export async function assessApproval(db: Db, input: {
   const steps = theCase ? await db.approvalStep.findMany({ where: { tenantId, caseId: theCase.id }, select: { level: true, approverId: true, delegationId: true }, orderBy: { level: "asc" } }) : []
   const committeeLevel = levels.find((l) => l.committee)
   const committeeRows = theCase && committeeLevel
-    ? await db.creditCommitteeDecision.findMany({ where: { tenantId, caseId: theCase.id, level: committeeLevel.level }, orderBy: { createdAt: "desc" }, select: { decision: true, conditions: true, recordedById: true, delegationId: true } })
+    ? await db.creditCommitteeDecision.findMany({ where: { tenantId, caseId: theCase.id, level: committeeLevel.level }, orderBy: { seq: "desc" }, select: { decision: true, conditions: true, recordedById: true, delegationId: true } })
     : []
   // Every act on the case, with the delegator behind it: the seats taken (./seats.ts). A delegation from anyone already seated is not used.
   const delegationIds = [...steps.map((s) => s.delegationId), ...committeeRows.map((d) => d.delegationId)].filter((id): id is string => id !== null)
@@ -69,11 +70,25 @@ export async function assessApproval(db: Db, input: {
   })
   const delegations = await loadDelegationsFor(db, tenantId, user.id, input.now)
   const caps = await delegatorLevels(db, tenantId, delegations, levels)
-  const authorityFor = (list: typeof delegations) => authorityLevel({ role: user.role as UserRole, levels, delegations: list, amountCents: facts.amountCents, now: input.now, delegatorLevels: caps })
-  const authority = authorityFor(delegations.filter((d) => !seats.has(d.delegatorId)))
-  const plan = planApproval({
-    required, levels, steps, seatedAs: seats.get(user.id) ?? null, authority, blockedAuthorityLevel: authorityFor(delegations).level,
+  // A branch-scoped pending level: the person's role, and each delegator's authority, count only at their own branch.
+  const pending = levels.find((l) => l.level === steps.length + 1)
+  const people = new Map<string, { branchId: string | null; role: UserRole }>()
+  if (pending?.branchScoped) {
+    for (const u of await db.user.findMany({ where: { tenantId, id: { in: [user.id, ...delegations.map((d) => d.delegatorId)] } }, select: { id: true, branchId: true, role: true } })) people.set(u.id, u)
+  }
+  const holds = (id: string) => !pending?.branchScoped || (people.has(id) && holdsAtBranch(pending, people.get(id)!, facts.branchId))
+  const authorityFor = (list: typeof delegations, roleCounts = holds(user.id)) => authorityLevel({ role: user.role as UserRole, levels, delegations: list, amountCents: facts.amountCents, now: input.now, delegatorLevels: caps, roleCounts })
+  const unseated = delegations.filter((d) => !seats.has(d.delegatorId))
+  const authority = authorityFor(unseated.filter((d) => holds(d.delegatorId)))
+  let plan = planApproval({
+    required, levels, steps, seatedAs: seats.get(user.id) ?? null, authority, blockedAuthorityLevel: authorityFor(delegations.filter((d) => holds(d.delegatorId))).level,
+    outOfBranchLevel: authorityFor(unseated, true).level,
     automated: input.automated, committeeDecision: committeeRows[0] ?? null,
   })
+  // Two people, not two accounts: nobody already seated on this application created or changed the approver's account, or the reverse.
+  if (plan.kind !== "refuse" && plan.level > 0) {
+    const controlled = await accountControlRefusal(db, { tenantId, makerIds: [...seats.keys()], checkerId: user.id, now: input.now })
+    if (controlled) plan = { kind: "refuse", status: 403, code: "MAKER_ACCOUNT_CONTROLLED", error: controlled }
+  }
   return { required, matchedRuleIds, levels, steps, committeeLevel, committeeRows, authorityLevel: authority.level, plan }
 }

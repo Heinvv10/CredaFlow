@@ -9,6 +9,7 @@ import { listStrCases } from "@/lib/fic/registers"
 import { TIPPING_OFF_WARNING, canTransitionStr, logStrAccess, parseStrUpdate } from "@/lib/fic/str-cases"
 import { ficTotpRefusal } from "@/lib/fic/session"
 import { getScreeningConfig } from "@/lib/screening/policy"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 /**
  * GET   — one STR case (logged).
@@ -55,6 +56,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (requireSecondReviewer && update.status !== "UNDER_REVIEW" && current.raisedById === guard.user.id) {
         return { status: 403 as const, error: "You raised this case; another compliance officer must decide it." }
       }
+      const controlled = requireSecondReviewer && update.status !== "UNDER_REVIEW" ? await accountControlRefusal(tx, { tenantId: tenant.id, makerIds: [current.raisedById], checkerId: guard.user.id }) : null
+      if (controlled) return { status: 403 as const, error: controlled }
       if (!canTransitionStr(current.status, update.status)) {
         return { status: 409 as const, error: `A ${current.status} case cannot move to ${update.status}.` }
       }

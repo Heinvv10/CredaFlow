@@ -65,6 +65,18 @@ suite("screening workflow against Postgres", () => {
     expect(await db.auditLog.count({ where: { tenantId, action: "SCREENING_RUN", entityId: id } })).toBe(1)
   })
 
+  it("a reviewer the run's starter created is not a second person (F12); a colleague is", async () => {
+    const puppet = { id: `puppet_${token}`, email: `puppet-${token}@test.invalid`, role: "ADMIN" as const, totpVerified: true }
+    await db.user.create({ data: { id: puppet.id, tenantId, email: puppet.email, password: "synthetic", role: puppet.role } })
+    await db.auditLog.create({ data: { tenantId, userId: officer.id, action: "USER_CREATED", entity: "User", entityId: puppet.id } })
+    const id = await client("Fixture-Pep")
+    await run(id)
+    const check = await openCheck(id)
+    expect(await review(check.id, "ACCEPTED", puppet)).toMatchObject({ ok: false, status: 403, code: "account_controlled", error: expect.stringContaining("Two people") })
+    expect((await db.screeningCheck.findUniqueOrThrow({ where: { id: check.id } })).decision).toBeNull()
+    expect(await review(check.id, "ACCEPTED")).toMatchObject({ ok: true })
+  })
+
   it("refers a PEP: approval blocked until a senior with 2FA (not the run's starter) accepts it; the identical confirmed match carries on re-screen", async () => {
     const id = await client("Fixture-Pep")
     expect((await run(id) as { state: { state: string } }).state.state).toBe("REFER")

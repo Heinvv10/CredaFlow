@@ -73,6 +73,8 @@ export async function POST(
         return NextResponse.json({ error: `The bank account is already ${result.status}` }, { status: 409 })
       case "inactive":
         return NextResponse.json({ error: "The supplier is inactive; its accounts cannot be approved" }, { status: 409 })
+      case "account_controlled":
+        return NextResponse.json({ error: result.error }, { status: 403 })
       case "self_decision":
         return refuse(
           "four_eyes_self_decision",

@@ -5,35 +5,29 @@
  *   - Settings → Email (POST /api/email/config): SMTP pointed at the sim's
  *     sink (sim/smtp-sink.ts). A Section 129 notice is only issued once the
  *     email provider accepts it.
- *   - Settings → Users (POST /api/settings/users): a LOAN_ADMIN collections
- *     manager. Write-off is dual control (requester ≠ approver, both
- *     LOAN_ADMIN+), and the seed has one admin. The new user enrols TOTP
- *     (GET/POST /api/settings/totp) on first sign-in, as the UI forces.
+ *   - A LOAN_ADMIN collections manager. Write-off is dual control (requester ≠
+ *     approver, both LOAN_ADMIN+), and the seed has one admin. It is bootstrapped
+ *     with the stack (breadth/staff.ts), so an admin and it are two people from day one.
  *   - Settings → Attorneys (POST /api/settings/attorneys): the panel firm an
  *     account is handed to after a Section 129 notice.
  *   - Settings → Bank Statement Import (PATCH /api/settings/bank-sync, ADMIN
  *     with a TOTP-verified session): on, so the weekly statement goes through
  *     Payments → Bank reconciliation (servicing/bank-statement.ts).
  *
- * The collections manager's credentials are generated here and kept in
- * scripts/demo/.sim-staff.json (chmod 600, untracked), tagged with the user
- * id so a fresh database is detected.
+ * The collections manager's credentials are kept in scripts/demo/.sim-staff.json
+ * (chmod 600, untracked), tagged with the user id so a fresh database is detected.
  */
 import { randomBytes } from "node:crypto"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import path from "node:path"
+import { existsSync, readFileSync } from "node:fs"
 
-import { generateTotpCode } from "../../../lib/totp"
 import { demoLender } from "../../../prisma/demo-lender"
+import { COLLECTIONS_MANAGER, COLLECTIONS_MANAGER_FILE } from "../breadth/staff"
 import { ensureStaffSessions, type OriginationContext } from "../scenarios/context"
 import { SimClient } from "../sim/api"
-import { appNow, waitForNextTotpStep } from "../sim/clock"
 import type { StaffCredentials } from "../sim/credentials"
-import { SIM_CREDENTIALS_FILE, log } from "../sim/env"
+import { log } from "../sim/env"
 
-const STAFF_FILE = path.join(path.dirname(SIM_CREDENTIALS_FILE), ".sim-staff.json")
 const LENDER = demoLender()
-const LOAN_ADMIN_EMAIL = `collections.manager@${LENDER.staffDomain}`
 export const SMTP_SINK_HOST = "credaflow-demo-sim-smtp"
 export const ATTORNEY_FIRM = "Kroonstad Vale & Mokgosi Attorneys"
 
@@ -53,38 +47,14 @@ interface UserRow {
   role: string
 }
 
+/** The collections manager, bootstrapped with the stack (breadth/staff.ts says why it is not created through Settings → Users). */
 async function ensureLoanAdmin(ctx: OriginationContext): Promise<StaffCredentials> {
   const users = (await ctx.admin.get<{ users: UserRow[] }>("/api/settings/users")).json?.users ?? []
-  const existing = users.find((u) => u.email === LOAN_ADMIN_EMAIL)
-  if (existing) {
-    const stored = existsSync(STAFF_FILE) ? (JSON.parse(readFileSync(STAFF_FILE, "utf8")) as StoredStaff) : null
-    if (stored?.userId !== existing.id) {
-      throw new Error(`${LOAN_ADMIN_EMAIL} exists but ${STAFF_FILE} does not hold its credentials; start from a fresh stack`)
-    }
-    return stored
+  const existing = users.find((u) => u.email === COLLECTIONS_MANAGER.email)
+  const stored = existsSync(COLLECTIONS_MANAGER_FILE) ? (JSON.parse(readFileSync(COLLECTIONS_MANAGER_FILE, "utf8")) as StoredStaff) : null
+  if (!existing || stored?.userId !== existing.id) {
+    throw new Error(`${COLLECTIONS_MANAGER.email} is not bootstrapped, or ${COLLECTIONS_MANAGER_FILE} does not hold its credentials; start from a fresh stack`)
   }
-
-  const password = randomBytes(18).toString("base64url")
-  const created = await ctx.admin.post<UserRow>("/api/settings/users", {
-    name: "Nomsa Khumalo-Reddy",
-    email: LOAN_ADMIN_EMAIL,
-    role: "LOAN_ADMIN",
-    password,
-  }, { expect: [201] })
-  const userId = created.json?.id
-  if (!userId) throw new Error(`user create returned no id: ${created.text.slice(0, 300)}`)
-
-  const first = new SimClient()
-  await first.loginStaffForEnrolment(LOAN_ADMIN_EMAIL, password)
-  const enrol = (await first.get<{ secret: string }>("/api/settings/totp")).json
-  if (!enrol?.secret) throw new Error("GET /api/settings/totp returned no secret")
-  const code = generateTotpCode(enrol.secret, (await appNow()).getTime())
-  await first.post("/api/settings/totp", { secret: enrol.secret, code })
-  await waitForNextTotpStep() // the enrolment code is spent; the next sign-in needs the next step's
-
-  const stored: StoredStaff = { userId, email: LOAN_ADMIN_EMAIL, password, totpSecret: enrol.secret }
-  writeFileSync(STAFF_FILE, JSON.stringify(stored, null, 2), { mode: 0o600 })
-  log(`collections manager ${LOAN_ADMIN_EMAIL} created (LOAN_ADMIN) and enrolled in TOTP`)
   return stored
 }
 

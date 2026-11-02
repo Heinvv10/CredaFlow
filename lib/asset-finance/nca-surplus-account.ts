@@ -6,6 +6,7 @@ import { safeFileName, type ParsedEntityUpload } from "./entity-document-io"
 import type { RecoveryActor } from "./recovery-create"
 import { RecoveryRefusal, refusable } from "./recovery-result"
 import type { BankAccountFields } from "./supplier-input"
+import { requireTwoPeople } from "./recovery-two-people"
 
 
 export async function recordSurplusAccount(actor: RecoveryActor, loanId: string, input: { bank: BankAccountFields; upload: ParsedEntityUpload }) {
@@ -38,6 +39,7 @@ export async function approveSurplusAccount(actor: RecoveryActor, loanId: string
     const row = await tx.ncaSurplusAccount.findFirst({ where: { tenantId: actor.tenantId, loanId } })
     if (!row) return { kind: "not_found" as const }
     if (row.createdById === actor.userId || (action === "authorise" && row.approvedById === actor.userId)) throw new RecoveryRefusal("Verification and release need staff other than the account preparer and each other")
+    await requireTwoPeople(tx, actor, action === "authorise" ? [row.createdById, row.approvedById] : [row.createdById])
     if (action === "approve" ? Boolean(row.approvedById) : !row.approvedById || Boolean(row.releaseAuthorisedById)) throw new RecoveryRefusal("The account is not ready for this approval step")
     await tx.ncaSurplusAccount.update({ where: { id: row.id, tenantId: actor.tenantId }, data: action === "approve" ? { approvedById: actor.userId } : { releaseAuthorisedById: actor.userId } })
     if (action === "authorise") {

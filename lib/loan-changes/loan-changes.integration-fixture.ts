@@ -140,5 +140,6 @@ export function changeRoutes(holder: RouteHolder) {
     expect((await actionRoute(req({ note: "Seen the paper" }), params({ id, action: "approve" }))).status).toBe(200)
     return id
   }
-  return { as, req, params, draftAndSubmit, proposeAndApprove }
+  const approve = (id: string) => actionRoute(req({ note: "Seen the paper" }), params({ id, action: "approve" }))
+  return { as, req, params, draftAndSubmit, proposeAndApprove, approve }
 }

@@ -272,6 +272,37 @@ describe("PATCH /api/settings/users/[id] — role ceiling", () => {
     expect(h.userUpdate).not.toHaveBeenCalled()
   })
 
+  // A branch carries approval authority (lib/approval/evaluate.ts). The session holds no branch, so nothing needs re-issuing.
+  it("refuses a user moving themselves to another branch, and lets their form resend the branch they have", async () => {
+    signedIn("BRANCH_MANAGER")
+    target("BRANCH_MANAGER", { id: "caller-1", branchId: "b1" })
+    expect((await patch({ branchId: "b2" }, "caller-1")).status).toBe(400)
+    expect((await patch({ branchId: null }, "caller-1")).status).toBe(400)
+    expect(h.userUpdate).not.toHaveBeenCalled()
+    expect((await patch({ name: "New name", branchId: "b1" }, "caller-1")).status).not.toBe(400)
+  })
+
+  it("records a real activation change as an access change, and a resent one not at all", async () => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER", { active: false })
+    await patch({ active: true })
+    expect(h.logAuditStrict.mock.calls.at(-1)?.[0]).toMatchObject({ action: "USER_UPDATED", oldValue: { active: false }, newValue: { active: true } })
+    target("CREDIT_OFFICER", { active: true })
+    await patch({ active: true })
+    expect(h.logAuditStrict.mock.calls.at(-1)?.[0].oldValue).toBeUndefined()
+  })
+
+  it("records a real branch move as an access change, and a resent branch not at all", async () => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER", { branchId: "b1" })
+    h.branchFindFirst.mockResolvedValue({ id: "b2" })
+    await patch({ branchId: "b2" })
+    expect(h.logAuditStrict.mock.calls.at(-1)?.[0]).toMatchObject({ action: "USER_UPDATED", oldValue: { branchId: "b1" }, newValue: { branchId: "b2" } })
+    h.branchFindFirst.mockResolvedValue({ id: "b1" })
+    await patch({ branchId: "b1" })
+    expect(h.logAuditStrict.mock.calls.at(-1)?.[0].oldValue).toBeUndefined()
+  })
+
   // The forms send these shapes; they stay accepted.
   it("accepts null phone, branch and name", async () => {
     signedIn("ADMIN")

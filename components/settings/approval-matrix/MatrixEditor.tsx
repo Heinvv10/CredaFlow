@@ -99,6 +99,7 @@ export function MatrixEditor({ currency, products, branches, initial, request, o
                 <select id={`lv-role-${i}`} className={controlClass} value={level.role} onChange={(e) => setLevel(i, { role: e.target.value as ApproverRole })}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
               </div>
               <div className="space-y-1"><Label htmlFor={`lv-sla-${i}`}>Turnaround (hours)</Label><NumberField id={`lv-sla-${i}`} label="Turnaround hours" className="w-24" min={1} max={720} value={level.slaHours} onChange={(n) => setLevel(i, { slaHours: Math.trunc(n) })} /></div>
+              {!level.committee && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={level.branchScoped === true} onChange={() => setLevel(i, { branchScoped: !level.branchScoped })} /> Own branch only</label>}
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={level.committee} onChange={() => setLevel(i, { committee: !level.committee })} />Credit committee</label>
               {i === levelCount - 1 && levelCount > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => patch({ levels: payload.levels.slice(0, -1), rules: payload.rules.map((r) => ({ ...r, requiredLevels: Math.min(r.requiredLevels, levelCount - 1) })), defaultRequiredLevels: Math.min(payload.defaultRequiredLevels, levelCount - 1) })}>Remove level</Button>}
             </div>

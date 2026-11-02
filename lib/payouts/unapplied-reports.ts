@@ -15,6 +15,7 @@
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
+import { accountControlRefusal } from "@/lib/security/account-control"
 import type { Actor } from "./dispatch"
 import { raceRefusal } from "./loan-lock"
 
@@ -96,7 +97,17 @@ export async function acknowledgeUnappliedReport(db: Pick<typeof prisma, "payout
   const entry = await db.payoutUnappliedReport.findFirst({ where: { id: args.id, tenantId: args.tenantId } })
   if (!entry) return { ok: false, status: 404, error: "Report not found" }
   if (entry.acknowledgedAt) return { ok: false, status: 409, error: "This report is already acknowledged" }
-  if ((await actedOnPayout(db, args.tenantId, entry.payoutId)).has(args.actor.id)) {
+  const acted = await actedOnPayout(db, args.tenantId, entry.payoutId)
+  const controlled = acted.has(args.actor.id) ? null : await accountControlRefusal(db, { tenantId: args.tenantId, makerIds: [...acted], checkerId: args.actor.id })
+  if (controlled) {
+    await logAuditStrict({
+      tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
+      action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "PayoutUnappliedReport", entityId: entry.id,
+      newValue: { action: "acknowledge_report", reason: "account_controlled", payoutId: entry.payoutId },
+    }, db)
+    return { ok: false, status: 403, error: controlled }
+  }
+  if (acted.has(args.actor.id)) {
     await logAuditStrict({
       tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
       action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "PayoutUnappliedReport", entityId: entry.id,

@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs"
 import { describe, expect, it } from "vitest"
 import { generateTotpCode, verifyTotpCode } from "@/lib/totp"
 import { createFakeDb } from "./fake-db.test-helpers"
-import { bootstrapSuperAdmin, BootstrapRefusal } from "./bootstrap-admin"
+import { bootstrapSuperAdmin, BootstrapRefusal, provisionSecondPerson } from "./bootstrap-admin"
 
 const OPERATOR = "ops@host"
 const EMAIL = "owner@staging-lender.example"
@@ -17,6 +17,9 @@ function lender() {
 
 const bootstrap = (f: ReturnType<typeof lender>, over: Partial<Parameters<typeof bootstrapSuperAdmin>[1]> = {}) =>
   bootstrapSuperAdmin(f.db, { tenantSlug: "staging", email: EMAIL, mode: "bootstrap", dryRun: false, operator: OPERATOR, ...over })
+
+const second = (f: ReturnType<typeof lender>, over: Partial<Parameters<typeof provisionSecondPerson>[1]> = {}) =>
+  provisionSecondPerson(f.db, { tenantSlug: "staging", email: "second@staging-lender.example", role: "ADMIN", dryRun: false, operator: OPERATOR, ...over })
 
 const refusal = async (p: Promise<unknown>) => {
   try {
@@ -202,5 +205,35 @@ describe("bootstrapSuperAdmin: break-glass", () => {
     expect(r.kind).toBe("dry-run")
     expect(f.tables.users[0]).toMatchObject({ password: "old-hash", active: false })
     expect(f.tables.auditLogs).toHaveLength(0)
+  })
+})
+
+describe("the lender's second person", () => {
+  it("needs the first admin, is one-shot, and is never a second SUPER_ADMIN", async () => {
+    const f = lender()
+    expect(await refusal(second(f))).toBe("NO_FIRST_ADMIN")
+    await bootstrap(f)
+    expect(await refusal(second(f, { role: "SUPER_ADMIN" }))).toBe("ROLE_NOT_ALLOWED")
+    expect(await refusal(second(f, { role: "CLIENT" }))).toBe("ROLE_NOT_ALLOWED")
+    expect(await refusal(second(f, { email: EMAIL }))).toBe("EMAIL_IN_USE")
+    expect(await second(f, { dryRun: true })).toMatchObject({ kind: "dry-run", role: "ADMIN" })
+    expect(f.tables.users).toHaveLength(1)
+    expect(await second(f)).toMatchObject({ kind: "second-created", role: "ADMIN" })
+    expect(await refusal(second(f, { email: "third@staging-lender.example" }))).toBe("SECOND_PERSON_EXISTS")
+    expect(f.tables.users).toHaveLength(2)
+  })
+  it("enrols two-factor under the lender's rule, audits the operator without a credential, and writes no USER_CREATED", async () => {
+    const f = lender()
+    await bootstrap(f)
+    const made = await second(f)
+    if (made.kind !== "second-created") throw new Error("expected a created account")
+    const row = f.tables.users.find((u) => u.email === made.email)!
+    expect(row.totpEnabled).toBeFalsy()
+    expect(row.totpSecret).toBeFalsy()
+    expect(await bcrypt.compare(made.password, row.password as string)).toBe(true)
+    const audit = f.tables.auditLogs.filter((a) => a.entityId === made.userId)
+    expect(audit.map((a) => a.action)).toEqual(["LENDER_SECOND_PERSON_PROVISIONED"])
+    expect(JSON.stringify(audit)).not.toContain(made.password)
+    expect(audit[0]).toMatchObject({ newValue: { operator: OPERATOR, role: "ADMIN" } })
   })
 })

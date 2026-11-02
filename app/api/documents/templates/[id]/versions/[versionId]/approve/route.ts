@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { approveVersion } from "@/lib/asset-finance/documents/templates/store"
 import { storeResponse, templateActor } from "@/lib/asset-finance/documents/templates/route-helpers"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 interface RouteParams {
   params: Promise<{ id: string; versionId: string }>
@@ -53,6 +54,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         { status: 409 }
       )
     }
+    const controlled = await accountControlRefusal(prisma, { tenantId: tenant.id, makerIds: [version.createdById], checkerId: guard.user.id })
+    if (controlled) return NextResponse.json({ error: controlled }, { status: 409 })
 
     const approved = await prisma.documentTemplateVersion.update({
       where: { id: versionId },

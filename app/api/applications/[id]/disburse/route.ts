@@ -65,12 +65,15 @@ import { readBorrowerScreening } from "@/lib/screening/gate"
 import {
   isSegregationOfDutiesRequired,
   segregationOfDutiesConflict,
+  segregationOfDutiesMakers,
   SEGREGATION_OF_DUTIES_REFUSALS,
 } from "@/lib/security/segregation-of-duties"
 import { createDisbursementPayout, sendDisbursementPayout } from "@/lib/payouts/disbursement"
 import { PayoutProviderError } from "@/lib/payouts/types"
 import { assertPayoutAvs, PayoutAvsError } from "@/lib/payouts/avs"
 import { lenderHoldsFsp } from "@/lib/insurance/require-fsp"
+import { accountControlRefusal } from "@/lib/security/account-control"
+import { CLEARER_REFUSAL, clearedConditions, committeeConditionsRefusal } from "@/lib/approval/conditions"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -337,15 +340,28 @@ export async function POST(
       // records disbursedById and the database refuses the same pair
       // (LoanApplication_z_guard_segregation_of_duties).
       const segregationOfDuties = await isSegregationOfDutiesRequired(tenant.id)
-      const conflict = segregationOfDutiesConflict("disburse", user.id, {
+      const segregationFacts = {
         ...application, approvedBySystem: application.approvedBy?.isSystem === true, approvalStepApproverIds: await approvalStepApproverIds(tenant.id, id),
-      })
+      }
+      const conflict = segregationOfDutiesConflict("disburse", user.id, segregationFacts)
       if (conflict && segregationOfDuties) {
         return NextResponse.json({
           error: SEGREGATION_OF_DUTIES_REFUSALS[conflict],
           disbursementPrecondition: "segregation_of_duties",
         }, { status: 403 })
       }
+      const conditionClearers = segregationOfDuties ? await clearedConditions(prisma, tenant.id, id) : []
+      if (conditionClearers.includes(user.id)) {
+        return NextResponse.json({ error: CLEARER_REFUSAL, disbursementPrecondition: "segregation_of_duties" }, { status: 403 })
+      }
+      if (segregationOfDuties) {
+        const controlled = await accountControlRefusal(prisma, { tenantId: tenant.id, makerIds: [...segregationOfDutiesMakers("disburse", segregationFacts), ...conditionClearers], checkerId: user.id })
+        if (controlled) return NextResponse.json({ error: controlled, disbursementPrecondition: "segregation_of_duties" }, { status: 403 })
+      }
+
+      // The credit committee's conditions (the database refuses the DISBURSED write too, guardLoanApplicationCommitteeConditions).
+      const openConditions = await committeeConditionsRefusal(prisma, tenant.id, id)
+      if (openConditions) return NextResponse.json({ error: `Cannot disburse: ${openConditions}`, disbursementPrecondition: "committee_conditions" }, { status: 409 })
 
       // A sanctions hit, or a match a periodic re-screen raised after approval,
       // stops the payout. No provider call here; the trigger

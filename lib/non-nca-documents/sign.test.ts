@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+const conditions = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: conditions.refusal, clearedConditions: vi.fn(async () => []) }))
 
 const m = vi.hoisted(() => ({
   application: vi.fn(), document: vi.fn(), updateMany: vi.fn(), tx: vi.fn(), raw: vi.fn(), audit: vi.fn(), readFile: vi.fn(), otpRequired: vi.fn(), check: vi.fn(), consume: vi.fn(),
@@ -50,6 +52,13 @@ describe("signKeyFactsAgreement", () => {
     expect(m.updateMany.mock.calls[0][0].data).toMatchObject({ agreementSignedMethod: "portal", agreementSignedByIp: "203.0.113.5", agreementSignatureData: "Thabo Synthetic" })
     expect(m.updateMany.mock.calls[0][0].where).toMatchObject({ status: "APPROVED", agreementSignedAt: null, agreementDocumentSha256: SHA })
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "KEY_FACTS_AGREEMENT_SIGNED", userEmail: "c1@client.invalid" }), expect.anything())
+  })
+
+  it("refuses while a committee condition is open, before anything is signed or a code spent (F9)", async () => {
+    conditions.refusal.mockResolvedValueOnce("The credit committee approved this on conditions")
+    expect(await signKeyFactsAgreement(base)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("conditions") })
+    expect(m.updateMany).not.toHaveBeenCalled()
+    expect(m.consume).not.toHaveBeenCalled()
   })
 
   it("refuses a borrower recorded as deceased, read under the lock, without saying why: nothing is signed and no code is spent", async () => {

@@ -27,8 +27,8 @@ const progress = (over: Partial<ApprovalProgress> = {}): ApprovalProgress => ({
     { level: 2, name: "Branch manager", role: "BRANCH_MANAGER", slaHours: 24, committee: false, state: "APPROVED", approvedBy: "Thabo", approvedAt: "2026-11-05T10:00:00Z", via: "DELEGATION", conditions: [] },
     { level: 3, name: "Credit committee", role: "ADMIN", slaHours: 48, committee: true, state: "PENDING", approvedBy: null, approvedAt: null, via: null, conditions: [] },
   ],
-  pendingLevel: 3, dueAt: "2026-11-07T10:00:00Z", overdue: false, escalationCount: 0, escalations: [], committeeDecisions: [],
-  viewer: { authorityLevel: 3, canApprove: false, reason: null }, ...over,
+  pendingLevel: 3, dueAt: "2026-11-07T10:00:00Z", overdue: false, escalationCount: 0, escalations: [], committeeDecisions: [], conditions: [],
+  viewer: { authorityLevel: 3, canApprove: false, canClearConditions: false, reason: null }, ...over,
 })
 const panel = (p: ApprovalProgress, canUseCommittee = true) => <ApprovalProgressPanel applicationId="a1" progress={p} canUseCommittee={canUseCommittee} today="2026-11-06" />
 
@@ -54,7 +54,7 @@ describe("ApprovalProgressPanel", () => {
   })
 
   it("withholds the committee form from a lower level, from someone without the committee permission, and when it is not the committee's turn", async () => {
-    expect((await mount(panel(progress({ viewer: { authorityLevel: 2, canApprove: false, reason: null } })))).root.findAll((n) => n.type === "textarea")).toHaveLength(0)
+    expect((await mount(panel(progress({ viewer: { authorityLevel: 2, canApprove: false, canClearConditions: false, reason: null } })))).root.findAll((n) => n.type === "textarea")).toHaveLength(0)
     expect((await mount(panel(progress(), false))).root.findAll((n) => n.type === "textarea")).toHaveLength(0)
     const early = progress()
     early.levels[1] = { ...early.levels[1], state: "PENDING", approvedBy: null, approvedAt: null, via: null }
@@ -63,7 +63,7 @@ describe("ApprovalProgressPanel", () => {
   })
 
   it("says why the viewer cannot approve the next level, and flags an overdue level", async () => {
-    const t = text(await mount(panel(progress({ overdue: true, escalationCount: 2, viewer: { authorityLevel: 1, canApprove: false, reason: "Level 3 needs the ADMIN role." } }))))
+    const t = text(await mount(panel(progress({ overdue: true, escalationCount: 2, viewer: { authorityLevel: 1, canApprove: false, canClearConditions: false, reason: "Level 3 needs the ADMIN role." } }))))
     expect(t).toContain("You cannot approve the next level")
     expect(t).toContain("Level 3 needs the ADMIN role.")
     expect(t).toContain("overdue, escalated 2 times")
@@ -74,5 +74,20 @@ describe("ApprovalProgressPanel", () => {
     expect(t).toContain("APPROVED")
     expect(t).toContain("Strong file")
     expect(t).toContain("1 condition")
+  })
+
+  it("shows the conditions and their state, offers clearing only to who may, and hides the wording from who may not read the pack (F9)", async () => {
+    const conditions = [
+      { index: 0, text: "Obtain a signed employer letter", cleared: { by: "A. Admin", at: "2026-11-02T10:00:00Z", note: "Letter on file" } },
+      { index: 1, text: "Insure the vehicle", cleared: null },
+    ]
+    const allowed = await mount(panel(progress({ conditions, viewer: { authorityLevel: 3, canApprove: false, canClearConditions: true, reason: null } })))
+    expect(text(allowed)).toContain("not yet met")
+    expect(text(allowed)).toContain("Obtain a signed employer letter")
+    expect(text(allowed)).toContain("A. Admin")
+    expect(allowed.root.findAll((n) => n.type === "input" && n.props["aria-label"] === "What shows condition 2 is met")).toHaveLength(1)
+    const viewer = await mount(panel(progress({ conditions: [{ index: 0, text: null, cleared: null }], viewer: { authorityLevel: 0, canApprove: false, canClearConditions: false, reason: null } })))
+    expect(text(viewer)).toContain("Condition 1")
+    expect(viewer.root.findAll((n) => n.type === "input" && String(n.props["aria-label"]).startsWith("What shows"))).toHaveLength(0)
   })
 })

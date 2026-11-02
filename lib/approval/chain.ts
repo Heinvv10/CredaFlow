@@ -151,7 +151,7 @@ export async function gateApproval(input: GateInput): Promise<Gate> {
         // read the latest decision again. The database refuses the step too, unless the committee's latest decision is an approval.
         await tx2.$queryRaw(Prisma.sql`SELECT "id" FROM "ApprovalCase" WHERE "id" = ${theCase!.id} FOR UPDATE`)
         if (committeeLevel && plan.level >= committeeLevel.level) {
-          const latest = await tx2.creditCommitteeDecision.findFirst({ where: { caseId: theCase!.id, level: committeeLevel.level }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { decision: true } })
+          const latest = await tx2.creditCommitteeDecision.findFirst({ where: { caseId: theCase!.id, level: committeeLevel.level }, orderBy: { seq: "desc" }, select: { decision: true } })
           if (latest?.decision !== "APPROVED") throw new ApprovalChainChangedError()
         }
         try {
@@ -173,7 +173,7 @@ export async function gateApproval(input: GateInput): Promise<Gate> {
       data: { pendingLevel: plan.level + 1, levelStartedAt: now, dueAt: new Date(now.getTime() + hours((nextLevel ?? levels[levels.length - 1]).slaHours)), escalationCount: 0, lastEscalatedAt: null },
     })
     await audit(tx as Tx, AuditAction.APPROVAL_STEP_RECORDED, { level: plan.level, via: plan.via, delegationId: plan.delegationId, final: false })
-    const recipients = await approversForLevel(tx, { tenantId, levels, level: plan.level + 1, amountCents: application.appliedAmount, exclude: [...application.inputStaffIds, ...steps.map((s) => s.approverId), user.id], now })
+    const recipients = await approversForLevel(tx, { tenantId, levels, level: plan.level + 1, amountCents: application.appliedAmount, branchId: application.branchId, exclude: [...application.inputStaffIds, ...steps.map((s) => s.approverId), user.id], now })
     await notifyStaff(tx, { tenantId, userIds: recipients, type: "APPROVAL_PENDING", title: "An application awaits your approval", body: `Level ${plan.level} of ${required} has approved; level ${plan.level + 1} (${nextLevel?.name ?? ""}) is next.`, applicationId: application.id })
     return { kind: "respond" as const, status: 200, body: { ok: true, status: "UNDER_REVIEW", approvalRecorded: true, level: plan.level, requiredLevels: required, nextLevel: plan.level + 1, nextLevelName: nextLevel?.name ?? null } }
   })

@@ -68,7 +68,7 @@ export function ApprovalMatrixWorkspace({ overview }: { overview: ApprovalMatrix
             <CardContent className="space-y-4 text-sm">
               <ol className="space-y-1">
                 {current.payload.levels.map((l) => (
-                  <li key={l.level}><strong>Level {l.level}: {l.name}</strong> held by {l.role}, {l.slaHours} h turnaround{l.committee ? ", the credit committee's level" : ""}</li>
+                  <li key={l.level}><strong>Level {l.level}: {l.name}</strong> held by {l.role}, {l.slaHours} h turnaround{l.branchScoped ? ", held at one's own branch" : ""}{l.committee ? ", the credit committee's level" : ""}</li>
                 ))}
               </ol>
               {current.payload.rules.length > 0 && (

@@ -123,7 +123,7 @@ suite("a Lesotho loan end to end (real Postgres, real routes, no bypass)", () =>
     expect(printed).toContain("Loan agreement")
     expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DISBURSED" } })).toBe(1)
     const disbursed = await db().auditLog.findFirstOrThrow({ where: { tenantId: stack.tenant, entityId: id, action: "LOAN_DISBURSED" } })
-    expect(disbursed.newValue).toMatchObject({ payoutChannel: "MANUAL", payoutReference: bankRefFor(id), segregationOfDuties: true, payoutAccountVerification: { verifiedById: stack.officer } })
+    expect(disbursed.newValue).toMatchObject({ payoutChannel: "MANUAL", payoutReference: bankRefFor(id), segregationOfDuties: true, payoutAccountVerification: { verifiedById: stack.senior } })
     expect(await db().auditLog.count({ where: { tenantId: stack.tenant, entityId: loan.id, action: "LOAN_CREATED" } })).toBe(1)
   })
 

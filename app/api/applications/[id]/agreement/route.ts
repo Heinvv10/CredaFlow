@@ -46,6 +46,7 @@ import {
 import { quotationValidUntilDateFromDatabase } from "@/lib/compliance/sa-business-calendar.server"
 import { getLenderLogo } from "@/lib/config/lender-logo"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { committeeConditionsRefusal } from "@/lib/approval/conditions"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -671,6 +672,8 @@ export async function POST(_req: NextRequest, { params }: RouteCtx) {
     if (application.status !== "APPROVED") {
       return NextResponse.json({ error: "Application must be approved first" }, { status: 400 })
     }
+    const openConditions = await committeeConditionsRefusal(prisma, tenant.id, id)
+    if (openConditions) return NextResponse.json({ error: openConditions, code: "COMMITTEE_CONDITIONS" }, { status: 409 })
 
     // A signed legal artefact is immutable. Downloads use GET; POST must never
     // create a replacement document behind an existing signature.

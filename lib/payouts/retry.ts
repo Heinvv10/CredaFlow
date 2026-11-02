@@ -19,6 +19,7 @@ import { getPayoutProvider } from "./registry"
 import { payoutBlocker, raceRefusal } from "./loan-lock"
 import { isOver, type PayoutStatus } from "./state"
 import { PayoutProviderError } from "./types"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export type RetryDb = Pick<typeof prisma,
   "disbursementPayout" | "disbursementReversal" | "loan" | "clientDocument" | "avsCheck" | "tenantConfig" | "auditLog" | "$transaction">
@@ -127,6 +128,10 @@ export async function decidePayoutRetry(db: RetryDb, args: {
       entity: "DisbursementPayout", entityId: p.id, newValue: { action: args.approve ? "approve_retry" : "reject_retry", reason: "maker_checker" },
     }, db)
     return { ok: false, status: 403, error: "A second LOAN_ADMIN decides a retry: not whoever requested it or disbursed the loan" }
+  }
+  if (args.approve) {
+    const controlled = await accountControlRefusal(db, { tenantId: args.tenantId, makerIds: [p.requestedById, p.disbursedById], checkerId: args.actor.id })
+    if (controlled) return { ok: false, status: 403, error: controlled }
   }
   if (args.approve) {
     const loan = await db.loan.findFirst({
