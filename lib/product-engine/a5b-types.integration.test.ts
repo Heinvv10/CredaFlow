@@ -170,6 +170,13 @@ suite("A5b product types (real Postgres, real routes)", () => {
       expect(after.inputStaffIds).toContain(staff.checker)
       expect(await groupEditedBy(prisma, tenantId, app.id, staff.checker)).toBe(true)
       expect(await groupEditedBy(prisma, tenantId, app.id, staff.maker)).toBe(false)
+      // A closed application on the group is decided: an edit does not make the editor its input staff.
+      const declined = await application(product.id, c.id, { status: "DECLINED" })
+      await db.applicationProductFacts.create({ data: { applicationId: declined.id, tenantId, borrowerGroupId: group.id, updatedById: staff.officer } })
+      signIn("maker2")
+      expect((await editGroup(request(`/api/products/groups/${group.id}`, "PUT", { memberIdNumbers: [a.idNumber, b.idNumber] }), { params: Promise.resolve({ id: group.id }) })).status).toBe(200)
+      expect((await db.loanApplication.findUniqueOrThrow({ where: { id: declined.id } })).inputStaffIds).not.toContain(staff.maker2)
+      expect((await db.loanApplication.findUniqueOrThrow({ where: { id: app.id } })).inputStaffIds).toContain(staff.maker2)
     })
   })
 })

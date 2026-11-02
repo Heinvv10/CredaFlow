@@ -178,4 +178,13 @@ suite("loan changes on a variable-rate or balloon loan (real Postgres, real rout
     await holding
     expect((await approval).status).toBe(200)
   }, 60_000)
+
+  it("a loan's terms take only a change of that loan: another loan's approved request is refused", async () => {
+    const a = await bookLoan(db())
+    const b = await bookLoan(db(), { sameLenderAs: a })
+    const requestId = await proposeAndApprove(a, { type: "TERM_CHANGE", instalments: 9 })
+    const next = (await termsOf(b.loanId)).length + 1
+    const written = await db().loanTerms.create({ data: { tenantId: b.tenantId, loanId: b.loanId, sequence: next, changeRequestId: requestId, baseRatePm: 0.04, interestRatePm: 0.04 } }).then(() => "written", (e: unknown) => String(e))
+    expect(written).toContain("approved LOAN_CHANGE")
+  })
 })
