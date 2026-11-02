@@ -48,6 +48,8 @@ export interface PlanLoan {
   interestModel: EngineInterestModel
   monthlyServiceFee: number
   startDate: Date
+  /** A balloon loan's balloon, which stays on the last row. */
+  balloonCents?: number
 }
 
 export interface PlanInput {
@@ -139,7 +141,8 @@ export function priced(loan: PlanLoan, frequency: Frequency, structure: Repaymen
   const { principal, rate, instalments, first, dates } = pricing
   const terms: RepaymentTerms = { frequency, structure, instalments, graceKind: "NONE", graceInstalments: 0 }
   const startDate = addPeriods(first, frequency, structure === "BULLET" ? -instalments : -1)
-  const { schedule } = generateSchedule({ principalCents: principal, interestRatePm: rate, interestModel: loan.interestModel, monthlyServiceFeeCents: loan.monthlyServiceFee, startDate, terms })
+  const balloon = structure === "BALLOON" ? { balloonCents: Math.min(loan.balloonCents ?? 0, principal) } : {}
+  const { schedule } = generateSchedule({ principalCents: principal, interestRatePm: rate, interestModel: loan.interestModel, monthlyServiceFeeCents: loan.monthlyServiceFee, startDate, terms, ...balloon })
   const flat = loan.interestModel === "FLAT"
     ? evenly(Math.round((loan.principal * rate * 12 * instalments) / PERIODS_PER_YEAR[frequency]), schedule.length)
     : null

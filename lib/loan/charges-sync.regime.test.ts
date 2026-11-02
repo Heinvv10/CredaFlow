@@ -162,6 +162,21 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
     expect(result?.chargesAccrued).toBe(967)
   })
 
+  it("a loan repriced on the product engine reads its rates from LoanTerms, so closed days keep theirs", async () => {
+    const loan = { ...makeLoan("NON_NCA"), startDate: d("2026-01-01"), terms: [] as unknown[] }
+    loan.nonNcaDefaultInterestMargin = new Prisma.Decimal(0)
+    loan.nonNcaCollectionFeeCents = null
+    loan.terms = [
+      { sequence: 1, interestRatePm: 0.01, referenceEffectiveDate: null, createdAt: d("2026-01-01") },
+      { sequence: 2, interestRatePm: 0.02, referenceEffectiveDate: d("2026-09-01"), createdAt: d("2026-09-06") },
+    ]
+    await syncLoanCharges(makeTx(loan) as unknown as Parameters<typeof syncLoanCharges>[0], ref, d("2026-09-11"), { source: "test" })
+    expect(engines.nonNca.mock.calls.at(-1)?.[0].contractRateHistory).toEqual([
+      { effectiveDate: d("2026-01-01"), annualRate: 0.12 },
+      { effectiveDate: d("2026-09-06"), annualRate: 0.24 },
+    ])
+  })
+
   it("a NON_NCA loan whose accrueFrom is after the missed due date: no collection fee, interest only from accrueFrom", async () => {
     const loan = makeLoan("NON_NCA")
     // An exemption lifted on 5 Sep, after the instalment fell due on 1 Sep:

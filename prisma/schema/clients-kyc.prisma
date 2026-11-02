@@ -102,6 +102,7 @@ model Client {
   assetFinanceDocuments         EntityDocument[]         @relation("AssetDocumentClient")
   authenticatedSubmissions      LoanApplication[]        @relation("ApplicationAuthenticatedSubmissionClient")
   avsChecks                     AvsCheck[]
+  borrowerGroupMemberships      BorrowerGroupMember[]
   bureauChecks                  CreditBureauCheck[]
   complaints                    Complaint[]
   consent                       ClientConsent?

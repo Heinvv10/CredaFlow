@@ -1,22 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const {
-  requireApiRole,
-  transaction,
-  queryRaw,
-  findUnique,
-  update,
-  count,
-  auditCreate,
-} = vi.hoisted(() => ({
+const { requireApiRole, findUnique, count, versionCount, propose } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
-  transaction: vi.fn(),
-  queryRaw: vi.fn(),
   findUnique: vi.fn(),
-  update: vi.fn(),
   count: vi.fn(),
-  auditCreate: vi.fn(),
+  versionCount: vi.fn(),
+  propose: vi.fn(),
 }))
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole }))
@@ -28,7 +18,9 @@ vi.mock("@/lib/tenant", () => ({
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    $transaction: (...args: unknown[]) => transaction(...args),
+    loanProduct: { findUnique },
+    loanApplication: { count },
+    productVersion: { count: versionCount },
     // Approved SARB repo 7%: the NCA unsecured cap is 28% a year (2.33% a month).
     referenceRate: {
       findMany: vi.fn(async () => []),
@@ -36,13 +28,8 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }))
-vi.mock("@/lib/audit", () => ({
-  logAudit: vi.fn(),
-  AuditAction: {
-    LOAN_PRODUCT_UPDATED: "LOAN_PRODUCT_UPDATED",
-    LOAN_PRODUCT_DEACTIVATED: "LOAN_PRODUCT_DEACTIVATED",
-  },
-}))
+vi.mock("@/lib/product-config/propose", () => ({ proposeProductChange: propose }))
+vi.mock("@/lib/maker-checker/http", () => ({ presentChangeRequest: (row: unknown) => row, changeRequestErrorResponse: (error: unknown) => { throw error } }))
 
 import { DELETE, PUT } from "./route"
 
@@ -83,6 +70,7 @@ function request(change: Record<string, unknown> = {}) {
     initiationFeeMax: before.initiationFeeMax / 100,
     monthlyServiceFee: before.monthlyServiceFee / 100,
     active: before.active,
+    reason: "Quarterly review of the product",
     ...change,
   }
   return new NextRequest("http://localhost/api/products/loan/product-1", {
@@ -93,6 +81,13 @@ function request(change: Record<string, unknown> = {}) {
 }
 
 const context = { params: Promise.resolve({ id: "product-1" }) }
+/** The payload a route proposed: nothing is written until a second person approves it. */
+const proposed = () => propose.mock.calls.at(-1)![3] as { product: Record<string, unknown>; reason: string; action: string }
+
+beforeEach(() => {
+  propose.mockResolvedValue({ id: "cr-1" })
+  versionCount.mockResolvedValue(0)
+})
 
 describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
   beforeEach(() => {
@@ -101,21 +96,7 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
       user: { id: "admin-1", email: "admin@example.test" },
     })
     findUnique.mockResolvedValue(before)
-    update.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
-      Promise.resolve({ ...before, ...data }),
-    )
     count.mockResolvedValue(0)
-    queryRaw.mockResolvedValue([])
-    auditCreate.mockResolvedValue({ id: "audit-1" })
-    transaction.mockImplementation(
-      (callback: (tx: unknown) => unknown) => callback({
-        $queryRaw: queryRaw,
-        loanProduct: { findUnique, update },
-        loanApplication: { count },
-        productVersion: { count: async () => 0 },
-        auditLog: { create: auditCreate },
-      }),
-    )
   })
 
   it.each([
@@ -141,7 +122,7 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
     // The refusal must name the ACTUAL code, not always MICRO30.
     expect(error).toContain(_code)
     expect(error).toMatch(/stable product code/)
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("pins a case/whitespace variant of a stable code back to its canonical value", async () => {
@@ -149,10 +130,8 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
     // raw — the portal's findFirst({ code }) is an exact text match.
     const response = await PUT(request({ code: " micro30 " }), context)
 
-    expect(response.status).toBe(200)
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ code: "MICRO30" }),
-    }))
+    expect(response.status).toBe(202)
+    expect(proposed().product).toEqual(expect.objectContaining({ code: "MICRO30" }))
   })
 
   it("rejects flat/R0 pricing before mutation", async () => {
@@ -168,7 +147,7 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
         "monthlyServiceFee",
       ]),
     }))
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("blocks a decision-bearing edit while applications are in flight", async () => {
@@ -186,27 +165,19 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
         status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED"] },
       },
     })
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("allows a non-decision display-name edit", async () => {
     const response = await PUT(request({ name: "Short-term Loan" }), context)
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(202)
     expect(count).not.toHaveBeenCalled()
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
+    expect(proposed().product).toEqual(expect.objectContaining({
         name: "Short-term Loan",
         interestModel: "DAILY_ACCRUAL",
         monthlyServiceFee: 6_900,
-      }),
-    }))
-    expect(auditCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: "LOAN_PRODUCT_UPDATED",
-        entityId: "product-1",
-      }),
-    })
+      }))
   })
 })
 
@@ -215,22 +186,16 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     vi.clearAllMocks()
     requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
     findUnique.mockResolvedValue(before)
-    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...before, ...data }))
-    queryRaw.mockResolvedValue([])
-    auditCreate.mockResolvedValue({ id: "audit-1" })
     count.mockResolvedValue(0)
   })
-  const versioned = (versions: number) =>
-    transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
-      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, productVersion: { count: async () => versions }, auditLog: { create: auditCreate },
-    }))
+  const versioned = (versions: number) => versionCount.mockResolvedValue(versions)
   // The minimum amount: a field a version carries that the MICRO30 contract and the NCA cap check leave alone.
   it("refuses to edit a field a version carries, 409, and writes nothing: the change is a new version a second person approves", async () => {
     versioned(1)
     const response = await PUT(request({ minAmount: 400 }), context)
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ code: "PRODUCT_VERSIONED", fields: ["minAmount"] })
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("locks the product type once a product has versions: a PO_FUNDING type lifts the Regulation 42 fee ceiling", async () => {
@@ -239,7 +204,7 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     const response = await PUT(request({ code: "PERSONAL", productType: "PO_FUNDING", interestModel: "REDUCING_BALANCE", interestRatePm: 2 }), context)
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ code: "PRODUCT_VERSIONED", fields: ["productType"] })
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("locks a rename into the MICRO30 contract product once it has versions: the product's identity decides which rules bind it", async () => {
@@ -249,14 +214,14 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     findUnique.mockResolvedValue({ ...before, ...stored })
     const response = await PUT(request({ ...stored, code: " micro30 " }), context)
     expect({ status: response.status, body: await response.json() }).toMatchObject({ status: 409, body: { code: "PRODUCT_VERSIONED", fields: ["code"] } })
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("still lets a field no version carries change: the name", async () => {
     versioned(1)
     const response = await PUT(request({ name: "Short-term Loan" }), context)
-    expect(response.status).toBe(200)
-    expect(update).toHaveBeenCalled()
+    expect(response.status).toBe(202)
+    expect(propose).toHaveBeenCalled()
   })
 
   it("a rename is not a change of rate: 1.1% typed in the form is 0.011000000000000001 a month, the same rate", async () => {
@@ -264,9 +229,9 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     findUnique.mockResolvedValue({ ...before, code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", interestRatePm: 0.011 })
     expect(1.1 / 100).not.toBe(0.011)
     const response = await PUT(request({ code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", name: "Short-term Loan", interestRatePm: 1.1 }), context)
-    expect({ status: response.status, body: await response.json() }).toMatchObject({ status: 200 })
+    expect({ status: response.status, body: await response.json() }).toMatchObject({ status: 202 })
     // the stored rate is kept as it is: what is written is the value held, never the float that came back from the form
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ interestRatePm: 0.011 }) }))
+    expect(proposed().product).toEqual(expect.objectContaining({ interestRatePm: 0.011 }))
   })
 
   it("a rate that differs by less than the comparison's width is not a way round the version: the stored value is kept", async () => {
@@ -274,8 +239,8 @@ describe("PUT /api/products/loan/[id] a product with versions (product engine)",
     findUnique.mockResolvedValue({ ...before, code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", interestRatePm: 0.0225 })
     // 2.2504% a month is 0.04 of a basis point off 2.25%: inside the tolerance, so not a "change", and not a write either
     const response = await PUT(request({ code: "PERSONAL", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", name: "Short-term Loan", interestRatePm: 2.2504 }), context)
-    expect(response.status).toBe(200)
-    const data = update.mock.calls.at(-1)![0].data as { interestRatePm: number }
+    expect(response.status).toBe(202)
+    const data = proposed().product
     expect(data.interestRatePm).toBe(0.0225)
   })
 
@@ -296,12 +261,6 @@ describe("PUT /api/products/loan/[id] product kind (Fair Score E4)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
-    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...plant, ...data }))
-    queryRaw.mockResolvedValue([])
-    auditCreate.mockResolvedValue({ id: "audit-1" })
-    transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
-      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, productVersion: { count: async () => 0 }, auditLog: { create: auditCreate },
-    }))
   })
 
   it("refuses moving a product with applications into or out of ASSET_FINANCE", async () => {
@@ -311,7 +270,7 @@ describe("PUT /api/products/loan/[id] product kind (Fair Score E4)", () => {
     expect((await into.json()).error).toMatch(/3 application/)
     expect(count).toHaveBeenCalledWith({ where: { tenantId: "tenant-1", productId: "product-1" } })
     expect((await retype({ ...plant, productType: "ASSET_FINANCE" }, "PERSONAL")).status).toBe(422)
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("refuses making a portal-stable consumer code an asset-finance product", async () => {
@@ -319,17 +278,16 @@ describe("PUT /api/products/loan/[id] product kind (Fair Score E4)", () => {
     const response = await retype({ ...plant, code: "PERSONAL" }, "ASSET_FINANCE")
     expect(response.status).toBe(422)
     expect((await response.json()).error).toMatch(/PERSONAL is a stable consumer product code/)
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("re-types an unused product, and leaves the kind check out of edits that keep the kind", async () => {
     count.mockResolvedValue(0)
-    expect((await retype(plant, "ASSET_FINANCE")).status).toBe(200)
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ productType: "ASSET_FINANCE" }) }))
+    expect((await retype(plant, "ASSET_FINANCE")).status).toBe(202)
+    expect(proposed().product).toEqual(expect.objectContaining({ productType: "ASSET_FINANCE" }))
     vi.clearAllMocks()
     count.mockResolvedValue(5)
-    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...plant, ...data }))
-    expect((await retype(plant, "MICRO")).status).toBe(200)
+    expect((await retype(plant, "MICRO")).status).toBe(202)
   })
 })
 
@@ -345,27 +303,16 @@ describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
     vi.clearAllMocks()
     requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
     findUnique.mockResolvedValue(personal)
-    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...personal, ...data }))
-    queryRaw.mockResolvedValue([])
-    auditCreate.mockResolvedValue({ id: "audit-1" })
-    transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
-      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, productVersion: { count: async () => 0 }, auditLog: { create: auditCreate },
-    }))
   })
 
-  it("updates the terms and audits them before and after", async () => {
-    expect((await edit({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 })).status).toBe(200)
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 }),
-    }))
-    const audit = auditCreate.mock.calls[0][0].data
-    expect(audit.oldValue).toMatchObject({ nonNcaDefaultInterestMargin: null, nonNcaCollectionFeeCents: null })
-    expect(audit.newValue).toMatchObject({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 })
+  it("proposes the terms", async () => {
+    expect((await edit({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 })).status).toBe(202)
+    expect(proposed().product).toEqual(expect.objectContaining({ nonNcaDefaultInterestMargin: "0.025", nonNcaCollectionFeeCents: 30_000 }))
   })
 
   it("leaves stored terms untouched when the form does not send them", async () => {
-    expect((await edit({})).status).toBe(200)
-    const data = update.mock.calls[0][0].data as Record<string, unknown>
+    expect((await edit({})).status).toBe(202)
+    const data = proposed().product
     expect("nonNcaDefaultInterestMargin" in data).toBe(false)
     expect("nonNcaCollectionFeeCents" in data).toBe(false)
   })
@@ -374,21 +321,21 @@ describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
     const response = await edit({ interestRatePm: 3 })
     expect(response.status).toBe(422)
     expect((await response.json()).error).toContain("36.00% per year (nominal) exceeds the NCA maximum of 28.00%")
-    expect(update).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("lets an over-cap product be deactivated or renamed: only a price change or an activation is capped", async () => {
     // Stored at 3% a month (36% a year), over the cap.
     findUnique.mockResolvedValue({ ...personal, interestRatePm: 0.03 })
-    expect((await edit({ interestRatePm: 3, active: false })).status).toBe(200)
-    expect((await edit({ interestRatePm: 3, name: "Renamed" })).status).toBe(200)
+    expect((await edit({ interestRatePm: 3, active: false })).status).toBe(202)
+    expect((await edit({ interestRatePm: 3, name: "Renamed" })).status).toBe(202)
     findUnique.mockResolvedValue({ ...personal, interestRatePm: 0.03, active: false })
     expect((await edit({ interestRatePm: 3, active: true })).status).toBe(422)
   })
 
   it("refuses a negative fee 422 before any write", async () => {
     expect((await edit({ nonNcaCollectionFeeCents: -1 })).status).toBe(422)
-    expect(transaction).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 })
 
@@ -399,19 +346,7 @@ describe("DELETE /api/products/loan/[id] MICRO30 guard", () => {
       user: { id: "admin-1", email: "admin@example.test" },
     })
     findUnique.mockResolvedValue(before)
-    update.mockResolvedValue({ ...before, active: false })
     count.mockResolvedValue(0)
-    queryRaw.mockResolvedValue([])
-    auditCreate.mockResolvedValue({ id: "audit-1" })
-    transaction.mockImplementation(
-      (callback: (tx: unknown) => unknown) => callback({
-        $queryRaw: queryRaw,
-        loanProduct: { findUnique, update },
-        loanApplication: { count },
-        productVersion: { count: async () => 0 },
-        auditLog: { create: auditCreate },
-      }),
-    )
   })
 
   it("blocks deactivation while applications depend on the MICRO30 contract", async () => {
@@ -428,11 +363,10 @@ describe("DELETE /api/products/loan/[id] MICRO30 guard", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       inFlightApplications: 11,
     }))
-    expect(update).not.toHaveBeenCalled()
-    expect(auditCreate).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
-  it("writes deactivation and its audit evidence in the same transaction", async () => {
+  it("proposes the deactivation and writes nothing: a second person approves it", async () => {
     const response = await DELETE(
       new NextRequest("http://localhost/api/products/loan/product-1", {
         method: "DELETE",
@@ -440,30 +374,7 @@ describe("DELETE /api/products/loan/[id] MICRO30 guard", () => {
       context,
     )
 
-    expect(response.status).toBe(200)
-    expect(transaction).toHaveBeenCalledOnce()
-    expect(update).toHaveBeenCalledWith({
-      where: { id: "product-1", tenantId: "tenant-1" },
-      data: { active: false },
-    })
-    expect(auditCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: "LOAN_PRODUCT_DEACTIVATED",
-        entityId: "product-1",
-        oldValue: { active: true },
-        newValue: { active: false },
-      }),
-    })
-  })
-
-  it("does not return success when mandatory deactivation audit evidence fails", async () => {
-    auditCreate.mockRejectedValue(new Error("audit unavailable"))
-
-    await expect(DELETE(
-      new NextRequest("http://localhost/api/products/loan/product-1", {
-        method: "DELETE",
-      }),
-      context,
-    )).rejects.toThrow("audit unavailable")
+    expect(response.status).toBe(202)
+    expect(proposed()).toMatchObject({ action: "DEACTIVATE", productId: "product-1" })
   })
 })

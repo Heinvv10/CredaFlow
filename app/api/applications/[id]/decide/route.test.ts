@@ -1299,7 +1299,7 @@ describe("approval on a product version with a repayment structure and a pricing
 
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ pricingInputsSetByApprover: true })
-    expect(auditLogCountMock).toHaveBeenCalledWith({ where: expect.objectContaining({ tenantId: "t1", action: "APPLICATION_PRICING_INPUT_SET", entityId: "app-1", userId: "u1" }) })
+    expect(auditLogCountMock).toHaveBeenCalledWith({ where: expect.objectContaining({ tenantId: "t1", action: { in: ["APPLICATION_PRICING_INPUT_SET", "APPLICATION_PRODUCT_FACTS_SET"] }, entityId: "app-1", userId: "u1" }) })
   })
 
   it("is refused for a person who set the inputs even when no rule priced the loan: inputs that match no rule still steer it", async () => {

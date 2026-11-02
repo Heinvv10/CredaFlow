@@ -11,6 +11,11 @@ const ctx = (over: Partial<PricingContext> = {}): PricingContext => ({ productId
 const base = { ratePm: 0.05, initiationFeePct: 0.1 }
 
 describe("resolvePricing", () => {
+  it("an ADD rule gives a clean rate: binary noise in the sum would break the approval's stored fingerprint", () => {
+    expect(0.015 - 0.001).not.toBe(0.014)
+    expect(resolvePricing([rule({ id: "r", rate: { mode: "ADD", value: -0.001 } })], ctx(), { ratePm: 0.015, initiationFeePct: 0 }).ratePm).toBe(0.014)
+  })
+
   it("prices at the product's own rate when no rule matches", () => {
     expect(resolvePricing([], ctx(), base)).toEqual({ ratePm: 0.05, initiationFeePct: 0.1, ruleId: null, ruleName: null })
   })

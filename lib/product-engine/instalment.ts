@@ -5,6 +5,7 @@ import { PERIODS_PER_YEAR, type RepaymentTerms } from "./types"
  * year / 12 (weekly 52/12, fortnightly 26/12). "Regular" is defined per structure, never as a maximum over the rows:
  *   - one payment (a bullet) is itself: it is not a recurring amount, so it is not scaled;
  *   - interest-only: the interest (and fee) every period, not the principal that closes the last row;
+ *   - balloon: the instalment before the last row; the balloon is a lump at the end, shown on the schedule, not a monthly burden;
  *   - amortising: the second row, as the existing monthly loans do (the first carries the one-off initiation fee);
  *     after a principal-only grace, the first row that repays principal, the larger burden the borrower faces;
  *   - a full grace has no rows of its own: its paying rows are equal, so the second row stands for them.
@@ -20,7 +21,7 @@ export function monthlyEquivalentInstalment(
   if (rows.length === 0) return 0
   // a bullet is one row: its one payment, which is not a recurring amount and so is not scaled to a month
   if (rows.length === 1) return rows[0]!.totalDue
-  const recurring = terms.structure === "INTEREST_ONLY" ? rows.slice(0, -1) : rows
+  const recurring = terms.structure === "INTEREST_ONLY" || terms.structure === "BALLOON" ? rows.slice(0, -1) : rows
   const first = terms.graceKind === "PRINCIPAL_ONLY" && terms.structure === "AMORTISING" ? Math.min(terms.graceInstalments, recurring.length - 1) : Math.min(1, recurring.length - 1)
   const row = recurring[first]!
   if (terms.frequency === "MONTHLY") return row.totalDue

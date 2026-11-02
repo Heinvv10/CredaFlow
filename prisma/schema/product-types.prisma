@@ -1,0 +1,56 @@
+// What the salary-backed, SME, group and revolving product types need on top of a product (lib/product-types). The types
+// are offered to non-NCA lenders only and originated by staff; docs/product-engine/DESIGN.md says what each does and does not do.
+
+// The facts an application on one of those types must carry before it is approved. Set by staff while it is open.
+model ApplicationProductFacts {
+  applicationId              String          @id
+  tenantId                   String
+  tenant                     Tenant          @relation(fields: [tenantId], references: [id])
+  application                LoanApplication @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Cascade, onUpdate: Restrict)
+  /// SALARY_BACKED: who deducts the instalment, and the borrower's number on that payroll.
+  employerName               String?
+  payrollNumber              String?
+  /// SME: the business the loan funds. The borrower of record is the person who applied.
+  businessName               String?
+  businessRegistrationNumber String?
+  annualTurnoverCents        BigInt?
+  /// GROUP: the group the borrower lends with.
+  borrowerGroupId            String?
+  borrowerGroup              BorrowerGroup?  @relation(fields: [tenantId, borrowerGroupId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  updatedById                String
+  updatedAt                  DateTime        @updatedAt
+
+  @@unique([tenantId, applicationId])
+  @@index([tenantId, borrowerGroupId])
+}
+
+// A lending group: staff name it and its members. No member's arrears are collected from another: see the module's rules.
+model BorrowerGroup {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  createdById String
+  createdAt   DateTime @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  applicationFacts ApplicationProductFacts[]
+  members          BorrowerGroupMember[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+model BorrowerGroupMember {
+  tenantId  String
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  groupId   String
+  group     BorrowerGroup @relation(fields: [tenantId, groupId], references: [tenantId, id], onDelete: Cascade, onUpdate: Restrict)
+  clientId  String
+  client    Client        @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  addedById String
+  createdAt DateTime      @default(now())
+
+  @@id([tenantId, groupId, clientId])
+  @@index([tenantId, clientId])
+}

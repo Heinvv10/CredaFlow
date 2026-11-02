@@ -10,8 +10,8 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
 export default async function EditLoanProductPage({ params }: { params: Promise<{ id: string }> }) {
-  // Product edit is an ADMIN mutation — gate the form page to match.
-  await requireMinRole("ADMIN")
+  // A LOAN_ADMIN proposes a product edit; an ADMIN approves it (lib/product-config/change-handler.ts).
+  await requireMinRole("LOAN_ADMIN")
   const { id } = await params
   const tenantId = await getStaffTenantId()
   const [product, config] = await Promise.all([

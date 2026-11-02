@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const { requireApiRole, create, repo } = vi.hoisted(() => ({
+const { requireApiRole, propose, repo } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
-  create: vi.fn(),
+  propose: vi.fn(),
   // The tenant's approved SARB repo rate (Asset finance → Reference rates).
   repo: { rate: 0.07 as number | null },
 }))
@@ -17,7 +17,7 @@ vi.mock("@/lib/tenant", () => ({
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    loanProduct: { create: (...args: unknown[]) => create(...args) },
+    loanProduct: { findFirst: vi.fn(async () => null) },
     referenceRate: {
       findMany: vi.fn(async () => []),
       findFirst: vi.fn(async () => repo.rate === null
@@ -26,9 +26,17 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }))
-vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }))
+vi.mock("@/lib/product-config/propose", () => ({ proposeProductChange: propose }))
+vi.mock("@/lib/maker-checker/http", () => ({ presentChangeRequest: (row: unknown) => row, changeRequestErrorResponse: (error: unknown) => { throw error } }))
 
 import { POST } from "./route"
+
+/** The product a route proposed: nothing is created until a second person approves it. */
+const proposed = () => (propose.mock.calls.at(-1)![3] as { product: Record<string, unknown> }).product
+
+beforeEach(() => {
+  propose.mockResolvedValue({ id: "cr-1" })
+})
 
 function request(change: Record<string, unknown> = {}) {
   const body = {
@@ -62,24 +70,18 @@ describe("POST /api/products/loan bounds validation", () => {
     requireApiRole.mockResolvedValue({
       user: { id: "admin-1", email: "admin@example.test" },
     })
-    create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
-      Promise.resolve({ id: "product-9", ...data }),
-    )
   })
 
   it("creates a valid non-MICRO30 product with amounts in cents", async () => {
     const response = await POST(request())
 
-    expect(response.status).toBe(201)
-    expect(create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        tenantId: "tenant-1",
+    expect(response.status).toBe(202)
+    expect(proposed()).toEqual(expect.objectContaining({
         minAmount: 50_000,
         maxAmount: 1_000_000,
         minTermDays: 30,
         maxTermDays: 90,
-      }),
-    })
+      }))
   })
 
   it("rejects a zero minimum amount without touching the database", async () => {
@@ -89,7 +91,7 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: ["minAmount"],
     }))
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("rejects a maximum amount below the minimum", async () => {
@@ -99,7 +101,7 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: ["maxAmount"],
     }))
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("rejects a non-integer term", async () => {
@@ -109,7 +111,7 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: ["minTermDays"],
     }))
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("rejects booleans, arrays and strings in the bound fields", async () => {
@@ -121,7 +123,7 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: ["minAmount", "maxAmount", "minTermDays", "maxTermDays"],
     }))
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("rejects an amount beyond the int4 cents column", async () => {
@@ -131,7 +133,7 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: ["maxAmount"],
     }))
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("rejects a minimum term above the maximum", async () => {
@@ -141,7 +143,7 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: ["maxTermDays"],
     }))
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("rejects a missing minimum amount", async () => {
@@ -157,7 +159,7 @@ describe("POST /api/products/loan bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: ["minAmount"],
     }))
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 })
 
@@ -165,20 +167,17 @@ describe("POST /api/products/loan NON_NCA arrears terms", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
-    create.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "product-9", ...data }))
   })
 
   it("stores the margin as an annual decimal and the fee in cents", async () => {
     const response = await POST(request({ nonNcaDefaultInterestMargin: "0.02", nonNcaCollectionFeeCents: 25_000 }))
-    expect(response.status).toBe(201)
-    expect(create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ nonNcaDefaultInterestMargin: "0.02", nonNcaCollectionFeeCents: 25_000 }),
-    })
+    expect(response.status).toBe(202)
+    expect(proposed()).toEqual(expect.objectContaining({ nonNcaDefaultInterestMargin: "0.02", nonNcaCollectionFeeCents: 25_000 }))
   })
 
   it("leaves both out when not sent (a consumer product)", async () => {
     await POST(request())
-    const data = create.mock.calls[0][0].data as Record<string, unknown>
+    const data = proposed()
     expect("nonNcaDefaultInterestMargin" in data).toBe(false)
     expect("nonNcaCollectionFeeCents" in data).toBe(false)
   })
@@ -187,7 +186,7 @@ describe("POST /api/products/loan NON_NCA arrears terms", () => {
     const response = await POST(request({ nonNcaDefaultInterestMargin: "2", nonNcaCollectionFeeCents: 250.5 }))
     expect(response.status).toBe(422)
     expect((await response.json()).invalidFields).toEqual(["nonNcaDefaultInterestMargin", "nonNcaCollectionFeeCents"])
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 })
 
@@ -196,7 +195,6 @@ describe("POST /api/products/loan NCA interest-rate cap (Regulation 42)", () => 
     vi.clearAllMocks()
     repo.rate = 0.07
     requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
-    create.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "product-9", ...data }))
   })
 
   it("refuses an unsecured product above repo + 21% (the demo Personal Loan's 3% a month), without writing", async () => {
@@ -205,12 +203,12 @@ describe("POST /api/products/loan NCA interest-rate cap (Regulation 42)", () => 
     const body = await response.json()
     expect(body.invalidFields).toEqual(["interestRatePm"])
     expect(body.error).toContain("exceeds the NCA maximum of 28.00%")
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("accepts an unsecured product exactly at the cap", async () => {
     const response = await POST(request({ interestRatePm: 28 / 12, maxAmount: 100_000, maxTermDays: 1_800 }))
-    expect(response.status).toBe(201)
+    expect(response.status).toBe(202)
   })
 
   it("refuses an unsecured product when no repo rate is recorded", async () => {
@@ -218,13 +216,13 @@ describe("POST /api/products/loan NCA interest-rate cap (Regulation 42)", () => 
     const response = await POST(request())
     expect(response.status).toBe(422)
     expect((await response.json()).error).toContain("no approved repo rate is recorded")
-    expect(create).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   })
 
   it("holds a short-term product (≤ R8,000, ≤ 6 months) to 5% a month, with no repo rate needed", async () => {
     repo.rate = null
     const micro = { maxAmount: 2_000, minTermDays: 30, maxTermDays: 30, interestModel: "DAILY_ACCRUAL" }
-    expect((await POST(request({ ...micro, interestRatePm: 5 }))).status).toBe(201)
+    expect((await POST(request({ ...micro, interestRatePm: 5 }))).status).toBe(202)
     expect((await POST(request({ ...micro, interestRatePm: 5.5 }))).status).toBe(422)
   })
 })

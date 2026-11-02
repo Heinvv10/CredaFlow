@@ -13,6 +13,7 @@ import { addPeriods } from "@/lib/product-engine/periods"
 import { PERIOD_DAYS, type EngineInterestModel, type Frequency, type RepaymentStructure } from "@/lib/product-engine/types"
 import type { Tx } from "@/lib/maker-checker/types"
 import { changeRefusal, type ChangeScope, type LoanChangeFacts } from "./eligibility"
+import { revolvingLimitRefusal } from "@/lib/product-types/rules"
 import { LoanChangeRefused, planInPlace, type InPlacePlan, type PlanRow } from "./plan"
 import { planNewLoan, type NewLoanPlan } from "./plan-new-loan"
 import { isNewLoanType, type LoanChangePayload } from "./types"
@@ -21,17 +22,17 @@ const LOAN_INCLUDE = {
   application: { select: { disclosureRegime: true, repaymentMethod: true, branchId: true, purpose: true, riskGrade: true, riskGradedAt: true, riskGradeVersionId: true, riskGradeRank: true } },
   assetFinanceDeal: { select: { id: true } },
   client: { select: { id: true, deceasedAt: true, bankName: true, bankAccountNumber: true, bankBranchCode: true, accountType: true } },
-  product: { select: { active: true, interestRatePm: true, maxAmount: true, maxTermDays: true } },
+  product: { select: { active: true, interestRatePm: true, maxAmount: true, maxTermDays: true, productType: true } },
   paymentArrangement: { select: { status: true } },
   paymentPlan: { select: { active: true } },
   repaymentSchedule: { orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }] },
-  terms: { orderBy: { sequence: "desc" }, take: 1, select: { sequence: true, productVersionId: true, frequency: true, structure: true } },
+  terms: { orderBy: { sequence: "desc" }, take: 1, select: { sequence: true, productVersionId: true, frequency: true, structure: true, balloonCents: true, rateBasis: true, rateMarginPa: true, referenceRate: true, referenceEffectiveDate: true } },
   _count: { select: { debitMandates: { where: { status: { in: ["CREATED", "SUBMITTING", "PENDING_REGISTRATION", "PENDING_AUTH", "ACTIVE", "SUSPENDED"] } } }, collectionInstructions: true } },
 } satisfies Prisma.LoanInclude
 
 export type ChangeLoan = Prisma.LoanGetPayload<{ include: typeof LOAN_INCLUDE }>
 
-type Reader = ChargesTx & Pick<Tx, "clientDocument" | "$queryRaw">
+type Reader = ChargesTx & Pick<Tx, "clientDocument" | "$queryRaw" | "loanApplication">
 
 export async function loadChangeLoan(db: Pick<Tx, "loan">, tenantId: string, loanId: string): Promise<ChangeLoan | null> {
   return db.loan.findFirst({ where: { id: loanId, tenantId }, include: LOAN_INCLUDE })
@@ -146,6 +147,10 @@ async function computeNewLoan(db: Reader, tenantId: string, primary: ChangeLoan,
     frequency: frequencyOf(primary), instalments: payload.instalments, asOf,
   })
   if (plan.principal > primary.product.maxAmount) throw new LoanChangeRefused("The new loan would be above the product's maximum amount")
+  if (primary.product.productType === "REVOLVING") {
+    const refusal = await revolvingLimitRefusal(db, tenantId, { clientId: primary.clientId!, principalCents: plan.principal, limitCents: primary.product.maxAmount, settlingLoanIds: settled.map((s) => s.loan.id) })
+    if (refusal) throw new LoanChangeRefused(`The new loan: ${refusal}`)
+  }
   if (payload.instalments * PERIOD_DAYS[frequencyOf(primary)] > primary.product.maxTermDays) throw new LoanChangeRefused("The new loan would be longer than the product's maximum term")
   return { scope: "NEW_LOAN", primary, settled, settledCents, newMoneyCents, interestRatePm, plan }
 }
@@ -155,11 +160,14 @@ export async function computeChange(db: Reader, tenantId: string, payload: LoanC
   if (!loan) throw new LoanChangeRefused("That loan does not exist")
   refuseIneligible(loan, isNewLoanType(payload.type) ? "NEW_LOAN" : "IN_PLACE")
   await refuseUnsignedDocument(db, tenantId, loan.clientId!, payload.signedDocumentId)
-  refuseRate(loan, "interestRatePm" in payload ? payload.interestRatePm : undefined)
+  const proposedRate = "interestRatePm" in payload ? payload.interestRatePm : undefined
+  // A variable rate is reference + margin: the next repricing would overwrite anything agreed here.
+  if (proposedRate !== undefined && loan.terms[0]?.rateBasis) throw new LoanChangeRefused("The rate follows its reference: it cannot be changed on this loan")
+  refuseRate(loan, proposedRate)
   if (payload.type === "TOP_UP" || payload.type === "REFINANCE" || payload.type === "CONSOLIDATION") return computeNewLoan(db, tenantId, loan, payload, asOf)
   const rows: PlanRow[] = loan.repaymentSchedule
   const plan = planInPlace({
-    loan: { principal: loan.principal, interestRatePm: loan.interestRatePm, interestModel: engineModel(loan), monthlyServiceFee: loan.monthlyServiceFee ?? 0, startDate: loan.startDate },
+    loan: { principal: loan.principal, interestRatePm: loan.interestRatePm, interestModel: engineModel(loan), monthlyServiceFee: loan.monthlyServiceFee ?? 0, startDate: loan.startDate, balloonCents: loan.terms[0]?.balloonCents ?? 0 },
     rows, frequency: frequencyOf(loan), structure: structureOf(loan), change: payload, asOf,
   })
   // Periods, not calendar days: a product's term counts 30-day months, as every new loan is held to it.

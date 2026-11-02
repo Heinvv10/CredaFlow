@@ -13,6 +13,7 @@ enum RepaymentStructure {
   AMORTISING
   INTEREST_ONLY
   BULLET
+  BALLOON
 }
 
 enum GraceKind {
@@ -48,6 +49,11 @@ model ProductVersion {
   structure             RepaymentStructure?
   graceKind             GraceKind?
   graceInstalments      Int                @default(0)
+  /// BALLOON only: the share of the principal left to the last instalment, above 0 and below 1.
+  balloonPct            Float?
+  /// A variable rate: reference + margin (an annual decimal) prices the loan and later reprices it. Both null for a fixed rate.
+  rateBasis             ReferenceRateBasis?
+  rateMarginPa          Float?
   /// [{ code, description, required }] (lib/product-engine/terms.ts)
   collateral            Json
   /// { minAge, maxAge, minMonthlyIncomeCents, minEmploymentMonths }, each null when unused
@@ -123,6 +129,8 @@ model LoanTerms {
   graceInstalments Int                 @default(0)
   /// Periods in the whole term, grace included; null when the loan has no engine structure.
   instalments      Int?
+  /// BALLOON: the principal left to the last instalment.
+  balloonCents     Int                 @default(0)
   /// The monthly rate the loan was priced at (the product's, or the pricing rule's) and the rule, if one priced it.
   baseRatePm       Float
   interestRatePm   Float
@@ -133,6 +141,12 @@ model LoanTerms {
   /// The interest of a full grace, which no row of the grace carries: it is inside the interest of the rows that follow it
   /// (IFRS 9 recognises it in the grace, lib/ifrs9/ecl.ts). 0 for every other structure.
   deferredInterest Int                 @default(0)
+  /// A variable-rate loan: its basis, the margin it keeps (annual decimal), and the approved reference value (annual decimal)
+  /// and the day it took effect that this row's rate comes from. All null on a fixed rate. The sweep appends a row per change.
+  rateBasis              ReferenceRateBasis?
+  rateMarginPa           Float?
+  referenceRate          Float?
+  referenceEffectiveDate DateTime?           @db.Date
   createdAt        DateTime            @default(now())
 
   @@unique([tenantId, loanId, sequence])

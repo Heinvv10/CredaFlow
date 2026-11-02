@@ -4,19 +4,23 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { formatZAR } from "@/lib/utils"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { LOAN_PRODUCT_KIND } from "@/lib/product-config/product-change"
 import { PRODUCT_TYPE_LABELS } from "@/lib/product-config/product-kind"
 
 const TYPE_LABELS: Record<string, string> = PRODUCT_TYPE_LABELS
 const MODEL_LABELS: Record<string, string> = { FLAT: "Flat", REDUCING_BALANCE: "Reducing", DAILY_ACCRUAL: "Daily" }
 
 export default async function LoanProductsPage() {
-  // Match the product-mutation API (ADMIN): the page exposes "+ New Product" /
-  // "Edit" controls whose backing routes require ADMIN. Without this gate a
+  // Match the product-mutation API: a LOAN_ADMIN proposes, an ADMIN approves. Without this gate a
   // low-privilege role (e.g. COLLECTIONS_AGENT) sees interest-rate edit buttons
   // it can't action and product config it shouldn't.
-  await requireMinRole("ADMIN")
+  await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
-  const products = await prisma.loanProduct.findMany({ where: { tenantId }, orderBy: { name: "asc" } })
+  const [products, pending] = await Promise.all([
+    prisma.loanProduct.findMany({ where: { tenantId }, orderBy: { name: "asc" } }),
+    prisma.changeRequest.count({ where: { tenantId, kind: LOAN_PRODUCT_KIND, status: "SUBMITTED" } }),
+  ])
 
   return (
     <div className="p-6 lg:p-8">
@@ -32,12 +36,23 @@ export default async function LoanProductsPage() {
             ]}
           />
           <h1 className="text-2xl font-bold text-[#1b1d24]">Loan Products</h1>
-          <p className="text-sm text-gray-500 mt-1">{products.length} product{products.length !== 1 ? "s" : ""} configured</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {products.length} product{products.length !== 1 ? "s" : ""} configured
+            {pending > 0 && <> · <Link href="/settings/products/versions" className="underline">{pending} change{pending !== 1 ? "s" : ""} waiting for approval</Link></>}
+          </p>
         </div>
-        <Link href="/settings/products/loan/new"
-          className="px-4 py-2 bg-[#4F46E5] text-white text-sm font-semibold rounded-lg hover:bg-[#4338CA]">
-          + New Product
-        </Link>
+        <div className="flex items-center gap-4 text-sm">
+          <Link href="/settings/products/versions" className="underline">Versions and pricing</Link>
+          {!isNcaJurisdiction() && <>
+            <Link href="/settings/products/lending-rates" className="underline">Reference rates</Link>
+            <Link href="/settings/products/groups" className="underline">Lending groups</Link>
+            <Link href="/settings/products/check-off" className="underline">Check-off deductions</Link>
+          </>}
+          <Link href="/settings/products/loan/new"
+            className="px-4 py-2 bg-[#4F46E5] text-white text-sm font-semibold rounded-lg hover:bg-[#4338CA]">
+            + New Product
+          </Link>
+        </div>
       </div>
 
       {/* Table */}

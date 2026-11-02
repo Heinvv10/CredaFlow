@@ -36,7 +36,7 @@ describe("parseProductConfig", () => {
     ["a negative rate", { interestRatePm: -0.01 }, "interestRatePm"],
     ["a rate of 100% a month or more", { interestRatePm: 1 }, "interestRatePm"],
     ["an unknown frequency", { repayment: { ...base.repayment, frequency: "DAILY" } }, "repayment.frequency"],
-    ["an unknown structure", { repayment: { ...base.repayment, structure: "BALLOON" } }, "repayment.structure"],
+    ["an unknown structure", { repayment: { ...base.repayment, structure: "STEPPED" } }, "repayment.structure"],
     ["a grace kind without periods", { repayment: { ...base.repayment, graceKind: "FULL", graceInstalments: 0 } }, "repayment.graceInstalments"],
     ["grace periods without a kind", { repayment: { ...base.repayment, graceInstalments: 2 } }, "repayment.graceInstalments"],
     ["a principal-only grace on a bullet", { repayment: { ...base.repayment, structure: "BULLET", graceKind: "PRINCIPAL_ONLY", graceInstalments: 1 } }, "repayment"],

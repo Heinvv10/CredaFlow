@@ -74,7 +74,8 @@ export function resolvePricing(rules: readonly PricingRule[], ctx: PricingContex
     .filter((r) => matches(r, ctx))
     .sort((a, b) => conditions(b) - conditions(a) || b.priority - a.priority || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))[0]
   if (!winner) return { ratePm: base.ratePm, initiationFeePct: base.initiationFeePct, ruleId: null, ruleName: null }
-  const ratePm = winner.rate.mode === "SET" ? winner.rate.value : Math.max(0, base.ratePm + winner.rate.value)
+  // Ten places: a sum like 0.015 - 0.001 carries binary noise the stored approval rounds away, and the database's fingerprint would then differ.
+  const ratePm = winner.rate.mode === "SET" ? winner.rate.value : Math.max(0, Math.round((base.ratePm + winner.rate.value) * 1e10) / 1e10)
   return { ratePm, initiationFeePct: winner.initiationFeePct ?? base.initiationFeePct, ruleId: winner.id, ruleName: winner.name }
 }
 

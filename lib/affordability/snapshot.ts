@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { isSimulatedBureauCheck } from "@/lib/decision/bureau-simulated"
 import { assessAffordability } from "@/lib/affordability/ndi"
 import { calculateLoan, type LoanCalcResult } from "@/lib/loan-calculator"
+import type { FrozenVariableRate } from "@/lib/product-engine/variable-rate"
 import { assertValidTerms } from "@/lib/product-engine/schedule"
 import { FREQUENCIES, GRACE_KINDS, STRUCTURES, type RepaymentTerms } from "@/lib/product-engine/types"
 import { minimumLivingExpense, MLE_FORMULA_VERSION } from "@/lib/affordability/mle"
@@ -181,6 +182,8 @@ export interface AffordabilityDecisionInputs {
    * fingerprint, and the loan is booked on it.
    */
   repayment?: RepaymentTerms
+  /** A variable rate: the reference value and margin `interestRatePm` was derived from (lib/product-engine/variable-rate.ts). Absent on a fixed rate. */
+  variableRate?: FrozenVariableRate
   /**
    * The borrower's identity at approval, on a key-facts approval only (lib/non-nca-documents/identity.ts): with no bureau check, nothing
    * else in the snapshot names who was assessed. Part of the fingerprint when present.
@@ -682,10 +685,13 @@ export function affordabilityInputFingerprint(inputs: AffordabilityDecisionInput
   }
   // Appended only when there is one, so every existing fingerprint is unchanged.
   if (inputs.repayment !== undefined) {
-    canonical.push(`repayment:${JSON.stringify([inputs.repayment.frequency, inputs.repayment.structure, inputs.repayment.graceKind, inputs.repayment.graceInstalments, inputs.repayment.instalments])}`)
+    canonical.push(`repayment:${JSON.stringify([inputs.repayment.frequency, inputs.repayment.structure, inputs.repayment.graceKind, inputs.repayment.graceInstalments, inputs.repayment.instalments, ...(inputs.repayment.balloonPct !== undefined ? [inputs.repayment.balloonPct] : [])])}`)
   }
   if (inputs.borrowerIdentity !== undefined) {
     canonical.push(`identity:${inputs.borrowerIdentity}`)
+  }
+  if (inputs.variableRate !== undefined) {
+    canonical.push(`variable:${JSON.stringify([inputs.variableRate.basis, inputs.variableRate.marginPa, inputs.variableRate.referenceRate, inputs.variableRate.referenceEffectiveDate])}`)
   }
   if (inputs.productVersion !== undefined) {
     canonical.push(`version:${JSON.stringify([inputs.productVersion.id, inputs.productVersion.version, inputs.productVersion.baseRatePm, inputs.productVersion.pricingRuleId])}`)
@@ -1070,6 +1076,7 @@ function affordabilityInputsAreValid(value: unknown): value is AffordabilityDeci
     (value.initiationFeePayment === "DEFERRED" || value.initiationFeePayment === "UPFRONT") &&
     Number.isFinite(value.ndiBufferPct) && Number(value.ndiBufferPct) >= 0 &&
     (value.repayment === undefined || repaymentTermsAreValid(value.repayment)) &&
+    (value.variableRate === undefined || frozenVariableRateIsValid(value.variableRate)) &&
     (value.borrowerIdentity === undefined || (typeof value.borrowerIdentity === "string" && /^[0-9a-f]{64}$/.test(value.borrowerIdentity))) &&
     (value.productVersion === undefined || productVersionRefIsValid(value.productVersion))
 }
@@ -1082,6 +1089,10 @@ function repaymentTermsAreValid(value: unknown): value is RepaymentTerms {
     return false
   }
   return (FREQUENCIES as readonly unknown[]).includes(value.frequency) && (STRUCTURES as readonly unknown[]).includes(value.structure) && (GRACE_KINDS as readonly unknown[]).includes(value.graceKind)
+}
+
+function frozenVariableRateIsValid(value: unknown): boolean {
+  return isRecord(value) && typeof value.basis === "string" && Number.isFinite(value.marginPa) && Number.isFinite(value.referenceRate) && typeof value.referenceEffectiveDate === "string"
 }
 
 function productVersionRefIsValid(value: unknown): boolean {
