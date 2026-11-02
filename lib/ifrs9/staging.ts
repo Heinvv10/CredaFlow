@@ -17,6 +17,10 @@ export interface StagingInput {
   debtReview: boolean
   /** Kinds of the loan's active SICR flags. */
   flags: readonly SicrFlagKind[]
+  /** It was in default when restructured (Loan.defaultedAtRestructure): the restructure does not take it below Stage 3. */
+  defaultedAtRestructure?: boolean
+  /** A change made since the last MONTHLY run (restructuredInForce), as against a loan whose status stays RESTRUCTURED run after run. */
+  newRestructure?: boolean
 }
 
 export interface PriorStaging {
@@ -25,6 +29,8 @@ export interface PriorStaging {
   cureStartedOn: string | null
   /** The loan was RESTRUCTURED (or still in the probation that follows) at the prior run: see restructuredProbationMonths. */
   restructured: boolean
+  /** The date of the run this was read from. */
+  runDate?: string
 }
 
 export interface StagingResult {
@@ -51,6 +57,16 @@ export function addMonthsIso(iso: string, months: number): string {
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(Math.min(d, lastDay)).padStart(2, "0")}`
 }
 
+/**
+ * A live restructured loan keeps its ACTIVE status (receipts, reminders and mandates need it) and carries Loan.restructuredAt
+ * instead. It counts as RESTRUCTURED until a MONTHLY run has staged it that way; from the next run it is a formerly restructured
+ * loan, whose triggers have cleared, serving restructuredProbationMonths from there.
+ */
+export function restructuredInForce(restructuredOn: string | null | undefined, runDate: string, prior: PriorStaging | null): boolean {
+  if (!restructuredOn || restructuredOn > runDate) return false
+  return !prior?.runDate || prior.runDate <= restructuredOn
+}
+
 /** The stage the triggers give on their own, with a reason code for each that fired. */
 export function stageTriggers(input: StagingInput, settings: Ifrs9Settings): { stage: Stage; reasons: string[] } {
   const stage3: string[] = []
@@ -60,7 +76,7 @@ export function stageTriggers(input: StagingInput, settings: Ifrs9Settings): { s
   if (input.status === "DEFAULTED") stage3.push("STATUS_DEFAULTED")
   if (input.status === "PENDING_WRITE_OFF") stage3.push("PENDING_WRITE_OFF")
   if (input.collectionsStage === "ATTORNEY_REFERRED") stage3.push("LEGAL_ACTION")
-  if (input.status === "RESTRUCTURED") place(settings.restructuredStage, "RESTRUCTURED")
+  if (input.status === "RESTRUCTURED") place(input.defaultedAtRestructure ? 3 : settings.restructuredStage, "RESTRUCTURED")
   if (input.debtReview) place(settings.debtReviewStage, "DEBT_REVIEW")
   if (stage3.length > 0) return { stage: 3, reasons: stage3 }
   if (input.dpd > settings.sicrDpdOver) stage2.unshift("DPD_OVER_SICR_THRESHOLD")
@@ -93,7 +109,10 @@ export function classifyStage(input: StagingInput, settings: Ifrs9Settings, prio
   const restructured = restructuredNow || prior.restructured
   let stage = prior.stage
   let stageSince = prior.stageSince
-  let cureStartedOn = prior.cureStartedOn ?? runDate
+  // A restructure is not a cure: each one starts the clock again, and only time paid on the new terms runs it. The clock
+  // starts on the change itself, not on every run the status stays RESTRUCTURED.
+  const restarts = restructuredNow && (input.newRestructure === true || !prior.restructured)
+  let cureStartedOn = restarts ? runDate : prior.cureStartedOn ?? runDate
   while (stage > triggerStage) {
     const base = stage === 3 ? settings.stage3ProbationMonths : settings.stage2ProbationMonths
     const months = restructured ? Math.max(base, settings.restructuredProbationMonths) : base

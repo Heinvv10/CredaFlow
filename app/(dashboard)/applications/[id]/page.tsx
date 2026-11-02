@@ -664,7 +664,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       {pageEvidence.bureauRerun && (
         <ApplicationStartReviewButton applicationId={application.id} mode="rerun" />
       )}
-      {canCancelApplication(application) && canDo(userRole, "cancel_application") && (
+      {canCancelApplication(application) && !application.loanChangeRequestId && canDo(userRole, "cancel_application") && (
         <ApplicationCancelButton applicationId={application.id} />
       )}
       <MessageClientButton

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { ContractualScheduleMissingError } from "@/lib/loan/contractual-schedule"
-import { loadBookAsOf, outstandingPrincipalAsOf, type AsOfLoan, type AsOfReceipt } from "./book-as-of"
+import { loadAsOfLoans, loadBookAsOf, outstandingPrincipalAsOf, type AsOfLoan, type AsOfReceipt } from "./book-as-of"
 
 const at = (iso: string) => new Date(iso)
 
@@ -71,13 +71,50 @@ describe("outstandingPrincipalAsOf", () => {
   })
 })
 
+describe("a loan change after the instant", () => {
+  const replaced = { loanId: "l1", rows: [
+    { id: "old1", installmentNo: 1, dueDate: "2026-08-01T10:00:00.000Z", principalDue: 150000, interestDue: 20000, feesDue: 10000, totalDue: 180000, totalPaid: 0 },
+    { id: "old2", installmentNo: 2, dueDate: "2026-09-01T10:00:00.000Z", principalDue: 150000, interestDue: 20000, feesDue: 10000, totalDue: 180000, totalPaid: 0 },
+  ] }
+  const db = (changes: unknown[]) => ({
+    loan: { findMany: vi.fn().mockResolvedValue([{ ...twoInstalments([receipt(100000, "2026-08-01T12:00:00Z")]), id: "l1", repaymentSchedule: [{ id: "new", installmentNo: 3, dueDate: at("2027-01-01T10:00:00Z"), principalDue: 300000, interestDue: 1, feesDue: 0, totalDue: 300001, totalPaid: 0 }] }]) },
+    loanChange: { findMany: vi.fn().mockResolvedValue(changes) },
+  }) as never
+
+  it("rebuilds the book on the rows it replaced, and the status the loan had", async () => {
+    const [loan] = await loadAsOfLoans(db([{ scheduleBefore: [replaced], before: { status: "DEFAULTED" } }]), "t1", monthEnd)
+    expect(loan!.repaymentSchedule.map((r) => r.id)).toEqual(["old1", "old2"])
+    expect(loan!.repaymentSchedule[0]!.dueDate).toEqual(at("2026-08-01T10:00:00.000Z"))
+    expect(loan!.statusAsOf).toBe("DEFAULTED")
+    expect(outstandingPrincipalAsOf(loan!, monthEnd)).toBe(230000)
+  })
+
+  it("of several changes, the earliest after the instant holds what stood then", async () => {
+    const later = { scheduleBefore: [{ loanId: "l1", rows: [{ ...replaced.rows[0]!, id: "later" }] }], before: { status: "ACTIVE" } }
+    const earlier = { scheduleBefore: [replaced], before: { status: "DEFAULTED" } }
+    const [loan] = await loadAsOfLoans(db([later, earlier]), "t1", monthEnd)
+    expect(loan!.repaymentSchedule.map((r) => r.id)).toEqual(["old1", "old2"])
+  })
+
+  it("reads a settled loan's status from the change that closed it", async () => {
+    const [loan] = await loadAsOfLoans(db([{ scheduleBefore: [replaced], before: { loans: [{ loanId: "l1", status: "DEFAULTED" }] } }]), "t1", monthEnd)
+    expect(loan!.statusAsOf).toBe("DEFAULTED")
+  })
+
+  it("leaves a loan no change touched on its own rows", async () => {
+    const [loan] = await loadAsOfLoans(db([]), "t1", monthEnd)
+    expect(loan!.repaymentSchedule.map((r) => r.id)).toEqual(["new"])
+    expect(loan!.statusAsOf).toBeUndefined()
+  })
+})
+
 describe("loadBookAsOf", () => {
   it("sums the loans open at the instant and asks only for those", async () => {
     const findMany = vi.fn().mockResolvedValue([
       twoInstalments([receipt(100000, "2026-08-01T12:00:00Z")]),
       twoInstalments([]),
     ])
-    expect(await loadBookAsOf({ loan: { findMany } } as never, "t1", monthEnd)).toBe(530000)
+    expect(await loadBookAsOf({ loan: { findMany }, loanChange: { findMany: vi.fn().mockResolvedValue([]) } } as never, "t1", monthEnd)).toBe(530000)
     // The collectible book then: collectible now, or left the book after the instant.
     expect(findMany.mock.calls[0][0].where).toEqual({
       tenantId: "t1",

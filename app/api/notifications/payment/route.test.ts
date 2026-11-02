@@ -39,6 +39,15 @@ describe("POST /api/notifications/payment", () => {
     expect((await call()).status).toBe(409)
     expect(sendEmail).not.toHaveBeenCalled()
   })
+
+  it("never tells a client a settlement by a new loan was a payment received", async () => {
+    findUnique.mockResolvedValue({
+      id: "pay-1", amount: 75, paymentMethod: "LOAN_SETTLEMENT",
+      loan: { reference: "LN-1", outstandingPrincipal: 0, client: { firstName: "A", lastName: "B", email: "a@b.invalid" } },
+    })
+    expect((await call()).status).toBe(409)
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
 })
 
 // A payment reminder is dunning: it goes out only from the reminders cron, through

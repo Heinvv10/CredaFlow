@@ -9,6 +9,8 @@ export type ChangeRequestErrorCode =
   | "STALE"
   | "TOTP_REQUIRED"
   | "INVALID_PAYLOAD"
+  | "APPROVAL_LEVEL_RECORDED"
+  | "APPROVAL_REFUSED"
 
 const STATUS: Record<ChangeRequestErrorCode, number> = {
   UNKNOWN_KIND: 400,
@@ -21,6 +23,8 @@ const STATUS: Record<ChangeRequestErrorCode, number> = {
   STALE: 409,
   TOTP_REQUIRED: 403,
   INVALID_PAYLOAD: 422,
+  APPROVAL_LEVEL_RECORDED: 202,
+  APPROVAL_REFUSED: 409,
 }
 
 /** A refusal the caller can show; `status` is the HTTP status a route should answer. */

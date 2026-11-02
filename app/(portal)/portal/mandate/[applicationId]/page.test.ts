@@ -52,6 +52,7 @@ const BOB = "client-bob"
 
 function application(id: string, clientId: string, email: string, firstName: string, account: string, tenantId = "tenant-1") {
   return {
+    loanChangeRequestId: null,
     id,
     tenantId,
     clientId,
@@ -119,6 +120,11 @@ describe("portal debit mandate page — whose mandate it renders", () => {
   it("does not render another client's mandate", async () => {
     authMock.mockResolvedValue(session(ALICE, "alice@portal.invalid"))
     await expect(render("app-bob")).rejects.toThrow("NOT_FOUND")
+  })
+
+  it("does not open a loan change's application: the borrower did not apply for it", async () => {
+    applications.push({ ...application("app-change", ALICE, "alice@portal.invalid", "Alice", "1111111111"), loanChangeRequestId: "request-1" })
+    await expect(render("app-change")).rejects.toThrow("NOT_FOUND")
   })
 
   it("does not render an application held in another tenant", async () => {

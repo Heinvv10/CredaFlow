@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     const application = await prisma.loanApplication.findFirst({
-      where: { tenantId: tenant.id, clientId: session.user.id, status: { in: [...CAPTURABLE_STATUSES] } },
+      where: { tenantId: tenant.id, clientId: session.user.id, status: { in: [...CAPTURABLE_STATUSES] }, loanChangeRequestId: null },
       orderBy: { createdAt: "desc" },
       select: { id: true, clientId: true },
     })

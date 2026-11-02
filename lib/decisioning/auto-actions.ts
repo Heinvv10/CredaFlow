@@ -21,6 +21,8 @@ export interface RunContext {
   loaded: LoadedFacts
   /** What the rules said, whatever was then done with it. */
   verdict: Verdict
+  /** A key-facts approval: the engine attests affordability with it (./key-facts-referral.ts). */
+  attestsAffordability?: boolean
   /** The lender's approved client notice at the time of the run (null until signed off); stored on a DECLINED run. */
   noticeText?: string | null
   startedAt: number
@@ -166,6 +168,7 @@ function automationFor(ctx: RunContext, execution: AutoDecisionExecution, reason
     bureauCheckId: ctx.loaded.bureauCheckId,
     exactInputs,
     expectedUpdatedAt: ctx.loaded.application.updatedAt,
+    attestsAffordability: ctx.attestsAffordability === true,
     inTransaction: async (tx) => {
       await writeGrade(tx, ctx, false)
       // A decline stores the wording in force when it commits, not the one read when the verdict was made.
