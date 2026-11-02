@@ -45,13 +45,15 @@ suite("the bake's staff and the two-people rule (real Postgres)", () => {
     expect(await decide(collections.userId, manager.userId)).toMatchObject({ kind: "decided" })
   })
 
-  it("the operator placing them on a branch and the roster stands between neither of them; the same edit by the admin would", async () => {
+  it("the operator placing them on a branch stands between neither of them; an inbox tick by the admin neither; a branch move by the admin does", async () => {
     const manager = (await db().user.findUniqueOrThrow({ where: { email: STAFF.branchManager.email } })).id
     const edit = (actor: string, target: string, values: object) => db().auditLog.create({ data: { tenantId, userId: actor, action: "USER_UPDATED", entity: "User", entityId: target, ...values } })
     await edit(operatorId, manager, { oldValue: { branchId: null }, newValue: { branchId: "pta" } })
     await edit(operatorId, manager, { newValue: { isCommsAgent: true } })
     expect(await decide(adminId, manager)).toMatchObject({ kind: "decided" })
     await edit(adminId, manager, { newValue: { isCommsAgent: true } })
+    expect(await decide(adminId, manager)).toMatchObject({ kind: "decided" })
+    await edit(adminId, manager, { oldValue: { branchId: "pta" }, newValue: { branchId: "san" } })
     expect(await decide(adminId, manager)).toMatchObject({ kind: "account_controlled" })
   })
 

@@ -11,7 +11,7 @@ function fake(rows: Row[]) {
     (!where.entityId || where.entityId.in.includes(r.entityId))
     && (typeof where.action !== "string" || r.action === where.action)
     && (!where.createdAt || r.createdAt >= where.createdAt.gte)
-  return { auditLog: { findFirst: vi.fn(async () => null), findMany: vi.fn(async ({ where }: { where: Parameters<typeof matches>[1] }) => rows.filter((r) => matches(r, where))) } }
+  return { auditLog: { findMany: vi.fn(async ({ where }: { where: Parameters<typeof matches>[1] & { OR?: unknown } }) => (where.OR ? [] : rows.filter((r) => matches(r, where)))) } }
 }
 const created = (by: string, who: string, ageDays: number): Row => ({ userId: by, entityId: who, action: "USER_CREATED", createdAt: new Date(now.getTime() - ageDays * DAY) })
 const decide = (rows: Row[]) => accountControlRefusal(fake(rows) as never, { tenantId: "t", makerIds: ["maker"], checkerId: "checker", now })

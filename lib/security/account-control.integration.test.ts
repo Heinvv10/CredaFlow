@@ -40,7 +40,7 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
     await trail("USER_CREATED", id("m"), id("c"))
     expect(await decide([id("m")], id("c"))).toContain("Two people")
     expect(await decide([id("c")], id("m"))).toContain("Two people")
-    await trail("USER_UPDATED", id("e1"), id("e2"))
+    await update(id("e1"), id("e2"), { newValue: { changed: [], passwordChanged: true } })
     expect(await decide([id("e1")], id("e2"))).toContain("Two people")
     await trail("TOTP_RESET_BY_ADMIN", id("i1"), id("i2"))
     expect(await decide([id("i1")], id("i2"))).toContain("Two people")
@@ -55,7 +55,7 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
 
   it("a change to an account up the minted chain counts: the maker took over s1's parent", async () => {
     await trail("USER_CREATED", id("d1"), id("d2"))
-    await trail("USER_UPDATED", id("o1"), id("d1"))
+    await update(id("o1"), id("d1"), { oldValue: { email: "old@test.invalid" }, newValue: { email: "new@test.invalid" } })
     expect(await decide([id("o1")], id("d2"))).toContain("Two people")
   })
 
@@ -66,6 +66,13 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
     await trail("TOTP_RESET_BY_ADMIN", id("b1"), id("b2"))
     await update(id("b2"), id("b3"), { oldValue: { branchId: "here" }, newValue: { branchId: "there" } })
     expect(await decide([id("b1")], id("b3"))).toContain("Two people")
+  })
+
+  it("a phone edit or an inbox tick between the two themselves keeps nobody apart, whichever way round", async () => {
+    await update(id("x"), id("y"), { newValue: { changed: ["phone"] } })
+    await update(id("y"), id("x"), { newValue: { isCommsAgent: true } })
+    expect(await decide([id("x")], id("y"))).toBeNull()
+    expect(await decide([id("y")], id("x"))).toBeNull()
   })
 
   it("a name or phone edit up the line, or a self-edit, is no hold over anyone", async () => {

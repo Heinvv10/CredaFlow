@@ -1,8 +1,9 @@
 /**
  * Two people, not two accounts: the one rule every two-person control shares (F12; the inventory is in account-control-census.test.ts).
  * An approver and a maker may not sit opposite each other when, in the last 30 days:
- *  - either created or changed the other's account, directly or through a line of accounts (the maker mints S1, S1 mints S2, S2 approves; the
- *    maker takes over S1 and S1 resets S2). The line follows creations and access changes: role, email, password, branch, a second-factor reset;
+ *  - either created the other's account or changed its access, directly or through a line of accounts (the maker mints S1, S1 mints S2, S2
+ *    approves; the maker takes over S1 and S1 resets S2). Access is role, email, password, branch and a second-factor reset: a phone number,
+ *    a name or an inbox-roster tick keeps nobody apart;
  *  - they share a creator and either of them is under 30 days old (the same person minted both, or a new account beside an older one).
  *
  * The trail is the audit log the staff, SSO and TOTP routes write. An operator-provisioned, bootstrap or seeded account leaves no such row
@@ -32,7 +33,8 @@ export function changesSignInOrRole(row: { oldValue: unknown; newValue: unknown 
 
 /** A row that hands someone a hold over an account: creating it, a second-factor reset, or an update of its sign-in, role or branch (a branch carries approval authority). */
 function givesControl(row: { action: string; oldValue: unknown; newValue: unknown }): boolean {
-  if (row.action !== AuditAction.USER_UPDATED) return true
+  if (row.action === AuditAction.USER_CREATED || row.action === AuditAction.TOTP_RESET_BY_ADMIN) return true
+  if (row.action !== AuditAction.USER_UPDATED) return false
   return changesSignInOrRole(row) || "branchId" in asObject(row.oldValue) || "branchId" in asObject(row.newValue)
 }
 
@@ -86,14 +88,14 @@ export async function accountControlRefusal(
   const since = new Date((input.now ?? new Date()).getTime() - ACCOUNT_CONTROL_DAYS * 86_400_000)
   const [checkerSide, makerSide] = await Promise.all([controlLine(db, tenantId, [checkerId], since), controlLine(db, tenantId, makers, since)])
   if (checkerSide.truncated || makerSide.truncated) return ACCOUNT_CONTROL_UNREADABLE
-  const row = await db.auditLog.findFirst({
+  const rows = await db.auditLog.findMany({
     where: {
       tenantId, entity: "User", action: { in: CONTROL_ACTIONS }, createdAt: { gte: since },
       OR: [{ userId: { in: makers }, entityId: { in: checkerSide.line } }, { userId: checkerId, entityId: { in: makerSide.line } }],
     },
-    select: { id: true },
+    select: { action: true, oldValue: true, newValue: true },
   })
-  if (row) return ACCOUNT_CONTROL_REFUSAL
+  if (rows.some(givesControl)) return ACCOUNT_CONTROL_REFUSAL
   const checker = await creators(db, tenantId, checkerId, since)
   for (const maker of makers) {
     const other = await creators(db, tenantId, maker, since)

@@ -26,7 +26,9 @@ function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeH
 function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
-    auditLog: { create: vi.fn(), findMany: vi.fn(async (a: { take?: number; cursor?: { id: string } } = {}) => {
+    auditLog: { create: vi.fn(), findMany: vi.fn(async (a: { take?: number; cursor?: { id: string }; where?: { OR?: unknown } } = {}) => {
+      // The shared two-people rule's read (lib/security/account-control.ts).
+      if (a.where?.OR) return h.control ? [h.control] : []
       // Newest first, paged by cursor as the service asks (rows without an id get one by position).
       const rows = (h.recent as Array<Record<string, unknown>>).map((r, i) => ({ id: `r${i}`, createdAt: new Date(), ...r }))
       const start = a.cursor ? rows.findIndex((r) => r.id === a.cursor!.id) + 1 : 0
@@ -67,11 +69,11 @@ describe("maker-checker service (state, permission, staleness; the database rule
 
   describe("a checker who controls the maker's account is not a second person", () => {
     it("refuses a checker who created or changed the maker's account in the last 30 days, writing nothing", async () => {
-      h.control = { id: "audit-1" }
+      h.control = { id: "audit-1", action: "USER_CREATED" }
       const { db, tx } = fakeDb(row())
       await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
       expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
-      const query = (tx.auditLog.findFirst.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where
+      const query = (tx.auditLog.findMany.mock.calls as unknown as Array<[{ where: Record<string, unknown> }]>).map(([a]) => a.where).find((w) => w.OR) as Record<string, unknown>
       expect(query).toMatchObject({ tenantId: "t", entity: "User", action: { in: ["USER_CREATED", "USER_UPDATED", "TOTP_RESET_BY_ADMIN"] }, OR: expect.arrayContaining([expect.objectContaining({ userId: "u-checker" }), expect.objectContaining({ userId: { in: ["u-maker"] } })]) })
       const since = (query.createdAt as { gte: Date }).gte.getTime()
       expect(Date.now() - since).toBeGreaterThan(29.9 * 86_400_000)
