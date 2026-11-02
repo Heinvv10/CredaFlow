@@ -67,6 +67,7 @@ import { provisionContactForClient } from "@/lib/contact/provision"
 import { POST as accept } from "@/app/api/applications/[id]/loan-documents/accept/route"
 import { POST as branchSign } from "@/app/api/applications/[id]/loan-documents/branch-sign/route"
 import { POST as acknowledge } from "@/app/api/applications/[id]/loan-documents/acknowledge/route"
+import { POST as issue } from "@/app/api/applications/[id]/loan-documents/route"
 import { POST as sign } from "@/app/api/applications/[id]/loan-documents/sign/route"
 import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { runWithTenant } from "@/lib/tenant-scope"
@@ -301,7 +302,12 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       expect(await db().contact.findFirstOrThrow({ where: { clientId } })).toMatchObject({ primaryEmail: moved, primaryWaJid: "26658123456@s.whatsapp.net" })
       const identities = await db().contactIdentity.findMany({ where: { tenantId: stack.tenant, contact: { clientId }, channel: { in: ["EMAIL", "WHATSAPP"] } }, select: { value: true } })
       expect(identities.map((row) => row.value).sort()).toEqual(["26658123456@s.whatsapp.net", moved])
-      // Before the review: no code goes to an address changed since the approval.
+      // Before the review: the borrower cannot accept, staff cannot issue, and no code goes to an address changed since the approval.
+      asClient(id)
+      holder.session!.user.email = moved
+      expect((await accept(post({ documentSha256: (await digests(id)).offer }), on(id))).status).toBe(409)
+      asStaff()
+      expect((await issue(post({}), on(id))).status).toBe(409)
       const early = await requestCode(post({ purpose: "AGREEMENT", subjectId: id, documentSha256: (await digests(id)).agreement, channel: "EMAIL" }))
       expect(early.status).toBe(409)
       expect((await flow.decideForm(id, { action: "return_to_review", reason: "Synthetic: the borrower moved to a new mailbox." })).status).toBe(200)
@@ -321,6 +327,10 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       const code = await requestCode(post({ purpose: "AGREEMENT", subjectId: id, documentSha256: agreement, channel: "EMAIL" }))
       expect(code.status, await code.clone().text()).toBe(200)
       expect((holder.sendEmail.mock.calls.at(-1)![0] as { to: string }).to).toBe(moved)
+      // The legitimate road ends in a signature: the person who typed the address may witness once a second person vouched for it.
+      const d = await digests(id)
+      const signed = await branchSign(post({ witnessAttested: true, offerSha256: d.offer, keyFactsSha256: d.kfs, agreementDocumentSha256: d.agreement, signature: "Synthetic Borrower", signingOtpChallengeId: await verifiedCode(id, d.agreement) }), on(id))
+      expect(signed.status, await signed.clone().text()).toBe(200)
     })
 
     it("a Contact left stale by any other writer gets no notice, and the audit row says not sent", async () => {
