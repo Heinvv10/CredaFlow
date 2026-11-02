@@ -26,11 +26,14 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
 
 import { createAppPrismaClient } from "@/lib/prisma"
 import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
+import { POST as clearFlagRoute } from "@/app/api/applications/[id]/checks/[flagId]/clear/route"
 import { recordCommitteeDecision } from "@/lib/approval/committee"
+import { loadApprovalProgress } from "@/lib/approval/progress"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { MATRIX_KIND } from "@/lib/approval/types"
 import { approve, createDraft, submit } from "@/lib/maker-checker/service"
 import { bookLoan, changeRoutes, type LoanFixture } from "./loan-changes.integration-fixture"
+import { loadLoanChangesView } from "./view"
 
 const suite = process.env.RUN_LOAN_CHANGES_IT === "1" ? describe.sequential : describe.skip
 const { as, req, params, draftAndSubmit } = changeRoutes(holder)
@@ -54,7 +57,7 @@ suite("loan changes under an approval matrix (real Postgres, real routes)", () =
     holder.prisma = createAppPrismaClient(fresh.url)
     l = await bookLoan(db())
     others = []
-    for (let i = 0; i < 3; i++) others.push({ ...(await bookLoan(db(), { sameClientAs: l })), makerId: l.makerId, checkerId: l.checkerId })
+    for (let i = 0; i < 4; i++) others.push({ ...(await bookLoan(db(), { sameClientAs: l })), makerId: l.makerId, checkerId: l.checkerId })
     la = await staff(`u_la_${l.loanId}`, "LOAN_ADMIN")
     bm = await staff(`u_bm_${l.loanId}`, "BRANCH_MANAGER")
     recorder = await staff(`u_rc_${l.loanId}`, "ADMIN")
@@ -78,6 +81,21 @@ suite("loan changes under an approval matrix (real Postgres, real routes)", () =
   }, 240_000)
   afterAll(() => fresh?.drop())
 
+  it("a seat below the final approval sees the button before anyone has opened the chain, and the maker never does", async () => {
+    const mine = others.pop()!
+    const { id } = await draftAndSubmit(mine, { type: "REFINANCE", instalments: 12 })
+    const canApprove = async (viewer: { id: string; role: string }) => {
+      const view = await runWithTenant(l.tenantId, () => loadLoanChangesView(l.tenantId, mine.loanId, viewer))
+      return view!.requests.find((request) => request.id === id)!.canApprove
+    }
+    expect(await db().loanApplication.count({ where: { loanChangeRequestId: id } })).toBe(0)
+    expect(await canApprove(la)).toBe(true)
+    expect(await canApprove(bm)).toBe(true)
+    expect(await canApprove({ id: l.makerId, role: "LOAN_ADMIN" })).toBe(false)
+    as(mine, "maker")
+    await actionRoute(req({}), params({ id, action: "withdraw" }))
+  })
+
   it("a refinance waits for every level and the committee, then books; the loan does not move before the last", async () => {
     const { id } = await draftAndSubmit(l, { type: "REFINANCE", instalments: 12 })
     const pending = async () => (await db().changeRequest.findUniqueOrThrow({ where: { id } })).status
@@ -89,6 +107,9 @@ suite("loan changes under an approval matrix (real Postgres, real routes)", () =
     expect(((await first.json()) as { error: string }).error).toMatch(/Level 1 of 3/)
     expect(await pending()).toBe("SUBMITTED")
     expect(await appOf()).toMatchObject({ status: "UNDER_REVIEW", inputStaffIds: expect.arrayContaining([l.makerId]) })
+    // The application's page reads this with no tenant context: a server component passes the lender explicitly.
+    const progress = await loadApprovalProgress({ tenantId: l.tenantId, applicationId: (await appOf()).id, viewer: { id: admin.id, role: "ADMIN" } })
+    expect(progress.requiredLevels).toBe(3)
     expect((await db().loan.findUniqueOrThrow({ where: { id: l.loanId } })).status).toBe("ACTIVE")
 
     expect((await approveAs(la, id)).status).toBe(409) // one person, one seat
@@ -98,6 +119,15 @@ suite("loan changes under an approval matrix (real Postgres, real routes)", () =
     expect(await pending()).toBe("SUBMITTED")
 
     await decideCommittee(recorder, (await appOf()).id)
+
+    // Opening the application's page runs the credit checks: an open flag refuses the approval with a reason, and an officer clears it there.
+    const flag = await db().applicationCheckFlag.create({ data: { tenantId: l.tenantId, applicationId: (await appOf()).id, check: "MANUAL_REVIEW", code: "NOT_READ", fingerprint: `walk-${id}`, summary: "A statement was not read", evidence: {} } })
+    const flagged = await approveAs(admin, id)
+    expect(flagged.status).toBe(422)
+    expect(((await flagged.json()) as { problems: string[] }).problems.join()).toMatch(/open credit checks/)
+    expect(await pending()).toBe("SUBMITTED")
+    expect((await clearFlagRoute(req({ reason: "Statement read by hand against the original" }), params({ id: flag.applicationId, flagId: flag.id }))).status).toBe(200)
+
     expect((await approveAs(admin, id)).status).toBe(200)
     expect(await pending()).toBe("APPROVED")
     const app = await appOf()

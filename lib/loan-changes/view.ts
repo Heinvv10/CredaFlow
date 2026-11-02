@@ -1,10 +1,11 @@
 /** What the loan page shows: whether the loan can be changed, the proposals on it and everything already applied. */
+import { loadEffectiveMatrix } from "@/lib/approval/matrix-store"
 import { canDo } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { changeRefusal } from "./eligibility"
 import { computeChange, factsOf, loadChangeLoan, SIGNED_DOCUMENT_TYPES, type Computed } from "./compute"
 import { parseLoanChangePayload } from "./payload"
-import { LOAN_CHANGE_KIND, type LoanChangePayload } from "./types"
+import { isNewLoanType, LOAN_CHANGE_KIND, type LoanChangePayload } from "./types"
 import { LoanChangeRefused } from "./plan"
 
 export interface ChangePreview {
@@ -96,6 +97,7 @@ export async function loadLoanChangesView(tenantId: string, loanId: string, view
     where: { tenantId, loanChangeRequestId: { in: requests.map((row) => row.id) } },
     select: { id: true, loanChangeRequestId: true, approvalCases: { where: { status: "OPEN" }, select: { requiredLevels: true, _count: { select: { steps: true } } } } },
   })).map((app) => [app.loanChangeRequestId, { applicationId: app.id, recorded: app.approvalCases[0]?._count.steps ?? 0, required: app.approvalCases[0]?.requiredLevels ?? null }]))
+  const matrix = await loadEffectiveMatrix(prisma, tenantId, new Date())
   const mayPropose = canDo(viewer.role, "propose_loan_change")
   const mayApprove = canDo(viewer.role, "approve_loan_change")
   // As /api/maker-checker: a request is seen by those who may make or approve its kind. What was applied is the loan's history.
@@ -107,8 +109,9 @@ export async function loadLoanChangesView(tenantId: string, loanId: string, view
       id: row.id, status: row.status, type: payload.type, title: row.title, reason: payload.reason, maker: nameOf(row.makerId)!, checker: nameOf(row.checkerId),
       createdAt: row.createdAt.toISOString(), decidedAt: row.decidedAt?.toISOString() ?? null, decisionNote: row.decisionNote, payload,
       mine: row.makerId === viewer.id, signedDocument: signed.get(payload.signedDocumentId) ?? null, chain: chains.get(row.id) ?? null,
-      // A level of a matrix's chain may sit below the final approval's permission: the gate decides who holds it.
-      canApprove: row.status === "SUBMITTED" && row.makerId !== viewer.id && (mayApprove || (mayPropose && chains.has(row.id))),
+      // A level of a matrix's chain may sit below the final approval's permission: the gate decides who holds it. The first
+      // approver is what opens the chain's application, so the level's holder has to be offered it before there is one.
+      canApprove: row.status === "SUBMITTED" && row.makerId !== viewer.id && (mayApprove || (mayPropose && isNewLoanType(payload.type) && (matrix !== null || chains.has(row.id)))),
       preview: open ? await previewChange(tenantId, payload) : null,
     }
   }))

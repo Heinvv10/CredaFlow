@@ -13,6 +13,8 @@ async function refusing<T>(work: () => Promise<T>): Promise<T> {
     return await work()
   } catch (error) {
     if (error instanceof LoanChangeRefused) throw new InvalidPayloadError([error.message])
+    // The trigger on the new loan's application: its page runs the checks, and an officer clears them there.
+    if (String(error).includes("open credit-check flags")) throw new InvalidPayloadError(["The new loan's application has open credit checks: clear them on its page, then approve again"])
     throw error
   }
 }

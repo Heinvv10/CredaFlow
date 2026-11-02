@@ -668,6 +668,14 @@ it("DELETE refuses to cancel an application with an attached loan or in APPROVED
   expect(updateManyMock).not.toHaveBeenCalled()
 })
 
+it("DELETE refuses a loan change's application: it is closed by rejecting or withdrawing the change", async () => {
+  findUniqueMock.mockResolvedValue({ id: "app-1", reference: "APP-1", status: "UNDER_REVIEW", loan: null, loanChangeRequestId: "cr-1" })
+  const res = await DELETE(deleteReq(), ctx)
+  expect(res.status).toBe(409)
+  expect(((await res.json()) as { error: string }).error).toMatch(/belongs to a loan change/)
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
 it("DELETE refuses to cancel a DECLINED application", async () => {
   findUniqueMock.mockResolvedValue({ id: "app-1", reference: "APP-1", status: "DECLINED", loan: null })
 

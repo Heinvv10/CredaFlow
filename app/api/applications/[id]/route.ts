@@ -506,11 +506,15 @@ export async function DELETE(
     const { id } = await params
     const application = await prisma.loanApplication.findUnique({
       where: { id, tenantId: tenant.id },
-      select: { id: true, reference: true, status: true, loan: { select: { id: true } } },
+      select: { id: true, reference: true, status: true, loanChangeRequestId: true, loan: { select: { id: true } } },
     })
 
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    }
+
+    if (application.loanChangeRequestId) {
+      return NextResponse.json({ error: "This application belongs to a loan change: reject or withdraw it on the loan." }, { status: 409 })
     }
 
     if (application.loan || ["APPROVED", "DISBURSED"].includes(application.status)) {
