@@ -67,7 +67,7 @@ import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { ENGINE_CONFIG_KIND, RULE_SET_KIND } from "@/lib/decisioning/change-payloads"
 import { MATRIX_KIND } from "@/lib/approval/types"
 import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "@/lib/non-nca-documents/gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "@/lib/non-nca-documents/gate.integration-fixture"
 import { bankRefFor, lsFlow } from "@/lib/non-nca-documents/ls-flow.integration-fixture"
 import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "@/lib/non-nca-documents/ls-stack.integration-fixture"
@@ -75,6 +75,7 @@ import { decideApplication } from "@/app/api/applications/[id]/decide/decide-app
 import { POST as decideRoute } from "@/app/api/applications/[id]/decide/route"
 import { startApplicationReview } from "@/app/api/applications/[id]/review/review-application"
 import { POST as portalApply } from "@/app/api/portal/applications/route"
+import { POST as quoteKeyFacts } from "@/app/api/portal/key-facts-quote/route"
 import { POST as websiteApply } from "@/app/api/website/apply/route"
 import { POST as draftChange } from "@/app/api/maker-checker/route"
 import { POST as actOnChange } from "@/app/api/maker-checker/[id]/[action]/route"
@@ -148,6 +149,7 @@ function harness(jurisdiction: "LS" | "ZA") {
     const base = await db().loanProduct.findUniqueOrThrow({ where: { id: stack.product } })
     await db().loanProduct.create({ data: { ...base, id: declineProduct, code: `${base.code}-D`, createdAt: undefined, updatedAt: undefined } as never })
     await createTemplate(db(), stack.tenant, KFS_KEY, "<h1>Key facts</h1><p>{{client.fullName}} {{quote.principal}} {{quote.instalment}} {{quote.firstDueDate}} {{quote.totalRepayable}}</p>")
+    await createTemplate(db(), stack.tenant, OFFER_KEY, "<h1>Offer</h1><p>{{client.fullName}} {{quote.principal}} {{quote.instalment}} {{quote.firstDueDate}} {{quote.totalRepayable}}</p>")
     await createTemplate(db(), stack.tenant, AGREEMENT_KEY, "<h1>Agreement</h1><p>{{client.fullName}} {{quote.principal}} {{quote.instalment}} {{quote.firstDueDate}} {{quote.totalRepayable}}</p>")
     vi.stubEnv("TENANT_RLS", "on")
     const url = new URL(await createRlsRole(db(), fresh.url, role))
@@ -174,11 +176,15 @@ function harness(jurisdiction: "LS" | "ZA") {
 
   const engine = (over: object = {}) => ({ mode: "LIVE", channels: ["PORTAL"], productIds: [stack.product, declineProduct], repaymentMethod: "EFT", challengerVersionId: null, challengerPercent: 0, s71SignOff: false, automatedDeclineNotice: null, ...over })
 
-  /** The client applies on the real portal route. Returns the application id. */
+  /** The client applies on the real portal route, on a key-facts instance after reading the statement for those terms. Returns the application id. */
   async function apply(clientId: string, productId = stack.product, body: object = {}) {
     holder.clientId = clientId
     const product = await db().loanProduct.findUniqueOrThrow({ where: { id: productId } })
-    const res = await portalApply(json("/api/portal/applications", { productCode: product.code, amount: 5000, termDays: 30, purpose: "School fees", ...body }))
+    const form = { productCode: product.code, amount: 5000, termDays: 30, purpose: "School fees", ...body }
+    const shown = jurisdiction === "LS" ? await quoteKeyFacts(json("/api/portal/key-facts-quote", form)) : null
+    const quote = shown ? await shown.json() : null
+    if (shown) expect(shown.status, JSON.stringify(quote)).toBe(201)
+    const res = await portalApply(json("/api/portal/applications", quote ? { ...form, keyFactsDocumentSha256: quote.sha256 } : form))
     const created = await res.json()
     expect(res.status, JSON.stringify(created)).toBe(201)
     return created.id as string
@@ -548,7 +554,7 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     expect(waited).toBe(true)
   })
 
-  it("the public website form, no session, an existing client's details: no enquiry, no attestation, and it goes to staff", async () => {
+  it("the public website form, no session, an existing client's details: refused, with no application, no enquiry and no attestation", async () => {
     const clientId = `web-${t}`
     await borrower(clientId)
     const client = await ls.db().client.findUniqueOrThrow({ where: { id: clientId } })
@@ -556,13 +562,11 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     const res = await websiteApply(new NextRequest("http://localhost/api/website/apply", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9" }, body: JSON.stringify({
       firstName: client.firstName, lastName: client.lastName, email: client.email, phone: client.phone, idNumber: client.idNumber, productType: product.productType, amount: 5000, termDays: 30, purpose: "Other", turnstileToken: "x", popiaConsent: true,
     }) }))
-    expect(res.status, JSON.stringify(await res.clone().json())).toBeLessThan(300)
-    const application = await ls.db().loanApplication.findFirstOrThrow({ where: { clientId }, orderBy: { createdAt: "desc" } })
-    await ls.settled(application.id)
-    expect(await ls.runOf(application.id)).toMatchObject({ execution: "REFERRED", reasonCodes: ["NO_BUREAU"] })
-    expect(await ls.applicationOf(application.id)).toMatchObject({ status: "UNDER_REVIEW", authenticatedSubmissionClientId: null, automatedAffordabilityAttestedAt: null })
-    expect(await ls.db().creditBureauCheck.count({ where: { applicationId: application.id } })).toBe(0)
-    expect((await ls.settled(application.id)).chargedAt).toBeNull()
+    // The website cannot show a key facts statement, so a key-facts lender's form sends the borrower to the portal (pre-submission.ts).
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ keyFacts: "required" })
+    expect(await ls.db().loanApplication.count({ where: { clientId } })).toBe(0)
+    expect(await ls.db().creditBureauCheck.count({ where: { clientId } })).toBe(0)
   })
 
   it("the engine with a website application's bureau check on file still refuses to attest it", async () => {

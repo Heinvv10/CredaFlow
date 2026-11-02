@@ -17,6 +17,8 @@ const CHANNELS: Record<string, string> = {
   "lib/asset-finance/deal-submit.ts": `if (deal.application.disclosureRegime === "KEY_FACTS") return`,
   // The API makes drafts only; a draft goes through the staff gate.
   "lib/lender-api/create-application.ts": "submitForReview: false",
+  // A loan change's new loan opens UNDER_REVIEW behind the borrower's signed variation; the database's document gate skips it by its request.
+  "lib/loan-changes/approval.ts": "loanChangeRequestId: request.id",
 }
 
 const IGNORED = /(\.test\.tsx?|\.it-helpers\.ts|fixture\.ts|\.test-helpers\.ts)$/
