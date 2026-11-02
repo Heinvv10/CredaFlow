@@ -282,6 +282,16 @@ describe("PATCH /api/settings/users/[id] — role ceiling", () => {
     expect((await patch({ name: "New name", branchId: "b1" }, "caller-1")).status).not.toBe(400)
   })
 
+  it("records a real activation change as an access change, and a resent one not at all", async () => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER", { active: false })
+    await patch({ active: true })
+    expect(h.logAuditStrict.mock.calls.at(-1)?.[0]).toMatchObject({ action: "USER_UPDATED", oldValue: { active: false }, newValue: { active: true } })
+    target("CREDIT_OFFICER", { active: true })
+    await patch({ active: true })
+    expect(h.logAuditStrict.mock.calls.at(-1)?.[0].oldValue).toBeUndefined()
+  })
+
   it("records a real branch move as an access change, and a resent branch not at all", async () => {
     signedIn("ADMIN")
     target("CREDIT_OFFICER", { branchId: "b1" })

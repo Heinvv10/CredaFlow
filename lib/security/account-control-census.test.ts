@@ -18,6 +18,7 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "confirming a key-facts payout account (the shared list of the people behind the payout)", file: "lib/non-nca-documents/payout-people.ts" },
   { control: "countersigning an in-branch signature (segregation of duties)", file: "app/api/applications/[id]/agreement/countersign/route.ts" },
   { control: "document template approval", file: "app/api/documents/templates/[id]/versions/[versionId]/approve/route.ts" },
+  { control: "document template publishing", file: "app/api/documents/templates/[id]/versions/[versionId]/publish/route.ts" },
   { control: "lender legal template approval and publishing", file: "lib/asset-finance/documents/templates/store.ts" },
   { control: "valuation guide publishing", file: "lib/valuation-guides/guide-store.ts", constraint: "ValuationGuide_four_eyes" },
   { control: "reference and repo rates", file: "lib/asset-finance/reference-rate-decision.ts", constraint: "ReferenceRate_four_eyes" },
@@ -29,6 +30,7 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "loan write-off", file: "app/api/loans/[id]/write-off/route.ts" },
   { control: "payout retry", file: "lib/payouts/retry.ts" },
   { control: "disbursement reversal", file: "lib/payouts/reversal.ts" },
+  { control: "payout recovery case: escalating and closing it", file: "lib/payouts/recovery.ts" },
   { control: "confirming a payout's outcome", file: "lib/payouts/resolve.ts" },
   { control: "resolving a provider conflict", file: "lib/payouts/conflicts.ts" },
   { control: "asset-finance payout", file: "lib/asset-finance/payout.ts", constraint: "Payout_four_eyes" },
@@ -50,7 +52,58 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
 /** A constraint the census has looked at that needs no rule of its own: not a decision by a second person, or a decision named above by another route. */
 const NOT_CONTROLS = new Set<string>([])
 
+/**
+ * Every pair of "who" columns a migration compares, sorted: a control held only by a trigger shows here. Each pair is a control above, or says
+ * why it is none. A new pair fails until it is placed.
+ */
+const COMPARED_COLUMNS: Readonly<Record<string, string>> = {
+  "activatedById/approvedById": "lender legal template publishing",
+  "agreementCountersignedById/agreementSignedByUserId": "countersigning",
+  "approvedById/conflictResolvedById": "resolving a provider conflict",
+  "approvedById/createdById": "asset-finance payout, recovery refund, dealer payable run",
+  "approvedById/disbursedById": "disbursing, payout retry",
+  "approvedById/firstApprovedById": "maintenance claim",
+  "approvedById/recordedById": "recovery cost",
+  "approvedById/releasedById": "recovery refund release",
+  "approvedById/requestedById": "payout retry",
+  "approvedById/resolvedById": "confirming a payout's outcome",
+  "approvedById/returnedById": "confirming a payout's outcome",
+  "approvedById/submittedById": "maintenance claim",
+  "approvedById/uploadedById": "RMCP version approval",
+  "assessedById/raisedById": "suspicious report decision",
+  "clearedById/disbursedById": "clearing a committee condition",
+  "confirmedById/recordedById": "theft report confirmation",
+  "conflictResolvedById/openedById": "payout recovery case: opened by the conflict's resolver, a provenance check",
+  "createdById/dealerUserId": "not a control: provenance of a dealer's own row",
+  "createdById/disbursedById": "confirming a payout's outcome, payout retry",
+  "createdById/releasedById": "recovery refund release",
+  "createdById/requestedById": "not a control: a payout attempt names its requester as its creator",
+  "createdById/resolvedById": "confirming a payout's outcome",
+  "decidedById/recordedById": "not a control: a held telematics reading's meter row names its decider",
+  "decidedById/requestedById": "reference rates, bank accounts, overrides, meter voids",
+  "disbursedById/resolvedById": "confirming a payout's outcome",
+  "executedById/uploadedById": "not a control: the executor's own evidence document",
+  "firstApprovedById/submittedById": "maintenance claim",
+  "publishedById/uploadedById": "valuation guide publishing",
+  "recordedById/uploadedById": "not a control: the recorder's own evidence document",
+  "reviewedById/triggeredById": "screening match review",
+  "scanUploadedById/uploadedById": "not a control: the uploader's own scan document",
+}
+
 describe("the inventory of two-person controls", () => {
+  it("every pair of people a migration compares is a control in this inventory, or says why not", () => {
+    const root = join(process.cwd(), "prisma/migrations")
+    const seen = new Set<string>()
+    for (const dir of readdirSync(root, { withFileTypes: true })) {
+      if (!dir.isDirectory()) continue
+      const sql = readFileSync(join(root, dir.name, "migration.sql"), "utf8")
+      for (const m of sql.matchAll(/"(\w+(?:ById|UserId))"\)?\s*(?:=|<>|IS NOT DISTINCT FROM|IS DISTINCT FROM)\s*(?:lower\(btrim\()?(?:NEW|OLD|[a-z])?\.?"(\w+(?:ById|UserId))"/g)) {
+        if (m[1] !== m[2]) seen.add([m[1], m[2]].sort().join("/"))
+      }
+    }
+    expect([...seen].filter((pair) => !(pair in COMPARED_COLUMNS)).sort()).toEqual([])
+  })
+
   it.each(CONTROLS)("$control applies the two-people rule", ({ file }) => {
     expect(readFileSync(join(process.cwd(), file), "utf8")).toMatch(/accountControlRefusal\(|requireTwoPeople\(|refuseControlledMaker\(/)
   })

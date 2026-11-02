@@ -345,15 +345,15 @@ function approvedTerms(application: LockedApprovalApplication) {
 }
 
 /**
- * A loan is paid out only while the rate its approval froze is still within the NCA cap, on a versioned product or not: a repo cut
- * between the approval and the payout can leave that rate above the ceiling in force when the agreement is entered into.
+ * A rate the approval froze is held to the NCA cap in force when the agreement is entered into: on a versioned product or not, a repo cut
+ * before signing can leave it above the ceiling. A signed agreement is judged on its signed day: a cut after that does not undo a lawful one.
  */
 export async function frozenRateIsLawful(tx: ApprovalEvidenceTransaction, tenantId: string, application: LockedApprovalApplication): Promise<boolean> {
   const frozen = readAffordabilitySnapshotStore(application.affordabilityResult).approval?.inputs
   if (!frozen) return true
   const written = approvedTerms(application)
   const subject = { ...written, appliedAmount: frozen.principalCents, appliedTermDays: frozen.termDays, product: { ...written.product, interestModel: frozen.interestModel } }
-  return (await approvalInterestCapCheck(tx, tenantId, subject, new Date())).ok
+  return (await approvalInterestCapCheck(tx, tenantId, subject, application.agreementSignedAt ?? new Date())).ok
 }
 
 export async function verifyLockedCurrentAffordabilityApproval(

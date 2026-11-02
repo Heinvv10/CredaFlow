@@ -82,6 +82,15 @@ suite("committee conditions at signing and payout (real Postgres)", () => {
     expect(audited).toBe(2)
   })
 
+  it("clearing needs a second factor where the lender requires one, and a second person: an account the maker created is refused", async () => {
+    await approvedWithConditions(A("gated"), [ids.la2])
+    expect(await clear({ ...as.ad, totpVerified: false }, A("gated"), 0, "Letter on file, 2 Nov")).toMatchObject({ status: 403, body: { code: "TOTP_REQUIRED" } })
+    const puppet = (await db.user.create({ data: { tenantId: ids.tenant, email: `puppet-${A("gated")}@test.invalid`, password: "not-a-real-login", name: "Second account", role: "LOAN_ADMIN" } })).id
+    await db.auditLog.create({ data: { tenantId: ids.tenant, userId: ids.la2, action: "USER_CREATED", entity: "User", entityId: puppet } })
+    expect(await clear({ ...as.la2, id: puppet, email: `puppet@test.invalid` }, A("gated"), 0, "Letter on file, 2 Nov")).toMatchObject({ status: 403, body: { code: "ACCOUNT_CONTROLLED" } })
+    expect(await db.approvalConditionClearance.count({ where: { applicationId: A("gated") } })).toBe(0)
+  })
+
   it("whoever cleared a condition does not also pay the loan out: route and trigger", async () => {
     signIn(as.ad)
     expect(await inTenant(async () => answer(await disburse(request(`/api/applications/${A("clear")}/disburse`, {}), { params: Promise.resolve({ id: A("clear") }) })))).toMatchObject({ status: 403, body: { disbursementPrecondition: "segregation_of_duties" } })

@@ -51,6 +51,10 @@ suite("the bake's staff and the two-people rule (real Postgres)", () => {
     await edit(operatorId, manager, { oldValue: { branchId: null }, newValue: { branchId: "pta" } })
     await edit(operatorId, manager, { newValue: { isCommsAgent: true } })
     expect(await decide(adminId, manager)).toMatchObject({ kind: "decided" })
+    // The operator places everyone: that does not make two of them one person.
+    const collections = (await db().user.findUniqueOrThrow({ where: { email: COLLECTIONS_MANAGER.email } })).id
+    await edit(operatorId, collections, { oldValue: { branchId: null }, newValue: { branchId: "san" } })
+    expect(await decide(collections, manager)).toMatchObject({ kind: "decided" })
     await edit(adminId, manager, { newValue: { isCommsAgent: true } })
     expect(await decide(adminId, manager)).toMatchObject({ kind: "decided" })
     await edit(adminId, manager, { oldValue: { branchId: "pta" }, newValue: { branchId: "san" } })

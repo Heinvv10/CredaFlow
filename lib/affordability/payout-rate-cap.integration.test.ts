@@ -1,5 +1,5 @@
 /**
- * F10: a repo cut after an approval stops the payout of a product with NO version too (real Postgres). `frozenRateIsLawful` is the step of
+ * F10: a repo cut before signing stops the agreement and payout of a product with NO version too; a cut after signing does not (real Postgres). `frozenRateIsLawful` is the step of
  * the locked re-check every signing and payout route shares (verifyLockedCurrentAffordabilityApproval, wiring in current-approval.test.ts);
  * here it reads a real approval and real reference rates. Run with RUN_DB_IT=1 against a disposable database.
  */
@@ -19,8 +19,8 @@ const PRICING = {
 
 suite("the payout re-check holds an unversioned approval to the NCA cap (real Postgres)", () => {
   let a: PasqV3Scenario
-  const lawful = async () => {
-    const application = await db.loanApplication.findUniqueOrThrow({ where: { id: a.applicationId }, include: { product: true } })
+  const lawful = async (agreementSignedAt: Date | null) => {
+    const application = { ...await db.loanApplication.findUniqueOrThrow({ where: { id: a.applicationId }, include: { product: true } }), agreementSignedAt }
     return runWithTenant(a.tenantId, () => prisma.$transaction((tx) => frozenRateIsLawful(tx as never, a.tenantId, application as never)))
   }
 
@@ -33,10 +33,12 @@ suite("the payout re-check holds an unversioned approval to the NCA cap (real Po
   }, 90_000)
   afterAll(async () => { await db.$disconnect() })
 
-  it("a SARB cut recorded after the approval makes the frozen rate unlawful; before it the rate passes", async () => {
-    expect(await lawful()).toBe(true)
+  it("a SARB cut makes an unsigned agreement's frozen rate unlawful; one signed before the cut stands, judged on its signed day", async () => {
+    expect(await lawful(null)).toBe(true)
     // 7.75% -> 7%: the unsecured cap falls from 28.75% to 28% a year, under the 2.39% a month the approval froze.
     await db.referenceRate.create({ data: { tenantId: a.tenantId, basis: "REPO", effectiveDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`), rate: "0.07", source: "SARB_FEED" } })
-    expect(await lawful()).toBe(false)
+    expect(await lawful(null)).toBe(false)
+    expect(await lawful(new Date(Date.now() - 2 * 86_400_000))).toBe(true)
+    expect(await lawful(new Date())).toBe(false)
   })
 })

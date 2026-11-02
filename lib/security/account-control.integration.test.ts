@@ -15,7 +15,7 @@ const run = randomUUID().replaceAll("-", "").slice(0, 10)
 const tenantId = `ac-${run}`
 const otherTenant = `ac-other-${run}`
 const id = (name: string) => `ac-${name}-${run}`
-const people = ["root", "m", "c", "s1", "s2", "x", "y", "boss", "h1", "h2", "old1", "old2", "e1", "e2", "i1", "i2", "d1", "d2", "o1", "t1", "t2", "t3", "n1", "n2", "n3", "b1", "b2", "b3", "boss2", "h3", "h4", "h5", ...Array.from({ length: 11 }, (_, i) => `link${i}`)].map(id)
+const people = ["root", "m", "c", "s1", "s2", "x", "y", "boss", "h1", "h2", "old1", "old2", "e1", "e2", "i1", "i2", "d1", "d2", "o1", "t1", "t2", "t3", "n1", "n2", "n3", "b1", "b2", "b3", "boss2", "h3", "h4", "h5", "a1", "a2", "a3", "k1", "k2", "k3", "r1", "r2", "r3", "j1", "j2", "sso", ...Array.from({ length: 11 }, (_, i) => `link${i}`)].map(id)
 const DAY = 86_400_000
 
 /** AuditLog.createdAt is stamped by the database: a row is always "now", and the window is tested by moving the rule's own clock. */
@@ -82,7 +82,7 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
     expect(await decide([id("n1")], id("n3"))).toBeNull()
   })
 
-  it("two accounts minted by one person are not two people while either is new; after the window they are; another creator is unrelated", async () => {
+  it("two accounts minted by one person are not two people inside the window; after it they are; another creator is unrelated", async () => {
     await trail("USER_CREATED", id("boss"), id("h1"))
     await trail("USER_CREATED", id("boss"), id("h2"))
     expect(await decide([id("h1")], id("h2"))).toContain("Two people")
@@ -96,6 +96,38 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
     await trail("USER_CREATED", id("boss2"), id("h4"))
     await trail("USER_CREATED", id("h4"), id("h5"))
     expect(await decide([id("h3")], id("h5"))).toContain("Two people")
+  })
+
+  it("one person holding the credentials of both is refused, on old accounts too: two takeovers, or a mint and a takeover", async () => {
+    await update(id("k1"), id("k2"), { oldValue: { email: "a@test.invalid" }, newValue: { email: "b@test.invalid", passwordChanged: true } })
+    await update(id("k1"), id("k3"), { newValue: { changed: [], passwordChanged: true } })
+    expect(await decide([id("k2")], id("k3"))).toContain("Two people")
+    await trail("USER_CREATED", id("r1"), id("r2"))
+    await trail("TOTP_RESET_BY_ADMIN", id("r1"), id("r3"))
+    expect(await decide([id("r2")], id("r3"))).toContain("Two people")
+  })
+
+  it("an admin placing two people on branches, or changing their roles, does not make them one person", async () => {
+    await update(id("a1"), id("a2"), { oldValue: { branchId: null }, newValue: { branchId: "here" } })
+    await update(id("a1"), id("a3"), { oldValue: { role: "LOAN_ADMIN" }, newValue: { role: "BRANCH_MANAGER" } })
+    expect(await decide([id("a2")], id("a3"))).toBeNull()
+    expect(await decide([id("a1")], id("a3"))).toContain("Two people")
+  })
+
+  it("activation is a hold: the value on a new row, and on an older row the name of what changed", async () => {
+    await update(id("o1"), id("e2"), { oldValue: { active: false }, newValue: { active: true } })
+    expect(await decide([id("o1")], id("e2"))).toContain("Two people")
+    await update(id("old1"), id("e1"), { newValue: { changed: ["active"] } })
+    expect(await decide([id("old1")], id("e1"))).toContain("Two people")
+  })
+
+  it("an account that came through an SSO connection sits apart from whoever configured it, not from another such account", async () => {
+    await trail("SSO_CONNECTION_UPDATED", id("sso"), tenantId, tenantId, {})
+    await trail("SSO_USER_PROVISIONED", id("j1"), id("j1"))
+    await trail("SSO_IDENTITY_LINKED", id("j2"), id("j2"))
+    expect(await decide([id("sso")], id("j1"))).toContain("Two people")
+    expect(await decide([id("j2")], id("sso"))).toContain("Two people")
+    expect(await decide([id("j1")], id("j2"))).toBeNull()
   })
 
   it("a line too long to walk is refused, not passed unread, on either side", async () => {

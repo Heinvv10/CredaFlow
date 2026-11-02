@@ -22,6 +22,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import type { Actor } from "./dispatch"
 import { raceRefusal } from "./loan-lock"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 export type RecoveryDb = Pick<typeof prisma, "payoutRecoveryCase" | "auditLog" | "$transaction">
@@ -62,12 +63,14 @@ async function makerCheckerRefusal(db: RecoveryDb, tenantId: string, c: CaseWith
   const excluded = [c.payout.disbursedById, c.payout.createdById, c.payout.approvedById, c.openedById]
   // A two-step close: whoever escalated does not also close (recovered or unrecoverable).
   if (action !== "escalate_recovery" && c.status === "ESCALATED") excluded.push(c.escalatedById)
-  if (!excluded.includes(actor.id)) return null
+  const controlled = excluded.includes(actor.id) ? null : await accountControlRefusal(db, { tenantId, makerIds: excluded, checkerId: actor.id })
+  if (!excluded.includes(actor.id) && !controlled) return null
   await logAuditStrict({
     tenantId, userId: actor.id, userEmail: actor.email,
     action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "PayoutRecoveryCase", entityId: c.id,
-    newValue: { action, reason: "maker_checker" },
+    newValue: { action, reason: controlled ? "account_controlled" : "maker_checker" },
   }, db)
+  if (controlled) return { ok: false as const, status: 403, error: controlled }
   return { ok: false as const, status: 403, error: "Another LOAN_ADMIN must act on this recovery: you disbursed the loan, requested or approved this payout, opened this case or escalated it" }
 }
 

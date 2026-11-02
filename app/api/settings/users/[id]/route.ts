@@ -54,6 +54,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     // A branch carries approval authority (lib/approval/evaluate.ts): nobody moves themselves.
     const branchChanged = branchId !== undefined && branchId !== existing.branchId
+    const activeChanged = active !== undefined && active !== existing.active
     if (id === guard.user.id && branchChanged) {
       return NextResponse.json({ error: "You cannot change your own branch" }, { status: 400 })
     }
@@ -160,11 +161,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           // Capture the email and role transitions explicitly — identity and
           // privilege changes auditors will want to trace, not just a
           // changed-key name.
-          oldValue: normalizedEmail !== undefined || roleChanged || branchChanged
+          oldValue: normalizedEmail !== undefined || roleChanged || branchChanged || activeChanged
             ? {
                 ...(normalizedEmail !== undefined ? { email: existing.email } : {}),
                 ...(roleChanged ? { role: locked.targetRole } : {}),
                 ...(branchChanged ? { branchId: existing.branchId } : {}),
+                ...(activeChanged ? { active: existing.active } : {}),
               }
             : undefined,
           newValue: {
@@ -174,6 +176,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
             ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
             ...(roleChanged ? { role: user.role } : {}),
             ...(branchChanged ? { branchId: user.branchId } : {}),
+            ...(activeChanged ? { active } : {}),
           },
         }, tx)
         return { user }

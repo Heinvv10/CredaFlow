@@ -45,6 +45,14 @@ describe("wet-ink confirmation", () => {
     expect(m.audit).not.toHaveBeenCalled()
   })
 
+  it("reads the two-people rule against whoever uploaded the scan, before anything is written (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const result = await confirmWetInkScan({ tenantId: "tenant-1", userId: "reviewer", userEmail: "reviewer@lender.test" }, "deal-1", "signer-1", "scan-new")
+    expect(result).toEqual({ kind: "account_controlled", error: "Two people, not two accounts" })
+    expect(twoPeople.refusal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["uploader"], checkerId: "reviewer" }))
+    expect(m.updateMany).not.toHaveBeenCalled()
+  })
+
   it("pins the update predicate to the reviewed scan", async () => {
     await confirmWetInkScan(
       { tenantId: "tenant-1", userId: "reviewer", userEmail: "reviewer@lender.test" },
