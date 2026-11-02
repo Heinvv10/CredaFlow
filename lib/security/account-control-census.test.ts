@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest"
 
 /** Each control's approving act, the file holding it, and the database object that holds its plain "not the same person" rule, if one does. */
 const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: string }> = [
-  { control: "maker-checker: decision rules, engine settings, approval matrix, product versions, pricing (ChangeRequest)", file: "lib/maker-checker/service.ts", constraint: "ChangeRequest_four_eyes" },
+  { control: "maker-checker: every change handler below (ChangeRequest)", file: "lib/maker-checker/service.ts", constraint: "ChangeRequest_four_eyes" },
   { control: "approval matrix chain (ApprovalStep, levels)", file: "lib/approval/assess.ts" },
   { control: "credit committee recorder", file: "lib/approval/committee.ts" },
   { control: "clearing a committee condition", file: "lib/approval/conditions.ts" },
@@ -49,6 +49,9 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "billing inspection damage", file: "lib/asset-finance/lease-end-billing.ts" },
   { control: "valuation behind a lease purchase", file: "lib/asset-finance/lease-term-end.ts" },
 ]
+
+/** Every kind maker-checker approves, each under the rule: DECISION_ENGINE_CONFIG carries the F7 instant key-facts setting, LOAN_CHANGE the A3 loan changes. */
+const CHANGE_KINDS = ["APPROVAL_MATRIX", "DECISION_ENGINE_CONFIG", "DECISION_RULE_SET", "LOAN_CHANGE", "PRODUCT_PRICING_RULE", "PRODUCT_VERSION"]
 
 /** A constraint the census has looked at that needs no rule of its own: not a decision by a second person, or a decision named above by another route. */
 const NOT_CONTROLS = new Set<string>([])
@@ -109,6 +112,12 @@ const COMPARED_COLUMNS: Readonly<Record<string, string>> = {
 }
 
 describe("the inventory of two-person controls", () => {
+  it("every change handler is one of the kinds this inventory has placed", () => {
+    const root = join(process.cwd(), "lib/registry/change-handlers")
+    const kinds = readdirSync(root).flatMap((file) => [...readFileSync(join(root, file), "utf8").matchAll(/kind: "([A-Z_]+)"/g)].map((m) => m[1]))
+    expect(kinds.sort()).toEqual(CHANGE_KINDS)
+  })
+
   it("every pair of people a migration compares is a control in this inventory, or says why not", () => {
     const root = join(process.cwd(), "prisma/migrations")
     const seen = new Set<string>()

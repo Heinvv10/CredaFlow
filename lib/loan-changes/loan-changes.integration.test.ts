@@ -34,7 +34,7 @@ import { applyManualReceipt } from "@/lib/loan/apply-payment"
 import { bookLoan, changeRoutes, type LoanFixture, type LoanOptions } from "./loan-changes.integration-fixture"
 
 const suite = process.env.RUN_LOAN_CHANGES_IT === "1" ? describe.sequential : describe.skip
-const { as, req, params, draftAndSubmit, proposeAndApprove } = changeRoutes(holder)
+const { as, req, params, draftAndSubmit, proposeAndApprove, approve } = changeRoutes(holder)
 
 suite("loan changes in place, on a Lesotho instance (real Postgres, real routes)", () => {
   let fresh: ThrowawayDb
@@ -96,6 +96,20 @@ suite("loan changes in place, on a Lesotho instance (real Postgres, real routes)
     expect(terms.map((t) => [t.sequence, t.interestRatePm, t.changeRequestId])).toEqual([[1, 0.04, id], [2, 0.03, id]])
     expect(await db().auditLog.count({ where: { tenantId: l.tenantId, action: "LOAN_CHANGE_APPLIED", entityId: l.loanId } })).toBe(1)
     expect(await db().auditLog.count({ where: { tenantId: l.tenantId, action: "CHANGE_REQUEST_APPROVED", entityId: id } })).toBe(1)
+  })
+
+  it("an account the maker created is not the second person on a loan change (F12): refused, and the change stays submitted", async () => {
+    const l = await loan()
+    const { id, submitted } = await draftAndSubmit(l, { type: "RATE_CHANGE", interestRatePm: 0.03 })
+    expect(submitted.status).toBe(200)
+    const puppet = `puppet-${l.loanId}`
+    await db().user.create({ data: { id: puppet, tenantId: l.tenantId, email: `${puppet}@test.invalid`, password: "x", role: "ADMIN" } })
+    await db().auditLog.create({ data: { tenantId: l.tenantId, userId: l.makerId, action: "USER_CREATED", entity: "User", entityId: puppet } })
+    holder.user = { id: puppet, email: `${puppet}@test.invalid`, role: "ADMIN", totpVerified: true }
+    const refused = await approve(id)
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED" })
+    expect((await db().changeRequest.findUniqueOrThrow({ where: { id } })).status).toBe("SUBMITTED")
   })
 
   it("a payment holiday and a term change append terms in sequence and show on the loan's history route", async () => {
