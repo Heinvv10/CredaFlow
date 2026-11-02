@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { CONSUMER_PRODUCT_WHERE, CUSTOMER_PRODUCT_WHERE, NON_NCA_PRODUCT_TYPES } from "@/lib/product-config/product-kind"
-import { groupEditedBy, productTypeRefusal, salaryBackedRefusal, smeRefusal, type TypeFacts } from "./rules"
+import { groupEditedBy, productTypeRefusal, revolvingLimitRefusal, salaryBackedRefusal, smeRefusal, type TypeFacts } from "./rules"
 
 const none: TypeFacts = { employerName: null, payrollNumber: null, businessName: null, businessRegistrationNumber: null, annualTurnoverCents: null, borrowerGroupId: null }
 const application = (productType: string, over: Record<string, unknown> = {}) => ({ id: "a1", clientId: "c1", productId: "p1", loanPurposeCategory: null, product: { productType }, ...over })
@@ -93,6 +93,17 @@ describe("productTypeRefusal", () => {
     expect(await productTypeRefusal(db({ owed: 400_000 }), "t", application("REVOLVING"), loan)).toBeNull()
     expect(await productTypeRefusal(db({ owed: 400_001 }), "t", application("REVOLVING"), loan)).toContain("exceeds the revolving limit")
     expect(await productTypeRefusal(db(), "t", application("REVOLVING"), { principalCents: 500_001, limitCents: 500_000 })).toContain("exceeds")
+  })
+})
+
+describe("a loan change on a revolving product", () => {
+  it("leaves out the loans it settles, and a change's own application is not a draw", async () => {
+    const reads = db({ owed: 100_000 })
+    expect(await revolvingLimitRefusal(reads as never, "t", { clientId: "c1", principalCents: 400_000, limitCents: 500_000, settlingLoanIds: ["l1", "l2"] })).toBeNull()
+    const calls = reads as unknown as { loan: { aggregate: ReturnType<typeof vi.fn> }; loanApplication: { aggregate: ReturnType<typeof vi.fn> } }
+    expect(calls.loan.aggregate.mock.calls[0]![0].where.id).toEqual({ notIn: ["l1", "l2"] })
+    expect(calls.loanApplication.aggregate.mock.calls[0]![0].where).toMatchObject({ loanChangeRequestId: null })
+    expect(await revolvingLimitRefusal(db({ owed: 100_001 }) as never, "t", { clientId: "c1", principalCents: 400_000, limitCents: 500_000 })).toContain("exceeds the revolving limit")
   })
 })
 

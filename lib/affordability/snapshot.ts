@@ -687,11 +687,11 @@ export function affordabilityInputFingerprint(inputs: AffordabilityDecisionInput
   if (inputs.repayment !== undefined) {
     canonical.push(`repayment:${JSON.stringify([inputs.repayment.frequency, inputs.repayment.structure, inputs.repayment.graceKind, inputs.repayment.graceInstalments, inputs.repayment.instalments, ...(inputs.repayment.balloonPct !== undefined ? [inputs.repayment.balloonPct] : [])])}`)
   }
-  if (inputs.variableRate !== undefined) {
-    canonical.push(`variable:${JSON.stringify([inputs.variableRate.basis, inputs.variableRate.marginPa, inputs.variableRate.referenceRate, inputs.variableRate.referenceEffectiveDate])}`)
-  }
   if (inputs.borrowerIdentity !== undefined) {
     canonical.push(`identity:${inputs.borrowerIdentity}`)
+  }
+  if (inputs.variableRate !== undefined) {
+    canonical.push(`variable:${JSON.stringify([inputs.variableRate.basis, inputs.variableRate.marginPa, inputs.variableRate.referenceRate, inputs.variableRate.referenceEffectiveDate])}`)
   }
   if (inputs.productVersion !== undefined) {
     canonical.push(`version:${JSON.stringify([inputs.productVersion.id, inputs.productVersion.version, inputs.productVersion.baseRatePm, inputs.productVersion.pricingRuleId])}`)

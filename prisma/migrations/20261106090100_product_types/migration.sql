@@ -221,6 +221,121 @@ BEGIN
 END;
 $function$;
 
+-- affordabilityInputSha256 hashes what affordabilityInputFingerprint (lib/affordability/snapshot.ts) hashes: the balloon's share and a variable
+-- rate are added to both, or approvalEvidenceIsIntact refuses every approval of such a version. Neither is present on any other approval,
+-- which hashes exactly as before.
+CREATE OR REPLACE FUNCTION public."affordabilityInputSha256"(p_inputs jsonb)
+ RETURNS text
+ LANGUAGE plpgsql
+ IMMUTABLE PARALLEL SAFE STRICT
+AS $function$
+DECLARE
+  canonical JSONB;
+BEGIN
+  IF JSONB_TYPEOF(p_inputs) <> 'object' THEN
+    RETURN NULL;
+  END IF;
+
+  canonical := JSONB_BUILD_ARRAY(
+    p_inputs -> 'monthlyIncomeCents',
+    p_inputs -> 'monthlyExpensesCents',
+    p_inputs -> 'applicationDebtCents',
+    p_inputs -> 'clientDebtCents',
+    p_inputs -> 'declaredDebtCents',
+    p_inputs -> 'bureauObligationsCents',
+    p_inputs -> 'proposedInstalmentCents',
+    p_inputs -> 'principalCents',
+    p_inputs -> 'termDays',
+    p_inputs -> 'productId',
+    p_inputs -> 'interestRatePm',
+    p_inputs -> 'interestModel',
+    p_inputs -> 'initiationFeePct',
+    p_inputs -> 'initiationFeeMaxCents',
+    p_inputs -> 'monthlyServiceFeeCents',
+    p_inputs -> 'initiationFeePayment',
+    p_inputs -> 'ndiBufferPct'
+  );
+  IF p_inputs ? 'creditLifePremiumCents' THEN
+    canonical := canonical || JSONB_BUILD_ARRAY(
+      p_inputs -> 'creditLifePremiumCents'
+    );
+  END IF;
+  IF p_inputs ? 'repayment' THEN
+    canonical := canonical || JSONB_BUILD_ARRAY(
+      'repayment:' || "jsonArrayText"(JSONB_BUILD_ARRAY(
+        p_inputs #> '{repayment,frequency}',
+        p_inputs #> '{repayment,structure}',
+        p_inputs #> '{repayment,graceKind}',
+        p_inputs #> '{repayment,graceInstalments}',
+        p_inputs #> '{repayment,instalments}'
+      ) || CASE WHEN p_inputs -> 'repayment' ? 'balloonPct' THEN JSONB_BUILD_ARRAY(p_inputs #> '{repayment,balloonPct}') ELSE '[]'::JSONB END)
+    );
+  END IF;
+  IF p_inputs ? 'borrowerIdentity' THEN
+    canonical := canonical || JSONB_BUILD_ARRAY(
+      'identity:' || (p_inputs ->> 'borrowerIdentity')
+    );
+  END IF;
+  IF p_inputs ? 'variableRate' THEN
+    canonical := canonical || JSONB_BUILD_ARRAY(
+      'variable:' || "jsonArrayText"(JSONB_BUILD_ARRAY(
+        p_inputs #> '{variableRate,basis}',
+        p_inputs #> '{variableRate,marginPa}',
+        p_inputs #> '{variableRate,referenceRate}',
+        p_inputs #> '{variableRate,referenceEffectiveDate}'
+      ))
+    );
+  END IF;
+  IF p_inputs ? 'productVersion' THEN
+    canonical := canonical || JSONB_BUILD_ARRAY(
+      'version:' || "jsonArrayText"(JSONB_BUILD_ARRAY(
+        p_inputs #> '{productVersion,id}',
+        p_inputs #> '{productVersion,version}',
+        p_inputs #> '{productVersion,baseRatePm}',
+        p_inputs #> '{productVersion,pricingRuleId}'
+      ))
+    );
+  END IF;
+  RETURN "jsonArraySha256"(canonical);
+END;
+$function$;
+
+-- guardSignedDebitMandateAuthority holds an approval's rate to the LoanProduct row or a pricing rule, so a variable rate, which prices off the
+-- reference, was refused and decide answered 500. A rate off the row now also stands as what a variable version gives: outside the NCA only,
+-- on the version of this product named in the approval, from an APPROVED reference value of its basis, at reference + the version's margin
+-- (floored at 0), with a live rule applied to that base if one priced it.
+DO $body$
+DECLARE definition TEXT; changed TEXT;
+BEGIN
+  SELECT pg_get_functiondef('public."guardSignedDebitMandateAuthority"()'::regprocedure) INTO definition;
+  changed := replace(definition,
+    $sql$AND (new_approval #>> '{inputs,interestRatePm}' = TO_JSONB(product."interestRatePm")::TEXT OR ($sql$,
+    $sql$AND (new_approval #>> '{inputs,interestRatePm}' = TO_JSONB(product."interestRatePm")::TEXT OR (
+              (NEW."disclosureRegime" = 'KEY_FACTS' OR NEW."ncaRegime" IS NOT DISTINCT FROM 'NON_NCA')
+              AND EXISTS (SELECT 1 FROM "ProductVersion" AS version JOIN "ReferenceRate" AS reference
+                  ON reference."tenantId" = version."tenantId" AND reference."basis" = version."rateBasis"
+                WHERE version."id" = new_approval #>> '{inputs,productVersion,id}' AND version."tenantId" = NEW."tenantId" AND version."productId" = product."id"
+                  AND reference."status" = 'APPROVED'
+                  AND reference."basis"::TEXT = new_approval #>> '{inputs,variableRate,basis}'
+                  AND reference."effectiveDate" = (new_approval #>> '{inputs,variableRate,referenceEffectiveDate}')::DATE
+                  AND reference."rate"::DOUBLE PRECISION = (new_approval #>> '{inputs,variableRate,referenceRate}')::DOUBLE PRECISION
+                  AND ABS((new_approval #>> '{inputs,productVersion,baseRatePm}')::DOUBLE PRECISION - GREATEST(0, (reference."rate"::DOUBLE PRECISION + version."rateMarginPa") / 12)) <= 1e-7
+                  AND ABS((new_approval #>> '{inputs,interestRatePm}')::DOUBLE PRECISION - GREATEST(0, (reference."rate"::DOUBLE PRECISION + (new_approval #>> '{inputs,variableRate,marginPa}')::DOUBLE PRECISION) / 12)) <= 1e-7)
+              AND (new_approval #>> '{inputs,productVersion,pricingRuleId}' IS NOT NULL
+                OR ABS((new_approval #>> '{inputs,interestRatePm}')::DOUBLE PRECISION - (new_approval #>> '{inputs,productVersion,baseRatePm}')::DOUBLE PRECISION) <= 1e-7
+              )
+              AND (new_approval #>> '{inputs,productVersion,pricingRuleId}' IS NULL OR EXISTS (SELECT 1 FROM "ProductPricingRule" AS rule
+                WHERE rule."id" = new_approval #>> '{inputs,productVersion,pricingRuleId}' AND rule."tenantId" = NEW."tenantId"
+                  AND (rule."productId" IS NULL OR rule."productId" = product."id") AND rule."retiredAt" IS NULL
+                  AND rule."validFrom" <= (now() AT TIME ZONE 'Africa/Johannesburg')::DATE
+                  AND (rule."validTo" IS NULL OR rule."validTo" >= (now() AT TIME ZONE 'Africa/Johannesburg')::DATE)
+                  AND ABS((new_approval #>> '{inputs,interestRatePm}')::DOUBLE PRECISION - CASE rule."rateMode" WHEN 'SET' THEN rule."rateValue" ELSE GREATEST(0, (new_approval #>> '{inputs,productVersion,baseRatePm}')::DOUBLE PRECISION + rule."rateValue") END) <= 1e-7))
+            ) OR ($sql$);
+  IF changed = definition THEN RAISE EXCEPTION USING MESSAGE = 'guardSignedDebitMandateAuthority rate shape changed'; END IF;
+  EXECUTE changed;
+END;
+$body$;
+
 -- The facts of an application are what staff typed: bounded, and a figure is not negative.
 ALTER TABLE "ApplicationProductFacts" ADD CONSTRAINT "ApplicationProductFacts_values" CHECK (
   ("employerName" IS NULL OR length(btrim("employerName")) BETWEEN 2 AND 120)
