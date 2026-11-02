@@ -216,7 +216,12 @@ suite("product engine (real Postgres)", () => {
     // a second row is the next number, so a restructure can record the terms from then on; any other number is refused
     expect(await refusal(db.loanTerms.create({ data: { ...terms, sequence: 3 } }))).toContain("next row for this loan is 2")
     expect(await refusal(db.loanTerms.create({ data: { ...terms, sequence: 1 } }))).toBeTruthy()
-    await db.loanTerms.create({ data: { ...terms, sequence: 2, interestRatePm: 0.04, instalments: 24 } })
+    // ... and only an approved loan change appends it (lib/loan-changes).
+    expect(await refusal(db.loanTerms.create({ data: { ...terms, sequence: 2, interestRatePm: 0.04, instalments: 24 } }))).toContain("approved LOAN_CHANGE")
+    const change = await db.changeRequest.create({ data: { tenantId: lender.tenantId, kind: "LOAN_CHANGE", title: "Terms", payload: { loanId: own.loanId }, makerId: lender.makerId } })
+    await db.changeRequest.update({ where: { id: change.id }, data: { status: "SUBMITTED", submittedAt: new Date() } })
+    await db.changeRequest.update({ where: { id: change.id }, data: { status: "APPROVED", checkerId: lender.checkerId, decidedAt: new Date(), appliedAt: new Date() } })
+    await db.loanTerms.create({ data: { ...terms, sequence: 2, interestRatePm: 0.04, instalments: 24, changeRequestId: change.id } })
     expect(await db.loanTerms.count({ where: { loanId: own.loanId } })).toBe(2)
     expect(await refusal(db.loanTerms.update({ where: { tenantId_loanId_sequence: { tenantId: lender.tenantId, loanId: own.loanId, sequence: 1 } }, data: { interestRatePm: 0.01, baseRatePm: 0.01 } }))).toContain("never change")
     expect(await refusal(db.loanTerms.delete({ where: { tenantId_loanId_sequence: { tenantId: lender.tenantId, loanId: own.loanId, sequence: 2 } } }))).toContain("never change")

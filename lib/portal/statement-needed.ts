@@ -18,7 +18,8 @@ const UNDECIDED = ["SUBMITTED", "UNDER_REVIEW"] as const
  */
 export async function recentStatementSince(db: Db, tenantId: string, clientId: string): Promise<Date | null> {
   const applications = await db.loanApplication.findMany({
-    where: { tenantId, clientId, status: { in: [...UNDECIDED] } },
+    // Not a loan change's application: the borrower did not apply for it (lib/loan-changes).
+    where: { tenantId, clientId, status: { in: [...UNDECIDED] }, loanChangeRequestId: null },
     select: { createdAt: true },
   })
   if (applications.length === 0) return null

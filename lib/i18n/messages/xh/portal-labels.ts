@@ -38,6 +38,7 @@ export const portalLabels: Catalog["portalLabels"] = {
   method_CASH: "Ikheshi",
   method_DEBIT_ORDER: "I-debit order",
   method_CARD: "Ikhadi",
+  method_LOAN_SETTLEMENT: "Ihlawulwe yimali-mboleko entsha",
   methodWaived: "Ibhalansi ixolelwe",
   doc_ID_COPY: "Ikopi ye-ID",
   doc_PAYSLIP: "Isiliphu somvuzo",

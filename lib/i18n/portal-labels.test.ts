@@ -4,6 +4,10 @@ import { paymentMethodLabel, productNameLabel } from "./portal-labels"
 
 // Fair Score audit 2026-10-16: the statement showed "Eft", the overview "eft".
 describe("paymentMethodLabel", () => {
+  it("names a settlement by a new loan in every language, not as a method of payment", () => {
+    for (const locale of ["en", "af", "xh", "zu"] as const) expect(paymentMethodLabel(createTranslator(locale, "portalLabels"), "LOAN_SETTLEMENT")).not.toMatch(/loan_settlement|loan settlement/i)
+  })
+
   const en = createTranslator("en", "portalLabels")
 
   it("writes EFT and Debit order as a borrower reads them", () => {

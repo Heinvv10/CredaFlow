@@ -102,7 +102,8 @@ model ProductPricingRule {
 }
 
 // The terms a loan was written on: which version of the product, the repayment structure it was scheduled with, the
-// rate it was priced at and the rule that priced it. Written once, with the loan; a later version never reaches it.
+// rate it was priced at and the rule that priced it. Written with the loan; a later version never reaches it, and an approved
+// loan change appends the next row (lib/loan-changes).
 model LoanTerms {
   id               String              @id @default(cuid())
   loanId           String
@@ -111,8 +112,11 @@ model LoanTerms {
   sequence         Int
   tenant           Tenant              @relation(fields: [tenantId], references: [id])
   loan             Loan                @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  productVersionId String
-  productVersion   ProductVersion      @relation(fields: [tenantId, productVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// Null only on the row of a loan written before its product had a version, added by its first change (lib/loan-changes).
+  productVersionId String?
+  productVersion   ProductVersion?     @relation(fields: [tenantId, productVersionId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// The approved LOAN_CHANGE request that appended the row; null on an origination.
+  changeRequestId  String?
   frequency        RepaymentFrequency?
   structure        RepaymentStructure?
   graceKind        GraceKind?

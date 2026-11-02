@@ -26,7 +26,7 @@ Design and decisions: `docs/product-engine/DESIGN.md`.
   over-cap version through (`blocked`). MICRO30 is never re-priced by a rule.
 - **Versions and rules come only from an approved ChangeRequest** (guard triggers:
   provenance, payload equality, one request one row, no backdating). Never `create` them.
-- **`LoanTerms` is append-only per loan** (`sequence`); a restructure appends a row.
+- **`LoanTerms` is append-only per loan** (`sequence`); only an approved loan change appends a row (`lib/loan-changes`).
 - **Approval prices on the version in effect that day**; activation writes it
   through into `LoanProduct` (so the product PUT returns 409 `PRODUCT_VERSIONED`).
 - **A structured product is not offered by the portal, website or lender API**

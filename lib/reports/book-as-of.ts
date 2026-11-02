@@ -1,3 +1,4 @@
+import type { LoanStatus } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { allocateReceipts, recomputeLoanBalances, type ScheduleRowLike } from "@/lib/loan/balances"
 import type { ContractualRow, SettlementLoanLike } from "@/lib/loan/settlement"
@@ -37,6 +38,8 @@ export interface AsOfLoan extends SettlementLoanLike {
   closedAt: Date | null
   /** an early instalment settlement's recorded contractual rows (lib/loan/contractual-schedule.ts) */
   contractualRows?: ContractualRow[] | null
+  /** the status it had before a loan change made after `asOf` (lib/loan-changes): the only status history there is */
+  statusAsOf?: LoanStatus
   repaymentSchedule: Array<ScheduleRowLike & { id: string }>
   payments: AsOfReceipt[]
 }
@@ -75,7 +78,7 @@ export function outstandingPrincipalAsOf(loan: AsOfLoan, asOf: Date): number {
  * the exits rather than from a status filter.
  */
 export async function loadAsOfLoans(
-  db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction">,
+  db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction" | "loanChange">,
   tenantId: string,
   asOf: Date,
 ): Promise<AsOfLoan[]> {
@@ -113,11 +116,36 @@ export async function loadAsOfLoans(
   const repriced = loans.filter((loan) => isRepricedInstalmentLoan(loan, loan.repaymentSchedule))
   const evidence = await loadSettlementEvidence(db, tenantId, repriced.map((loan) => loan.id))
   for (const loan of repriced) if (!evidence.has(loan.id)) throw new ContractualScheduleMissingError(loan.id)
-  return loans.map((loan) => ({ ...loan, contractualRows: evidence.get(loan.id)?.rows ?? null }))
+  const history = await replacedSchedules(db, tenantId, asOf)
+  return loans.map((loan) => {
+    const was = history.get(loan.id)
+    // A loan change after `asOf` replaced the rows: the book then stood on the ones it kept.
+    return was
+      ? { ...loan, repaymentSchedule: was.rows, statusAsOf: was.status, contractualRows: null }
+      : { ...loan, contractualRows: evidence.get(loan.id)?.rows ?? null }
+  })
+}
+
+interface ReplacedSchedule { rows: AsOfLoan["repaymentSchedule"]; status: LoanStatus }
+
+/** Per loan, the schedule the earliest loan change at or after `asOf` replaced, and the loan's status before it. */
+async function replacedSchedules(db: Pick<typeof prisma, "loanChange">, tenantId: string, asOf: Date): Promise<Map<string, ReplacedSchedule>> {
+  const changes = await db.loanChange.findMany({ where: { tenantId, appliedAt: { gte: asOf } }, orderBy: { appliedAt: "desc" }, select: { scheduleBefore: true, before: true } })
+  const out = new Map<string, ReplacedSchedule>()
+  // Newest first, so the earliest change after `asOf` is written last and stands.
+  for (const change of changes) {
+    const before = change.before as { status?: LoanStatus; loans?: Array<{ loanId: string; status: LoanStatus }> }
+    const schedules = change.scheduleBefore as unknown as Array<{ loanId: string; rows: Array<AsOfLoan["repaymentSchedule"][number] & { dueDate: string }> }>
+    for (const { loanId, rows } of schedules) {
+      const status = before.loans?.find((l) => l.loanId === loanId)?.status ?? before.status ?? "ACTIVE"
+      out.set(loanId, { status, rows: rows.map((row) => ({ ...row, dueDate: new Date(row.dueDate) })) })
+    }
+  }
+  return out
 }
 
 export async function loadBookAsOf(
-  db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction">,
+  db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction" | "loanChange">,
   tenantId: string,
   asOf: Date,
 ): Promise<number> {

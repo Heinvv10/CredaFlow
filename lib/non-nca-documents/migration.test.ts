@@ -69,7 +69,7 @@ describe("the new objects", () => {
   })
 
   it("the gate fires on the signature and on DISBURSED, for KEY_FACTS rows only, and reads both documents", () => {
-    expect(baselineTriggerSql("LoanApplication_z_guard_key_facts_documents")).toMatch(/BEFORE UPDATE OF "status", "agreementSignedAt" ON "LoanApplication" FOR EACH ROW WHEN \(NEW\."disclosureRegime" = 'KEY_FACTS'\)/)
+    expect(baselineTriggerSql("LoanApplication_z_guard_key_facts_documents")).toMatch(/BEFORE UPDATE OF "status", "agreementSignedAt" ON "LoanApplication" FOR EACH ROW\s+WHEN \(NEW\."disclosureRegime" = 'KEY_FACTS' AND NEW\."loanChangeRequestId" IS NULL\)/)
     const gate = now("guardLoanApplicationKeyFactsDocuments")
     for (const part of [`'KEY_FACTS_STATEMENT'`, `'LOAN_AGREEMENT'`, "cannot be ' || CASE WHEN signing THEN 'signed' ELSE 'disbursed' END", "has not been acknowledged", "approved terms changed", "not the issued loan agreement"]) {
       expect(gate, part).toContain(part)

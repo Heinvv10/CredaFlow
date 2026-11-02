@@ -362,6 +362,8 @@ export async function POST(req: NextRequest) {
         clientId: client.id,
         productId: product.id,
         status: { in: [...OPEN_APPLICATION_STATUSES] },
+        // A loan change's application is not one the borrower made (lib/loan-changes); the unique index leaves it out too.
+        loanChangeRequestId: null,
       },
       select: { id: true, reference: true, status: true },
     })
@@ -640,6 +642,7 @@ export async function POST(req: NextRequest) {
               clientId: currentClient.id,
               productId: currentProduct.id,
               status: { in: [...OPEN_APPLICATION_STATUSES] },
+              loanChangeRequestId: null,
             },
             select: { id: true, reference: true, status: true },
           }),
@@ -853,6 +856,7 @@ export async function POST(req: NextRequest) {
             clientId: client.id,
             productId: product.id,
             status: { in: [...OPEN_APPLICATION_STATUSES] },
+            loanChangeRequestId: null,
           },
           select: { id: true, reference: true, status: true },
         })

@@ -20,8 +20,8 @@ export default async function PortalDebitMandatePage({
   // and the session's client id, never its possibly stale email.
   const tenantId = await getResolvedTenantId()
   if (session.user.tenantId !== tenantId) notFound()
-  const application = await prisma.loanApplication.findUnique({
-    where: { id: applicationId, tenantId, clientId: session.user.id },
+  const application = await prisma.loanApplication.findFirst({
+    where: { id: applicationId, tenantId, clientId: session.user.id, loanChangeRequestId: null },
     select: {
       id: true,
       reference: true,

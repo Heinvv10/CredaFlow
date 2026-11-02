@@ -87,7 +87,7 @@ describe("loanSettlementFigures", () => {
       paymentsReceived: 50_000,
     })
     expect(db.payment.aggregate).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ paymentMethod: { not: "WAIVER" }, reversed: false, allocationStatus: "ALLOCATED" }),
+      where: expect.objectContaining({ paymentMethod: { notIn: ["WAIVER", "LOAN_SETTLEMENT"] }, reversed: false, allocationStatus: "ALLOCATED" }),
     }))
   })
 

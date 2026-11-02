@@ -13,6 +13,11 @@ export interface Actor {
   totpVerified?: boolean
 }
 
+/** What a handler's approval gate says: go on (with work for the approval's transaction), or stop here, saying why. */
+export type ApprovalGateOutcome =
+  | { proceed: true; inTransaction?: (tx: Tx) => Promise<void> }
+  | { proceed: false; levelRecorded: boolean; message: string }
+
 export interface ApplyContext<P> {
   tenantId: string
   request: ChangeRequest
@@ -68,6 +73,13 @@ export interface ChangeHandler<P = unknown> {
    * rows for what changed with the same `tx`.
    */
   apply(tx: Tx, ctx: ApplyContext<P>): Promise<void>
+  /**
+   * Runs before the approval's transaction, for a change that another chain of approvals governs (the approval matrix): it can
+   * record a level and stop, so the request stays SUBMITTED, or let the approval go on. Optional.
+   */
+  approvalGate?(ctx: { tenantId: string; request: ChangeRequest; payload: P; actor: Actor; note?: string }): Promise<ApprovalGateOutcome>
+  /** Runs in the transaction that rejects or withdraws a request. Optional: for what the request opened and must not leave open. */
+  closed?(tx: Tx, ctx: { tenantId: string; request: ChangeRequest; actor: Actor }): Promise<void>
 }
 
 export function approvePermissionFor<P>(handler: ChangeHandler<P>, payload: P): string {

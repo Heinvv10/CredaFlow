@@ -186,6 +186,10 @@ export async function decideApplication({ tenant, user, id, formData, automation
   if (!application) {
     return NextResponse.json({ error: "Application not found" }, { status: 404 })
   }
+  // The application of a top-up, refinance or consolidation (lib/loan-changes) is decided by its change request, and the borrower did not apply for it.
+  if (application.loanChangeRequestId) {
+    return NextResponse.json({ error: "This application belongs to a loan change: decide it on the loan." }, { status: 409 })
+  }
   // Consumer credit decision (affordability, bureau, PASQ); asset finance decides elsewhere.
   if (!hasClientBorrower(application)) {
     return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
