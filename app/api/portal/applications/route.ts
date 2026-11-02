@@ -752,6 +752,7 @@ export async function POST(req: NextRequest) {
             ) as unknown as Prisma.InputJsonValue,
             status: "SUBMITTED",
             submittedAt,
+            authenticatedSubmissionClientId: sessionClientId,
             ...(ncaDeclarations && { clientAffordabilityDeclaredAt: submittedAt }),
             creditLifeElection,
             creditLifeProductId: creditLifeOffer?.productId ?? null,

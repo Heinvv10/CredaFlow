@@ -297,8 +297,8 @@ suite("maker-checker (real Postgres)", () => {
     expect(await refusal(only({ automatedDeclineNotice: `'${NOTICE}'` }))).toContain(REFUSED)
     expect(challenger).toBeTruthy()
     expect(await refusal(only({ challengerVersionId: `'${challenger!.id}'` }))).toContain(REFUSED)
-    // Put back exactly as approved, the older request is a legitimate source of the row: only the columns above were wrong.
-    await only({})
+    // Put back exactly as approved only the request is wrong: it was applied once, and a newer one is in force.
+    expect(await refusal(only({}))).toContain("applies once")
   })
 
   it("settings that go LIVE or record the s71 sign-off need a SUPER_ADMIN: an ADMIN checker is refused, and nothing is written", async () => {
@@ -485,8 +485,8 @@ suite("maker-checker (real Postgres)", () => {
     const asApprovedByA = `"automatedDeclineNotice" = '${NOTICE}', "s71SignedOffById"`
     expect(await refusal(rewrite(`${asApprovedByA} = '${lender.makerId}'`, first))).toContain("recorded against the checker who approved the change")
     expect(await refusal(rewrite(`${asApprovedByA} = '${lender.checkerId}'`, first))).toContain("recorded against the checker who approved the change")
-    // Carrying the existing name over, or the approving checker's own, is not.
-    await rewrite(`${asApprovedByA} = '${lender.checker2Id}'`, first)
+    // With the right name it is only a replay of an old approval, and a request applies once.
+    expect(await refusal(rewrite(`${asApprovedByA} = '${lender.checker2Id}'`, first))).toContain("applies once")
   })
 
   it("an older-format draft cannot be submitted (STALE 409); editing it brings it up to date", async () => {
