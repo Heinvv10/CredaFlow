@@ -6,6 +6,7 @@
  *    the connection up, whenever they did). The maker mints S1, S1 mints S2, S2 approves: refused. A phone, a name or an inbox tick is no hold;
  *  - one person holds the credentials of both: created them both, or reset the email, password or second factor of both, or any mix. This line
  *    leaves out role, branch and activation changes, which do not hand anyone the account: an admin placing the team on branches separates nobody.
+ *    Accepted residual risk: two accounts sharing an SSO connection's controller are not related by that alone.
  *
  * The trail is the audit log the staff, SSO and TOTP routes write. An operator-provisioned, bootstrap or seeded account leaves no such row (or names
  * a principal who is not the lender's staff), so it is exempt. A line too long to walk is refused, never passed unread. Refusing a request is not
@@ -93,7 +94,7 @@ export async function accountControlRefusal(
     line(db, tenantId, [checkerId], since, givesControl, true), line(db, tenantId, makers, since, givesControl, true),
     line(db, tenantId, [checkerId], since, givesCredentials, false), line(db, tenantId, makers, since, givesCredentials, false),
   ])
-  if (checkerHolds.truncated || makerHolds.truncated) return ACCOUNT_CONTROL_UNREADABLE
+  if (checkerHolds.truncated || makerHolds.truncated || checkerKeys.truncated || makerKeys.truncated) return ACCOUNT_CONTROL_UNREADABLE
   if (makers.some((id) => checkerHolds.ids.includes(id)) || makerHolds.ids.includes(checkerId)) return ACCOUNT_CONTROL_REFUSAL
   return makerKeys.ids.some((id) => checkerKeys.ids.includes(id)) ? ACCOUNT_CONTROL_REFUSAL : null
 }

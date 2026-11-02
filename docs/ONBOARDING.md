@@ -68,7 +68,8 @@ other. The two-people rule (`lib/security/account-control.ts`, on every two-pers
 created or changed the maker's account in the last 30 days, the reverse, and two accounts sharing a creator while
 either is under 30 days old. So if the first admin creates the whole team in Settings, Users, nobody can approve
 anybody's work for 30 days: the admin created them all, and they all share the admin as creator. Accounts the operator
-provisions leave no such record and are exempt. The rule fails closed on purpose; there is no switch for it.
+provisions leave no such record and are exempt. The rule fails closed on purpose; there is no switch for it. Accepted
+residual risk: two accounts that share an SSO connection's controller are not related by that alone.
 
 After provisioning, create the second person from the same stack:
 
