@@ -56,6 +56,12 @@ export function normalisePhone(phone: string): string {
   if (/^002\d{10}$/.test(stripped)) {
     return stripped.slice(2)
   }
+  // Lesotho mobile, international form only: 266 + eight digits starting 5 or 6
+  // (lib/jurisdiction/phone-region.ts). Without it a Lesotho borrower has no phone
+  // or WhatsApp identity, so no message can reach them on those channels.
+  if (/^266[56]\d{7}$/.test(stripped)) {
+    return stripped
+  }
   // Anything else → reject. Better an empty identity row than a colliding
   // misclassification.
   return ""

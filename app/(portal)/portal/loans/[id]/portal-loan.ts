@@ -12,6 +12,7 @@ export async function getPortalLoan(loanId: string, email: string) {
     where: { id: loanId, tenantId },
     include: {
       product: { select: { name: true } },
+      arrearsLetters: { orderBy: { issuedAt: "desc" }, select: { id: true, clientDocumentId: true, noticeDate: true } },
       repaymentSchedule: { orderBy: { installmentNo: "asc" } },
       payments: { orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }] },
       surrenderRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true, ncaSurplusRemittance: { select: { amountCents: true, executedOn: true } } } },

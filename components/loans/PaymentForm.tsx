@@ -13,7 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
+import { activeCurrencySymbol, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { toast } from "@/lib/toast"
 import {
   beginPaymentAttempt,
@@ -165,13 +166,13 @@ export function PaymentForm({
         {contractualBalance > settlementAmount && (
           <p className="mt-1 text-xs text-gray-500">
             {formatZAR(contractualBalance)} at maturity — settling early rebates
-            the unearned interest (NCA s125).
+            the unearned interest{isNcaJurisdiction() ? " (NCA s125)" : ""}.
           </p>
         )}
       </div>
 
       <div>
-        <Label htmlFor="amount">Payment Amount (R) *</Label>
+        <Label htmlFor="amount">Payment Amount ({activeCurrencySymbol()}) *</Label>
         {/*
           Deliberately NOT capped at the settlement amount. The money has
           already arrived; a cap only stops staff recording it, leaving the

@@ -57,7 +57,7 @@ import { runScreening } from "@/lib/screening/run"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { GET as payoutCheck } from "@/app/api/applications/[id]/payout-check/route"
 import { PUT as clientPut } from "@/app/api/clients/[id]/route"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { acknowledgeKeyFacts } from "./acknowledge"
 import { BORROWER_REFUSAL } from "./borrower-gate"
 import { issueLoanDocuments } from "./issue"
@@ -88,6 +88,7 @@ suite("what a key-facts payout books, and when the officer may make the transfer
     fresh = await createThrowawayDb({ instance: { jurisdiction: "LS", currency: "LSL" } })
     holder.tenantId = stack.tenant
     await seedStack(db(), stack, { code: "BOOK", isDemoLender: true })
+    await createTemplate(db(), stack.tenant, OFFER_KEY, BODY("Offer letter"))
     await createTemplate(db(), stack.tenant, KFS_KEY, BODY("Key facts statement"))
     await createTemplate(db(), stack.tenant, AGREEMENT_KEY, BODY("Loan agreement"))
     vi.stubEnv("TENANT_RLS", "on")
@@ -176,7 +177,7 @@ suite("what a key-facts payout books, and when the officer may make the transfer
     const docs = (await inTenant(() => loanDocumentState(stack.tenant, id)))!.keyFacts!.documents
     const borrower = { tenantId: stack.tenant, applicationId: id, clientId: `${id}-client`, clientEmail: `${id}@test.invalid` }
     await db().client.update({ where: { id: `${id}-client` }, data: { firstName: "Someoneelse" } })
-    expect(await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/identity changed/) })
+    expect(await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/identity or contact details changed/) })
     expect(await inTenant(() => acknowledgeKeyFacts({ ...borrower, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 }))).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
     expect(await inTenant(() => signKeyFactsAgreement({
       ...borrower, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Synthetic Borrower", signingOtpChallengeId: null, ipAddress: "203.0.113.9",

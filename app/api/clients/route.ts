@@ -1,3 +1,4 @@
+import { newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -232,6 +233,8 @@ export async function POST(req: NextRequest) {
           email: created.email,
           phone: created.phone,
           whatsapp: created.whatsapp,
+          // On a key-facts lender a captured address needs a second person before a code or a login recovery goes to it.
+          setByStaffUserId: newApplicationRegime() === "KEY_FACTS" ? guard.user.id : null,
         })
 
         return created

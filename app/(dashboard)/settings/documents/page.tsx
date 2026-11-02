@@ -8,7 +8,7 @@ import { ASSET_TEMPLATE_FAMILIES } from "@/lib/asset-finance/documents/templates
 import { AssetTemplateFamilies, type AssetFamilyRow } from "@/components/settings/AssetTemplateFamilies"
 import { LoanDocumentTemplates, type LoanDocumentTemplateRow } from "@/components/settings/LoanDocumentTemplates"
 import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
-import { LOAN_DOCUMENT_KINDS, LOAN_DOCUMENT_LABELS, LOAN_DOCUMENT_TEMPLATE_KEYS } from "@/lib/non-nca-documents/keys"
+import { ARREARS_LETTER_TEMPLATE_KEY, LOAN_DOCUMENT_KINDS, LOAN_DOCUMENT_LABELS, LOAN_DOCUMENT_TEMPLATE_KEYS } from "@/lib/non-nca-documents/keys"
 
 export const metadata = {
   title: "Document Templates — Settings",
@@ -31,15 +31,17 @@ export default async function DocumentTemplatesPage() {
     }),
   }))
 
-  // A lender outside the NCA signs on its own key facts statement and loan agreement (lib/non-nca-documents).
+  // A lender outside the NCA uses its own offer letter, key facts statement, loan agreement and arrears letter (lib/non-nca-documents).
   const loanDocumentRows: LoanDocumentTemplateRow[] | null = isNcaJurisdiction()
     ? null
-    : await Promise.all(LOAN_DOCUMENT_KINDS.map(async (kind) => {
-        const key = LOAN_DOCUMENT_TEMPLATE_KEYS[kind]
+    : await Promise.all([
+        ...LOAN_DOCUMENT_KINDS.map((kind) => ({ key: LOAN_DOCUMENT_TEMPLATE_KEYS[kind], name: LOAN_DOCUMENT_LABELS[kind] })),
+        { key: ARREARS_LETTER_TEMPLATE_KEY, name: "Arrears letter" },
+      ].map(async ({ key, name }) => {
         const template = await prisma.documentTemplate.findFirst({ where: { tenantId, key, deletedAt: null }, select: { id: true, currentVersionId: true } })
         const versions = template ? await prisma.documentTemplateVersion.findMany({ where: { templateId: template.id }, select: { id: true, version: true, status: true, approvedById: true } }) : []
         return {
-          key, name: LOAN_DOCUMENT_LABELS[kind], templateId: template?.id ?? null,
+          key, name, templateId: template?.id ?? null,
           published: versions.find((v) => v.id === template?.currentVersionId && v.status === "ACTIVE")?.version ?? null,
           drafts: versions.filter((v) => v.status === "DRAFT").length,
           awaitingApproval: versions.filter((v) => v.status === "DRAFT" && !v.approvedById).length,

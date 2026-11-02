@@ -22,8 +22,10 @@ const {
   transaction,
   auditLogCreate,
   findFirstDocument,
+  updateDocument,
   loadOwn,
 } = vi.hoisted(() => ({
+  updateDocument: vi.fn(async () => ({})),
   auth: vi.fn(),
   checkRateLimit: vi.fn(),
   findFirstClient: vi.fn(),
@@ -52,7 +54,7 @@ const tx = {
   loan: { findFirst: findFirstLoan },
   loanApplication: { findFirst: findFirstApplication, create: createApplication },
   auditLog: { create: auditLogCreate },
-  clientDocument: { findFirst: findFirstDocument },
+  clientDocument: { findFirst: findFirstDocument, update: updateDocument },
 }
 
 // No loans with this lender here; the obligations themselves are proven in
@@ -118,6 +120,7 @@ vi.mock("@/lib/referral-agents/referrals", () => ({
 }))
 
 import { POST } from "./route"
+import * as preSubmission from "@/lib/non-nca-documents/pre-submission"
 
 // Two distinct rate-limit keys: an up-front request throttle and the late
 // create cap. Tests distinguish them so we can assert the property (only
@@ -533,14 +536,39 @@ describe("POST /api/portal/applications", () => {
     it("demands neither on a Lesotho instance, stamps no declaration and audits none", async () => {
       const { resetActiveJurisdiction, setActiveJurisdiction } = await import("@/lib/jurisdiction/active")
       setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      const shown = vi.spyOn(preSubmission, "indicativeKeyFactsShown").mockResolvedValue("kfs-doc")
       try {
         const res = await POST(buildReq(silent))
         expect(res.status, JSON.stringify(await res.clone().json())).toBe(201)
+        expect(updateDocument).toHaveBeenCalledWith({ where: { id: "kfs-doc" }, data: { issuedForApplicationId: expect.any(String) } })
         expect(createApplication.mock.calls[0][0].data).not.toHaveProperty("clientAffordabilityDeclaredAt")
-        expect(auditLogCreate.mock.calls[0][0].data.newValue).toMatchObject({ affordabilityDeclaredByClient: false, pasqDeliveryNoticeAcceptedByClient: false })
+        expect(auditLogCreate.mock.calls[0][0].data.newValue).toMatchObject({ affordabilityDeclaredByClient: false, pasqDeliveryNoticeAcceptedByClient: false, indicativeKeyFactsDocumentId: "kfs-doc" })
       } finally {
+        shown.mockRestore()
         resetActiveJurisdiction()
       }
+    })
+
+    it("refuses a Lesotho application whose borrower was not shown the key facts statement for these terms", async () => {
+      const { resetActiveJurisdiction, setActiveJurisdiction } = await import("@/lib/jurisdiction/active")
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      const shown = vi.spyOn(preSubmission, "indicativeKeyFactsShown").mockResolvedValue(null)
+      try {
+        const res = await POST(buildReq(silent))
+        expect(res.status).toBe(422)
+        expect(await res.json()).toMatchObject({ keyFacts: "required" })
+        expect(createApplication).not.toHaveBeenCalled()
+      } finally {
+        shown.mockRestore()
+        resetActiveJurisdiction()
+      }
+    })
+
+    it("does not ask a South African applicant for a key facts statement", async () => {
+      const shown = vi.spyOn(preSubmission, "indicativeKeyFactsShown")
+      await POST(buildReq(validBody))
+      expect(shown).not.toHaveBeenCalled()
+      shown.mockRestore()
     })
 
     it("still stamps the declaration on a South African instance", async () => {

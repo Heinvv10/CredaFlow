@@ -192,6 +192,7 @@ export default async function NewApplicationPage({ searchParams }: PageProps) {
             initialData={draft ? toWizardData(draft) : undefined}
             creditLifeOffer={creditLifeOffer}
             ncaDeclarations={approvalEvidenceRules({ disclosureRegime }).affordabilityDeclaration}
+            draftOnly={disclosureRegime === "KEY_FACTS"}
           />
         </Suspense>
       </div>

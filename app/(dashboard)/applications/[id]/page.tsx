@@ -22,6 +22,8 @@ import { previewCalcInput } from "@/lib/product-engine/approval-terms"
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react"
 import { AgreementSection } from "@/components/applications/AgreementSection"
 import { LoanDocumentsPanel } from "@/components/applications/LoanDocumentsPanel"
+import { BranchSigningPanel } from "@/components/applications/BranchSigningPanel"
+import { availableOtpChannels } from "@/lib/signing-otp/deliver"
 import { loanDocumentState } from "@/lib/non-nca-documents/state"
 import { PipelineStepper } from "@/components/applications/PipelineStepper"
 import { AffordabilityCapture } from "@/components/applications/AffordabilityCapture"
@@ -33,6 +35,7 @@ import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
 import { PayoutAccountVerificationCard } from "@/components/applications/PayoutAccountVerificationCard"
 import { keyFactsPayoutCheck } from "@/lib/non-nca-documents/payout-gates"
+import { LOAN_DOCUMENT_KINDS } from "@/lib/non-nca-documents/keys"
 import { SECOND_PERSON_VERIFICATION_PROVIDER } from "@/lib/non-nca-documents/payout-terms"
 import { AutoDecisionCard } from "@/components/applications/AutoDecisionCard"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
@@ -260,6 +263,11 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   const userRole = session?.user?.role ?? "READONLY"
   // A key-facts (non-NCA) application has loan documents, not a PASQ and credit agreement.
   const keyFactsState = application.disclosureRegime === "KEY_FACTS" ? await loanDocumentState(tenantId, application.id) : null
+  // A borrower at the branch: only while the documents stand and would carry a signature, for staff who may witness one.
+  const branchSigningChannels = keyFactsState?.keyFacts && application.client && application.status === "APPROVED" && !application.agreementSignedAt
+    && keyFactsState.keyFacts.documents.length === LOAN_DOCUMENT_KINDS.length && !keyFactsState.keyFacts.signingProblem && hasMinRole(userRole, "CREDIT_OFFICER")
+    ? await availableOtpChannels(tenantId, application.client)
+    : null
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")
   // The approval matrix's chain for this application (no matrix in force: nothing to show).
@@ -590,6 +598,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           <ApplicationSubmitButton
             applicationId={application.id}
             blockedReason={submitBlockedReason}
+            keyFacts={application.disclosureRegime === "KEY_FACTS"}
           />
         </>
       )}
@@ -598,7 +607,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       )}
       {application.status === "UNDER_REVIEW" && (
         <>
-          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
+          <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} keyFacts={application.disclosureRegime === "KEY_FACTS"} openChecks={openChecks} />
           {approvalProgress && <ApprovalProgressPanel applicationId={application.id} progress={approvalProgress} canUseCommittee={canDo(userRole, "view_committee_pack")} today={sastCalendarDate(new Date())} />}
           {pageEvidence.bureauRetry && (
             <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
@@ -1033,6 +1042,17 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             }))}
             signingProblem={keyFactsState.keyFacts.signingProblem}
             canIssue={hasMinRole(userRole, "CREDIT_OFFICER")}
+          />
+        )}
+        {keyFactsState?.keyFacts && branchSigningChannels && (
+          <BranchSigningPanel
+            applicationId={application.id}
+            clientName={`${application.client?.firstName ?? ""} ${application.client?.lastName ?? ""}`.trim()}
+            documents={keyFactsState.keyFacts.documents.map((d) => ({
+              kind: d.kind, clientDocumentId: d.clientDocumentId, pdfSha256: d.pdfSha256, templateVersion: d.templateVersion, sample: d.sample,
+              acknowledgedAt: d.acknowledgedAt?.toISOString() ?? null,
+            }))}
+            channels={branchSigningChannels}
           />
         )}
         {!keyFactsState?.keyFacts && !decisionPricingUnavailable && (

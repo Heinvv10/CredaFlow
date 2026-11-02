@@ -10,7 +10,7 @@ import {
   totalAffordabilityDebt,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
-import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
 import { applicationDebt, applicationFixture, capturedAt, client, debt, product, submittedAt, tenantConfig } from "@/lib/affordability/__fixtures__/approval-evidence"
 
 /** What decide freezes for a key-facts approval: no bureau check, no credit life, the schedule from the decision instant. */
@@ -26,7 +26,7 @@ export function keyFactsApplication() {
     principalCents: 500_000, termDays: 90, productId: "product-1", interestRatePm: product.interestRatePm, productType: product.productType,
     interestModel: product.interestModel, initiationFeeModel: product.initiationFeeModel, initiationFeePct: product.initiationFeePct,
     initiationFeeMaxCents: product.initiationFeeMax, monthlyServiceFeeCents: product.monthlyServiceFee, initiationFeePayment: "DEFERRED" as const, ndiBufferPct: tenantConfig.ndiBufferPct,
-    borrowerIdentity: biometricSubjectFingerprint(client),
+    ...frozenIdentityInput({ disclosureRegime: "KEY_FACTS", client }),
   }
   const affordability = evaluateAffordabilityGate(inputs)
   const approval = createAffordabilitySnapshot({

@@ -42,7 +42,7 @@ describe("a KEY_FACTS approval at payout: no bureau and no PASQ, everything else
 
   it("the approval fingerprint binds who the borrower is: a changed name, ID number or date of birth is refused", () => {
     const application = keyFactsApplication()
-    for (const change of [{ lastName: "Other" }, { firstName: "Other" }, { idNumber: "990000002" }, { dateOfBirth: new Date("1991-01-01T00:00:00.000Z") }]) {
+    for (const change of [{ lastName: "Other" }, { firstName: "Other" }, { email: "someone-else@test.invalid" }, { whatsapp: "+26658999999" as never }, { idNumber: "990000002" }, { dateOfBirth: new Date("1991-01-01T00:00:00.000Z") }]) {
       expect(verify({ ...application, client: { ...application.client, ...change } })).toEqual({ ok: false, reason: "changed" })
     }
   })
@@ -56,7 +56,7 @@ describe("a KEY_FACTS approval at payout: no bureau and no PASQ, everything else
   it("an NCA approval carries no identity input, so its fingerprints do not move", () => {
     expect(frozenIdentityInput({ disclosureRegime: "NCA_PASQ", client })).toEqual({})
     expect(frozenIdentityInput({ client })).toEqual({})
-    expect(frozenIdentityInput({ disclosureRegime: "KEY_FACTS", client })).toEqual({ borrowerIdentity: biometricSubjectFingerprint(client) })
+    expect(frozenIdentityInput({ disclosureRegime: "KEY_FACTS", client })).toEqual({ borrowerIdentity: expect.stringMatching(/^[0-9a-f]{64}$/) })
   })
 
   it("is not skipped for the submission snapshot or an incomplete bureau override", () => {

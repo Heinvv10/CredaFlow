@@ -10,6 +10,7 @@ vi.mock("@/lib/prisma", () => {
     prisma: {
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
       signingOtpChallenge: { updateMany: vi.fn(async () => ({ count: 1 })) },
+      contactIdentity: { findFirst: vi.fn(async () => null) },
     },
   }
 })

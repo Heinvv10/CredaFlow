@@ -385,17 +385,16 @@ describe("POST /api/crm/leads/[id]/convert affordability evidence", () => {
     })
   })
 
-  it("stamps the NCA declarations on a South African conversion and neither on a key-facts one: nobody made an s81 assessment", async () => {
+  it("stamps the NCA declarations on a South African conversion and refuses a key-facts one: it has no statement step", async () => {
     await POST(request(), context)
     expect(applicationCreateMock.mock.calls[0][0].data).toMatchObject({ recklessLendingAssessed: true, recklessLendingAssessedById: "officer-1", clientAffordabilityDeclaredAt: expect.any(Date) })
 
     applicationCreateMock.mockClear()
     setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
     try {
-      await POST(request(), context)
-      const data = applicationCreateMock.mock.calls[0]?.[0]?.data
-      expect(data).toBeDefined()
-      for (const stamp of ["recklessLendingAssessed", "recklessLendingAssessedAt", "recklessLendingAssessedById", "clientAffordabilityDeclaredAt"]) expect(data).not.toHaveProperty(stamp)
+      const response = await POST(request(), context)
+      expect(response.status).toBe(409)
+      expect(applicationCreateMock).not.toHaveBeenCalled()
     } finally {
       resetActiveJurisdiction()
     }

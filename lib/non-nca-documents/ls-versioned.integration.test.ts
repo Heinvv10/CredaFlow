@@ -55,7 +55,7 @@ import { PRODUCT_VERSION_KIND } from "@/lib/product-engine/change-handlers"
 import { STRUCTURED_SCHEDULE_CHANNEL } from "@/lib/product-engine/channels"
 import { PRICING_RULE_KIND } from "@/lib/product-engine/pricing"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
 
@@ -96,6 +96,7 @@ suite("a key-facts loan on a versioned product (real Postgres, real routes, no b
     fresh = await createThrowawayDb({ instance: { jurisdiction: "LS", currency: "LSL" } })
     holder.tenantId = stack.tenant
     await seedStack(db(), stack, { code: "VER", isDemoLender: true })
+    await createTemplate(db(), stack.tenant, OFFER_KEY, "<p>Offer letter {{quote.principal}}</p>")
     await createTemplate(db(), stack.tenant, KFS_KEY, BODY("Key facts statement"))
     await createTemplate(db(), stack.tenant, AGREEMENT_KEY, BODY("Loan agreement"))
     vi.stubEnv("TENANT_RLS", "on")

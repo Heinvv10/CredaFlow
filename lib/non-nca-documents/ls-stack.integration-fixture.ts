@@ -27,6 +27,8 @@ export interface Stack {
   officer: string
   /** A second officer: the one who pays out (segregation of duties). */
   disburser: string
+  /** The second person who confirms the payout account: no other part in the application. */
+  confirmer: string
   /** The senior who attests in-person KYC (the lender's default minimum role for it). */
   senior: string
   product: string
@@ -42,7 +44,7 @@ const EXPENSES = { housing: 400_000, transport: 150_000, food: 150_000, insuranc
 const LONG_AGO = new Date(Date.now() - 2 * 365 * 86_400_000)
 
 export const stackOf = (jurisdiction: StackJurisdiction, t: string): Stack => ({
-  jurisdiction, tenant: `stk-${jurisdiction.toLowerCase()}-${t}`, officer: `stk-officer-${t}`, disburser: `stk-disb-${t}`, senior: `stk-senior-${t}`, product: `stk-product-${t}`,
+  jurisdiction, tenant: `stk-${jurisdiction.toLowerCase()}-${t}`, officer: `stk-officer-${t}`, disburser: `stk-disb-${t}`, confirmer: `stk-conf-${t}`, senior: `stk-senior-${t}`, product: `stk-product-${t}`,
 })
 
 export const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex")
@@ -53,7 +55,7 @@ export async function seedStack(db: PrismaClient, stack: Stack, opts: { code: st
   // An in-band (Experian Sigma) score floor: the default 450 is uncalibrated and refers every approval.
   // A key-facts approval needs a screening provider (it has no bureau): the simulated one, which a demo stack may use.
   await db.tenantConfig.create({ data: { tenantId: stack.tenant, bureauMinScore: 580, isDemoLender: opts.isDemoLender ?? false, ...(stack.jurisdiction === "LS" ? { screeningProvider: "simulated" } : {}) } })
-  for (const [id, name, role] of [[stack.officer, "Synthetic Officer", "LOAN_ADMIN"], [stack.disburser, "Synthetic Disburser", "LOAN_ADMIN"], [stack.senior, "Synthetic Senior", "ADMIN"]] as const) {
+  for (const [id, name, role] of [[stack.officer, "Synthetic Officer", "LOAN_ADMIN"], [stack.disburser, "Synthetic Disburser", "LOAN_ADMIN"], [stack.confirmer, "Synthetic Confirmer", "CREDIT_OFFICER"], [stack.senior, "Synthetic Senior", "ADMIN"]] as const) {
     await db.user.create({ data: { id, tenantId: stack.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name, role, totpEnabled: true, lastTotpCounter: 1 } })
   }
   await db.loanProduct.create({
@@ -66,11 +68,8 @@ export interface BorrowerBytes {
   statement: { path: string; bytes: Buffer }
 }
 
-/**
- * A borrower and an UNDER_REVIEW application. Returns the statement bytes for the suite to put in its storage double
- * (the payout gate reads the stored file back and hashes it).
- */
-export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean; dealerId?: string; authenticated?: boolean }): Promise<BorrowerBytes> {
+/** A borrower with verified evidence and no application: what the portal's apply route starts from. */
+export async function seedBorrower(db: PrismaClient, stack: Stack, id: string, opts: { documents?: boolean; income?: number; bank?: boolean; dealerId?: string } = {}): Promise<BorrowerBytes> {
   const ls = stack.jurisdiction === "LS"
   const clientId = `${id}-client`
   const bank = ls
@@ -80,7 +79,7 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
     data: {
       id: clientId, tenantId: stack.tenant, reference: `CLI-${id}`,
       idNumber: ls ? `99${String(randomInt(10_000_000)).padStart(7, "0")}` : syntheticSaIdNumber(),
-      firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone: ls ? "+26658000011" : "+27820000000",
+      firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone: ls ? `+26658${String(randomInt(1_000_000)).padStart(6, "0")}` : `+2782${String(randomInt(10_000_000)).padStart(7, "0")}`,
       grossMonthlyIncome: 2_200_000, monthlyIncome: opts.income ?? 2_000_000, monthlyExpenses: 800_000,
       ...(opts.bank === false ? {} : bank), ...(opts.dealerId ? { createdByDealerId: opts.dealerId } : {}), expenseBreakdown: { create: EXPENSES },
     },
@@ -101,6 +100,16 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
       })
     }
   }
+  return { statement: { path: statementPath, bytes: statementBytes } }
+}
+
+/**
+ * A borrower and an UNDER_REVIEW application. Returns the statement bytes for the suite to put in its storage double
+ * (the payout gate reads the stored file back and hashes it).
+ */
+export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean; dealerId?: string; authenticated?: boolean }): Promise<BorrowerBytes> {
+  const statement = await seedBorrower(db, stack, id, opts)
+  const clientId = `${id}-client`
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId }, include: { expenseBreakdown: true } })
   const submittedAt = new Date(Date.now() - 60 * 60_000)
   const submission = createSubmissionAffordabilitySnapshot({
@@ -130,7 +139,7 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
       },
     })
   }
-  return { statement: { path: statementPath, bytes: statementBytes } }
+  return statement
 }
 
 /** The real recompute raises its findings (no statement or payslip in the window); an officer clears each with a reason. */

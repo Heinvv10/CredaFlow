@@ -23,6 +23,8 @@
  * ACTIVE EntityRelationship rows with role SURETY at the time they are read
  * (deal detail, and the signers at contracting).
  */
+import { KEY_FACTS_CHANNEL_REFUSAL } from "@/lib/non-nca-documents/pre-submission"
+import { newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { dealerAuditFields } from "@/lib/dealer/actor"
@@ -58,6 +60,9 @@ export async function createDeal(
   const { tenantId, input, dealer } = params
   const createdBy = dealer ? dealer.dealerUserId : params.userId
   const dealerAudit = dealer ? dealerAuditFields(dealer) : null
+
+  // Asset finance is an NCA product, and its deal has no key facts statement step: not on a key-facts instance.
+  if (newApplicationRegime() === "KEY_FACTS") return refused(409, KEY_FACTS_CHANNEL_REFUSAL)
 
   // A person or business the dealer draft purge erased is gone (guardDealerPurgedPartyUse).
   const entity = input.entityId === null ? null : await tx.businessEntity.findFirst({ where: { id: input.entityId, tenantId, dealerPurgedAt: null }, select: { id: true, legalName: true } })

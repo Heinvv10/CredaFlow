@@ -31,7 +31,11 @@ describe("shared client API audience matcher", () => {
 
   // A key-facts application's loan documents: the borrower acknowledges and signs (POST), and reads the state (GET);
   // issuing them (POST on the base path) is staff-only.
-  it.each(["/api/applications/app-1/loan-documents/acknowledge", "/api/applications/app-1/loan-documents/sign"])("allows %s for POST only", (pathname) => {
+  it("keeps branch-assisted signing on the staff host", () => {
+    expect(isSharedClientApiPath("/api/applications/app-1/loan-documents/branch-sign", "POST")).toBe(false)
+  })
+
+  it.each(["/api/applications/app-1/loan-documents/accept", "/api/applications/app-1/loan-documents/acknowledge", "/api/applications/app-1/loan-documents/sign"])("allows %s for POST only", (pathname) => {
     for (const method of METHODS) expect(isSharedClientApiPath(pathname, method), method).toBe(method === "POST")
   })
 

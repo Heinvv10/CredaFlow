@@ -1,4 +1,5 @@
 import { calculateLoanFromDecisionInputs, frozenApprovedTerms, readAffordabilitySnapshotStore } from "@/lib/affordability/snapshot"
+import type { LoanCalcResult } from "@/lib/loan-calculator"
 
 /** The approved terms as printed on the key facts statement and the agreement (all money in cents). */
 export interface QuoteFigures {
@@ -47,6 +48,11 @@ export function approvedCalculation(application: { affordabilityResult: unknown 
 /** The approved terms as printed on the key facts statement and the agreement. */
 export function quoteFor(application: { affordabilityResult: unknown; repaymentMethod: string | null }): QuoteFigures {
   const { calculation, terms } = approvedCalculation(application)
+  return quoteFromCalculation(calculation, terms, application.repaymentMethod ?? "")
+}
+
+/** A calculation as the quote.* tokens print it: the one shape, for approved and indicative figures alike. */
+export function quoteFromCalculation(calculation: LoanCalcResult, terms: { termDays: number; interestRatePm: number }, repaymentMethod: string): QuoteFigures {
   const first = calculation.schedule[0]
   const last = calculation.schedule[calculation.schedule.length - 1]
   return {
@@ -61,9 +67,12 @@ export function quoteFor(application: { affordabilityResult: unknown; repaymentM
     instalments: calculation.schedule.length,
     firstDueDate: first.dueDate,
     lastDueDate: last.dueDate,
-    repaymentMethod: application.repaymentMethod ?? "",
+    repaymentMethod,
   }
 }
+
+/** The arrears.* tokens in the template editor's preview: synthetic. */
+export const SAMPLE_ARREARS = { arrearsCents: 195_000, totalOutstandingCents: 1_041_400, daysInArrears: 15, noticeDate: "1 February 2027" }
 
 /** Figures for the template editor's preview (app/api/documents/templates/[id]/preview): synthetic, so the quote.* tokens render before any application exists. */
 export const SAMPLE_QUOTE: QuoteFigures = {

@@ -7,6 +7,7 @@ import { formatZAR } from "@/lib/utils"
 const holds = vi.hoisted(() => ({
   hold: null as null | { deceased: boolean; debtReview: { loanId: string; loanReference: string; noticeAt: Date; noticeRef: string | null } | null },
 }))
+const h = vi.hoisted(() => ({ disclosureRegime: "NCA_PASQ", arrearsLetters: [] as unknown[] }))
 // The pure derivations stay real; only the one query is stubbed.
 vi.mock("@/lib/collections/client-holds", async (orig) => ({
   ...(await orig<typeof import("@/lib/collections/client-holds")>()),
@@ -16,7 +17,7 @@ const reminderButton = vi.hoisted(() => ({ rendered: 0 }))
 const whatsAppButton = vi.hoisted(() => ({ rendered: 0 }))
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
-vi.mock("next/navigation", () => ({ notFound: vi.fn() }))
+vi.mock("next/navigation", () => ({ notFound: vi.fn(), useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock("@/lib/loan/charges-replay", () => ({ chargesLiveForTenant: vi.fn(async () => true) }))
 vi.mock("@/lib/collections/section129-artifact", () => ({
   getSection129IssuanceAvailability: vi.fn(async () => ({ available: false })),
@@ -57,6 +58,7 @@ vi.mock("@/lib/prisma", () => ({
         nextPaymentDate: null, collectionsStage: "SECTION_129", writeOffRequestedById: null,
         client: { id: "c1", firstName: "Thandi", lastName: "Mocktest", phone: "0820000000", whatsapp: null, email: "t@x.test", idNumber: "9401020000082" },
         product: { name: "Micro", productType: "MICRO" }, notes: [], repaymentSchedule: [], paymentPlan: null,
+        application: { disclosureRegime: h.disclosureRegime }, arrearsLetters: h.arrearsLetters,
         // R500 cash, R80 of it paid default charges; the waiver is not cash.
         payments: [
           { amount: 50_000, paymentMethod: "EFT", reversed: false, allocationStatus: "ALLOCATED" },
@@ -73,6 +75,28 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 describe("collections loan page", () => {
+  it("a key-facts loan offers the arrears letter and lists what was issued; Section 129 is not there at all", async () => {
+    h.disclosureRegime = "KEY_FACTS"
+    h.arrearsLetters = [{ id: "al1", clientDocumentId: "d1", noticeDate: new Date("2027-02-01T00:00:00Z"), arrearsAmount: 174_900, daysInArrears: 25, templateVersionNumber: 2, sample: true }]
+    try {
+      const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
+      expect(html).toContain("Issue arrears letter")
+      expect(html).toContain("/api/documents/d1/view")
+      expect(html).toContain("template v2")
+      expect(html).toContain("SAMPLE")
+      expect(html).not.toContain("S.129 unavailable")
+    } finally {
+      h.disclosureRegime = "NCA_PASQ"
+      h.arrearsLetters = []
+    }
+  })
+
+  it("a South African loan keeps its Section 129 control and offers no arrears letter", async () => {
+    const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
+    expect(html).not.toContain("Issue arrears letter")
+    expect(html).toContain("S.129")
+  })
+
   const underReview = { deceased: false, debtReview: { loanId: "l2", loanReference: "LN-2", noticeAt: new Date("2026-10-15T00:00:00+02:00"), noticeRef: "DC-1" } }
 
   it("debt review: banner in design tokens linking to the loan that carries the notice, no reminder button, no WhatsApp composer, only the reminder moves held, S.129 blocked", async () => {

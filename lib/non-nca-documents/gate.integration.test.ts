@@ -57,10 +57,39 @@ suite("a Lesotho (KEY_FACTS) instance (real DB)", () => {
     await expect(sign()).rejects.toThrow(/no loan agreement has been issued/)
     const agreement = await issueDocument(db(), fx, "LOAN_AGREEMENT")
     await db().loanApplication.update({ where: { id: fx.applicationId }, data: { agreementGeneratedAt: new Date(), agreementDocumentId: agreement.document.id, agreementDocumentSha256: agreement.pdfSha256 } })
+    await expect(sign()).rejects.toThrow(/no offer letter has been issued/)
+    const offer = await issueDocument(db(), fx, "OFFER_LETTER")
     await expect(sign()).rejects.toThrow(/key facts statement has not been acknowledged/)
     await db().loanDocumentIssuance.update({ where: { id: kfs.issuance.id }, data: { acknowledgedAt: new Date(), acknowledgedById: fx.clientId, acknowledgedSha256: kfs.pdfSha256 } })
+    await expect(sign()).rejects.toThrow(/offer letter has not been accepted/)
+    await db().loanDocumentIssuance.update({ where: { id: offer.issuance.id }, data: { acknowledgedAt: new Date(), acknowledgedById: fx.clientId, acknowledgedSha256: offer.pdfSha256 } })
     await sign()
     expect((await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })).agreementSignedAt).not.toBeNull()
+  })
+
+  it("an offer accepted after the signature's own time is refused", async () => {
+    const fx = await fresh1()
+    const { offer } = await issueBoth(db(), fx, { acceptOffer: false })
+    await db().loanDocumentIssuance.update({ where: { id: offer.issuance.id }, data: { acknowledgedAt: new Date(Date.now() + 3_600_000), acknowledgedById: fx.clientId, acknowledgedSha256: offer.pdfSha256 } })
+    await expect(db().loanApplication.update({ where: { id: fx.applicationId }, data: signData() })).rejects.toThrow(/offer letter must be accepted before/)
+  })
+
+  it("an offer accepted on terms the other two documents do not carry is refused", async () => {
+    const fx = await fresh1()
+    const offer = await issueDocument(db(), fx, "OFFER_LETTER")
+    await db().loanDocumentIssuance.update({ where: { id: offer.issuance.id }, data: { acknowledgedAt: new Date(), acknowledgedById: fx.clientId, acknowledgedSha256: offer.pdfSha256 } })
+    await db().loanApplication.update({ where: { id: fx.applicationId }, data: { approvedAmount: 190_000 } })
+    const kfs = await issueDocument(db(), fx, "KEY_FACTS_STATEMENT")
+    const agreement = await issueDocument(db(), fx, "LOAN_AGREEMENT")
+    await db().loanDocumentIssuance.update({ where: { id: kfs.issuance.id }, data: { acknowledgedAt: new Date(), acknowledgedById: fx.clientId, acknowledgedSha256: kfs.pdfSha256 } })
+    await db().loanApplication.update({ where: { id: fx.applicationId }, data: { agreementGeneratedAt: new Date(), agreementDocumentId: agreement.document.id, agreementDocumentSha256: agreement.pdfSha256 } })
+    await expect(db().loanApplication.update({ where: { id: fx.applicationId }, data: signData() })).rejects.toThrow(/terms changed/)
+  })
+
+  it("nobody but the borrower can accept the offer: the issuance guard stops it before the signature's check could see it", async () => {
+    const fx = await fresh1()
+    const offer = await issueDocument(db(), fx, "OFFER_LETTER")
+    await expect(db().loanDocumentIssuance.update({ where: { id: offer.issuance.id }, data: { acknowledgedAt: new Date(), acknowledgedById: "someone-else", acknowledgedSha256: offer.pdfSha256 } })).rejects.toThrow(/acknowledged by the borrower/)
   })
 
   it("cannot sign an agreement that is not the issued one", async () => {

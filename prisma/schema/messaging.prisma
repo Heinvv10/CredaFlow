@@ -433,6 +433,8 @@ model Contact {
 
   blockedAt     DateTime?
   blockedReason String?
+  // A staff-set address another Contact holds: no identity row can carry the setter, so login recovery stays shut (lib/contact/sync-client-channels.ts).
+  staffAddressUnresolvedAt DateTime?
   spamScore     Int?
 
   // Merge bookkeeping (forensic retention — POPIA s.16 + 7y audit window).
@@ -476,6 +478,11 @@ model ContactIdentity {
   verified  Boolean        @default(false)
   source    IdentitySource
   createdAt DateTime       @default(now())
+  // Set by staff: unverified for a signing code or a login recovery until a second staff member confirms it
+  // (lib/contact/identity-confirmation.ts). Null: the borrower's own, or from before this rule; both count as verified.
+  setByStaffUserId  String?
+  confirmedAt       DateTime?
+  confirmedByUserId String?
 
   // Tenant-scoped — two tenants may legitimately share a number (shared
   // household phone across tenants in different branches).

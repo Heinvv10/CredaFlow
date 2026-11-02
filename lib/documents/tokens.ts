@@ -4,6 +4,9 @@ import { formatDate, formatTermDays, formatZAR } from "@/lib/utils"
 import type { LenderIdentity } from "@/lib/config/identity"
 import type { QuoteFigures } from "@/lib/non-nca-documents/quote"
 
+/** What an arrears letter prints (cents, days), on the SAST date of the letter. */
+export interface ArrearsFigures { arrearsCents: number; totalOutstandingCents: number; daysInArrears: number; noticeDate: string }
+
 /**
  * Merge context for token resolution. `tenant`/`client` are always present
  * (every generated document is scoped to a client); `application`/`loan`/
@@ -17,6 +20,8 @@ import type { QuoteFigures } from "@/lib/non-nca-documents/quote"
 export interface TokenContext {
   /** The approved terms of a key-facts application (lib/non-nca-documents/quote.ts); absent everywhere else, which leaves the quote.* tokens missing. */
   quote?: QuoteFigures | null
+  /** The figures of an arrears letter (lib/non-nca-documents/arrears-letter.ts); absent everywhere else. */
+  arrears?: ArrearsFigures | null
   tenant: Tenant
   /** The tenant's validated identity (lib/config/identity.ts); null when not
    * configured, which leaves every `tenant.*` identity token missing. */
@@ -143,6 +148,12 @@ export const TOKEN_REGISTRY: TokenDef[] = [
     group: "Application",
     resolve: (ctx) => (ctx.application ? formatZAR(ctx.application.appliedAmount) : null),
   },
+
+  // Arrears — an arrears letter of a key-facts loan (lib/non-nca-documents/arrears-letter.ts).
+  { token: "arrears.amount", label: "Amount in arrears", group: "Arrears", resolve: (ctx) => (ctx.arrears ? formatZAR(ctx.arrears.arrearsCents) : null) },
+  { token: "arrears.totalOutstanding", label: "Total outstanding", group: "Arrears", resolve: (ctx) => (ctx.arrears ? formatZAR(ctx.arrears.totalOutstandingCents) : null) },
+  { token: "arrears.days", label: "Days in arrears", group: "Arrears", resolve: (ctx) => (ctx.arrears ? String(ctx.arrears.daysInArrears) : null) },
+  { token: "arrears.noticeDate", label: "Date of the letter", group: "Arrears", resolve: (ctx) => ctx.arrears?.noticeDate ?? null },
 
   // Quote — the approved terms of a key-facts application (Lesotho and other non-NCA
   // lenders, lib/non-nca-documents). Resolves only when such a document is rendered.

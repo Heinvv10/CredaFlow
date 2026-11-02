@@ -10,9 +10,11 @@
  */
 import type { SigningOtpPurpose } from "@prisma/client"
 import type { prisma as PrismaClientInstance } from "@/lib/prisma"
+import { accountControlRefusal } from "@/lib/security/account-control"
 import { SIGNING_OTP_SIGN_WINDOW_MS, signingOtpMatches } from "./code"
 
 type Db = Pick<typeof PrismaClientInstance, "signingOtpChallenge">
+type ConsumeDb = Db & Partial<Pick<typeof PrismaClientInstance, "contactIdentity" | "auditLog">>
 
 const DELIVERED: readonly string[] = ["ACCEPTED", "SIMULATED"]
 
@@ -43,13 +45,18 @@ export type SigningBinding = {
   purpose: SigningOtpPurpose
   subjectId: string
   documentSha256: string
+  /**
+   * Who asked for the code: the witnessing staff member, or null for the borrower's own portal request. Given, it must match, so
+   * a code from one path cannot sign on the other. Absent, it is not read (the NCA routes).
+   */
+  requestedByUserId?: string | null
 }
 
-export type ConsumeRefusal = "not_found" | "not_verified" | "verification_stale" | "already_used" | "document_changed"
+export type ConsumeRefusal = "not_found" | "not_verified" | "verification_stale" | "already_used" | "document_changed" | "identity_confirmed_by_witness"
 
 /** Why a challenge cannot authorise this signature; null when it can. */
 export function consumeBlockedReason(
-  row: (ChallengeState & SigningBinding) | null,
+  row: (ChallengeState & SigningBinding & { requestedByUserId?: string | null }) | null,
   binding: SigningBinding,
   now: Date,
 ): ConsumeRefusal | null {
@@ -59,6 +66,7 @@ export function consumeBlockedReason(
     || row.clientId !== binding.clientId
     || row.purpose !== binding.purpose
     || row.subjectId !== binding.subjectId
+    || (binding.requestedByUserId !== undefined && row.requestedByUserId !== binding.requestedByUserId)
   ) return "not_found"
   if (row.consumedAt) return "already_used"
   if (row.documentSha256 !== binding.documentSha256) return "document_changed"
@@ -149,10 +157,21 @@ export async function checkSigningOtp(
  * signature record carries; throws SigningOtpRefusedError otherwise.
  */
 export async function consumeSigningOtp(
-  tx: Db,
-  args: SigningBinding & { challengeId: string; method: "portal" | "branch"; now: Date },
+  tx: ConsumeDb,
+  args: SigningBinding & { challengeId: string; method: "portal" | "branch"; now: Date; witnessUserId?: string },
 ): Promise<SigningOtpEvidence> {
-  const { challengeId, method, now, ...binding } = args
+  const { challengeId, method, now, witnessUserId, ...binding } = args
+  // Whoever confirmed the borrower's address does not also witness the signature it authorises, nor does an account they control.
+  if (witnessUserId) {
+    const confirmations = await tx.contactIdentity!.findMany({
+      where: { tenantId: binding.tenantId, confirmedByUserId: { not: null }, contact: { clientId: binding.clientId } }, select: { confirmedByUserId: true },
+    })
+    const confirmers = [...new Set(confirmations.flatMap((row) => (row.confirmedByUserId ? [row.confirmedByUserId] : [])))]
+    if (confirmers.includes(witnessUserId)) throw new SigningOtpRefusedError("identity_confirmed_by_witness")
+    if (confirmers.length > 0 && await accountControlRefusal({ auditLog: tx.auditLog! }, { tenantId: binding.tenantId, makerIds: confirmers, checkerId: witnessUserId })) {
+      throw new SigningOtpRefusedError("identity_confirmed_by_witness")
+    }
+  }
   const consumed = await tx.signingOtpChallenge.updateMany({
     where: {
       id: challengeId,
@@ -179,8 +198,10 @@ export async function consumeSigningOtp(
 }
 
 /** What the borrower (or the witnessing staff member) is told for each refusal. */
-export const SIGNING_OTP_REFUSAL_MESSAGES: Record<ConsumeRefusal | "required" | VerifyRefusal, string> = {
+export const SIGNING_OTP_REFUSAL_MESSAGES: Record<ConsumeRefusal | "required" | VerifyRefusal | "identity_unconfirmed", string> = {
   required: "Verify the one-time code sent to you before signing.",
+  identity_unconfirmed: "Staff set this address and it has not been confirmed. A second staff member confirms it on the client record.",
+  identity_confirmed_by_witness: "You confirmed this address, or one of your accounts is tied to whoever did, so another staff member must witness the signature.",
   not_found: "That one-time code request was not found. Request a new code.",
   not_verified: "Enter the one-time code sent to you before signing.",
   verification_stale: "Your code was verified too long ago. Request a new code and sign again.",

@@ -7,6 +7,7 @@ import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
 import { BORROWER_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 import { committeeConditionsRefusal } from "@/lib/approval/conditions"
+import type { BranchAssistant } from "./acknowledge"
 
 export type SignResult =
   | { ok: true; signedAt: Date }
@@ -14,13 +15,15 @@ export type SignResult =
 
 /**
  * The borrower signs the loan agreement of a key-facts application. Refused unless
- * the key facts statement has been acknowledged; the signature is recorded over
- * the digest the borrower was shown (and the stored bytes must still match it),
+ * the offer is accepted and the key facts statement acknowledged; the signature is recorded
+ * over the digest the borrower was shown (and the stored bytes must still match it),
  * with the lender's signing one-time code when the lender requires one. The write
- * itself is checked again by the database, which refuses it unless both documents
+ * itself is checked again by the database, which refuses it unless all three documents
  * are standing, from the current approved template versions, with the terms
  * unchanged (guardLoanApplicationKeyFactsDocuments). A typed name is the signature
- * artefact; the signed agreement then awaits disbursement.
+ * artefact; the signed agreement then awaits disbursement. At a branch (`assistedBy`) the
+ * code is required whatever the lender's policy: it is the borrower's own act, on their own
+ * phone or mailbox, and the staff member is recorded as the witness, never as the signer.
  */
 export async function signKeyFactsAgreement(args: {
   tenantId: string
@@ -32,8 +35,10 @@ export async function signKeyFactsAgreement(args: {
   signature: unknown
   signingOtpChallengeId: string | null
   ipAddress: string
+  assistedBy?: BranchAssistant
 }): Promise<SignResult> {
-  const { tenantId, applicationId, clientId } = args
+  const { tenantId, applicationId, clientId, assistedBy } = args
+  const method = assistedBy ? "branch" : "portal"
   const application = await prisma.loanApplication.findFirst({
     where: { id: applicationId, tenantId, clientId },
     select: {
@@ -63,8 +68,8 @@ export async function signKeyFactsAgreement(args: {
   const intact = document?.storagePath && documentBytesMatchSha256(await readFile(document.storagePath).catch(() => Buffer.alloc(0)), application.agreementDocumentSha256)
   if (!intact) return { ok: false, status: 422, error: "The stored loan agreement does not match what was issued" }
 
-  const otpNeeded = await isSigningOtpRequired(tenantId, "portal")
-  const binding = { tenantId, clientId, purpose: "AGREEMENT" as const, subjectId: applicationId, documentSha256: application.agreementDocumentSha256 }
+  const otpNeeded = assistedBy !== undefined || await isSigningOtpRequired(tenantId, "portal")
+  const binding = { tenantId, clientId, purpose: "AGREEMENT" as const, subjectId: applicationId, documentSha256: application.agreementDocumentSha256, requestedByUserId: assistedBy?.id ?? null }
   if (otpNeeded) {
     const refusal = await checkSigningOtp(prisma, args.signingOtpChallengeId, binding)
     if (refusal) return { ok: false, status: 409, error: "Verify the one-time code before signing", signingOtp: refusal }
@@ -75,15 +80,21 @@ export async function signKeyFactsAgreement(args: {
     await prisma.$transaction(async (tx) => {
       // First, so a refusal spends no one-time code.
       await requireLivingBorrower(tx, { tenantId, applicationId, clientId, affordabilityResult: application.affordabilityResult, refusal: BORROWER_REFUSAL, identityRefusal: BORROWER_REFUSAL })
-      if (otpNeeded) await consumeSigningOtp(tx, { ...binding, challengeId: args.signingOtpChallengeId!, method: "portal", now })
+      if (otpNeeded) await consumeSigningOtp(tx, { ...binding, challengeId: args.signingOtpChallengeId!, method, now, ...(assistedBy ? { witnessUserId: assistedBy.id } : {}) })
       const claimed = await tx.loanApplication.updateMany({
         where: { id: applicationId, tenantId, status: "APPROVED", agreementSignedAt: null, agreementDocumentId: application.agreementDocumentId, agreementDocumentSha256: application.agreementDocumentSha256 },
-        data: { agreementSignedAt: now, agreementSignedMethod: "portal", agreementSignedByIp: args.ipAddress, agreementSignatureData: signature },
+        data: {
+          agreementSignedAt: now, agreementSignedMethod: method, agreementSignedByIp: args.ipAddress, agreementSignatureData: signature,
+          ...(assistedBy ? { agreementSignedByUserId: assistedBy.id } : {}),
+        },
       })
       if (claimed.count !== 1) throw new ConcurrentChangeError("The application changed while it was being signed")
       await logAuditStrict({
         tenantId, userEmail: args.clientEmail ?? undefined, action: AuditAction.KEY_FACTS_AGREEMENT_SIGNED, entity: "LoanApplication", entityId: applicationId,
-        newValue: { actor: { type: "client", clientId }, agreementDocumentSha256: application.agreementDocumentSha256, method: "portal", otp: otpNeeded },
+        newValue: {
+          actor: { type: "client", clientId }, agreementDocumentSha256: application.agreementDocumentSha256, method, otp: otpNeeded,
+          ...(assistedBy ? { assistedBy } : {}),
+        },
         ipAddress: args.ipAddress,
       }, tx)
     })

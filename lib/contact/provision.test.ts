@@ -331,6 +331,19 @@ describe("resolveContactForLeadConversion", () => {
     )
   })
 
+  it("a conversion a staff member drives on a key-facts lender records them on the new address, not on SMS", async () => {
+    tx.contact.findFirst.mockResolvedValue(null)
+    tx.contact.create.mockResolvedValue(makeContact({ id: "contact-new", clientId: "client-1", leadId: "lead-1" }))
+    tx.contactIdentity.findFirst.mockResolvedValue(null)
+    tx.contactIdentity.create.mockImplementation(async (a: { data: object }) => a.data)
+    await resolveContactForLeadConversion(tx as never, {
+      tenantId: "tn1", leadId: "lead-1", clientId: "client-1", email: "x@y.com", phone: "0821234567", setByStaffUserId: "officer-1",
+    })
+    const created = tx.contactIdentity.create.mock.calls.map((call: unknown[]) => (call[0] as { data: { channel: string; setByStaffUserId: string | null } }).data)
+    expect(created.find((row: { channel: string }) => row.channel === "EMAIL")).toMatchObject({ setByStaffUserId: "officer-1" })
+    expect(created.find((row: { channel: string }) => row.channel === "SMS")).toMatchObject({ setByStaffUserId: null })
+  })
+
   it("creates one dual-linked Contact if directory provisioning never ran", async () => {
     tx.contact.findFirst.mockResolvedValue(null)
     tx.contact.create.mockResolvedValue(makeContact({

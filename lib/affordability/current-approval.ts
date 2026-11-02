@@ -115,6 +115,9 @@ export interface CurrentApprovalEvidenceApplication
     productType: string
   }
   client: AffordabilityExpenseInput & BureauSubjectClient & {
+    /** Read for a key-facts approval (identity.ts): a key-facts caller that leaves them out reads as changed, so it fails closed. */
+    email?: string | null
+    whatsapp?: string | null
     debtObligations: readonly AffordabilityDebtInput[]
   }
 }
@@ -144,6 +147,8 @@ export const approvalEvidenceApplicationInclude = Prisma.validator<Prisma.LoanAp
     select: {
       id: true,
       idNumber: true,
+      email: true,
+      whatsapp: true,
       firstName: true,
       lastName: true,
       gender: true,

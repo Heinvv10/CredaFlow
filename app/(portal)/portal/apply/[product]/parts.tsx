@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { AlertTriangle } from "lucide-react"
 import { formatZAR, maskIdNumber } from "@/lib/utils"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { useT } from "@/lib/i18n/client"
 import { richText } from "@/lib/i18n/rich"
 import type { MessageKey } from "@/lib/i18n/translate"
@@ -33,7 +34,7 @@ export const PURPOSE_CATEGORIES: ReadonlyArray<{ value: string; label: MessageKe
 export function ProfileGapWarning({ client }: { client: ClientInfo }) {
   const t = useT("portalApply")
   const missing: string[] = []
-  if (!client.idNumber) missing.push(t("missingId"))
+  if (!client.idNumber) missing.push((isNcaJurisdiction() ? t("missingId") : "ID number"))
   if (!client.phone) missing.push(t("missingPhone"))
   if (client.monthlyIncome <= 0) missing.push(t("missingIncome"))
   if (missing.length === 0) return null
@@ -58,7 +59,7 @@ export function ClientSummary({ client }: { client: ClientInfo }) {
   const t = useT("portalApply")
   const rows: ReadonlyArray<{ label: string; value: string }> = [
     { label: t("name"),            value: `${client.firstName} ${client.lastName}` },
-    { label: t("idNumber"),        value: client.idNumber ? maskIdNumber(client.idNumber) : "—" },
+    { label: isNcaJurisdiction() ? t("idNumber") : "ID Number", value: client.idNumber ? maskIdNumber(client.idNumber) : "—" },
     { label: t("phone"),           value: client.phone || "—" },
     { label: t("email"),           value: client.email },
     { label: t("monthlyIncome"),   value: formatZAR(client.monthlyIncome) },

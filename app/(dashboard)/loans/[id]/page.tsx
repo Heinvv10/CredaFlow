@@ -338,6 +338,8 @@ export default async function LoanDetailPage(
 
           <LoanCollectionsPanel tenantId={tenantId} loan={loan} canManage={canManageCharges} />
 
+          {/* NCA s86: a key-facts loan has no debt review. */}
+          {loan.application?.disclosureRegime !== "KEY_FACTS" && (
           <DebtReviewPanel
             loanId={loan.id}
             noticeAt={loan.debtReviewNoticeAt}
@@ -346,6 +348,7 @@ export default async function LoanDetailPage(
             // Affordance only: the route re-checks (debt-review/route.ts).
             canManage={Boolean(session?.user?.role && hasMinRole(session.user.role, "COLLECTIONS_OFFICER") && canDo(session.user.role, "act_on_collections"))}
           />
+          )}
 
           <DataPanel title="Payment history" description="Latest receipts posted to this account" variant="default" density="loose">
             {loan.payments.length === 0 ? (

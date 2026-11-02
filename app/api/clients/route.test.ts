@@ -25,6 +25,8 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 }))
 
 import { POST } from "./route"
+import * as contactProvision from "@/lib/contact/provision"
+import * as regimeEvidence from "@/lib/non-nca-documents/regime-evidence"
 
 const VALID_ID = "9307225000082"
 
@@ -190,6 +192,34 @@ describe("POST /api/clients — duplicate handling", () => {
     await POST(request())
 
     expect(logAuditMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/clients — who a first capture says set the address", () => {
+  const created = { id: "c1", reference: "CLI-1", firstName: "A", lastName: "B", email: "a@x.invalid", phone: "+27821234510", whatsapp: null }
+  const capture = async (regime: "NCA_PASQ" | "KEY_FACTS") => {
+    const regimeSpy = vi.spyOn(regimeEvidence, "newApplicationRegime").mockReturnValue(regime)
+    const provision = vi.spyOn(contactProvision, "provisionContactForClient").mockResolvedValue({} as never)
+    // Every other write of the capture answers something harmless: this test reads one argument.
+    const anyModel = new Proxy({}, { get: () => async () => null })
+    const tx = new Proxy({ client: { create: async () => created, findFirst: async () => null, findUnique: async () => created } }, {
+      get: (target, key) => (key in target ? target[key as "client"] : key === "$queryRaw" || key === "$executeRaw" ? async () => [] : anyModel),
+    })
+    transactionMock.mockImplementation((fn: (client: unknown) => unknown) => fn(tx))
+    const res = await POST(request())
+    const setter = (provision.mock.calls[0]?.[1] as { setByStaffUserId?: string | null } | undefined)?.setByStaffUserId
+    const status = res.status
+    regimeSpy.mockRestore()
+    provision.mockRestore()
+    return { status, setter }
+  }
+
+  it("a key-facts lender records the staff member: a second person must confirm it", async () => {
+    expect(await capture("KEY_FACTS")).toMatchObject({ setter: "officer-1" })
+  })
+
+  it("a South African first capture records nobody: unchanged, a known limit", async () => {
+    expect((await capture("NCA_PASQ")).setter).toBeNull()
   })
 })
 

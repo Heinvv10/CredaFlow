@@ -1,7 +1,7 @@
 /**
- * The two loan documents of a key-facts (non-NCA) demo lender: a key facts
- * statement and a loan agreement, as CUSTOM templates with one ACTIVE, approved
- * version each (lib/non-nca-documents).
+ * The documents of a key-facts (non-NCA) demo lender: an offer letter, a key facts
+ * statement, a loan agreement and an arrears letter, as CUSTOM templates with one
+ * ACTIVE, approved version each (lib/non-nca-documents).
  *
  * The bank's legal wording is the bank's to supply, and the system never invents
  * it. These are STRUCTURE only: the parties, the approved figures (the quote.*
@@ -11,7 +11,7 @@
  * its own versions under Settings, Documents.
  */
 import type { PrismaClient } from "@prisma/client"
-import { LOAN_DOCUMENT_TEMPLATE_KEYS } from "../../lib/non-nca-documents/keys"
+import { ARREARS_LETTER_TEMPLATE_KEY, LOAN_DOCUMENT_TEMPLATE_KEYS } from "../../lib/non-nca-documents/keys"
 
 const GAP = "<p><em>[SAMPLE &mdash; the bank&rsquo;s legal team supplies wording. No legal text is provided here.]</em></p>"
 
@@ -34,17 +34,28 @@ const PARTIES = `<p>Lender: {{tenant.legalName}}</p>
 <p>Borrower: {{client.fullName}}, identity number {{client.idNumber}}</p>
 <p>Application: {{application.reference}} &mdash; {{application.product}}</p>`
 
+const ARREARS = `<table>
+<tr><td>Loan reference</td><td>{{loan.reference}}</td></tr>
+<tr><td>Date of this letter</td><td>{{arrears.noticeDate}}</td></tr>
+<tr><td>Amount in arrears</td><td>{{arrears.amount}}</td></tr>
+<tr><td>Days in arrears</td><td>{{arrears.days}}</td></tr>
+<tr><td>Total outstanding</td><td>{{arrears.totalOutstanding}}</td></tr>
+</table>`
+
 const BODIES = {
+  OFFER_LETTER: `<h1>Offer letter</h1>\n${PARTIES}\n${FIGURES}\n${GAP}\n<p>Prepared {{today}}.</p>`,
+  ARREARS_LETTER: `<h1>Arrears letter</h1>\n<p>Lender: {{tenant.legalName}}</p>\n<p>Borrower: {{client.fullName}}</p>\n${ARREARS}\n${GAP}`,
   KEY_FACTS_STATEMENT: `<h1>Key facts statement</h1>\n${PARTIES}\n${FIGURES}\n${GAP}\n<p>Prepared {{today}}.</p>`,
   LOAN_AGREEMENT: `<h1>Loan agreement</h1>\n${PARTIES}\n<h2>Approved terms</h2>\n${FIGURES}\n<h2>Terms and conditions</h2>\n${GAP}\n<p>Prepared {{today}}.</p>`,
 } as const
 
-const NAMES = { KEY_FACTS_STATEMENT: "Key facts statement", LOAN_AGREEMENT: "Loan agreement" } as const
+const NAMES = { OFFER_LETTER: "Offer letter", KEY_FACTS_STATEMENT: "Key facts statement", LOAN_AGREEMENT: "Loan agreement", ARREARS_LETTER: "Arrears letter" } as const
+const KEYS = { ...LOAN_DOCUMENT_TEMPLATE_KEYS, ARREARS_LETTER: ARREARS_LETTER_TEMPLATE_KEY }
 
 /** Idempotent: a template that already has a current version is left alone. Authored by one admin, approved by another (the database requires it). */
 export async function seedNonNcaTemplates(db: PrismaClient, tenantId: string, creatorId: string, approverId: string): Promise<void> {
-  for (const kind of ["KEY_FACTS_STATEMENT", "LOAN_AGREEMENT"] as const) {
-    const key = LOAN_DOCUMENT_TEMPLATE_KEYS[kind]
+  for (const kind of ["OFFER_LETTER", "KEY_FACTS_STATEMENT", "LOAN_AGREEMENT", "ARREARS_LETTER"] as const) {
+    const key = KEYS[kind]
     const template = await db.documentTemplate.upsert({
       where: { tenantId_key: { tenantId, key } },
       update: {},

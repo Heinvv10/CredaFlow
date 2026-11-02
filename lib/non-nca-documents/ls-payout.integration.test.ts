@@ -55,7 +55,7 @@ import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwawa
 import { ensureActiveJurisdiction, resetEnsuredJurisdiction } from "@/lib/jurisdiction/load.server"
 import { resetActiveJurisdiction } from "@/lib/jurisdiction/active"
 import * as screeningGate from "@/lib/screening/gate"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { bankRefFor, lsFlow } from "./ls-flow.integration-fixture"
 import { createRlsRole, seedStack, stackOf } from "./ls-stack.integration-fixture"
 import { SECOND_PERSON_VERIFICATION_PROVIDER } from "./payout-terms"
@@ -93,6 +93,7 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     fresh = await createThrowawayDb({ instance: { jurisdiction: "LS", currency: "LSL" } })
     holder.tenantId = stack.tenant
     await seedStack(db(), stack, { code: "PAY", isDemoLender: true })
+    await createTemplate(db(), stack.tenant, OFFER_KEY, BODY("Offer letter"))
     await createTemplate(db(), stack.tenant, KFS_KEY, BODY("Key facts statement"))
     await createTemplate(db(), stack.tenant, AGREEMENT_KEY, BODY("Loan agreement"))
     vi.stubEnv("TENANT_RLS", "on")
@@ -270,7 +271,7 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     expect(none.status).toBe(422)
     expect(await none.json()).toMatchObject({ disbursementPrecondition: "payout_account_verification" })
 
-    expect((await verifyAccount(stack.officer, id, "too short")).status).toBe(400)
+    expect((await verifyAccount(stack.confirmer, id, "too short")).status).toBe(400)
     const self = await verifyAccount(stack.disburser, id)
     expect(self.status).toBe(200)
     const own = await disburseAs(stack.disburser, id)
@@ -302,8 +303,8 @@ suite("the gates of a key-facts payout (real Postgres, real routes, no bypass)",
     const unapproved = `unapproved-${t}`
     await approvedApplication(unapproved, { kyc: false })
     await decideForm(unapproved, { action: "return_to_review", reason: "Synthetic: the borrower asked to change the term." })
-    expect((await verifyAccount(stack.officer, unapproved)).status).toBe(409)
-    expect((await verifyAccount(stack.officer, `absent-${t}`)).status).toBe(404)
+    expect((await verifyAccount(stack.confirmer, unapproved)).status).toBe(409)
+    expect((await verifyAccount(stack.confirmer, `absent-${t}`)).status).toBe(404)
   })
 
   it("KYC at payout is VERIFIED: four verified documents alone are not, an in-person attestation is", async () => {

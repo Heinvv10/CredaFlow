@@ -34,6 +34,7 @@ export const SUBMISSION_REFUSAL_REASONS = {
   client_deceased: "CREDIT",
   own_lender_arrears: "CREDIT",
   mle_justification_missing: "CREDIT",
+  key_facts_statement_required: "PROCESS",
   expense_evidence_invalid: "CREDIT",
   open_application_exists: "PROCESS",
   identity_conflict: "PROCESS",

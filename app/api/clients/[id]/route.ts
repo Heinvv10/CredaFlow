@@ -1,3 +1,4 @@
+import { syncClientContactChannels } from "@/lib/contact/sync-client-channels"
 import { recordInputStaffForClient, touchesDecisionInputs, withInputStaff } from "@/lib/applications/input-staff"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
@@ -458,6 +459,8 @@ export async function PUT(
           select: {
             updatedAt: true,
             idNumber: true,
+            email: true,
+            whatsapp: true,
             firstName: true,
             lastName: true,
             dateOfBirth: true,
@@ -911,6 +914,11 @@ export async function PUT(
           source: "staff_client_edit",
         })
         let updated = clientMutation.client
+        // The Contact follows the client: the next message goes to the address on file, not the replaced one.
+        const unsetChannels = await syncClientContactChannels(tx, {
+          tenantId: tenant.id, clientId: id, before: previous, setByStaffUserId: guard.user.id,
+          after: { email: hasKey("email") ? data.email : previous.email, whatsapp: hasKey("whatsapp") ? data.whatsapp : previous.whatsapp },
+        })
         const biometricIdentityRevocation = clientMutation.revocation
         // The figures an open application is decided on changed: whoever changed them cannot later disburse an
         // engine approval of it (lib/applications/input-staff.ts).
@@ -1124,6 +1132,7 @@ export async function PUT(
               }),
             },
             newValue: {
+              ...(unsetChannels.length > 0 ? { contactChannelsUnset: unsetChannels } : {}),
               ...(referralPlan.kind === "change" && {
                 referralCodeId: referralCodeId,
               }),

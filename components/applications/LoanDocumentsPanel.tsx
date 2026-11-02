@@ -9,7 +9,7 @@ import { toast } from "@/lib/toast"
 import { LOAN_DOCUMENT_LABELS } from "@/lib/non-nca-documents/keys"
 
 export interface LoanDocumentRow {
-  kind: "KEY_FACTS_STATEMENT" | "LOAN_AGREEMENT"
+  kind: "OFFER_LETTER" | "KEY_FACTS_STATEMENT" | "LOAN_AGREEMENT"
   clientDocumentId: string
   pdfSha256: string
   templateVersion: number
@@ -28,10 +28,10 @@ interface Props {
 }
 
 /**
- * The key facts statement and loan agreement of a key-facts (non-NCA) application:
- * issued from the lender's current approved templates, read and acknowledged by the
- * borrower in the portal, signed there. Shows what stands and why a signature would
- * be refused; the database makes the same call.
+ * The offer letter, key facts statement and loan agreement of a key-facts (non-NCA)
+ * application: issued from the lender's current approved templates on approval, read,
+ * accepted and signed by the borrower in the portal or, in person, at a branch. Shows
+ * what stands and why a signature would be refused; the database makes the same call.
  */
 export function LoanDocumentsPanel({ applicationId, status, signedAt, documents, signingProblem, canIssue }: Props) {
   const router = useRouter()
@@ -57,10 +57,10 @@ export function LoanDocumentsPanel({ applicationId, status, signedAt, documents,
   }
 
   return (
-    <DataPanel title="Key facts statement and loan agreement">
+    <DataPanel title="Offer letter, key facts statement and loan agreement">
       <div className="space-y-4" data-testid="loan-documents-panel">
         <p className="text-sm text-[var(--cf-text-muted)]">
-          This lender&rsquo;s loans are governed by a key facts statement and a loan agreement rendered from its own approved templates, not by the PASQ.
+          This lender&rsquo;s loans are governed by an offer letter, a key facts statement and a loan agreement rendered from its own approved templates, not by the PASQ.
         </p>
         {documents.length === 0 ? (
           <p className="text-sm">{status === "APPROVED" ? "Nothing has been issued yet." : "Documents are issued once the application is approved."}</p>
@@ -75,9 +75,9 @@ export function LoanDocumentsPanel({ applicationId, status, signedAt, documents,
                   {d.sample && <span className="rounded border border-amber-600 px-1.5 text-xs font-semibold text-amber-700">SAMPLE</span>}
                 </span>
                 <span className="font-mono text-xs text-[var(--cf-text-muted)]">{d.pdfSha256.slice(0, 12)}</span>
-                {d.kind === "KEY_FACTS_STATEMENT" && (
+                {d.kind !== "LOAN_AGREEMENT" && (
                   <span className={d.acknowledgedAt ? "text-[var(--cf-success)]" : "text-[var(--cf-text-muted)]"}>
-                    {d.acknowledgedAt ? "Acknowledged by the borrower" : "Awaiting the borrower"}
+                    {d.acknowledgedAt ? `${d.kind === "OFFER_LETTER" ? "Accepted" : "Acknowledged"} by the borrower` : "Awaiting the borrower"}
                   </span>
                 )}
               </li>
@@ -93,7 +93,7 @@ export function LoanDocumentsPanel({ applicationId, status, signedAt, documents,
         ) : null}
         {issuable && (
           <Button onClick={issue} disabled={issuing}>
-            {issuing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Issuing</> : documents.length > 0 ? "Issue again from the current templates" : "Issue key facts statement and loan agreement"}
+            {issuing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Issuing</> : documents.length > 0 ? "Issue again from the current templates" : "Issue offer letter, key facts statement and loan agreement"}
           </Button>
         )}
       </div>

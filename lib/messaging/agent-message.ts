@@ -37,6 +37,8 @@ export type SendAgentMessageInput = {
   agentUserId: string
   loanId?: string
   operationId?: string
+  /** The Message's category, when the send is a system's rather than a person's free text. */
+  category?: string
 }
 
 export type SendAgentMessageResult =
@@ -100,7 +102,7 @@ export async function sendAgentMessage(input: SendAgentMessageInput): Promise<Se
       // Invariant from getChannelAvailability: enabled:true always carries toValue.
       toValue: avail.toValue!,
       createdById: input.agentUserId,
-      category: "agent_message",
+      category: input.category ?? "agent_message",
       loanId: input.loanId,
       attachments: input.channel === "EMAIL" ? input.attachments : undefined,
       idempotencyKey: messageOperationIdempotencyKey(

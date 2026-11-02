@@ -47,6 +47,7 @@ model DocumentTemplate {
   // ASSET_FINANCE only: key = "<assetFamily>.<assetVariant>" (lib/asset-finance/documents/templates/families.ts).
   assetFamily      String?
   assetVariant     String?
+  arrearsLetters   LoanArrearsLetter[]
   issuances        AssetDocumentIssuance[]
   loanIssuances    LoanDocumentIssuance[]
   versions         DocumentTemplateVersion[]
@@ -83,6 +84,7 @@ model DocumentTemplateVersion {
   // approval covers the protected wording too, and lapses when it changes.
   approvedSystemSha256  String?
   legalSignOffReference String?
+  arrearsLetters        LoanArrearsLetter[]
   issuances             AssetDocumentIssuance[]
   loanIssuances         LoanDocumentIssuance[]
 

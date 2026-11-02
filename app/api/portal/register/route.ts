@@ -17,6 +17,7 @@ import { portalRegistrationRefusal } from "@/lib/portal/portal-policy"
 import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
 import { passwordPolicyError } from "@/lib/security/password-policy"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
+import { NO_UNCONFIRMED_IDENTITY_WHERE } from "@/lib/contact/identity-confirmation"
 import {
   clientReachableOnWhatsApp,
   portalOtpChannelFrom,
@@ -164,7 +165,7 @@ async function requestActivationCode(
     // verify them (lib/clients/dealer-contact.ts): no code goes to them, with
     // the same answer as no match.
     const client = await prisma.client.findFirst({
-      where: { email, idNumber, tenantId, portalPassword: null, ...TRUSTED_CONTACT_WHERE },
+      where: { email, idNumber, tenantId, portalPassword: null, ...TRUSTED_CONTACT_WHERE, ...NO_UNCONFIRMED_IDENTITY_WHERE },
     })
 
     if (client) {
@@ -344,7 +345,7 @@ async function verifyAndActivate(
       return NextResponse.json({ error: GENERIC_INVALID_MESSAGE }, { status: 400 })
     }
 
-    const client = await prisma.client.findFirst({ where: { email, idNumber, tenantId, ...TRUSTED_CONTACT_WHERE } })
+    const client = await prisma.client.findFirst({ where: { email, idNumber, tenantId, ...TRUSTED_CONTACT_WHERE, ...NO_UNCONFIRMED_IDENTITY_WHERE } })
 
     if (!client || client.portalPassword) {
       return NextResponse.json({ error: GENERIC_INVALID_MESSAGE }, { status: 400 })

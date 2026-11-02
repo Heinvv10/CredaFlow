@@ -226,6 +226,8 @@ describe("tenant-scope — ALS primitives", () => {
       "ProductPricingRule",
       "LoanTerms",
       "ApplicationPricingInput",
+      "LoanArrearsLetter",
+      "LoanDocumentIssuance",
       "ApplicationProductFacts",
       "BorrowerGroup",
       "BorrowerGroupMember",
