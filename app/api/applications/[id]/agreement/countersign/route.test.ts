@@ -1,5 +1,7 @@
 import { declarationEvidenceData, signatureDigest } from "@/lib/compliance/agreement-declarations.server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { NextRequest, NextResponse } from "next/server"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
@@ -906,6 +908,14 @@ describe("provider agreement countersign — refusals the UI must be able to sho
     const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
 
     expect(response.status).toBe(200)
+  })
+
+  it("reads the two-people rule against the in-branch witness (F12)", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...branchSignedByCaller, agreementSignedByUserId: "staff-2" })
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const refused = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+    expect(refused.status).toBe(403)
+    expect(twoPeople.refusal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ makerIds: ["staff-2"] }))
   })
 
   it("lets another staff member countersign a branch signature", async () => {

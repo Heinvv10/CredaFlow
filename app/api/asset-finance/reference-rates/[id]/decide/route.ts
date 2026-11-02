@@ -75,6 +75,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: "Reference rate not found" }, { status: 404 })
       case "not_pending":
         return NextResponse.json({ error: `The reference rate is already ${result.status}` }, { status: 409 })
+      case "account_controlled":
+        return refuse("four_eyes_account_controlled", result.error)
       case "self_decision":
         return refuse("four_eyes_self_decision", "A reference rate must be decided by someone other than the user who recorded it")
       case "decided":

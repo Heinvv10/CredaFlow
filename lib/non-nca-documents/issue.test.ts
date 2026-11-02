@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const m = vi.hoisted(() => ({ application: vi.fn(), raw: vi.fn(), transaction: vi.fn(), deleteFile: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({ prisma: { loanApplication: { findFirst: m.application }, $queryRaw: m.raw, $transaction: m.transaction } }))
 vi.mock("@/lib/audit", () => ({ AuditAction: {}, logAuditStrict: vi.fn() }))
+vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: async () => null }))
 vi.mock("@/lib/storage", () => ({ saveFile: async () => ({ storagePath: "/mem/a.pdf", fileSize: 1 }), deleteFile: m.deleteFile }))
 vi.mock("./render", () => ({ renderLoanDocument: async () => ({ pdf: Buffer.from("%PDF"), kind: "LOAN_AGREEMENT" }) }))
 

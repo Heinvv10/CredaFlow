@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { authorityLevel, delegatedLevel, requiredLevelsFor, roleLevel } from "./evaluate"
+import { authorityLevel, delegatedLevel, holdsAtBranch, requiredLevelsFor, roleLevel } from "./evaluate"
 import type { ApplicationFacts, Delegation, MatrixPayload } from "./types"
 
 const matrix = (rules: MatrixPayload["rules"], defaultRequiredLevels = 1): MatrixPayload => ({
@@ -87,5 +87,26 @@ describe("authority", () => {
     expect(authorityLevel({ role: "LOAN_ADMIN", levels, delegations: [delegation()], amountCents: 1, now })).toMatchObject({ level: 2, via: "DELEGATION", delegationId: "d1" })
     expect(authorityLevel({ role: "BRANCH_MANAGER", levels, delegations: [delegation({ level: 1 })], amountCents: 1, now })).toMatchObject({ level: 2, via: "ROLE" })
     expect(authorityLevel({ role: "CREDIT_OFFICER", levels, delegations: [], amountCents: 1, now })).toMatchObject({ level: 0, via: "ROLE" })
+  })
+})
+
+describe("holdsAtBranch (F8)", () => {
+  const scoped = { branchScoped: true }
+  const manager = (branchId: string | null) => ({ branchId, role: "BRANCH_MANAGER" as const })
+  it("a scoped level is held at one's own branch", () => {
+    expect(holdsAtBranch(scoped, manager("b1"), "b1")).toBe(true)
+    expect(holdsAtBranch(scoped, manager("b1"), "b2")).toBe(false)
+    expect(holdsAtBranch(scoped, manager("b1"), null)).toBe(false)
+  })
+  it("no branch is head office for an ADMIN or SUPER_ADMIN, and nothing for anyone else: a forgotten assignment is not all-branch authority", () => {
+    expect(holdsAtBranch(scoped, { branchId: null, role: "ADMIN" }, "b2")).toBe(true)
+    expect(holdsAtBranch(scoped, { branchId: null, role: "SUPER_ADMIN" }, null)).toBe(true)
+    expect(holdsAtBranch(scoped, manager(null), "b2")).toBe(false)
+    expect(holdsAtBranch(scoped, manager(null), null)).toBe(false)
+    expect(holdsAtBranch(scoped, { branchId: null, role: "LOAN_ADMIN" }, "b2")).toBe(false)
+  })
+  it("a level that is not scoped ignores branches", () => {
+    expect(holdsAtBranch({}, manager("b1"), "b2")).toBe(true)
+    expect(holdsAtBranch(undefined, manager("b1"), "b2")).toBe(true)
   })
 })

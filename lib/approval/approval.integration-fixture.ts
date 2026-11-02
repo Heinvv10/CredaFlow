@@ -183,6 +183,7 @@ export function registerApprovalFixture() {
     await db.$transaction([
       db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
       db.notification.deleteMany({ where: { tenantId } }),
+      db.approvalConditionClearance.deleteMany({ where: { tenantId } }),
       db.creditCommitteeDecision.deleteMany({ where: { tenantId } }),
       db.approvalEscalation.deleteMany({ where: { tenantId } }),
       db.approvalStep.deleteMany({ where: { tenantId } }),

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { dbDate } from "./dates"
 import { bestMarketValuation, checkPurchaseValuation, leaseTermEnd } from "./lease-term-end"
 
@@ -32,6 +34,10 @@ describe("checkPurchaseValuation (C7)", () => {
   it("a current assessor's or dealer's valuation of the asset, recorded by someone else: its amount", async () => {
     expect(await check(tx({ valuation: valuation("2027-06-30"), maxAge: 30 }))).toEqual({ ok: true, amountCents: 50_000_000 })
     expect(await check(tx({ valuation: valuation("2027-06-30", { source: "DEALER" }), maxAge: 30 }))).toMatchObject({ ok: true })
+  })
+  it("refuses a valuation the two-people rule refuses (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    expect(await check(tx({ valuation: valuation("2027-06-30"), maxAge: 30 }))).toMatchObject({ ok: false, reason: "valuation_four_eyes" })
   })
   it("refuses a valuation not of this asset", async () => {
     const t = tx({ maxAge: 30 })

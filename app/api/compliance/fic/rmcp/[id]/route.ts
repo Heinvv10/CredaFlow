@@ -9,6 +9,7 @@ import { callerIp } from "@/lib/rate-limit"
 import { readFile } from "@/lib/storage"
 import { ficTotpRefusal } from "@/lib/fic/session"
 import { getScreeningConfig } from "@/lib/screening/policy"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 /**
  * GET   — download one RMCP version; the bytes must still match the stored
@@ -75,6 +76,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (requireSecondReviewer && doc.uploadedById === guard.user.id) {
         return { status: 403 as const, error: "You uploaded this version; another compliance officer must approve it." }
       }
+      const controlled = requireSecondReviewer ? await accountControlRefusal(tx, { tenantId: tenant.id, makerIds: [doc.uploadedById], checkerId: guard.user.id }) : null
+      if (controlled) return { status: 403 as const, error: controlled }
       const approvedAt = new Date()
       const written = await tx.rmcpDocument.updateMany({
         where: { id, tenantId: tenant.id, approvedById: null },

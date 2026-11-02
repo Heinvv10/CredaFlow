@@ -1,6 +1,7 @@
 /**
  * npm run lender:bootstrap-admin -- --tenant <slug> --email <email> [--name <name>] [--dry-run]
  * npm run lender:bootstrap-admin -- --tenant <slug> --email <email> --break-glass [--reactivate] [--dry-run]
+ * npm run lender:bootstrap-admin -- --tenant <slug> --second <email> --role <role> [--name <name>] [--dry-run]
  *
  * Reads DATABASE_URL. Prints the one-time password and TOTP secret to stdout
  * exactly once and nowhere else; a caller must not capture stdout into a log.
@@ -9,9 +10,19 @@
 import { PrismaClient } from "@prisma/client"
 import { parseArgs } from "node:util"
 import { operatorId } from "./operator"
-import { bootstrapSuperAdmin, BootstrapRefusal, type AdminBootstrapResult } from "./bootstrap-admin"
+import { bootstrapSuperAdmin, BootstrapRefusal, provisionSecondPerson, type AdminBootstrapResult, type SecondPersonResult } from "./bootstrap-admin"
 
-const USAGE = "usage: lender:bootstrap-admin --tenant <slug> --email <email> [--name <name>] [--break-glass [--reactivate]] [--dry-run]"
+const USAGE = "usage: lender:bootstrap-admin --tenant <slug> (--email <email> [--break-glass [--reactivate]] | --second <email> --role <role>) [--name <name>] [--dry-run]"
+
+function renderSecond(r: SecondPersonResult, tenantSlug: string): string {
+  if (r.kind === "dry-run") return `dry-run: would create ${r.email} as the second person (${r.role}) of tenant "${tenantSlug}".`
+  return [
+    `Second person created (${r.role}) for tenant "${tenantSlug}".`,
+    `  email:                ${r.email}`,
+    `  one-time password:    ${r.password}`,
+    "Shown once, never stored in clear and not recoverable. Sign in, enrol two-factor as the lender requires, then change the password.",
+  ].join("\n")
+}
 
 function render(r: AdminBootstrapResult, tenantSlug: string): string {
   if (r.kind === "dry-run") return `dry-run: would ${r.action === "create" ? "create the first SUPER_ADMIN" : "break-glass reset the SUPER_ADMIN"} ${r.email} in tenant "${tenantSlug}". Nothing written.`
@@ -29,12 +40,14 @@ function render(r: AdminBootstrapResult, tenantSlug: string): string {
 async function main(): Promise<number> {
   const { values } = parseArgs({
     options: {
-      tenant: { type: "string" }, email: { type: "string" }, name: { type: "string" },
+      tenant: { type: "string" }, email: { type: "string" }, name: { type: "string" }, second: { type: "string" }, role: { type: "string" },
       "break-glass": { type: "boolean", default: false }, reactivate: { type: "boolean", default: false }, "dry-run": { type: "boolean", default: false },
     },
     strict: true,
   })
-  if (!values.tenant || !values.email) {
+  const second = values.second !== undefined
+  const usable = second ? values.role && !values.email && !values["break-glass"] && !values.reactivate : values.email && !values.role
+  if (!values.tenant || !usable) {
     process.stderr.write(`${USAGE}\n`)
     return 1
   }
@@ -44,8 +57,13 @@ async function main(): Promise<number> {
   }
   const db = new PrismaClient()
   try {
+    if (second) {
+      const created = await provisionSecondPerson(db, { tenantSlug: values.tenant, email: values.second!, role: values.role!, name: values.name, dryRun: values["dry-run"], operator: operatorId() })
+      process.stdout.write(`${renderSecond(created, values.tenant)}\n`)
+      return 0
+    }
     const result = await bootstrapSuperAdmin(db, {
-      tenantSlug: values.tenant, email: values.email, name: values.name,
+      tenantSlug: values.tenant, email: values.email!, name: values.name,
       mode: values["break-glass"] ? "break-glass" : "bootstrap", dryRun: values["dry-run"], reactivate: values.reactivate,
       operator: operatorId(),
     })

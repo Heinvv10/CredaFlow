@@ -1,5 +1,7 @@
 import { AGREEMENT_DECLARATION_PAYLOAD } from "@/lib/signing/agreement-declaration-set"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+const conditions = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/approval/conditions", () => ({ committeeConditionsRefusal: conditions.refusal, clearedConditions: vi.fn(async () => []) }))
 import { NextRequest } from "next/server"
 import { calculateLoan } from "@/lib/loan-calculator"
 import {

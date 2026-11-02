@@ -17,6 +17,8 @@ const m = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: (fn: (tx: unknown) => unknown) => fn(m.tx) } }))
 // The post-approval credit gate reads its own rows; it is proven against Postgres in deal-party-guards.integration.test.ts.
+const clearer = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/approval/conditions", () => ({ clearerRefusal: clearer.refusal }))
 vi.mock("./deal-credit-gate", () => ({ dealCreditGate: vi.fn(async () => ({ problem: null, arrearsGrown: [] })) }))
 
 import { bookDeal } from "./booking"
@@ -53,7 +55,7 @@ function deal(over: Record<string, unknown> = {}) {
     application: { id: "app-1", status: "APPROVED", ncaRegime: "NON_NCA", productId: "p-1", appliedAmount: 155_250_000, approvedAmount: 155_250_000 },
     asset,
     entity: { id: "e-1", legalName: "TEST Co", vatNumber: null, addressLine1: "1 Test Rd", addressLine2: null, city: "Testville", province: null, postalCode: null },
-    payout: { id: "payout-1", status: "APPROVED", amountCents: 155_250_000, supplierBankAccount: { status: "APPROVED" } },
+    payout: { id: "payout-1", status: "APPROVED", amountCents: 155_250_000, createdById: "maker", approvedById: "approver", supplierBankAccount: { status: "APPROVED" } },
     ...over,
   }
 }
@@ -70,6 +72,13 @@ beforeEach(() => {
 })
 
 describe("bookDeal refusals: nothing is written", () => {
+  it("refuses whoever cleared a committee condition, on a lease too: the check comes before the contract type (F9)", async () => {
+    clearer.refusal.mockResolvedValueOnce("you cleared a committee condition")
+    m.tx.assetFinanceDeal.findFirst.mockResolvedValue(deal({ contractType: "OPERATING_LEASE" }))
+    expect(await book()).toMatchObject({ kind: "refused", reason: "committee_condition_clearer" })
+    expect(clearer.refusal).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.anything(), [deal().payout.createdById, deal().payout.approvedById])
+  })
+
   it.each([
     ["no_payout", { payout: null }],
     ["payout_not_approved", { payout: { ...deal().payout, status: "PENDING_APPROVAL" } }],

@@ -17,6 +17,8 @@ import { INT4_MAX } from "@/lib/product-config/bounds"
 import { checklistLabel, needsDualApproval, payoutAmountCents, requiredChecklistKinds } from "./payout-checklist"
 import { lockDeal, type SigningActor } from "./signing-prepare"
 import { dealCreditGate } from "./deal-credit-gate"
+import { accountControlRefusal } from "@/lib/security/account-control"
+import { clearedConditions, clearerRefusal, committeeConditionsRefusal } from "@/lib/approval/conditions"
 
 export type CreatePayoutResult =
   | { kind: "not_found" }
@@ -32,6 +34,7 @@ export type ApprovePayoutResult =
   | { kind: "not_found" }
   | { kind: "not_pending"; status: string }
   | { kind: "same_user" }
+  | { kind: "account_controlled"; error: string }
   | { kind: "approved" }
 
 const isUniqueViolation = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
@@ -46,7 +49,7 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       const deal = await tx.assetFinanceDeal.findFirstOrThrow({
         where: { id: dealId, tenantId },
         select: {
-          contractType: true, supplierId: true, depositCents: true, tradeInCents: true,
+          applicationId: true, contractType: true, supplierId: true, depositCents: true, tradeInCents: true,
           asset: { select: { cashPriceExclVatCents: true, vatCents: true, registrationNumber: true } },
           signers: { where: { document: "SURETYSHIP" }, select: { client: { select: { firstName: true, lastName: true } }, suretyConsent: { select: { maritalRegime: true, evidenceDocumentId: true, suretySignedOn: true, consentSignedOn: true, consentBeforeSurety: true } } } },
           checklist: { select: { item: true, confirmedAt: true } },
@@ -56,6 +59,10 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       if (deal.payout) return { kind: "exists" }
       const credit = await dealCreditGate(tx, tenantId, dealId)
       if (credit.problem) return { kind: "credit_gate", reason: credit.problem.kind, message: credit.problem.message }
+      const conditions = await committeeConditionsRefusal(tx, tenantId, deal.applicationId)
+      if (conditions) return { kind: "credit_gate", reason: "committee_conditions", message: conditions }
+      const clearer = await clearerRefusal(tx, tenantId, deal.applicationId, actor.userId)
+      if (clearer) return { kind: "credit_gate", reason: "committee_condition_clearer", message: clearer }
       const missingConsent = (deal.signers ?? []).filter((s) => !s.suretyConsent || s.suretyConsent.maritalRegime === "UNKNOWN" || (s.suretyConsent.maritalRegime === "IN_COMMUNITY" && (!s.suretyConsent.evidenceDocumentId || !s.suretyConsent.suretySignedOn || consentTimingProblem(s.suretyConsent.consentSignedOn?.toISOString().slice(0, 10) ?? null, s.suretyConsent.consentBeforeSurety, s.suretyConsent.suretySignedOn) !== null)))
       if (missingConsent.length) return { kind: "checklist_open", open: missingConsent.map((s) => `Surety ${s.client.firstName} ${s.client.lastName}: confirm marital regime and witnessed spouse consent before payout`) }
       const confirmed = new Set(deal.checklist.filter((c) => c.confirmedAt).map((c) => c.item))
@@ -114,11 +121,16 @@ export async function approvePayout(actor: SigningActor, dealId: string): Promis
     if (!locked) return { kind: "not_found" }
     const payout = await tx.payout.findFirst({
       where: { tenantId, dealId },
-      select: { id: true, status: true, createdById: true, amountCents: true },
+      select: { id: true, status: true, createdById: true, amountCents: true, deal: { select: { applicationId: true } } },
     })
     if (!payout) return { kind: "not_found" }
     if (payout.status !== "PENDING_APPROVAL") return { kind: "not_pending", status: payout.status }
     if (payout.createdById === actor.userId) return { kind: "same_user" }
+    const clearer = await clearerRefusal(tx, tenantId, payout.deal.applicationId, actor.userId)
+    if (clearer) return { kind: "account_controlled", error: clearer }
+    const clearers = await clearedConditions(tx, tenantId, payout.deal.applicationId)
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [payout.createdById, ...clearers], checkerId: actor.userId })
+    if (controlled) return { kind: "account_controlled", error: controlled }
     const approvedAt = new Date()
     const updated = await tx.payout.updateMany({
       where: { id: payout.id, tenantId, status: "PENDING_APPROVAL" },

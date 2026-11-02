@@ -7,6 +7,7 @@ import { LOAN_DOCUMENT_KINDS, LOAN_DOCUMENT_LABELS } from "./keys"
 import { STAFF_IDENTITY_REFUSAL, STAFF_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
 import { renderLoanDocument, type RenderedLoanDocument } from "./render"
+import { committeeConditionsRefusal } from "@/lib/approval/conditions"
 import { deliverToBorrower, operationIdFor } from "./deliver"
 
 export type IssueResult =
@@ -45,6 +46,8 @@ export async function issueLoanDocuments(args: {
   }
   if (application.status !== "APPROVED") return { ok: false, status: 409, error: "Loan documents are issued for an approved application" }
   if (application.agreementSignedAt) return { ok: false, status: 409, error: "The loan agreement is already signed" }
+  const conditions = await committeeConditionsRefusal(prisma, tenantId, applicationId)
+  if (conditions) return { ok: false, status: 409, error: conditions }
   if (identityChangedSinceApproval({ affordabilityResult: application.affordabilityResult, client: application.client })) {
     return { ok: false, status: 409, error: STAFF_IDENTITY_REFUSAL }
   }

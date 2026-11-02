@@ -8,6 +8,7 @@ import type { RecoveryActor } from "./recovery-create"
 import { isNcaRoute } from "./recovery-input"
 import { RecoveryRefusal, refusable, type RecoveryResult } from "./recovery-result"
 import type { SigningTx } from "./signing-prepare"
+import { requireTwoPeople } from "./recovery-two-people"
 
 export interface RecoveryCostInput {
   type: RecoveryCostType
@@ -115,6 +116,7 @@ export async function decideRecoveryCost(actor: RecoveryActor, recoveryId: strin
     if (decision === "APPROVED" && cost.treatment === "DEDUCT_FROM_PROCEEDS") await requireProceedsLeft(tx, actor.tenantId, recoveryId, cost.grossCents)
     if (cost.status !== "PENDING") throw new RecoveryRefusal("This cost has already been decided")
     if (cost.recordedById === actor.userId) throw new RecoveryRefusal("A cost is decided by someone other than the person who recorded it")
+    if (decision === "APPROVED") await requireTwoPeople(tx, actor, [cost.recordedById])
     const approvedAt = new Date()
     const result = await tx.recoveryCost.updateMany({ where: { id: costId, tenantId: actor.tenantId, status: "PENDING" }, data: { status: decision, approvedById: actor.userId, approvedAt } })
     if (result.count !== 1) throw new RecoveryRefusal("This cost has already been decided")

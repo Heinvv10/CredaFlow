@@ -45,8 +45,10 @@ import { auditRefusal } from "@/lib/audit-refusals"
 import {
   isSegregationOfDutiesRequired,
   segregationOfDutiesConflict,
+  segregationOfDutiesMakers,
   SEGREGATION_OF_DUTIES_REFUSALS,
 } from "@/lib/security/segregation-of-duties"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -448,6 +450,10 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         { error: SEGREGATION_OF_DUTIES_REFUSALS[conflict], segregationOfDuties: conflict },
         { status: 403 },
       )
+    }
+    if (segregationOfDuties) {
+      const controlled = await accountControlRefusal(prisma, { tenantId: tenant.id, makerIds: segregationOfDutiesMakers("countersign", application), checkerId: guard.user.id })
+      if (controlled) return NextResponse.json({ error: controlled, segregationOfDuties: "account_controlled" }, { status: 403 })
     }
 
     const countersignedAt = new Date()

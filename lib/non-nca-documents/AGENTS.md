@@ -52,3 +52,4 @@ agreement** from the lender's own versioned templates, not by the PASQ. `LoanApp
 | `arrears-letter.ts` / `deliver.ts` / `pre-submission.ts` | The arrears letter; telling the borrower; the indicative statement |
 | `state.ts` / `refusal.ts` | What stands and why a signature would fail; the 409s |
 | `payout-gates.ts` / `disburse.ts` / `payout-account.ts` | Every payout gate; booking; the second person |
+- **The people behind a payout** (`payout-people.ts`): one list (capturers, attesters, approvers at any level, condition clearers) for the payer and the account confirmer. With segregation of duties on the confirmer is none of them, nor a second account of one, read again under the payout's locks.

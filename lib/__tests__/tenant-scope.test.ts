@@ -90,7 +90,7 @@ describe("tenant-scope — ALS primitives", () => {
       // Maker-checker change requests and decision rules (lib/maker-checker/, lib/decisioning/) — non-null tenantId.
       "ChangeRequest", "DecisionRuleSetVersion", "DecisionEngineConfig", "AutoDecisionRun", "AutoDecisionDue",
       // Approval matrix (lib/approval/) — non-null tenantId.
-      "ApprovalMatrixVersion", "ApprovalCase", "ApprovalStep", "ApprovalEscalation", "ApprovalDelegation", "CreditCommitteeDecision",
+      "ApprovalMatrixVersion", "ApprovalCase", "ApprovalStep", "ApprovalEscalation", "ApprovalDelegation", "CreditCommitteeDecision", "ApprovalConditionClearance",
       // Insurance book + cross-sell — non-null tenantId. Routes run in a
       // tenant frame; pages, crons and bindQuote pass the tenant explicitly.
       "InsurancePolicy",

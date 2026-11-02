@@ -6,6 +6,7 @@ import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/li
 import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
 import { BORROWER_REFUSAL, requireLivingBorrower } from "./borrower-gate"
 import { ConcurrentChangeError, databaseMessage, isConcurrencyLoss, isDatabaseRefusal } from "./errors"
+import { committeeConditionsRefusal } from "@/lib/approval/conditions"
 import type { BranchAssistant } from "./acknowledge"
 
 export type SignResult =
@@ -49,6 +50,8 @@ export async function signKeyFactsAgreement(args: {
   if (application.disclosureRegime !== "KEY_FACTS") return { ok: false, status: 409, error: "This application is signed through the credit agreement ceremony" }
   if (application.status !== "APPROVED") return { ok: false, status: 409, error: "Only an approved application can be signed" }
   if (application.agreementSignedAt) return { ok: false, status: 409, error: "The loan agreement is already signed" }
+  const conditions = await committeeConditionsRefusal(prisma, tenantId, applicationId)
+  if (conditions) return { ok: false, status: 409, error: conditions }
   if (!application.agreementDocumentId || !application.agreementDocumentSha256) {
     return { ok: false, status: 422, error: "The loan agreement has not been issued yet" }
   }

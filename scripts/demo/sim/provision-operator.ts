@@ -8,6 +8,8 @@
  *     | npx tsx scripts/demo/sim/provision-operator.ts --store       (fresh-stack.sh)
  *   scripts/demo/sim/seed-faked.sh scripts/demo/sim/provision-operator.ts --retire
  *   npx tsx scripts/demo/sim/provision-operator.ts --forget <snapshot>/.sim-breadth-staff.json   (bake.sh)
+ *   scripts/demo/sim/seed-faked.sh scripts/demo/sim/provision-operator.ts --staff \
+ *     | npx tsx scripts/demo/sim/provision-operator.ts --store-staff                 (fresh-stack.sh)
  *
  * In the seed's faketime container (sim/seed-faked.sh), with no flag it
  * provisions the operator in the demo-sim database and prints the credentials
@@ -20,9 +22,9 @@ import { readFileSync, writeFileSync } from "node:fs"
 
 import { PrismaClient } from "@prisma/client"
 
-import { storeStaffCredentials } from "../breadth/staff"
+import { COLLECTIONS_MANAGER, COLLECTIONS_MANAGER_FILE, storeStaffCredentials } from "../breadth/staff"
 import { log } from "./env"
-import { parseOperatorCredentials, provisionOperator, retireOperator, targetRefusal, withoutOperator } from "./operator"
+import { parseBakeStaffCredentials, parseOperatorCredentials, provisionBakeStaff, provisionOperator, retireOperator, targetRefusal, withoutOperator } from "./operator"
 
 async function inSimDb(work: (prisma: PrismaClient) => Promise<void>): Promise<void> {
   const refusal = targetRefusal(process.env)
@@ -43,6 +45,16 @@ async function store(): Promise<void> {
   log(`platform operator ${creds.email} provisioned`)
 }
 
+async function storeStaff(): Promise<void> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
+  for (const creds of parseBakeStaffCredentials(Buffer.concat(chunks).toString("utf8"))) {
+    if (creds.email === COLLECTIONS_MANAGER.email) writeFileSync(COLLECTIONS_MANAGER_FILE, JSON.stringify(creds, null, 2), { mode: 0o600 })
+    else storeStaffCredentials(creds)
+    log(`bake staff ${creds.email} provisioned`)
+  }
+}
+
 function forget(file: string | undefined): void {
   if (!file) throw new Error("usage: provision-operator.ts --forget <file>")
   writeFileSync(file, JSON.stringify(withoutOperator(JSON.parse(readFileSync(file, "utf8"))), null, 2), { mode: 0o600 })
@@ -51,6 +63,8 @@ function forget(file: string | undefined): void {
 
 const [mode, arg] = process.argv.slice(2)
 const run = mode === "--store" ? store()
+  : mode === "--store-staff" ? storeStaff()
+  : mode === "--staff" ? inSimDb(async (prisma) => { process.stdout.write(`${JSON.stringify(await provisionBakeStaff(prisma))}\n`) })
   : mode === "--forget" ? Promise.resolve().then(() => forget(arg))
   : mode === "--retire" ? inSimDb(async (prisma) => { await retireOperator(prisma); log("platform operator retired") })
   : mode === undefined ? inSimDb(async (prisma) => { process.stdout.write(`${JSON.stringify(await provisionOperator(prisma))}\n`) })

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
 
@@ -235,6 +237,13 @@ describe("POST /api/asset-finance/nca-overrides/[overrideId]/decide", () => {
     const res = await decide({ decision: "APPROVE", note: "Checked" })
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: "Another change to this application was in progress; try again" })
+  })
+
+  it("refuses an approval the two-people rule refuses, and does not ask it about a rejection (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const res = await decide({ decision: "APPROVE", note: "AFS checked against CIPC" })
+    expect(res.status).toBe(403)
+    expect(twoPeople.refusal).toHaveBeenCalledTimes(1)
   })
 
   it("approves: locks, records the decision, moves the regime and audits in the transaction", async () => {

@@ -15,6 +15,7 @@
 import type { ValuationSource } from "@prisma/client"
 import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import type { SigningTx } from "./signing-prepare"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export const MARKET_VALUATION_SOURCES: readonly ValuationSource[] = ["ASSESSOR", "DEALER"]
 
@@ -47,6 +48,10 @@ export async function checkPurchaseValuation(
   if (!MARKET_VALUATION_SOURCES.includes(valuation.source)) return { ok: false, reason: "valuation_source", error: "A purchase rests on an assessor's or a dealer's valuation" }
   if (input.electorUserId !== null && valuation.createdById === input.electorUserId) {
     return { ok: false, reason: "valuation_four_eyes", error: "The valuation must be recorded by someone other than the person who elects the purchase" }
+  }
+  if (input.electorUserId !== null) {
+    const controlled = await accountControlRefusal(tx, { tenantId: input.tenantId, makerIds: [valuation.createdById], checkerId: input.electorUserId })
+    if (controlled) return { ok: false, reason: "valuation_four_eyes", error: controlled }
   }
   const maxAge = await purchaseMaxAgeDays(tx, input.tenantId)
   if (toDayNumber(isoOfDbDate(valuation.valuedOn)) < toDayNumber(input.today) - maxAge) return { ok: false, reason: "valuation_stale", error: `The valuation must be dated within ${maxAge} days` }

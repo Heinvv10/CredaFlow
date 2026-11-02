@@ -45,6 +45,7 @@ directory **outside** the git checkout (the scripts refuse otherwise).
 | `encrypt-uploads.sh <dir> [--dry-run \| --verify]` | encrypt the uploads written before `UPLOADS_ENC_KEY` was set; `--verify` checks they open. |
 | `npm run lender:bootstrap-tenant -- --config f.json [--dry-run]` | tenant + config + default templates (run in the tools image by provision). |
 | `prisma.sh <dir> migrate status \| resolve --rolled-back\|--applied <name> \| deploy` | recover from a failed migration (below), from the deployed tools image. |
+| `admin.sh <dir> --second E --role ADMIN [--dry-run]` | one-shot: the lender's second person, ADMIN or lower (`docs/ONBOARDING.md`, "Two people from day one"). |
 | `admin.sh <dir> --email E [--break-glass [--reactivate]] [--dry-run]` | the first-admin CLI (`lender:bootstrap-admin`) against this lender, for break-glass. provision runs the same CLI for the first admin. |
 
 ### Two images

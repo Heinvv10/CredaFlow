@@ -13,6 +13,7 @@ import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { LeaseActionResult } from "./lease-route"
 import type { SigningTx } from "./signing-prepare"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export const VOID_REASON_MIN = 10
 export const VOID_REASON_MAX = 500
@@ -64,6 +65,8 @@ export async function decideMeterReadingVoid(
   if (request.status !== "PENDING") return refused("void_decided", "This void request is already decided")
   if (request.requestedById === actor.userId) return refused("four_eyes", "A second person decides a void: not the one who asked for it")
   if (input.decision === "APPROVE") {
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [request.requestedById], checkerId: actor.userId })
+    if (controlled) return refused("account_controlled", controlled)
     const refusal = await refusalOf(tx, tenantId, request.readingId)
     if (refusal) return refused("void_refused", refusal)
   }

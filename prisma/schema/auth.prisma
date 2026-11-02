@@ -76,6 +76,7 @@ model User {
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
   commercialCancellations       CommercialCancellation[]
   committeeDecisionsRecorded   CreditCommitteeDecision[]             @relation("CommitteeDecisionRecordedBy")
+  conditionsCleared            ApprovalConditionClearance[]          @relation("ApprovalConditionClearedBy")
   contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
   contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
   countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")
