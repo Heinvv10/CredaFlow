@@ -221,6 +221,18 @@ suite("A5b repricing (real Postgres, real routes)", () => {
       expect((await refused.json()).code).toBe("TOTP_REQUIRED")
     })
 
+    it("refuses an approver who set up the recorder's account: two people, not two accounts", async () => {
+      const minted = await db.user.create({ data: { tenantId, email: `minted-${t}@a5b-it.test`, password: "x", role: "LOAN_ADMIN" } })
+      await db.auditLog.create({ data: { tenantId, userId: staff.checker, userEmail: `${staff.checker}@a5b-it.test`, action: "USER_CREATED", entity: "User", entityId: minted.id, newValue: { role: "LOAN_ADMIN" } } })
+      session.current = { user: { id: minted.id, email: minted.email, role: "LOAN_ADMIN", tenantId, totpVerified: true } }
+      const recorded = await recordRate(request("/api/products/lending-rates", "POST", { basis: "PRIME", effectiveDate: day(37), rate: "0.1" }))
+      expect(recorded.status).toBe(201)
+      const { id } = await recorded.json()
+      signIn("checker")
+      expect((await decide(id)).status).toBe(403)
+      expect((await db.referenceRate.findUniqueOrThrow({ where: { id } })).status).toBe("PENDING")
+    })
+
     it("does not exist for an NCA lender", async () => {
       resetActiveJurisdiction()
       expect((await record("maker", day(35))).status).toBe(404)

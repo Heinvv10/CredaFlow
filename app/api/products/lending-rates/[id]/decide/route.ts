@@ -31,6 +31,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (result.kind === "not_found") return NextResponse.json({ error: "Reference rate not found" }, { status: 404 })
     if (result.kind === "not_pending") return NextResponse.json({ error: `The reference rate is already ${result.status}` }, { status: 409 })
     if (result.kind === "self_decision") return NextResponse.json({ error: "A reference rate must be decided by someone other than the user who recorded it" }, { status: 403 })
+    // Two people, not two accounts: an approver who set up or changed the recorder's account is refused (lib/asset-finance/reference-rate-decision.ts).
+    if (result.kind === "account_controlled") return NextResponse.json({ error: result.error }, { status: 403 })
     return NextResponse.json(referenceRateView(result.rate))
   })
 }
