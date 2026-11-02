@@ -107,10 +107,10 @@ ALTER TABLE "ProductVersion" ADD CONSTRAINT "ProductVersion_variable_rate" CHECK
   ))
 );
 
+-- Unlike a version's, a loan's terms may show a grace on a balloon: a payment holiday (lib/loan-changes) records one.
 ALTER TABLE "LoanTerms" ADD CONSTRAINT "LoanTerms_balloon" CHECK (
   "balloonCents" >= 0
   AND ("balloonCents" = 0 OR "structure" = 'BALLOON')
-  AND ("structure" IS DISTINCT FROM 'BALLOON' OR "graceKind" = 'NONE')
 );
 
 ALTER TABLE "LoanTerms" ADD CONSTRAINT "LoanTerms_variable_rate" CHECK (
@@ -173,15 +173,13 @@ END;
 $function$;
 
 -- Terms are appended in sequence, and a reference repricing appends them with no person involved: such a row must come from an
--- APPROVED reference value on the loan's own basis, keep its margin and structure, and carry the rate that value gives. Every other later row keeps the rule of the loan changes
--- (20261101100100_loan_changes, an approved LOAN_CHANGE). changeRequestId is read through to_jsonb so this definition stands
--- whichever of the two migrations a database took first.
+-- APPROVED reference value on the loan's own basis, keep its margin and structure, and carry the rate that value gives. Every other
+-- later row keeps the rule of the loan changes (20261101100100_loan_changes): an approved LOAN_CHANGE of this loan.
 CREATE OR REPLACE FUNCTION public."guardLoanTerms"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
   last INTEGER;
   prev RECORD;
-  request TEXT;
 BEGIN
   IF TG_OP <> 'INSERT' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The terms a loan was written on never change: a later change appends a row';
@@ -190,8 +188,7 @@ BEGIN
   IF NEW."sequence" <> last + 1 THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Loan terms are appended in sequence: the next row for this loan is ' || (last + 1)::TEXT;
   END IF;
-  request := to_jsonb(NEW) ->> 'changeRequestId';
-  IF NEW."sequence" > 1 AND NEW."referenceEffectiveDate" IS NOT NULL AND request IS NULL THEN
+  IF NEW."sequence" > 1 AND NEW."referenceEffectiveDate" IS NOT NULL AND NEW."changeRequestId" IS NULL THEN
     SELECT t."rateBasis", t."rateMarginPa", t."referenceEffectiveDate", t."frequency", t."structure", t."graceKind", t."graceInstalments", t."instalments", t."balloonCents"
       INTO prev FROM "LoanTerms" t
       WHERE t."tenantId" = NEW."tenantId" AND t."loanId" = NEW."loanId" AND t."sequence" = last;
@@ -210,9 +207,13 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
-  IF to_jsonb(NEW) ? 'changeRequestId' AND (NEW."sequence" > 1 OR request IS NOT NULL) AND NOT EXISTS (
+  -- The request is this loan's: the one it changed, or the one whose application booked it.
+  IF (NEW."sequence" > 1 OR NEW."changeRequestId" IS NOT NULL) AND NOT EXISTS (
     SELECT 1 FROM "ChangeRequest" c
-    WHERE c."tenantId" = NEW."tenantId" AND c."id" = request AND c."kind" = 'LOAN_CHANGE' AND c."status" = 'APPROVED'
+    WHERE c."tenantId" = NEW."tenantId" AND c."id" = NEW."changeRequestId" AND c."kind" = 'LOAN_CHANGE' AND c."status" = 'APPROVED'
+      AND (c."payload" ->> 'loanId' = NEW."loanId" OR EXISTS (
+        SELECT 1 FROM "Loan" l JOIN "LoanApplication" a ON a."id" = l."applicationId"
+        WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND a."loanChangeRequestId" = c."id"))
   ) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Later terms are appended only by an approved LOAN_CHANGE request';
   END IF;

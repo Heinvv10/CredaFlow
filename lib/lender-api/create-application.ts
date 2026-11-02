@@ -160,7 +160,7 @@ export async function createDraftApplication(caller: ApiCaller, input: CreateApp
   } catch (error) {
     if (!isUniqueConstraintViolation(error)) throw error
     const open = await prisma.loanApplication.findFirst({
-      where: { tenantId, clientId: input.clientId, productId: input.productId, status: { in: [...OPEN_APPLICATION_STATUSES] } },
+      where: { tenantId, clientId: input.clientId, productId: input.productId, status: { in: [...OPEN_APPLICATION_STATUSES] }, loanChangeRequestId: null },
       select: { id: true, reference: true },
     })
     if (!open) throw error

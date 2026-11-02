@@ -65,12 +65,14 @@ vi.mock("@/lib/contact/provision", async (importOriginal) => {
 vi.mock("@/lib/audit", () => ({
   AuditAction: new Proxy({}, { get: (_target, key) => String(key) }),
 }))
-vi.mock("@/lib/utils", () => ({
+vi.mock("@/lib/utils", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/utils")>()),
   generateReference: (prefix: string) => `${prefix}-TEST-1`,
 }))
 const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
 vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: screenOnSubmitMock }))
 
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { POST } from "./route"
 
 const context = { params: Promise.resolve({ id: "lead-1" }) }
@@ -381,6 +383,22 @@ describe("POST /api/crm/leads/[id]/convert affordability evidence", () => {
         }),
       }),
     })
+  })
+
+  it("stamps the NCA declarations on a South African conversion and neither on a key-facts one: nobody made an s81 assessment", async () => {
+    await POST(request(), context)
+    expect(applicationCreateMock.mock.calls[0][0].data).toMatchObject({ recklessLendingAssessed: true, recklessLendingAssessedById: "officer-1", clientAffordabilityDeclaredAt: expect.any(Date) })
+
+    applicationCreateMock.mockClear()
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    try {
+      await POST(request(), context)
+      const data = applicationCreateMock.mock.calls[0]?.[0]?.data
+      expect(data).toBeDefined()
+      for (const stamp of ["recklessLendingAssessed", "recklessLendingAssessedAt", "recklessLendingAssessedById", "clientAffordabilityDeclaredAt"]) expect(data).not.toHaveProperty(stamp)
+    } finally {
+      resetActiveJurisdiction()
+    }
   })
 
   it("fails closed when the mandatory submission audit cannot be written", async () => {
@@ -1028,7 +1046,7 @@ describe("POST /api/crm/leads/[id]/convert amount bounds", () => {
     const response = await POST(amountRequest(amount), context)
 
     expect(response.status).toBe(422)
-    expect((await response.json()).error).toBe("Amount must be between R1,000 and R10,000 for Staff Product.")
+    expect((await response.json()).error).toBe("Amount must be between R 1,000.00 and R 10,000.00 for Staff Product.")
     expectNothingWritten()
   })
 

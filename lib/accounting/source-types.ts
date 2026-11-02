@@ -64,6 +64,8 @@ export interface SourceLoan {
   reference: string
   principal: number
   initiationFee: number
+  /** The part of the principal that paid off old loans (lib/loan-changes): it leaves through PAYOUT_CLEARING, never the bank. */
+  settledCents?: number
   /** The initiation fee was deducted from the cash advanced (InitiationFeePayment.UPFRONT). */
   upfrontFee: boolean
   startDate: Date

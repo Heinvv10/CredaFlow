@@ -29,7 +29,7 @@ describe("recentStatementSince", () => {
     const reader = db([], [])
     expect(await recentStatementSince(reader, "t1", "c1")).toBeNull()
     expect(reader.loanApplication.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "t1", clientId: "c1", status: { in: ["SUBMITTED", "UNDER_REVIEW"] } },
+      where: { tenantId: "t1", clientId: "c1", status: { in: ["SUBMITTED", "UNDER_REVIEW"] }, loanChangeRequestId: null },
     }))
   })
 })

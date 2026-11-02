@@ -1,3 +1,4 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { degrees, PDFDocument, StandardFonts } from "pdf-lib"
 import {
   A4_WIDTH, A4_HEIGHT, MARGIN, CONTENT_WIDTH,
@@ -9,7 +10,7 @@ import {
 import { requireLenderIdentityFields, type LenderIdentity } from "@/lib/config/identity-schema"
 
 interface DebitMandateOpts {
-  lender: Pick<LenderIdentity, "legalName" | "ncrNumber" | "registeredOfficeLines">
+  lender: Pick<LenderIdentity, "legalName" | "ncrNumber" | "registeredOfficeLines"> & Partial<Pick<LenderIdentity, "companyRegNumber">>
   /** The creditor's collection account (deployment env, lib/config/debit-mandate.ts). */
   creditorBank: {
     bankName: string
@@ -63,7 +64,10 @@ export async function generateDebitMandatePdf(opts: DebitMandateOpts): Promise<B
   const { creditorBank, client, loan, authorization } = opts
   const accountHolderName = `${client.firstName.trim()} ${client.lastName.trim()}`.trim()
   // The registered creditor the mandate names; throws LenderIdentityError.
-  const lender = requireLenderIdentityFields(opts.lender, ["legalName", "ncrNumber", "registeredOfficeLines"])
+  // A creditor outside the NCA is named by its company registration number, and the mandate cites no South African statute.
+  const nca = isNcaJurisdiction()
+  const lender = requireLenderIdentityFields(opts.lender, nca ? ["legalName", "ncrNumber", "registeredOfficeLines"] : ["legalName", "companyRegNumber", "registeredOfficeLines"])
+  const registrationLine = nca ? `NCR Reg: ${lender.ncrNumber}` : `Registration no.: ${lender.companyRegNumber}`
   if (
     !accountHolderName
     || accountHolderName.length > 120
@@ -110,12 +114,12 @@ export async function generateDebitMandatePdf(opts: DebitMandateOpts): Promise<B
   const drawCreditorHeader = () => {
     page.drawRectangle({ x: 0, y: A4_HEIGHT - barHeight, width: A4_WIDTH, height: barHeight, color: DARK })
     if (logo) {
-      const ncrLine = `NCR Reg: ${lender.ncrNumber}`
+      const ncrLine = registrationLine
       const textX = drawLogoChip(page, logo, MARGIN, A4_HEIGHT, barHeight, regular.widthOfTextAtSize(ncrLine, 8))
       drawText(page, ncrLine, textX, A4_HEIGHT - 36, regular, 8, WHITE)
     } else {
       drawText(page, lender.legalName, MARGIN, A4_HEIGHT - 36, bold, 14, ACCENT)
-      drawText(page, `NCR Reg: ${lender.ncrNumber}`, MARGIN, A4_HEIGHT - 52, regular, 8, WHITE)
+      drawText(page, registrationLine, MARGIN, A4_HEIGHT - 52, regular, 8, WHITE)
     }
   }
   markDraftPage()
@@ -134,7 +138,8 @@ export async function generateDebitMandatePdf(opts: DebitMandateOpts): Promise<B
     DARK,
   )
   y -= 16
-  drawText(page, "In terms of the National Credit Act 34 of 2005 and the Payment Association of South Africa (PASA) rules", MARGIN, y, italic, 8, GRAY); y -= 24
+  if (nca) drawText(page, "In terms of the National Credit Act 34 of 2005 and the Payment Association of South Africa (PASA) rules", MARGIN, y, italic, 8, GRAY)
+  y -= 24
 
   drawText(page, `Loan Reference: ${loan.reference}`, MARGIN, y, bold, 9, DARK)
   drawText(page, `Date: ${formatDatePdf(generatedAt)}`, A4_WIDTH - MARGIN - 120, y, regular, 9, GRAY)
@@ -247,10 +252,15 @@ export async function generateDebitMandatePdf(opts: DebitMandateOpts): Promise<B
     y -= 28
   }
 
-  y = drawSectionTitle(page, y, "5. CONSUMER RIGHTS (PASA)", bold)
-  const rights = [
+  y = drawSectionTitle(page, y, nca ? "5. CONSUMER RIGHTS (PASA)" : "5. YOUR RIGHTS", bold)
+  // The notice periods are the Payments Association of South Africa's rules: outside South Africa the rights are the lender's bank's to
+  // state, and no wording is invented here.
+  const rights = nca ? [
     "- You may cancel this debit order instruction by giving 30 days written notice to the creditor.",
     "- You may dispute any unauthorised debit by contacting your bank within 40 days of the debit.",
+    "- Cancellation of this mandate does not cancel your obligation to repay the loan.",
+  ] : [
+    "[SAMPLE - the bank's legal team supplies wording]",
     "- Cancellation of this mandate does not cancel your obligation to repay the loan.",
   ]
   for (const right of rights) { drawText(page, right, MARGIN + 4, y, regular, 8.5, DARK); y -= 12 }

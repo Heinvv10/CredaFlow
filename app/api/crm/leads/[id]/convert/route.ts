@@ -5,7 +5,7 @@ import { PO_FUNDING_NEEDS_ORDER, requiresPoFundingFacts } from "@/lib/applicatio
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { generateReference } from "@/lib/utils"
+import { generateReference, formatZAR } from "@/lib/utils"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
 import { AuditAction } from "@/lib/audit"
 import {
@@ -22,6 +22,7 @@ import { ownAwareSubmissionSnapshot } from "@/lib/affordability/own-lender-debt-
 import { Prisma } from "@prisma/client"
 import { lockNewApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { creditBlock } from "@/lib/clients/status"
+import { approvalEvidenceRules, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 
 interface LockedLead {
   id: string
@@ -653,10 +654,13 @@ export async function POST(
             ) as unknown as Prisma.InputJsonValue,
             status: "SUBMITTED",
             submittedAt: now,
-            clientAffordabilityDeclaredAt: now,
-            recklessLendingAssessed: true,
-            recklessLendingAssessedAt: now,
-            recklessLendingAssessedById: guard.user.id ?? "admin",
+            // The NCA declarations are stamped only where the NCA asks for them: a key-facts application has none to attest.
+            ...(approvalEvidenceRules({ disclosureRegime: newApplicationRegime() }).recklessLendingAssessment && {
+              clientAffordabilityDeclaredAt: now,
+              recklessLendingAssessed: true,
+              recklessLendingAssessedAt: now,
+              recklessLendingAssessedById: guard.user.id ?? "admin",
+            }),
             inputStaffIds: guard.user.id ? [guard.user.id] : [],
           },
         })
@@ -837,7 +841,7 @@ export async function POST(
       }
       if (result.kind === "amount_out_of_range") {
         return NextResponse.json(
-          { error: `Amount must be between R${(result.min / 100).toLocaleString()} and R${(result.max / 100).toLocaleString()} for ${result.name}.` },
+          { error: `Amount must be between ${formatZAR(result.min)} and ${formatZAR(result.max)} for ${result.name}.` },
           { status: 422 },
         )
       }

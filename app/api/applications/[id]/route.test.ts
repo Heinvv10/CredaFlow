@@ -237,6 +237,34 @@ it("allows DRAFT -> SUBMITTED", async () => {
   })
 })
 
+const noCreditLife = {
+  creditLifeElection: null, creditLifeProductId: null, creditLifeProductName: null, creditLifeInsurerId: null, creditLifeInsurerName: null,
+  creditLifeMonthlyPremiumCents: null, creditLifeDisclosureVersion: null, creditLifeDisclosureSha256: null,
+  creditLifeDisclosureAcknowledgedAt: null, creditLifeDisclosureAcknowledgedBy: null,
+}
+
+it("submits a key-facts draft that has no credit-life election: the page no longer asks for one outside the NCA's jurisdiction", async () => {
+  findUniqueMock.mockResolvedValue({ ...draftForSubmission, ...noCreditLife, disclosureRegime: "KEY_FACTS" })
+
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(updateManyMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "SUBMITTED" }) }))
+})
+
+it("still refuses an NCA draft with no credit-life election (the regime, or none recorded, fails closed)", async () => {
+  for (const regime of ["NCA_PASQ", undefined]) {
+    updateManyMock.mockClear()
+    findUniqueMock.mockResolvedValue({ ...draftForSubmission, ...noCreditLife, disclosureRegime: regime })
+
+    const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+    expect(res.status).toBe(422)
+    expect(await res.json()).toMatchObject({ missingComplianceEvidence: ["credit-life election"] })
+    expect(updateManyMock).not.toHaveBeenCalled()
+  }
+})
+
 it("includes accepted credit-life premiums in the submission affordability decision", async () => {
   const acceptedDisclosure = {
     version: "credit-life-election-v1" as const,
@@ -585,6 +613,7 @@ it("PATCH action:update — maps a database open-tuple collision to a verified 4
       clientId: "c1",
       productId: "p1",
       status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED"] },
+      loanChangeRequestId: null,
     },
     select: { id: true, reference: true, status: true },
   })
@@ -636,6 +665,14 @@ it("DELETE refuses to cancel an application with an attached loan or in APPROVED
   const res = await DELETE(deleteReq(), ctx)
 
   expect(res.status).toBe(409)
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
+it("DELETE refuses a loan change's application: it is closed by rejecting or withdrawing the change", async () => {
+  findUniqueMock.mockResolvedValue({ id: "app-1", reference: "APP-1", status: "UNDER_REVIEW", loan: null, loanChangeRequestId: "cr-1" })
+  const res = await DELETE(deleteReq(), ctx)
+  expect(res.status).toBe(409)
+  expect(((await res.json()) as { error: string }).error).toMatch(/belongs to a loan change/)
   expect(updateManyMock).not.toHaveBeenCalled()
 })
 

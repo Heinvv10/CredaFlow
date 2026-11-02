@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
 import type { Trigger } from "@/lib/decisioning/auto-decision"
 import { runAutoDecisionSafely } from "@/lib/decisioning/run-safely"
-import { runBureauReviewCheck } from "@/lib/compliance/bureau-review"
+import { keyFactsBureauApplies, runBureauReviewCheck } from "@/lib/compliance/bureau-review"
 import {
   lockAffordabilityApplicationEvidence,
   lockAffordabilityClientEvidence,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/kyc/document-state"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
 import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
+import { approvalEvidenceRules } from "@/lib/non-nca-documents/regime-evidence"
 
 export interface ReviewArgs {
   tenant: { id: string }
@@ -255,7 +256,9 @@ export async function startApplicationReview({ tenant, user, id, autoDecisionTri
       return { kind: "mismatches" as const, documents: criticalMismatches }
     }
 
-    if (admit && !(await admit(tx))) return { kind: "not_admitted" as const }
+    // The daily limits are on paid pulls: a key-facts application has no bureau enquiry, so it spends no slot, unless its
+    // lender has instant approval on.
+    if (admit && (approvalEvidenceRules(application).bureauCheck || await keyFactsBureauApplies(tx, tenant.id, application)) && !(await admit(tx))) return { kind: "not_admitted" as const }
 
     const changed = await tx.loanApplication.updateMany({
       where: {

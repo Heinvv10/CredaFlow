@@ -1,6 +1,7 @@
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { decide } from "./decide"
+import { withKeyFactsAttestation, withKeyFactsReferral } from "./key-facts-referral"
 import { loadDecisionFacts } from "./load-facts"
 import { pickChampion } from "./select-version"
 import { summarise, type SimulationEntry, type SimulationSummary, type StaffOutcome } from "./simulate-summary"
@@ -14,7 +15,7 @@ export const SIMULATION_DEFAULT_DAYS = 180
 export const SIMULATION_MAX_DAYS = 730
 const BATCH = 10
 
-type Db = Pick<typeof prisma, "loanApplication" | "autoDecisionRun" | "decisionRuleSetVersion" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput" | "referenceRate">
+type Db = Pick<typeof prisma, "loanApplication" | "autoDecisionRun" | "decisionEngineConfig" | "decisionRuleSetVersion" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput" | "referenceRate">
 
 export interface SimulationInput {
   tenantId: string
@@ -76,16 +77,25 @@ export async function simulateRuleSet(input: SimulationInput, db: Db = prisma): 
     select: { applicationId: true },
   })).map((r) => r.applicationId))
 
+  const engine = await db.decisionEngineConfig.findUnique({ where: { tenantId: input.tenantId }, select: { keyFactsInstantApproval: true } })
   const entries: SimulationEntry[] = []
   for (let i = 0; i < applications.length; i += BATCH) {
     const batch = await Promise.all(applications.slice(i, i + BATCH).map(async (application): Promise<SimulationEntry | null> => {
       const loaded = await loadDecisionFacts(db, input.tenantId, application.id, application.submittedAt ?? now, { preferSnapshot: true })
       if (!loaded) return null
       const live = liveFor(application.productId)
+      // As the live run does: a key-facts application is referred unless the engine can attest it (./key-facts-referral.ts). Replayed as the digital submission it would be.
+      const verdictOf = (ruleSet: ReturnType<typeof parseRules>, card: ReturnType<typeof parseScorecard>) => withKeyFactsAttestation(withKeyFactsReferral(
+        decide({ facts: loaded.facts, rules: ruleSet, scorecard: card }),
+        { regime: loaded.application.disclosureRegime, bureauCheckId: loaded.bureauCheckId, facts: loaded.facts, rules: ruleSet },
+      ).verdict, {
+        regime: loaded.application.disclosureRegime, allowed: engine?.keyFactsInstantApproval === true, trigger: "DIGITAL_SUBMISSION", facts: loaded.facts,
+        authenticatedSubmission: loaded.application.authenticatedSubmission, affordable: loaded.attestationAffordable,
+      }).verdict
       return {
         facts: loaded.facts,
-        live: live ? decide({ facts: loaded.facts, rules: parseRules(live.row.rules), scorecard: parseScorecard(live.row.scorecard) }) : null,
-        candidate: decide({ facts: loaded.facts, rules, scorecard }),
+        live: live ? verdictOf(parseRules(live.row.rules), parseScorecard(live.row.scorecard)) : null,
+        candidate: verdictOf(rules, scorecard),
         actual: automated.has(application.id) ? "AUTOMATED" : staffOutcome(application.status),
         affordabilitySource: loaded.affordabilitySource,
       }

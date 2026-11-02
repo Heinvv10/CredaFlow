@@ -169,7 +169,7 @@ suite.sequential("IFRS 9 in the ledger (real Postgres)", () => {
     await monthly(h, "2026-10", "2026-10-31T23:50:00")
     await close(h, "2026-10")
     const off = await runWithTenant(h.tenantId, () => saveSettings(prisma, h.tenantId, { ...DEFAULT_SETTINGS, enabled: false }, actor))
-    expect(off).toMatchObject({ ok: false, error: expect.stringContaining("allowance of R162.68") })
+    expect(off).toMatchObject({ ok: false, error: expect.stringContaining("allowance of R 162.68") })
     expect((await db.ifrs9Config.findUniqueOrThrow({ where: { tenantId: h.tenantId } })).enabled).toBe(true)
 
     const early = await runWithTenant(h.tenantId, () => saveSettings(prisma, h.tenantId, { ...DEFAULT_SETTINGS, enabled: true, effectiveFromMonth: "2026-09" }, actor))

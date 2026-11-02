@@ -31,7 +31,7 @@ export async function repriceLoan(tx: Tx, input: { tenantId: string; loanId: str
     select: {
       status: true, startDate: true, contractualTotalInterest: true, contractualTotalRepayable: true,
       terms: { orderBy: { sequence: "desc" }, take: 1 },
-      repaymentSchedule: { orderBy: { installmentNo: "asc" }, select: { id: true, installmentNo: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalDue: true, totalPaid: true, status: true, commonLawContractualInterestDue: true } },
+      repaymentSchedule: { orderBy: { installmentNo: "asc" }, select: { id: true, installmentNo: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalDue: true, totalPaid: true, status: true, commonLawContractualInterestDue: true, carriedPrincipalDue: true, carriedInterestDue: true } },
     },
   })
   const last = loan?.terms[0]

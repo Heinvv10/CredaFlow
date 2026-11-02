@@ -35,6 +35,9 @@ import { isLeaseContract } from "@/lib/asset-finance/lease-input"
 import { AssetLoanRecoveryPanels, hasRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
 import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
 import { loadPayoutView } from "@/lib/payouts/view"
+import { LoanChangesPanel } from "@/components/loans/changes/LoanChangesPanel"
+import { NCA_REFUSAL } from "@/lib/loan-changes/eligibility"
+import { loadLoanChangesView } from "@/lib/loan-changes/view"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
@@ -119,6 +122,10 @@ export default async function LoanDetailPage(
   const section129Availability = await getSection129IssuanceAvailability(tenantId, loan.id)
   const payout = await loadPayoutView(tenantId, loan.id, loan.status)
   const clientHold = await loadClientHold(prisma, tenantId, loan.client.id)
+  // Only a key-facts loan can be changed (lib/loan-changes), so an NCA loan reads nothing more.
+  const loanChanges = loan.application?.disclosureRegime === "KEY_FACTS" && session?.user
+    ? await loadLoanChangesView(tenantId, loan.id, { id: session.user.id, role: session.user.role })
+    : null
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -134,6 +141,7 @@ export default async function LoanDetailPage(
           loanId={loan.id}
           showSection129={section129Availability.hasRetrievableIssuedArtifact}
           section129Simulated={section129Availability.latestIssuedSimulated}
+          debitMandate={loan.application?.disclosureRegime !== "KEY_FACTS"}
         />
       </div>
 
@@ -212,6 +220,10 @@ export default async function LoanDetailPage(
           <LoanRateHistory terms={loan.terms} />
 
           <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={loan.status === "ACTIVE"} />
+
+          {(loanChanges || (session?.user?.role && canDo(session.user.role, "propose_loan_change"))) && (
+            <LoanChangesPanel loanId={loan.id} reference={loan.reference} view={loanChanges} reason={NCA_REFUSAL} />
+          )}
         </div>
 
         <div className="space-y-6 lg:col-span-5">

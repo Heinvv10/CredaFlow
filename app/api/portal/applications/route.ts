@@ -4,7 +4,7 @@ import { Prisma, type LoanPurposeCategory } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { withTenantContext } from "@/lib/tenant"
-import { generateReference } from "@/lib/utils"
+import { generateReference, formatZAR } from "@/lib/utils"
 import { triggerNotification } from "@/lib/notifications"
 import { scheduleDigitalDecision } from "@/lib/decisioning/schedule-digital"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
@@ -34,7 +34,8 @@ import {
   isCreditLifeElection,
 } from "@/lib/insurance/credit-life-election"
 import { isClientPoDocument, parsePoFundingFacts, type PoFundingFacts } from "@/lib/applications/po-funding"
-import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { loadCreditLifeOffer } from "@/lib/insurance/credit-life-offer"
+import { approvalEvidenceRules, creditLifeOfferableUnder, newApplicationRegime } from "@/lib/non-nca-documents/regime-evidence"
 import {
   createCreditLifeDisclosureSha256,
   createCreditLifeNoOfferDisclosureSha256,
@@ -140,21 +141,22 @@ export async function POST(req: NextRequest) {
 
   const affordabilityDeclared = body.affordabilityDeclared === true
   const pasqDeliveryUnderstood = body.pasqDeliveryUnderstood === true
-  if (!affordabilityDeclared || !pasqDeliveryUnderstood) {
-    return NextResponse.json(
-      { error: "Both the affordability declaration and confirmation that the PASQ will be reviewed later are required." },
-      { status: 400 },
-    )
-  }
 
   return withTenantContext(req, async (tenant) => {
+    // Read inside the tenant context, which loads the jurisdiction. A key-facts applicant is asked for neither.
+    const disclosureRegime = newApplicationRegime()
+    const ncaDeclarations = approvalEvidenceRules({ disclosureRegime }).affordabilityDeclaration
+    if (ncaDeclarations && (!affordabilityDeclared || !pasqDeliveryUnderstood)) {
+      return NextResponse.json(
+        { error: "Both the affordability declaration and confirmation that the PASQ will be reviewed later are required." },
+        { status: 400 },
+      )
+    }
     // With no active credit-life product the apply screen renders no election
     // block, so there is no choice for the client to submit. The transaction
     // below re-reads the offer under lock; this only decides whether the
     // client was expected to send one at all.
-    const offerConfiguredAtRequest = await prisma.insuranceProduct.findFirst(
-      creditLifeOfferFindFirstArgs(tenant.id),
-    )
+    const offerConfiguredAtRequest = await loadCreditLifeOffer(prisma, tenant.id, disclosureRegime)
     // Never silently rewrite an election the consumer actually stated. A stale
     // tab or a replayed body can post ACCEPTED with no product configured, and
     // recording that as DECLINED would put an untrue attribution into the
@@ -306,7 +308,7 @@ export async function POST(req: NextRequest) {
     if (appliedAmount < product.minAmount || appliedAmount > product.maxAmount) {
       return NextResponse.json(
         {
-          error: `Amount must be between R${(product.minAmount / 100).toLocaleString()} and R${(product.maxAmount / 100).toLocaleString()} for ${product.name}.`,
+          error: `Amount must be between ${formatZAR(product.minAmount)} and ${formatZAR(product.maxAmount)} for ${product.name}.`,
         },
         { status: 400 },
       )
@@ -360,6 +362,8 @@ export async function POST(req: NextRequest) {
         clientId: client.id,
         productId: product.id,
         status: { in: [...OPEN_APPLICATION_STATUSES] },
+        // A loan change's application is not one the borrower made (lib/loan-changes); the unique index leaves it out too.
+        loanChangeRequestId: null,
       },
       select: { id: true, reference: true, status: true },
     })
@@ -444,7 +448,7 @@ export async function POST(req: NextRequest) {
         // submission-time gate.) Explicit branches: Prisma silently DROPS an
         // `id: undefined` filter, which would "work" only by
         // accident.
-        const currentCreditLifeProduct = await tx.insuranceProduct.findFirst({
+        const currentCreditLifeProduct = !creditLifeOfferableUnder(disclosureRegime) ? null : await tx.insuranceProduct.findFirst({
           where: disclosedCreditLifeProductId !== null ? {
             id: disclosedCreditLifeProductId,
             tenantId: tenant.id,
@@ -605,7 +609,7 @@ export async function POST(req: NextRequest) {
           return {
             ok: false as const,
             status: 400,
-            body: { error: `Amount must be between R${(currentProduct.minAmount / 100).toLocaleString()} and R${(currentProduct.maxAmount / 100).toLocaleString()} for ${currentProduct.name}.` },
+            body: { error: `Amount must be between ${formatZAR(currentProduct.minAmount)} and ${formatZAR(currentProduct.maxAmount)} for ${currentProduct.name}.` },
           }
         }
 
@@ -638,6 +642,7 @@ export async function POST(req: NextRequest) {
               clientId: currentClient.id,
               productId: currentProduct.id,
               status: { in: [...OPEN_APPLICATION_STATUSES] },
+              loanChangeRequestId: null,
             },
             select: { id: true, reference: true, status: true },
           }),
@@ -747,7 +752,8 @@ export async function POST(req: NextRequest) {
             ) as unknown as Prisma.InputJsonValue,
             status: "SUBMITTED",
             submittedAt,
-            clientAffordabilityDeclaredAt: submittedAt,
+            authenticatedSubmissionClientId: sessionClientId,
+            ...(ncaDeclarations && { clientAffordabilityDeclaredAt: submittedAt }),
             creditLifeElection,
             creditLifeProductId: creditLifeOffer?.productId ?? null,
             creditLifeProductName: creditLifeOffer?.productName ?? null,
@@ -775,8 +781,8 @@ export async function POST(req: NextRequest) {
               productType: currentProduct.productType,
               appliedAmount,
               appliedTermDays: lockedTermDays,
-              pasqDeliveryNoticeAcceptedByClient: true,
-              affordabilityDeclaredByClient: true,
+              pasqDeliveryNoticeAcceptedByClient: ncaDeclarations,
+              affordabilityDeclaredByClient: ncaDeclarations,
               snapshotSchemaVersion: AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
               decisionFingerprint: submissionSnapshot.decisionFingerprint,
             },
@@ -850,6 +856,7 @@ export async function POST(req: NextRequest) {
             clientId: client.id,
             productId: product.id,
             status: { in: [...OPEN_APPLICATION_STATUSES] },
+            loanChangeRequestId: null,
           },
           select: { id: true, reference: true, status: true },
         })

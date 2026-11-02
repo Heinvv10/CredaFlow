@@ -27,7 +27,7 @@ export interface ScheduleInput {
 }
 
 /** Throws when the terms contradict themselves; the product configuration refuses the same cases before they get here. */
-export function assertValidTerms(terms: RepaymentTerms): void {
+export function assertValidTerms(terms: RepaymentTerms, balloonFixed = false): void {
   const { instalments, graceKind, graceInstalments, structure, balloonPct } = terms
   if (!Number.isInteger(instalments) || instalments < 1) throw new Error("instalments must be a whole number of at least 1")
   if (!Number.isInteger(graceInstalments) || graceInstalments < 0) throw new Error("graceInstalments must be a whole number, 0 or more")
@@ -35,6 +35,8 @@ export function assertValidTerms(terms: RepaymentTerms): void {
   if (rule) throw new Error(rule.message)
   if (graceInstalments >= instalments && graceKind !== "NONE") throw new Error("the grace must leave at least 1 instalment to pay")
   if (structure === "BALLOON") {
+    // A balloon already fixed in cents (a repricing, a loan change) stays on the last row, however few are left and whatever share it now is.
+    if (balloonFixed) return
     if (typeof balloonPct !== "number" || !(balloonPct > 0 && balloonPct < 1)) throw new Error("a balloon needs a share of the principal above 0 and below 1")
     if (instalments < 2) throw new Error("a balloon needs at least 2 instalments: one payment is a bullet")
   } else if (balloonPct !== undefined) throw new Error("only a balloon structure has a balloon share")
@@ -116,7 +118,7 @@ export function split(input: ScheduleInput): Parts {
 export function generateSchedule(input: ScheduleInput): GeneratedSchedule {
   const { principalCents, terms, startDate } = input
   if (!Number.isInteger(principalCents) || principalCents <= 0) throw new Error("principalCents must be a positive whole number of cents")
-  assertValidTerms(terms)
+  assertValidTerms(terms, input.balloonCents !== undefined)
 
   const { principal, interest, deferred } = split(input)
   const first = terms.graceKind === "FULL" ? terms.graceInstalments : 0

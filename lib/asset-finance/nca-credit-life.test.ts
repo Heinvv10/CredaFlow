@@ -5,9 +5,9 @@ import { recordAssetCreditLifeElection } from "./nca-credit-life"
 const app = { id: "app-1", appliedAmount: 1_000_000, appliedTermDays: 365, pasqDocumentId: null }
 const args = { tenantId: "tenant-1", clientId: "client-1", clientEmail: "client@test.invalid", dealId: "deal-1", election: "DECLINED" as const }
 
-function fake(offer: object | null = null) {
+function fake(offer: object | null = null, application: object = app) {
   const tx = {
-    assetFinanceDeal: { findFirst: vi.fn(async () => ({ status: "SUBMITTED", application: app })) },
+    assetFinanceDeal: { findFirst: vi.fn(async () => ({ status: "SUBMITTED", application })) },
     insuranceProduct: { findFirst: vi.fn(async () => offer) },
     loanApplication: { update: vi.fn(async () => ({})) },
     auditLog: { create: vi.fn(async () => ({})) },
@@ -35,6 +35,14 @@ describe("asset credit-life election", () => {
     expect(tx.loanApplication.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
       creditLifeElection: "ACCEPTED", creditLifeProductId: "product-1", creditLifeInsurerId: "insurer-1", creditLifeMonthlyPremiumCents: 4_500,
     }) }))
+  })
+
+  it("refuses cover on a key-facts application with a clean refusal, whatever product rows exist: the CHECK would otherwise answer with a raw error at approval", async () => {
+    const product = { id: "product-1", name: "TEST Credit Life", insurerId: "insurer-1", insurer: { name: "TEST Insurer" } }
+    const { tx, asTx } = fake(product, { ...app, disclosureRegime: "KEY_FACTS" })
+    expect(await recordAssetCreditLifeElection(asTx, { ...args, election: "ACCEPTED" })).toEqual({ kind: "offer_required" })
+    expect(tx.loanApplication.update).not.toHaveBeenCalled()
+    expect(tx.insuranceProduct.findFirst).not.toHaveBeenCalled()
   })
 
   it("refuses acceptance when there is no offer", async () => {

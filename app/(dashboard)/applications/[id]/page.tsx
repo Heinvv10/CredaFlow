@@ -31,6 +31,9 @@ import { isNonNcaProductType } from "@/lib/product-config/product-kind"
 import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCheckPanel"
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
+import { PayoutAccountVerificationCard } from "@/components/applications/PayoutAccountVerificationCard"
+import { keyFactsPayoutCheck } from "@/lib/non-nca-documents/payout-gates"
+import { SECOND_PERSON_VERIFICATION_PROVIDER } from "@/lib/non-nca-documents/payout-terms"
 import { AutoDecisionCard } from "@/components/applications/AutoDecisionCard"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
@@ -100,6 +103,7 @@ import {
 } from "@/lib/security/segregation-of-duties"
 import { bureauRailAction } from "@/lib/applications/bureau-rail-action"
 import { selfieLinkNeeded } from "@/lib/kyc/selfie-link-needed"
+import { applicationPageEvidence } from "@/lib/applications/application-page-evidence"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -195,6 +199,8 @@ type LatestAvsCheck = {
   clientId: string
   subjectFingerprint: string | null
   passed: boolean
+  provider: string
+  checkedById: string | null
   accountNumber: string
   createdAt: Date
 }
@@ -210,6 +216,8 @@ async function getLatestAvsCheck(applicationId: string, clientId: string, tenant
       clientId: true,
       subjectFingerprint: true,
       passed: true,
+      provider: true,
+      checkedById: true,
       accountNumber: true,
       createdAt: true,
     },
@@ -297,7 +305,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       ? getReviewKycGate(application.client, tenantId)
       : Promise.resolve(null),
     listCannedReplies(tenantId),
-    avsEnabled
+    avsEnabled || keyFactsState?.keyFacts
       ? getLatestAvsCheck(application.id, application.clientId, tenantId)
       : Promise.resolve(null),
     prisma.selfieCaptureToken.findFirst({
@@ -483,16 +491,31 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         }]
       : []
   const statusLabel = application.status.replace(/_/g, " ")
-  const agreementReady = !!application.agreementSignedAt && !!application.agreementCountersignedAt
+  // A key-facts loan has no provider countersignature or debit mandate: the
+  // borrower's signature on the issued agreement is the whole ceremony, and
+  // repayment is by EFT.
+  const keyFactsRegime = application.disclosureRegime === "KEY_FACTS"
+  const agreementReady = !!application.agreementSignedAt && (keyFactsRegime || !!application.agreementCountersignedAt)
   const mandateReady = !!application.debitMandateSignedAt
-  const mandateRequired = application.repaymentMethod !== "EFT"
+  const mandateRequired = !keyFactsRegime && application.repaymentMethod !== "EFT"
   const repaymentSetupReady = !mandateRequired || mandateReady
+  // A key-facts payout is manual: the transfer comes first, so every gate runs now, booking nothing, and the form stays closed until they pass.
+  const keyFactsPayoutGate = keyFactsRegime && application.status === "APPROVED" && !application.loan && agreementReady && canDisburse && !disburseConflict
+    ? await keyFactsPayoutCheck({ tenantId, applicationId: application.id, user: { id: viewerId, email: session?.user?.email ?? "" } })
+    : null
   const disbursementReady = application.status === "APPROVED" && !application.loan && agreementReady
-    && repaymentSetupReady && !decisionPricingUnavailable
+    && repaymentSetupReady && !decisionPricingUnavailable && keyFactsPayoutGate?.ok !== false
   // /decide refuses approval without this, but its 422 carries no field the
   // approve panel branches on, so staff previously met a red message with no
   // action attached to it. Say it on the rail instead, before they click.
   const creditLifeDisclosure = verifyAppliedCreditLifeDisclosure(application)
+  // A key-facts application (outside the NCA) is asked for none of the South African consumer evidence (lib/non-nca-documents/regime-evidence.ts).
+  const pageEvidence = applicationPageEvidence({
+    status: application.status,
+    disclosureRegime: application.disclosureRegime,
+    creditLifeDisclosureOk: creditLifeDisclosure.ok,
+    bureauAction: bureauRailAction(bureauDisplay),
+  })
   const currentStage = getApplicationStage(application.status, {
     kycVerified: application.client.kycStatus === "VERIFIED",
     affordabilityDone: !!application.affordabilityNDI,
@@ -518,7 +541,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     ...(showDebtEvidenceBlocker(application, applicationDebtEvidenceInvalid)
       ? [{ label: "Debt evidence invalid", detail: "Re-enter every credit obligation before reassessment. Approval and payout remain blocked.", tone: "danger" as const }]
       : []),
-    ...(application.status === "UNDER_REVIEW" && !creditLifeDisclosure.ok
+    ...(pageEvidence.creditLifeElectionMissing
       ? [{ label: "Credit-life election missing", detail: "Return this application to draft and recapture the consumer election before generating the PASQ.", tone: "danger" as const }]
       : []),
     ...(application.status === "APPROVED" && agreementReady && mandateRequired && !mandateReady
@@ -531,6 +554,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       recklessLendingAssessed: application.recklessLendingAssessed,
       clientAffordabilityDeclared: !!application.clientAffordabilityDeclaredAt,
       openCreditChecks: openChecks,
+      ncaChecksRequired: pageEvidence.ncaChecks,
     }),
     ...(rateCapGate ? [rateCapGate] : []),
   ]
@@ -542,7 +566,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     ...(application.agreementSignedAt ? [{ label: `Signed ${formatDate(application.agreementSignedAt)}`, detail: agreementSignedDisplayMethod ?? "Agreement accepted", tone: "success" as const }] : []),
     ...(application.agreementCountersignedAt ? [{ label: `Provider countersigned ${formatDate(application.agreementCountersignedAt)}`, detail: application.agreementCountersignedByName ?? "Authorised representative", tone: "success" as const }] : []),
     ...(application.debitMandateSignedAt ? [{ label: `Debit mandate signed ${formatDate(application.debitMandateSignedAt)}`, detail: "Customer portal signature recorded", tone: "success" as const }] : []),
-    ...(application.agreementSignedAt && !application.agreementCountersignedAt
+    ...(application.agreementSignedAt && !keyFactsRegime && !application.agreementCountersignedAt
       ? [{ label: "Provider countersignature pending", detail: "Disbursement remains blocked until an authorised representative countersigns the exact agreement.", tone: "warning" as const }]
       : []),
   ]
@@ -553,7 +577,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   // apply server-side; the button surfaces their exact error text after the
   // click rather than pre-computing the full affordability snapshot here.
   const submitBlockedReason =
-    application.status === "DRAFT" && !creditLifeDisclosure.ok
+    pageEvidence.creditLifeBlocksSubmit
       ? "Open Edit draft and record the client's credit-life election and exact-premium disclosure first."
       : null
   const primaryActions = (
@@ -576,7 +600,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         <>
           <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
           {approvalProgress && <ApprovalProgressPanel applicationId={application.id} progress={approvalProgress} canUseCommittee={canDo(userRole, "view_committee_pack")} today={sastCalendarDate(new Date())} />}
-          {bureauRailAction(bureauDisplay) === "retry" && (
+          {pageEvidence.bureauRetry && (
             <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
           )}
           {canDo(userRole, "amend_application") && <ApplicationReturnToDraftButton applicationId={application.id} />}
@@ -590,7 +614,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           Awaiting agreement
         </StatusPill>
       )}
-      {application.status === "APPROVED" && !application.loan && application.agreementSignedAt && !application.agreementCountersignedAt && (
+      {application.status === "APPROVED" && !application.loan && application.agreementSignedAt && !keyFactsRegime && !application.agreementCountersignedAt && (
         <StatusPill tone="warning" className="w-full justify-center rounded-md py-2">
           Awaiting provider countersignature
         </StatusPill>
@@ -608,6 +632,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           principalCents={displayedPrincipal}
           disbursementCents={loanCalc.disbursementAmount}
           clientName={`${application.client.firstName} ${application.client.lastName}`}
+          manualPayout={keyFactsRegime}
           clientBankDetails={{
             bankName: application.client.bankName,
             bankAccountNumber: application.client.bankAccountNumber,
@@ -615,6 +640,11 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             accountType: application.client.accountType,
           }}
         />
+      )}
+      {keyFactsPayoutGate?.ok === false && (
+        <p role="alert" className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">
+          Do not make the bank transfer yet. {keyFactsPayoutGate.error}
+        </p>
       )}
       {disbursementReady && canDisburse && disburseConflict && (
         <p className="rounded-md border border-[rgba(217,154,58,0.36)] bg-[rgba(217,154,58,0.08)] px-3 py-2 text-xs text-[var(--cf-warning)]">
@@ -633,10 +663,10 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   )
   const secondaryActions = (
     <>
-      {application.status === "UNDER_REVIEW" && bureauRailAction(bureauDisplay) === "rerun" && (
+      {pageEvidence.bureauRerun && (
         <ApplicationStartReviewButton applicationId={application.id} mode="rerun" />
       )}
-      {canCancelApplication(application) && canDo(userRole, "cancel_application") && (
+      {canCancelApplication(application) && !application.loanChangeRequestId && canDo(userRole, "cancel_application") && (
         <ApplicationCancelButton applicationId={application.id} />
       )}
       <MessageClientButton
@@ -922,14 +952,16 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           </DataPanel>
         )}
 
-        {/* Compliance Capture */}
-        <ComplianceCapture
-          applicationId={application.id}
-          recklessDone={application.recklessLendingAssessed}
-          recklessNote={application.recklessLendingNote}
-          affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
-          canConfirm={hasMinRole(userRole, "LOAN_ADMIN")}
-        />
+        {/* Compliance Capture: the NCA reckless-lending checks, asked only of an application under the NCA */}
+        {pageEvidence.ncaChecks && (
+          <ComplianceCapture
+            applicationId={application.id}
+            recklessDone={application.recklessLendingAssessed}
+            recklessNote={application.recklessLendingNote}
+            affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
+            canConfirm={hasMinRole(userRole, "LOAN_ADMIN")}
+          />
+        )}
 
         {canReadChecks && (
           <CreditChecksPanel
@@ -949,7 +981,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         {canReadChecks && <StatementAiCard applicationId={application.id} />}
 
         {/* Credit Bureau Check */}
-        {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (
+        {pageEvidence.bureauPanel && (
           <DataPanel title="Credit Bureau Check">
             <CreditBureauCheckPanel
               display={bureauDisplay}
@@ -961,7 +993,17 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
 
         {/* AVS bank-account verification — sits next to bank/financial details, ahead of
             disbursement. Available when either collections or payouts needs AVS. */}
-        {avsEnabled && (
+        {keyFactsRegime && application.status === "APPROVED" && (
+          <PayoutAccountVerificationCard
+            applicationId={application.id}
+            accountNumber={application.client.bankAccountNumber}
+            confirmedAt={latestAvsCheck?.provider === SECOND_PERSON_VERIFICATION_PROVIDER && avsCheckMatchesSubject(latestAvsCheck, application.client) ? latestAvsCheck.createdAt.toISOString() : null}
+            confirmedByYou={latestAvsCheck?.checkedById === session?.user?.id}
+            canConfirm={hasMinRole(userRole, "CREDIT_OFFICER")}
+          />
+        )}
+
+        {avsEnabled && !keyFactsRegime && (
           <AvsStatusCard
             applicationId={application.id}
             latest={latestAvsCheck ? {

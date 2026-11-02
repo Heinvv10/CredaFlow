@@ -60,15 +60,19 @@ async function groupRefusal(db: Db, tenantId: string, clientId: string, groupId:
 /**
  * The borrower's limit on a revolving product is its maximum amount. Against a new draw counts what they still owe across all the lender's
  * revolving products, whatever the loan's status (a defaulted or written-off balance is still owed, the write-off route keeps it), and
- * what is approved and not paid out.
- * Exact only under the client's lock: the locked re-checks in lib/affordability/current-approval.ts, at approval and at payout, hold it.
+ * what is approved and not paid out. A loan change's own application is not a draw: the loans it settles are what `settlingLoanIds` leaves
+ * out, so its principal and theirs are not counted twice. Exact only under the client's lock: the locked re-checks in
+ * lib/affordability/current-approval.ts, at approval and at payout, hold it; a loan change holds the loan locks.
  */
-async function revolvingRefusal(db: Db, tenantId: string, application: Pick<TypedApplication, "id">, clientId: string, principalCents: number, limitCents: number): Promise<string | null> {
+export async function revolvingLimitRefusal(
+  db: Pick<Db, "loan" | "loanApplication">, tenantId: string,
+  draw: { applicationId?: string; clientId: string; principalCents: number; limitCents: number; settlingLoanIds?: string[] },
+): Promise<string | null> {
   const revolving = { productType: "REVOLVING" as const }
-  const owed = await db.loan.aggregate({ where: { tenantId, clientId, product: revolving, status: { notIn: [...SETTLED_STATUSES] } }, _sum: { outstandingPrincipal: true } })
-  const pending = await db.loanApplication.aggregate({ where: { tenantId, clientId, product: revolving, status: "APPROVED", id: { not: application.id }, loan: { is: null } }, _sum: { approvedAmount: true } })
+  const owed = await db.loan.aggregate({ where: { tenantId, clientId: draw.clientId, product: revolving, status: { notIn: [...SETTLED_STATUSES] }, id: { notIn: draw.settlingLoanIds ?? [] } }, _sum: { outstandingPrincipal: true } })
+  const pending = await db.loanApplication.aggregate({ where: { tenantId, clientId: draw.clientId, product: revolving, status: "APPROVED", loanChangeRequestId: null, loan: { is: null }, ...(draw.applicationId ? { id: { not: draw.applicationId } } : {}) }, _sum: { approvedAmount: true } })
   const drawn = (owed._sum.outstandingPrincipal ?? 0) + (pending._sum.approvedAmount ?? 0)
-  return drawn + principalCents > limitCents ? `the draw of ${principalCents} cents on top of the ${drawn} cents owed or approved exceeds the revolving limit of ${limitCents} cents` : null
+  return drawn + draw.principalCents > draw.limitCents ? `the draw of ${draw.principalCents} cents on top of the ${drawn} cents owed or approved exceeds the revolving limit of ${draw.limitCents} cents` : null
 }
 
 /** Whether this person created the application's lending group or changed its members: who is in the group decides whether it is lent to, so they do not approve. */
@@ -91,5 +95,5 @@ export async function productTypeRefusal(db: Db, tenantId: string, application: 
   }
   if (type === "SME") return smeRefusal(facts, application.loanPurposeCategory)
   if (type === "GROUP") return groupRefusal(db, tenantId, application.clientId, facts?.borrowerGroupId)
-  return revolvingRefusal(db, tenantId, application, application.clientId, loan.principalCents, loan.limitCents)
+  return revolvingLimitRefusal(db, tenantId, { applicationId: application.id, clientId: application.clientId, principalCents: loan.principalCents, limitCents: loan.limitCents })
 }

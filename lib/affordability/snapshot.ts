@@ -184,6 +184,11 @@ export interface AffordabilityDecisionInputs {
   repayment?: RepaymentTerms
   /** A variable rate: the reference value and margin `interestRatePm` was derived from (lib/product-engine/variable-rate.ts). Absent on a fixed rate. */
   variableRate?: FrozenVariableRate
+  /**
+   * The borrower's identity at approval, on a key-facts approval only (lib/non-nca-documents/identity.ts): with no bureau check, nothing
+   * else in the snapshot names who was assessed. Part of the fingerprint when present.
+   */
+  borrowerIdentity?: string
   /** The product version the terms came from, and the rule that priced them (lib/product-engine/approval-terms.ts). */
   productVersion?: { id: string; version: number; baseRatePm: number; pricingRuleId: string | null; pricingRuleName: string | null; pricingInputs: { segment: string | null; channel: string | null; campaignCode: string | null; riskRank: number | null } }
 }
@@ -685,6 +690,9 @@ export function affordabilityInputFingerprint(inputs: AffordabilityDecisionInput
   if (inputs.variableRate !== undefined) {
     canonical.push(`variable:${JSON.stringify([inputs.variableRate.basis, inputs.variableRate.marginPa, inputs.variableRate.referenceRate, inputs.variableRate.referenceEffectiveDate])}`)
   }
+  if (inputs.borrowerIdentity !== undefined) {
+    canonical.push(`identity:${inputs.borrowerIdentity}`)
+  }
   if (inputs.productVersion !== undefined) {
     canonical.push(`version:${JSON.stringify([inputs.productVersion.id, inputs.productVersion.version, inputs.productVersion.baseRatePm, inputs.productVersion.pricingRuleId])}`)
   }
@@ -1069,6 +1077,7 @@ function affordabilityInputsAreValid(value: unknown): value is AffordabilityDeci
     Number.isFinite(value.ndiBufferPct) && Number(value.ndiBufferPct) >= 0 &&
     (value.repayment === undefined || repaymentTermsAreValid(value.repayment)) &&
     (value.variableRate === undefined || frozenVariableRateIsValid(value.variableRate)) &&
+    (value.borrowerIdentity === undefined || (typeof value.borrowerIdentity === "string" && /^[0-9a-f]{64}$/.test(value.borrowerIdentity))) &&
     (value.productVersion === undefined || productVersionRefIsValid(value.productVersion))
 }
 

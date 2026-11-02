@@ -76,3 +76,4 @@ A product's type, and whether it is the MICRO30 contract product, are locked onc
 - A rate change sends the borrower no notice: the wording is the lender's, and none is invented here.
 - A repricing does not reach back: a reference approved late changes only rows not yet due, and paid rows keep the rate they were paid at. A value older than the one a loan is already on is ignored.
 - Affordability is set against the recurring instalment: the balloon is on the schedule and in the totals, not in the instalment test.
+- Loan changes (2.6.6) are `lib/loan-changes`: they call `generateSchedule` on the balance and terms that remain, and append to `LoanTerms`.

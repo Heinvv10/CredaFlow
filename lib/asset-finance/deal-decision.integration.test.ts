@@ -549,6 +549,15 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     expect(stored.gearing?.toFixed(4)).toBe("0.2500")
   })
 
+  it("stamps the section 81 assessment on a ZA NON_NCA application (NCA_PASQ disclosure), which the approval evidence rules require", async () => {
+    signIn(fx.adminA, "LOAN_ADMIN")
+    const response = await routes().affordability(deals.approved, { recklessLendingNote: "Verified entity cash flow supports the proposed instalment." })
+    expect(response.status).toBe(200)
+    const row = await dealRow(deals.approved)
+    const application = await database().loanApplication.findUniqueOrThrow({ where: { id: row.applicationId }, select: { ncaRegime: true, disclosureRegime: true, recklessLendingAssessed: true, recklessLendingAssessedById: true } })
+    expect(application).toEqual({ ncaRegime: "NON_NCA", disclosureRegime: "NCA_PASQ", recklessLendingAssessed: true, recklessLendingAssessedById: fx.adminA })
+  })
+
   it("APPROVE with reasons: application APPROVED NON_NCA (EFT, approver), deal APPROVED, audited with the reasons", async () => {
     signIn(fx.adminA, "LOAN_ADMIN")
     const response = await routes().decide(deals.approved, { decision: "APPROVE", reasons: REASONS })

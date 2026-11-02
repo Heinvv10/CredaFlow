@@ -32,6 +32,8 @@ export interface EngineConfigPayload {
   s71SignOff: boolean
   /** The paragraph the client's decline message carries for an automated decision, as the lender's legal team approved it. */
   automatedDeclineNotice: string | null
+  /** Non-NCA lenders only: the engine may attest affordability, so a digital key-facts application with a bureau check can be approved with no person. */
+  keyFactsInstantApproval: boolean
 }
 
 /** Draft or placeholder wording must never be approvable as the lender's notice. */
@@ -71,7 +73,7 @@ export function parseRuleSetPayload(raw: unknown): RuleSetPayload {
 export function parseEngineConfigPayload(raw: unknown): EngineConfigPayload {
   if (!isObject(raw)) throw new InvalidPayloadError(["payload: expected an object"])
   const problems = new Problems()
-  rejectUnknownKeys(raw, ["mode", "channels", "productIds", "repaymentMethod", "challengerVersionId", "challengerPercent", "s71SignOff", "automatedDeclineNotice"], "payload", problems)
+  rejectUnknownKeys(raw, ["mode", "channels", "productIds", "repaymentMethod", "challengerVersionId", "challengerPercent", "s71SignOff", "automatedDeclineNotice", "keyFactsInstantApproval"], "payload", problems)
   if (raw.mode !== "OFF" && raw.mode !== "SHADOW" && raw.mode !== "LIVE") problems.add("payload.mode", "OFF, SHADOW or LIVE")
   const list = (value: unknown, path: string, allowed?: readonly string[]) => {
     if (!Array.isArray(value) || value.length > 100 || value.some((v) => typeof v !== "string" || v.length === 0) || new Set(value).size !== value.length) {
@@ -86,6 +88,7 @@ export function parseEngineConfigPayload(raw: unknown): EngineConfigPayload {
   if (raw.challengerVersionId !== null && (typeof raw.challengerVersionId !== "string" || raw.challengerVersionId.length === 0)) problems.add("payload.challengerVersionId", "a rule set version id, or null")
   if (typeof raw.challengerPercent !== "number" || !Number.isInteger(raw.challengerPercent) || raw.challengerPercent < 0 || raw.challengerPercent > 50) problems.add("payload.challengerPercent", "a whole number from 0 to 50")
   if (typeof raw.s71SignOff !== "boolean") problems.add("payload.s71SignOff", "true or false")
+  if (raw.keyFactsInstantApproval !== undefined && typeof raw.keyFactsInstantApproval !== "boolean") problems.add("payload.keyFactsInstantApproval", "true or false")
   const notice = raw.automatedDeclineNotice
   if (notice !== null && (typeof notice !== "string" || notice !== notice.trim() || notice.length < NOTICE_MIN_LENGTH || notice.length > NOTICE_MAX_LENGTH)) {
     problems.add("payload.automatedDeclineNotice", `null, or ${NOTICE_MIN_LENGTH} to ${NOTICE_MAX_LENGTH} characters with no surrounding spaces`)
@@ -95,7 +98,8 @@ export function parseEngineConfigPayload(raw: unknown): EngineConfigPayload {
     problems.add("payload.automatedDeclineNotice", "placeholder wording (draft, TODO, TBC) cannot be approved as the client notice")
   }
   problems.throwIfAny()
-  const payload = raw as unknown as EngineConfigPayload
+  // A request drafted before the setting existed has no key: off.
+  const payload = { ...raw, keyFactsInstantApproval: raw.keyFactsInstantApproval === true } as unknown as EngineConfigPayload
   if (payload.s71SignOff && payload.automatedDeclineNotice === null) problems.add("payload.s71SignOff", "the sign-off covers the client notice: provide the approved wording")
   if (payload.mode !== "OFF" && (payload.channels.length === 0 || payload.productIds.length === 0)) problems.add("payload", "choose at least one channel and one product, or switch the engine off")
   if (payload.challengerPercent > 0 && !payload.challengerVersionId) problems.add("payload.challengerVersionId", "name the challenger version to send applications to")

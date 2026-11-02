@@ -83,7 +83,10 @@ vi.mock("@/lib/rate-limit", () => ({
   callerIp: () => "127.0.0.1",
   recordedCallerIp: () => null,
 }))
-vi.mock("@/lib/utils", () => ({ generateReference: () => "APP-TEST-0001" }))
+vi.mock("@/lib/utils", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/utils")>()),
+  generateReference: () => "APP-TEST-0001",
+}))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (...a: unknown[]) => triggerNotification(...a),
 }))
@@ -461,6 +464,22 @@ describe("POST /api/portal/applications", () => {
     expect(createApplication).not.toHaveBeenCalled()
   })
 
+  it("does not count a loan change's application as one the borrower has open", async () => {
+    findFirstApplication.mockResolvedValue({ id: "existing", reference: "APP-OLD", status: "SUBMITTED" })
+    await POST(buildReq(validBody))
+    const openCheck = findFirstApplication.mock.calls.map((call: unknown[]) => (call[0] as { where: Record<string, unknown> }).where).find((where: Record<string, unknown>) => "productId" in where)
+    expect(openCheck).toMatchObject({ loanChangeRequestId: null })
+  })
+
+  it("reads the winner of a race as the index does: a loan change's application is not one", async () => {
+    findFirstApplication.mockResolvedValue(null)
+    createApplication.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "5.x" }))
+    await POST(buildReq(validBody)).catch(() => undefined)
+    const reads = findFirstApplication.mock.calls.map((call: unknown[]) => (call[0] as { where: Record<string, unknown> }).where).filter((where: Record<string, unknown>) => "status" in where)
+    expect(reads.length).toBeGreaterThanOrEqual(2)
+    expect(reads.at(-1)).toMatchObject({ loanChangeRequestId: null })
+  })
+
   it("maps the database winner of a concurrent submission race to 409", async () => {
     findFirstApplication
       .mockResolvedValueOnce(null)
@@ -500,6 +519,55 @@ describe("POST /api/portal/applications", () => {
     expect(res.status).toBe(429)
     expect(createCapCalls()).toBe(1)
     expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  describe("the NCA declarations by regime", () => {
+    const silent = { ...validBody, affordabilityDeclared: false, pasqDeliveryUnderstood: false }
+
+    it("demands both of an applicant on a South African instance", async () => {
+      const res = await POST(buildReq(silent))
+      expect(res.status).toBe(400)
+      expect(createApplication).not.toHaveBeenCalled()
+    })
+
+    it("demands neither on a Lesotho instance, stamps no declaration and audits none", async () => {
+      const { resetActiveJurisdiction, setActiveJurisdiction } = await import("@/lib/jurisdiction/active")
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      try {
+        const res = await POST(buildReq(silent))
+        expect(res.status, JSON.stringify(await res.clone().json())).toBe(201)
+        expect(createApplication.mock.calls[0][0].data).not.toHaveProperty("clientAffordabilityDeclaredAt")
+        expect(auditLogCreate.mock.calls[0][0].data.newValue).toMatchObject({ affordabilityDeclaredByClient: false, pasqDeliveryNoticeAcceptedByClient: false })
+      } finally {
+        resetActiveJurisdiction()
+      }
+    })
+
+    it("still stamps the declaration on a South African instance", async () => {
+      await POST(buildReq(validBody))
+      expect(createApplication.mock.calls[0][0].data.clientAffordabilityDeclaredAt).toBeInstanceOf(Date)
+    })
+  })
+
+  it("looks for the credit-life offer unless the instance is outside the NCA's jurisdiction: unloaded (the default) and ZA query, LS does not", async () => {
+    const { resetActiveJurisdiction, setActiveJurisdiction } = await import("@/lib/jurisdiction/active")
+    try {
+      resetActiveJurisdiction()
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).toHaveBeenCalled()
+
+      findFirstInsuranceProduct.mockClear()
+      setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).toHaveBeenCalled()
+
+      findFirstInsuranceProduct.mockClear()
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      await POST(buildReq(validBody))
+      expect(findFirstInsuranceProduct).not.toHaveBeenCalled()
+    } finally {
+      resetActiveJurisdiction()
+    }
   })
 
   it("accepts the REAL no-offer client payload: election is an empty string", async () => {

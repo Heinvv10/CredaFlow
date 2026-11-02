@@ -48,6 +48,7 @@ import {
   normaliseAffordabilityDebts,
   readAffordabilitySnapshotStore,
   totalAffordabilityDebt,
+  type AffordabilityDecisionInputs,
   type AffordabilityDecisionSnapshot,
   type AffordabilityDebtInput,
   type AffordabilityExpenseInput,
@@ -62,6 +63,9 @@ import {
   requireClientBorrowerRow,
   type WithClientBorrower,
 } from "@/lib/borrower"
+import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
+import { approvedCalculation, QuoteUnavailableError } from "@/lib/non-nca-documents/quote"
+import { approvalEvidenceRules, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 export type CurrentApprovalEvidenceReason =
   | "missing"
@@ -82,6 +86,8 @@ export type CurrentApprovalEvidenceReason =
 export interface CurrentApprovalEvidenceApplication
   extends StoredCreditLifeDisclosure, StoredPasqBinding {
   id: string
+  /** NCA_PASQ or KEY_FACTS (LoanApplication.disclosureRegime); absent reads as NCA_PASQ. */
+  disclosureRegime?: string | null
   tenantId: string
   clientId: string
   affordabilityResult: unknown
@@ -143,6 +149,7 @@ export const approvalEvidenceApplicationInclude = Prisma.validator<Prisma.LoanAp
       gender: true,
       dateOfBirth: true,
       updatedAt: true,
+      deceasedAt: true,
       kycStatus: true,
       kycVerifiedAt: true,
       kycVerifiedById: true,
@@ -364,6 +371,8 @@ export async function verifyLockedCurrentAffordabilityApproval(
   if (!context || context.application.status !== "APPROVED") {
     return { ok: false, reason: "application_changed" }
   }
+  // A client the lender recorded as deceased is never bound or paid, in either regime: the approval no longer describes them.
+  if (context.application.client.deceasedAt) return { ok: false, reason: "changed" }
   // Held under the client's lock (loadLockedApprovalContext), as at approval: a revolving limit is not exceeded between approval and
   // payout, nor a group lent to once a member defaults. Reads nothing for the product types an NCA lender has.
   if (await productTypeRefusal(tx, args.tenantId, context.application, { principalCents: context.application.appliedAmount, limitCents: context.application.product.maxAmount })) {
@@ -438,6 +447,8 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "application_changed" }
   }
+  // A client the lender recorded as deceased is never approved: the one deceased gate that does not depend on a bureau.
+  if (application.client.deceasedAt) return { ok: false, reason: "compliance_changed" }
   // Approval does not require biometrics; signing and payout do, and they run
   // through verifyLockedCurrentAffordabilityApproval which stays "payout".
   if (!await hasCurrentCompositeKyc(tx, application, "origination")) {
@@ -453,21 +464,30 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "compliance_changed" }
   }
+  // What an approval needs of the South African consumer evidence depends on the disclosure regime (the same rules
+  // decide-application applied before it opened this transaction).
+  const evidenceRules = approvalEvidenceRules(application)
   if (
-    !application.clientAffordabilityDeclaredAt ||
-    !application.recklessLendingAssessed ||
-    !application.recklessLendingAssessedAt ||
-    !application.recklessLendingAssessedById
+    (evidenceRules.affordabilityDeclaration && !application.clientAffordabilityDeclaredAt) ||
+    (evidenceRules.recklessLendingAssessment && (
+      !application.recklessLendingAssessed ||
+      !application.recklessLendingAssessedAt ||
+      !application.recklessLendingAssessedById
+    ))
   ) {
     return { ok: false, reason: "compliance_changed" }
   }
-  const creditLife = verifyStoredCreditLifeDisclosure(application, {
-    principalCents: application.appliedAmount,
-    termDays: application.appliedTermDays,
-  })
-  if (!creditLife.ok) {
+  if (keyFactsCreditLifeRefusal(application)) return { ok: false, reason: "compliance_changed" }
+  const storedCreditLife = evidenceRules.creditLifeElection
+    ? verifyStoredCreditLifeDisclosure(application, {
+        principalCents: application.appliedAmount,
+        termDays: application.appliedTermDays,
+      })
+    : null
+  if (storedCreditLife && !storedCreditLife.ok) {
     return { ok: false, reason: "compliance_changed" }
   }
+  const creditLife = { evidence: storedCreditLife?.ok ? storedCreditLife.evidence : KEY_FACTS_CREDIT_LIFE }
   const submission = readAffordabilitySnapshotStore(application.affordabilityResult).submission
   if (!submission || !application.submittedAt) {
     return { ok: false, reason: "submission_missing" }
@@ -479,7 +499,7 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "submission_changed" }
   }
-  if (!bureauCheck && !args.bureauOverrideReason) {
+  if (evidenceRules.bureauCheck && !bureauCheck && !args.bureauOverrideReason) {
     return { ok: false, reason: "bureau_missing" }
   }
   if (
@@ -558,13 +578,15 @@ export async function verifyLockedApprovalCandidate(
     }
     recurringPaymentCents = billing.recurringPaymentCents
   } else {
+    // A PASQ binds an NCA_PASQ application; a key-facts application has none.
+    if (!storedCreditLife?.ok) return { ok: false, reason: "compliance_changed" }
     const pasq = verifyStoredPasqBinding(application, {
       tenantId: application.tenantId,
       applicationId: application.id,
       clientId: application.clientId,
       productId: application.productId,
       calculatorPricingFingerprint: calculatorEvidence.pricingFingerprint,
-      creditLifeDisclosureSha256: creditLife.evidence.disclosureSha256,
+      creditLifeDisclosureSha256: storedCreditLife.evidence.disclosureSha256,
     })
     if (
       !pasq.ok
@@ -614,6 +636,7 @@ export async function verifyLockedApprovalCandidate(
     productType: application.product.productType,
     initiationFeePayment: application.initiationFeePayment,
     ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+    ...frozenIdentityInput(application),
     ...(terms.repayment ? { repayment: terms.repayment } : {}),
     ...(terms.variableRate ? { variableRate: terms.variableRate } : {}),
     ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
@@ -667,41 +690,13 @@ export type CurrentApprovalEvidenceResult =
     }
   | { ok: false; reason: CurrentApprovalEvidenceReason }
 
-/**
- * Compare every mutable decision input with the immutable approval snapshot.
- * Agreement generation, signing, and payout all call this same pure gate so a
- * stale decision cannot progress farther merely because a route forgot a field.
- */
-export function verifyCurrentAffordabilityApproval(args: {
-  application: CurrentApprovalEvidenceApplication
-  bureauCheck: BureauDecisionCheckInput | null
-  tenantConfig: {
-    ndiBufferPct: number
-    bureauMinScore: number
-    bureauBlockAdverse: boolean
-  } | null
-  requirePasqAcknowledgement?: boolean
-}): CurrentApprovalEvidenceResult {
-  const { application, bureauCheck, tenantConfig } = args
-  const submissionCheck = verifySubmissionAffordabilitySnapshot(application)
-  if (!submissionCheck.ok) return submissionCheck
-  const hasBureauOverride = application.bureauOverrideAt != null
-  if (!bureauCheck && !hasBureauOverride) {
-    return { ok: false, reason: "bureau_missing" }
-  }
-  if (bureauCheck && !bureauCheckMatchesSubject(bureauCheck, application.client)) {
-    return { ok: false, reason: "bureau_subject_changed" }
-  }
-  if (simulatedBureauBlock(bureauCheck).blocked) {
-    return { ok: false, reason: "bureau_simulated" }
-  }
-  if (
-    hasBureauOverride &&
-    (!application.bureauOverrideReason?.trim() || !application.bureauOverrideById)
-  ) {
-    return { ok: false, reason: "override_incomplete" }
-  }
+/** The frozen terms an approval is held to and the instalment they bill: what the fingerprint check below recomputes. */
+type ApprovalPricing =
+  | { ok: true; frozen: AffordabilityDecisionInputs; calculation: LoanCalcResult; recurringPaymentCents: number }
+  | { ok: false; reason: CurrentApprovalEvidenceReason }
 
+/** An NCA approval's pricing, through the PASQ the consumer acknowledged. */
+function ncaApprovalPricing(application: CurrentApprovalEvidenceApplication, requirePasqAcknowledgement: boolean | undefined): ApprovalPricing {
   const creditLife = verifyStoredCreditLifeDisclosure(application, {
     principalCents: application.appliedAmount,
     termDays: application.appliedTermDays,
@@ -733,12 +728,83 @@ export function verifyCurrentAffordabilityApproval(args: {
     productId: application.productId,
     calculatorPricingFingerprint: calculatorEvidence.pricingFingerprint,
     creditLifeDisclosureSha256: creditLife.evidence.disclosureSha256,
-    requireAcknowledgement: args.requirePasqAcknowledgement ?? true,
-    requireApprovalBinding: args.requirePasqAcknowledgement ?? true,
+    requireAcknowledgement: requirePasqAcknowledgement ?? true,
+    requireApprovalBinding: requirePasqAcknowledgement ?? true,
   })
   if (!pasq.ok) return { ok: false, reason: "pasq_changed" }
-  const creditLifePremiumCents =
-    pasq.evidence.billing.recurringPaymentCents - calculation.monthlyInstalment
+  return { ok: true, frozen, calculation, recurringPaymentCents: pasq.evidence.billing.recurringPaymentCents }
+}
+
+/**
+ * A key-facts approval's pricing: no PASQ exists, so the calculation is the one its documents print (quote.ts) and the instalment comes
+ * from the billing helper decide used, with no cover. No PASQ binds the application's approved terms to the frozen ones here, so this does.
+ */
+function keyFactsApprovalPricing(application: CurrentApprovalEvidenceApplication): ApprovalPricing {
+  try {
+    const { calculation, terms: frozen, startDate } = approvedCalculation(application)
+    if (
+      application.approvedAmount !== frozen.principalCents
+      || application.approvedTermDays !== frozen.termDays
+      || application.initiationFeePayment !== frozen.initiationFeePayment
+    ) {
+      return { ok: false, reason: "changed" }
+    }
+    const calculator = createAffordabilityCalculatorEvidence(calculation, startDate)
+    const billing = createPasqBillingEvidence({
+      calculator,
+      ...KEY_FACTS_CREDIT_LIFE,
+      premiumPeriods: calculateCreditLifePremiumPeriods(calculator, frozen.termDays),
+    })
+    return { ok: true, frozen, calculation, recurringPaymentCents: billing.recurringPaymentCents }
+  } catch (error) {
+    if (error instanceof QuoteUnavailableError && error.reason !== "no_schedule") return { ok: false, reason: error.reason }
+    return { ok: false, reason: "changed" }
+  }
+}
+
+/**
+ * Compare every mutable decision input with the immutable approval snapshot.
+ * Agreement generation, signing, and payout all call this same pure gate so a
+ * stale decision cannot progress farther merely because a route forgot a field.
+ */
+export function verifyCurrentAffordabilityApproval(args: {
+  application: CurrentApprovalEvidenceApplication
+  bureauCheck: BureauDecisionCheckInput | null
+  tenantConfig: {
+    ndiBufferPct: number
+    bureauMinScore: number
+    bureauBlockAdverse: boolean
+  } | null
+  requirePasqAcknowledgement?: boolean
+}): CurrentApprovalEvidenceResult {
+  const { application, bureauCheck, tenantConfig } = args
+  const submissionCheck = verifySubmissionAffordabilitySnapshot(application)
+  if (!submissionCheck.ok) return submissionCheck
+  const hasBureauOverride = application.bureauOverrideAt != null
+  // A key-facts loan has no bureau check and no PASQ (lib/non-nca-documents/regime-evidence.ts). Those two steps are all it skips.
+  const keyFacts = application.disclosureRegime === "KEY_FACTS"
+  if (!bureauCheck && !hasBureauOverride && !keyFacts) {
+    return { ok: false, reason: "bureau_missing" }
+  }
+  if (bureauCheck && !bureauCheckMatchesSubject(bureauCheck, application.client)) {
+    return { ok: false, reason: "bureau_subject_changed" }
+  }
+  if (simulatedBureauBlock(bureauCheck).blocked) {
+    return { ok: false, reason: "bureau_simulated" }
+  }
+  if (
+    hasBureauOverride &&
+    (!application.bureauOverrideReason?.trim() || !application.bureauOverrideById)
+  ) {
+    return { ok: false, reason: "override_incomplete" }
+  }
+
+  const pricing = keyFacts
+    ? keyFactsApprovalPricing(application)
+    : ncaApprovalPricing(application, args.requirePasqAcknowledgement)
+  if (!pricing.ok) return pricing
+  const { frozen, calculation, recurringPaymentCents } = pricing
+  const creditLifePremiumCents = recurringPaymentCents - calculation.monthlyInstalment
 
   let applicationDebts: ReturnType<typeof normaliseAffordabilityDebts>
   let clientDebts: ReturnType<typeof normaliseAffordabilityDebts>
@@ -784,7 +850,7 @@ export function verifyCurrentAffordabilityApproval(args: {
       clientDebtCents,
       declaredDebtCents: Math.max(applicationDebtCents, clientDebtCents),
       bureauObligationsCents: bureauMonthlyObligations(bureauCheck?.obligations),
-      proposedInstalmentCents: pasq.evidence.billing.recurringPaymentCents,
+      proposedInstalmentCents: recurringPaymentCents,
       creditLifePremiumCents,
       // Agreed loan terms: frozen. Everything above this line describes the
       // CONSUMER and stays live, so debt/income/expense drift after approval
@@ -804,6 +870,7 @@ export function verifyCurrentAffordabilityApproval(args: {
       monthlyServiceFeeCents: frozen.monthlyServiceFeeCents,
       initiationFeePayment: frozen.initiationFeePayment,
       ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
+      ...frozenIdentityInput(application),
       ...(frozen.repayment ? { repayment: frozen.repayment } : {}),
       ...(frozen.variableRate ? { variableRate: frozen.variableRate } : {}),
       ...(frozen.productVersion ? { productVersion: frozen.productVersion } : {}),

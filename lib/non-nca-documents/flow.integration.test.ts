@@ -8,6 +8,7 @@
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/non-nca-documents/flow.integration.test.ts
  */
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { createThrowawayDb, type ThrowawayDb } from "@/lib/jurisdiction/throwaway-db.integration-fixture"
@@ -27,11 +28,11 @@ vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) 
 vi.mock("@/lib/signing-otp/policy", async (original) => ({ ...(await original<typeof import("@/lib/signing-otp/policy")>()), isSigningOtpRequired: async () => false }))
 vi.mock("@/lib/config/identity", () => ({ findLenderIdentity: async () => ({ legalName: "Demo Basotho Lending (Pty) Ltd", ncrNumber: null, registeredOfficeLines: ["1 Demo Road"] }) }))
 
+import { BORROWER_REFUSAL, STAFF_REFUSAL } from "./borrower-gate"
 import { issueLoanDocuments } from "./issue"
 import { acknowledgeKeyFacts } from "./acknowledge"
 import { signKeyFactsAgreement } from "./sign"
 import { loanDocumentState, documentProblem } from "./state"
-import { keyFactsRefusal } from "./refusal"
 import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe.sequential : describe.skip
@@ -67,7 +68,7 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
         where: { id: app.id },
         data: {
           status: "APPROVED", approvedAt: capturedAt, approvedById: t.userId, approvedAmount: 500_000, approvedTermDays: 90, repaymentMethod: "EFT",
-          affordabilityResult: approvedAffordabilityResult({ capturedAt, principalCents: 500_000, termDays: 90, productId: t.productId, interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: product.monthlyServiceFee }) as never,
+          affordabilityResult: approvedAffordabilityResult({ borrowerIdentity: biometricSubjectFingerprint({ id: clientId, idNumber: `F${n}`, firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null }), capturedAt, principalCents: 500_000, termDays: 90, productId: t.productId, interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: product.monthlyServiceFee }) as never,
         },
       })
     })
@@ -76,6 +77,61 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     return { tenantId: t.tenantId, userId: t.userId, clientId, applicationId: app.id, kfs, agreement, email: `${n}@client.invalid` }
   }
   const staff = (fx: { userId: string }) => ({ id: fx.userId, email: "officer@test.invalid" })
+
+  it("a borrower recorded as deceased after approval is issued nothing, and leaves no row and no file behind", async () => {
+    const fx = await approvedApplication()
+    const filesBefore = holder.files.size
+    await db().client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    expect(await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })).toMatchObject({ ok: false, status: 409, error: STAFF_REFUSAL })
+    expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId } })).toBe(0)
+    expect(holder.files.size).toBe(filesBefore)
+  })
+
+  it("a borrower recorded as deceased after the issue cannot acknowledge", async () => {
+    const fx = await approvedApplication()
+    await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
+    const kfs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents.find((d) => d.kind === "KEY_FACTS_STATEMENT")!
+    await db().client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    expect(await acknowledgeKeyFacts({ ...base, shown: kfs.pdfSha256 })).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId, acknowledgedAt: { not: null } } })).toBe(0)
+  })
+
+  it("a borrower recorded as deceased after acknowledging cannot be bound", async () => {
+    const fx = await approvedApplication()
+    await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
+    const docs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents
+    const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    await acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 })
+    await db().client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+    const signed = await signKeyFactsAgreement({ ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Thabo Synthetic", signingOtpChallengeId: null, ipAddress: "203.0.113.5" })
+    expect(signed).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })).agreementSignedAt).toBeNull()
+  })
+
+  it("a record of death still uncommitted when the borrower signs is waited for and seen: the read is under the client row lock", async () => {
+    const fx = await approvedApplication()
+    await issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })
+    const docs = (await loanDocumentState(fx.tenantId, fx.applicationId))!.keyFacts!.documents
+    const base = { tenantId: fx.tenantId, applicationId: fx.applicationId, clientId: fx.clientId, clientEmail: fx.email }
+    await acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 })
+    let commit = () => {}
+    const held = new Promise<void>((resolve) => { commit = resolve })
+    let written = () => {}
+    const wrote = new Promise<void>((resolve) => { written = resolve })
+    const recording = db().$transaction(async (tx) => {
+      await tx.client.update({ where: { id: fx.clientId }, data: { deceasedAt: new Date(), deceasedReason: "Synthetic" } })
+      written()
+      await held
+    })
+    await wrote
+    const signing = signKeyFactsAgreement({ ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Thabo Synthetic", signingOtpChallengeId: null, ipAddress: "203.0.113.5" })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    commit()
+    await recording
+    expect(await signing).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })).agreementSignedAt).toBeNull()
+  })
 
   it("issues both documents from the current approved versions, binds the agreement, and audits it", async () => {
     const fx = await approvedApplication()
@@ -117,11 +173,8 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     const app = await db().loanApplication.findUniqueOrThrow({ where: { id: fx.applicationId } })
     expect(app).toMatchObject({ agreementSignedMethod: "portal", agreementSignedByIp: "203.0.113.5", agreementSignatureData: "Thabo Synthetic" })
     expect(await db().auditLog.count({ where: { tenantId: fx.tenantId, action: { in: ["KEY_FACTS_ACKNOWLEDGED", "KEY_FACTS_AGREEMENT_SIGNED"] } } })).toBe(2)
-    // Signed: the documents hold for disbursement and the disburse route's gate says so (the payout itself is a later item).
+    // Signed: the documents hold for disbursement (the booking itself is proven in disburse.integration.test.ts).
     expect(await documentProblem(fx.applicationId, false)).toBeNull()
-    const refusal = await keyFactsRefusal(fx.tenantId, fx.applicationId, "disburse")
-    expect(refusal?.status).toBe(409)
-    expect(await refusal?.json()).toMatchObject({ disbursementPrecondition: "non_nca_payout_unavailable" })
   })
 
   it("a template published after the issue stops the signature; issuing again from the new version lets it through", async () => {
@@ -135,14 +188,11 @@ suite("key-facts documents: issue, acknowledge, sign (real DB)", () => {
     expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId, supersededAt: { not: null } } })).toBe(2)
   })
 
-  it("refuses to issue without an approved template, for an unapproved application, and after signing; the disburse gate names what is missing", async () => {
+  it("refuses to issue without an approved template", async () => {
     const fx = await approvedApplication()
     await db().documentTemplate.update({ where: { id: fx.kfs.templateId }, data: { isActive: false } })
     await expect(issueLoanDocuments({ tenantId: fx.tenantId, applicationId: fx.applicationId, staff: staff(fx) })).rejects.toThrow(/not published and available/)
     expect(await db().loanDocumentIssuance.count({ where: { applicationId: fx.applicationId } })).toBe(0)
-    const refusal = await keyFactsRefusal(fx.tenantId, fx.applicationId, "disburse")
-    expect(refusal?.status).toBe(422)
-    expect(await refusal?.json()).toMatchObject({ error: expect.stringMatching(/the borrower has not signed the loan agreement/), disbursementPrecondition: "non_nca_documents" })
   })
 
   it("refuses when the approved terms move while the documents render, and leaves no row and no file behind", async () => {

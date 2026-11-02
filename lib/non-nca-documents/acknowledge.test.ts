@@ -2,22 +2,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createHash } from "node:crypto"
 import { Prisma } from "@prisma/client"
 
-const m = vi.hoisted(() => ({ application: vi.fn(), issuance: vi.fn(), updateMany: vi.fn(), audit: vi.fn(), readFile: vi.fn() }))
+const m = vi.hoisted(() => ({ application: vi.fn(), issuance: vi.fn(), updateMany: vi.fn(), audit: vi.fn(), readFile: vi.fn(), raw: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findFirst: m.application }, loanDocumentIssuance: { findFirst: m.issuance },
-    $transaction: async (fn: (tx: unknown) => unknown) => fn({ loanDocumentIssuance: { updateMany: m.updateMany } }),
+    $transaction: async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: m.raw, loanDocumentIssuance: { updateMany: m.updateMany } }),
   },
 }))
 vi.mock("@/lib/audit", () => ({ AuditAction: { KEY_FACTS_ACKNOWLEDGED: "KEY_FACTS_ACKNOWLEDGED" }, logAuditStrict: m.audit }))
 vi.mock("@/lib/storage", () => ({ readFile: m.readFile }))
 
 import { acknowledgeKeyFacts } from "./acknowledge"
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import { approvedAffordabilityResult } from "./approval.integration-fixture"
+import { BORROWER_REFUSAL } from "./borrower-gate"
 
+const BORROWER = { id: "c1", idNumber: "990000001", firstName: "Thabo", lastName: "Synthetic", dateOfBirth: null }
+const frozen = approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900, borrowerIdentity: biometricSubjectFingerprint(BORROWER) })
 const BYTES = Buffer.from("%PDF synthetic key facts")
 const SHA = createHash("sha256").update(BYTES).digest("hex")
 const args = { tenantId: "t1", applicationId: "a1", clientId: "c1", clientEmail: "c1@client.invalid", shown: SHA, ipAddress: "203.0.113.5" }
-const approved = { id: "a1", status: "APPROVED", disclosureRegime: "KEY_FACTS", agreementSignedAt: null }
+const approved = { id: "a1", status: "APPROVED", disclosureRegime: "KEY_FACTS", affordabilityResult: frozen, agreementSignedAt: null }
 const standing = { id: "i1", pdfSha256: SHA, templateVersionNumber: 2, acknowledgedAt: null, clientDocument: { storagePath: "/mem/k.pdf", deletedAt: null } }
 
 beforeEach(() => {
@@ -26,6 +31,7 @@ beforeEach(() => {
   m.issuance.mockResolvedValue(standing)
   m.readFile.mockResolvedValue(BYTES)
   m.updateMany.mockResolvedValue({ count: 1 })
+  m.raw.mockResolvedValue([{ deceasedAt: null, ...BORROWER }])
 })
 
 describe("acknowledgeKeyFacts", () => {
@@ -45,6 +51,14 @@ describe("acknowledgeKeyFacts", () => {
     expect(await acknowledgeKeyFacts(args)).toMatchObject({ ok: false, status: 422 })
     m.issuance.mockResolvedValue({ ...standing, clientDocument: { storagePath: null, deletedAt: null } })
     expect(await acknowledgeKeyFacts(args)).toMatchObject({ ok: false, status: 422 })
+    expect(m.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses a borrower recorded as deceased, read under the lock, without saying why", async () => {
+    m.raw.mockResolvedValue([{ deceasedAt: new Date("2026-07-01T00:00:00.000Z") }])
+    const refused = await acknowledgeKeyFacts(args)
+    expect(refused).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(JSON.stringify(refused)).not.toMatch(/deceased/i)
     expect(m.updateMany).not.toHaveBeenCalled()
   })
 
@@ -79,5 +93,21 @@ describe("acknowledgeKeyFacts", () => {
     expect(await acknowledgeKeyFacts(args)).toMatchObject({ ok: false, status: 409, error: "A key facts statement is acknowledged by the borrower" })
     m.updateMany.mockRejectedValue(new TypeError("boom"))
     await expect(acknowledgeKeyFacts(args)).rejects.toThrow(TypeError)
+  })
+})
+
+describe("the person and the race", () => {
+  it("refuses a borrower who is no longer the person the approval froze, without saying why, read under the client lock", async () => {
+    m.raw.mockResolvedValue([{ deceasedAt: null, ...BORROWER, lastName: "Someoneelse" }])
+    const refused = await acknowledgeKeyFacts(args)
+    expect(refused).toMatchObject({ ok: false, status: 409, error: BORROWER_REFUSAL })
+    expect(m.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("answers a timeout or a lost race as a conflict, not a fault", async () => {
+    for (const code of ["P2028", "P2034"]) {
+      m.updateMany.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("timed out", { code, clientVersion: "5" }))
+      expect(await acknowledgeKeyFacts(args)).toMatchObject({ ok: false, status: 409 })
+    }
   })
 })

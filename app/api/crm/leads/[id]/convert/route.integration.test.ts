@@ -206,7 +206,7 @@ suite("POST /api/crm/leads/[id]/convert Contact promotion", () => {
 
     expect(response.status).toBe(422)
     expect((await response.json()).error).toBe(
-      "Amount must be between R1,000 and R10,000 for Staff Conversion Product.",
+      "Amount must be between R 1,000.00 and R 10,000.00 for Staff Conversion Product.",
     )
     const [lead, clients, applications] = await Promise.all([
       db.lead.findUniqueOrThrow({ where: { id: leadId } }),

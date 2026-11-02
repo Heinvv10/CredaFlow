@@ -1,4 +1,4 @@
-import { formatDate } from "@/lib/utils"
+import { activeCurrencySymbol, formatDate } from "@/lib/utils"
 import { randsToCents } from "./money-input"
 
 // Display formatting for the asset-finance screens. Presentation only: no
@@ -8,13 +8,13 @@ import { randsToCents } from "./money-input"
 const NBSP = " "
 
 /**
- * Cents as rand for a screen: "R 1,287.73", a negative "-R 1,287.73" (sign
+ * Cents in the lender's currency for a screen: "R 1,287.73" ("M" for Lesotho), a negative "-R 1,287.73" (sign
  * before the currency). The space after "R" is non-breaking, so a narrow
  * cell never wraps the symbol away from its digits.
  */
 export function formatMoney(cents: number): string {
   const digits = (Math.abs(cents) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-  return `${cents < 0 ? "-" : ""}R${NBSP}${digits}`
+  return `${cents < 0 ? "-" : ""}${activeCurrencySymbol()}${NBSP}${digits}`
 }
 
 /** An ISO calendar date ("2026-06-08") as the app prints dates: "08 Jun 2026". */

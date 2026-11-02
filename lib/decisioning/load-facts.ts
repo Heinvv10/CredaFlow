@@ -16,15 +16,18 @@ import { calculateLoan } from "@/lib/loan-calculator"
 import type { prisma } from "@/lib/prisma"
 import { previewCalcInput } from "@/lib/product-engine/approval-terms"
 import { liveAffordability, snapshotAffordability, type AffordabilityFacts } from "./affordability-facts"
+import { attestationAffordable } from "./attestation-obligations"
 import type { DecisionFacts } from "./facts"
 
 type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput" | "referenceRate">
 
 export interface LoadedFacts {
   facts: DecisionFacts
-  application: { id: string; clientId: string; productId: string; status: string; updatedAt: Date; submittedAt: Date | null; humanReviewRequestedAt: Date | null }
+  application: { id: string; clientId: string; productId: string; status: string; updatedAt: Date; submittedAt: Date | null; humanReviewRequestedAt: Date | null; disclosureRegime: string; authenticatedSubmission: boolean }
   /** The bureau check the facts read (an evidence reference for the decision log), if any. */
   bureauCheckId: string | null
+  /** A key-facts application only: affordable with every other obligation on top (./attestation-obligations.ts). */
+  attestationAffordable: boolean
   /** Whether affordability came from the application's recorded submission snapshot or was worked out from the records now. */
   affordabilitySource: "SNAPSHOT" | "LIVE"
 }
@@ -186,8 +189,13 @@ export async function loadDecisionFacts(db: Db, tenantId: string, applicationId:
   }
   return {
     facts,
-    application: { id: application.id, clientId: application.clientId, productId: application.productId, status: application.status, updatedAt: application.updatedAt, submittedAt: application.submittedAt, humanReviewRequestedAt: application.humanReviewRequestedAt },
+    application: { id: application.id, clientId: application.clientId, productId: application.productId, status: application.status, updatedAt: application.updatedAt, submittedAt: application.submittedAt, humanReviewRequestedAt: application.humanReviewRequestedAt, disclosureRegime: application.disclosureRegime, authenticatedSubmission: application.authenticatedSubmissionClientId !== null },
     bureauCheckId: bureau?.id ?? null,
+    attestationAffordable: application.disclosureRegime === "KEY_FACTS" && await attestationAffordable(db, {
+      tenantId, applicationId, clientId: application.clientId, monthlyIncomeCents: income, monthlyExpensesCents: client.monthlyExpenses,
+      applicationDebts: application.existingDebtObligations, clientDebts: client.debtObligations, bureauObligationsCents: bureau ? bureauMonthlyObligations(bureau.obligations) : 0,
+      instalmentCents: affordability.instalmentCents, ndiBufferPct: config?.ndiBufferPct ?? 110,
+    }),
     affordabilitySource: submission ? "SNAPSHOT" : "LIVE",
   }
 }

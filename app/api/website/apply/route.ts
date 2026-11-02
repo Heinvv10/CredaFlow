@@ -9,7 +9,7 @@ import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/
 import { AuditAction } from "@/lib/audit"
 import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
 import { canonicalIdNumber, idNumberCopy, isValidIdNumber } from "@/lib/validation/client-wizard"
-import { generateReference, maskEmail, maskIdNumber } from "@/lib/utils"
+import { generateReference, maskEmail, maskIdNumber, formatRands } from "@/lib/utils"
 import {
   ContactPromotionConflictError,
   resolveContactForLeadConversion,
@@ -273,13 +273,13 @@ export async function POST(req: NextRequest) {
 
     const notes = [
       `Product: ${productType}`,
-      `Amount: R${Number(amount || 0).toLocaleString()}`,
+      `Amount: ${formatRands(Number(amount || 0), { whole: true })}`,
       hasValidTerm ? `Term: ${submittedTermDays.toLocaleString()} days` : null,
       `Purpose: ${purpose || "Not specified"}`,
       `Employment: ${employmentStatus || "Not specified"}`,
       `Employer: ${employerName || "N/A"}`,
-      `Monthly Income: R${Number(monthlyIncome || 0).toLocaleString()}`,
-      `Monthly Expenses: R${Number(monthlyExpenses || 0).toLocaleString()}`,
+      `Monthly Income: ${formatRands(Number(monthlyIncome || 0), { whole: true })}`,
+      `Monthly Expenses: ${formatRands(Number(monthlyExpenses || 0), { whole: true })}`,
       `ID Number: ${idNumber || "Not provided"}`,
       `Source: ${leadSource}`,
       referralCode ? `Referral Code: ${referralCode}` : null,
@@ -771,6 +771,7 @@ export async function POST(req: NextRequest) {
               clientId: confirmedExistingClient.id,
               productId: existingProduct.id,
               status: { in: [...OPEN_APPLICATION_STATUSES] },
+              loanChangeRequestId: null,
             },
             select: { id: true, reference: true, status: true },
           })
@@ -838,6 +839,7 @@ export async function POST(req: NextRequest) {
                     clientId: confirmedExistingClient.id,
                     productId: product.id,
                     status: { in: [...OPEN_APPLICATION_STATUSES] },
+                    loanChangeRequestId: null,
                   },
                   select: { id: true, reference: true, status: true },
                 })
@@ -984,6 +986,7 @@ export async function POST(req: NextRequest) {
                     clientId: snapshotClient.id,
                     productId: snapshotProduct.id,
                     status: { in: [...OPEN_APPLICATION_STATUSES] },
+                    loanChangeRequestId: null,
                   },
                   select: { id: true, reference: true, status: true },
                 })
@@ -1413,6 +1416,7 @@ export async function POST(req: NextRequest) {
                     clientId: confirmedExistingClient.id,
                     productId: product.id,
                     status: { in: [...OPEN_APPLICATION_STATUSES] },
+                    loanChangeRequestId: null,
                   },
                   select: { id: true, reference: true, status: true },
                 })
