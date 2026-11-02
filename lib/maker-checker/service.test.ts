@@ -26,9 +26,13 @@ function handler(over: Partial<ChangeHandler<{ amount: number }>> = {}): ChangeH
 function fakeDb(found: unknown, count = 1) {
   const tx = {
     changeRequest: { findFirst: vi.fn(async () => found), updateMany: vi.fn(async () => ({ count })), create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "new", status: "DRAFT", kind: "TEST_KIND", ...a.data })) },
-    auditLog: { create: vi.fn(), findMany: vi.fn(async (a: { take?: number; cursor?: { id: string }; where?: { OR?: unknown } } = {}) => {
-      // The shared two-people rule's read (lib/security/account-control.ts).
-      if (a.where?.OR) return h.control ? [h.control] : []
+    auditLog: { create: vi.fn(), findMany: vi.fn(async (a: { take?: number; cursor?: { id: string }; where?: { entityId?: string | { in: string[] } } } = {}) => {
+      // The shared two-people rule walks accounts by a list of ids (lib/security/account-control.ts); the service's own trail reads one id.
+      const walked = a.where?.entityId
+      if (typeof walked === "object") {
+        const control = h.control as { entityId: string } | null
+        return control && walked.in.includes(control.entityId) ? [control] : []
+      }
       // Newest first, paged by cursor as the service asks (rows without an id get one by position).
       const rows = (h.recent as Array<Record<string, unknown>>).map((r, i) => ({ id: `r${i}`, createdAt: new Date(), ...r }))
       const start = a.cursor ? rows.findIndex((r) => r.id === a.cursor!.id) + 1 : 0
@@ -69,12 +73,12 @@ describe("maker-checker service (state, permission, staleness; the database rule
 
   describe("a checker who controls the maker's account is not a second person", () => {
     it("refuses a checker who created or changed the maker's account in the last 30 days, writing nothing", async () => {
-      h.control = { id: "audit-1", action: "USER_CREATED" }
+      h.control = { id: "audit-1", action: "USER_CREATED", userId: "u-checker", entityId: "u-maker" }
       const { db, tx } = fakeDb(row())
       await expect(approve({ ...scope, actor: checker }, db)).rejects.toMatchObject({ code: "MAKER_ACCOUNT_CONTROLLED", status: 403 })
       expect(tx.changeRequest.updateMany).not.toHaveBeenCalled()
-      const query = (tx.auditLog.findMany.mock.calls as unknown as Array<[{ where: Record<string, unknown> }]>).map(([a]) => a.where).find((w) => w.OR) as Record<string, unknown>
-      expect(query).toMatchObject({ tenantId: "t", entity: "User", action: { in: ["USER_CREATED", "USER_UPDATED", "TOTP_RESET_BY_ADMIN"] }, OR: expect.arrayContaining([expect.objectContaining({ userId: "u-checker" }), expect.objectContaining({ userId: { in: ["u-maker"] } })]) })
+      const query = (tx.auditLog.findMany.mock.calls as unknown as Array<[{ where: Record<string, unknown> }]>).map(([a]) => a.where).find((w) => (w.entityId as { in?: string[] }).in?.includes("u-maker")) as Record<string, unknown>
+      expect(query).toMatchObject({ tenantId: "t", entity: "User", action: { in: expect.arrayContaining(["USER_CREATED", "USER_UPDATED", "TOTP_RESET_BY_ADMIN"]) } })
       const since = (query.createdAt as { gte: Date }).gte.getTime()
       expect(Date.now() - since).toBeGreaterThan(29.9 * 86_400_000)
       expect(Date.now() - since).toBeLessThan(30.1 * 86_400_000)
