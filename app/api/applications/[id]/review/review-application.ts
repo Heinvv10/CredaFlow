@@ -258,7 +258,7 @@ export async function startApplicationReview({ tenant, user, id, autoDecisionTri
 
     // The daily limits are on paid pulls: a key-facts application has no bureau enquiry, so it spends no slot, unless its
     // lender has instant approval on.
-    if (admit && (approvalEvidenceRules(application).bureauCheck || await keyFactsBureauApplies(tx, tenant.id)) && !(await admit(tx))) return { kind: "not_admitted" as const }
+    if (admit && (approvalEvidenceRules(application).bureauCheck || await keyFactsBureauApplies(tx, tenant.id, application)) && !(await admit(tx))) return { kind: "not_admitted" as const }
 
     const changed = await tx.loanApplication.updateMany({
       where: {

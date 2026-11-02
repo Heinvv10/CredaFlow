@@ -45,6 +45,7 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
       runWithTenant(holder.tenantId, () => handler({ id: holder.tenantId, slug: holder.tenantId, name: "Instant approval IT", domain: null, status: "ACTIVE" })),
   }
 })
+vi.mock("@/lib/turnstile", () => ({ verifyTurnstile: async () => ({ ok: true, success: true, allowed: true }) }))
 vi.mock("@/lib/notifications", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/notifications")>()), triggerNotification: vi.fn(async () => undefined) }))
 vi.mock("@/lib/storage", () => ({
   saveFile: async (buffer: Buffer) => { const path = `/mem/${holder.files.size}.pdf`; holder.files.set(path, buffer); return { storagePath: path, fileSize: buffer.length } },
@@ -68,14 +69,17 @@ import { MATRIX_KIND } from "@/lib/approval/types"
 import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
 import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "@/lib/non-nca-documents/gate.integration-fixture"
 import { bankRefFor, lsFlow } from "@/lib/non-nca-documents/ls-flow.integration-fixture"
+import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "@/lib/non-nca-documents/ls-stack.integration-fixture"
 import { decideApplication } from "@/app/api/applications/[id]/decide/decide-application"
 import { POST as decideRoute } from "@/app/api/applications/[id]/decide/route"
 import { startApplicationReview } from "@/app/api/applications/[id]/review/review-application"
 import { POST as portalApply } from "@/app/api/portal/applications/route"
+import { POST as websiteApply } from "@/app/api/website/apply/route"
 import { POST as draftChange } from "@/app/api/maker-checker/route"
 import { POST as actOnChange } from "@/app/api/maker-checker/[id]/[action]/route"
 import { approveThroughStaffPath } from "./auto-actions"
+import { runAutoDecision } from "./auto-decision"
 import { cleanIdNumber, seedDigitalBorrower } from "./key-facts-instant.integration-fixture"
 import { loadDecisionFacts } from "./load-facts"
 import { scheduleDigitalDecision } from "./schedule-digital"
@@ -271,7 +275,29 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     expect(await ls.db().decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: ls.stack.tenant } })).toMatchObject({ keyFactsInstantApproval: true })
     // A real approved request that did not say so cannot carry the setting: what is written is what was approved.
     const older = await ls.db().changeRequest.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, kind: ENGINE_CONFIG_KIND, status: "APPROVED" }, orderBy: { createdAt: "asc" } })
-    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = '${older.id}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/match the approved/)
+    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = '${older.id}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/applies once/)
+  })
+
+  it("an approved request applies once: an old approval cannot be pointed at again to turn the setting back on", async () => {
+    const on = await ls.db().decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: ls.stack.tenant } })
+    expect((await ls.change(ENGINE_CONFIG_KIND, "off", ls.engine({ keyFactsInstantApproval: false }))).status).toBe(200)
+    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = '${on.changeRequestId}', "keyFactsInstantApproval" = true WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/applies once/)
+    expect((await ls.change(ENGINE_CONFIG_KIND, "on again", ls.engine({ keyFactsInstantApproval: true }))).status).toBe(200)
+    // The payload binding on its own: the newest approved request, with a value it did not approve.
+    const config = await ls.db().decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: ls.stack.tenant } })
+    await ls.db().$transaction([
+      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" DISABLE TRIGGER USER`),
+      ls.db().$executeRawUnsafe(`CREATE TEMP TABLE newer ON COMMIT DROP AS SELECT * FROM "ChangeRequest" WHERE id = '${config.changeRequestId}'`),
+      ls.db().$executeRawUnsafe(`UPDATE newer SET id = 'newer-${t}', "decidedAt" = now() AT TIME ZONE 'UTC' + interval '1 hour', payload = payload || '{"keyFactsInstantApproval": false}'::jsonb`),
+      ls.db().$executeRawUnsafe(`INSERT INTO "ChangeRequest" SELECT * FROM newer`),
+      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" ENABLE TRIGGER USER`),
+    ])
+    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = 'newer-${t}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/match the approved/)
+    await ls.db().$transaction([
+      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" DISABLE TRIGGER USER`),
+      ls.db().$executeRawUnsafe(`DELETE FROM "ChangeRequest" WHERE id = 'newer-${t}'`),
+      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" ENABLE TRIGGER USER`),
+    ])
   })
 
   it("approves a client's digital submission in under 60 seconds, as an automated decision that names its rule set", async () => {
@@ -414,41 +440,227 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     holder.held = null
     holder.hold = false
     await runWithTenant(ls.stack.tenant, () => startApplicationReview({ tenant: { id: ls.stack.tenant }, user: { id: ls.stack.officer, email: "o@test.invalid" }, id, autoDecisionTrigger: "MANUAL" }))
-    expect(await ls.runOf(id)).toMatchObject({ execution: "REFERRED", reasonCodes: ["NOT_A_DIGITAL_SUBMISSION"] })
+    expect(await ls.runOf(id)).toMatchObject({ execution: "REFERRED", reasonCodes: ["NOT_AN_AUTHENTICATED_SUBMISSION"] })
     expect((await ls.applicationOf(id)).status).toBe("UNDER_REVIEW")
   })
 
-  it("the database refuses every shortcut to an attestation", async () => {
-    const id = `dbguard-${t}`
-    await seedUnderReview(ls.db(), ls.stack, id, { nca: false })
-    const system = await ls.db().user.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, isSystem: true } })
-    const version = (await ls.runOf((await ls.db().loanApplication.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, status: "APPROVED" } })).id)).ruleSetVersionId
-    const terms = `status = 'APPROVED', "approvedAmount" = 500000, "approvedTermDays" = 30, "approvedRate" = 0.05, "repaymentMethod" = 'EFT', "approvedAt" = now()`
-    const update = (set: string) => ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET ${set} WHERE id = '${id}'`)
+  describe("the database refuses every shortcut to an attestation", () => {
+    const seeded = async (id: string) => {
+      await seedUnderReview(ls.db(), ls.stack, id, { nca: false, authenticated: true })
+      const version = (await ls.db().decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, scopeKey: "ALL" } })).id
+      const system = (await ls.db().user.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, isSystem: true } })).id
+      const update = (set: string) => ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET ${set} WHERE id = '${id}'`)
+      const attest = `"automatedAffordabilityAttestedAt" = now(), "automatedAffordabilityVersionId" = '${version}'`
+      const terms = `status = 'APPROVED', "approvedAmount" = 500000, "approvedTermDays" = 30, "approvedRate" = 0.05, "repaymentMethod" = 'EFT', "approvedAt" = now()`
+      const bureauCheck = async (over: object = {}) => {
+        const application = await ls.applicationOf(id)
+        const client = await ls.db().client.findUniqueOrThrow({ where: { id: application.clientId! } })
+        return ls.db().creditBureauCheck.create({ data: { tenantId: ls.stack.tenant, clientId: client.id, applicationId: id, reviewGeneration: application.bureauReviewGeneration, subjectFingerprint: bureauSubjectFingerprint(client), provider: "simulated", score: 640, riskGrade: "LOW", adverseInfo: [], declineReasons: [], obligations: { totalMonthly: 0 }, ok: true, ...over } })
+      }
+      return { id, update, attest, terms, system, bureauCheck, approveAsEngine: () => update(`${terms}, "approvedById" = '${system}', ${attest}`) }
+    }
     // With no provider the screening trigger is silent, so what speaks below is this guard.
-    await ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { screeningProvider: null } })
-    const attest = `"automatedAffordabilityAttestedAt" = now(), "automatedAffordabilityVersionId" = '${version}'`
-    // An engine approval with no attestation: what would otherwise approve a key-facts applicant with the setting off.
-    await expect(update(`${terms}, "approvedById" = '${system.id}'`)).rejects.toThrow(/only on an automated affordability attestation/)
-    // A person cannot claim it, and it cannot be half written.
-    await expect(update(`${terms}, "approvedById" = '${ls.stack.officer}', ${attest}`)).rejects.toThrow(/not a person/)
-    await expect(update(`${terms}, "approvedById" = '${ls.stack.officer}', "automatedAffordabilityVersionId" = '${version}'`)).rejects.toThrow(/LoanApplication_automated_affordability/)
-    // No bureau check of this review: the standing decision.
-    await expect(update(`${terms}, "approvedById" = '${system.id}', ${attest}`)).rejects.toThrow(/no bureau check of this review/)
-    // Outside an approval it does not stand, and it is never there from the start.
-    await expect(update(attest)).rejects.toThrow(/only with the engine/)
-    await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" DISABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
-    await expect(update(attest)).rejects.toThrow(/LoanApplication_automated_affordability/)
-    await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" ENABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
-    const done = await ls.db().loanApplication.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, status: "APPROVED", automatedAffordabilityAttestedAt: { not: null } } })
-    await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = now() WHERE id = '${done.id}'`)).rejects.toThrow(/cannot be changed/)
-    await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = NULL, "automatedAffordabilityVersionId" = NULL WHERE id = '${done.id}'`)).rejects.toThrow(/cannot be changed/)
-    await ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { screeningProvider: "simulated" } })
+    beforeAll(() => ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { screeningProvider: null } }))
+    afterAll(() => ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { screeningProvider: "simulated" } }))
+
+    it("an engine approval with no attestation: what would otherwise approve a key-facts applicant with the setting off", async () => {
+      const g = await seeded(`g-unattested-${t}`)
+      await expect(g.update(`${g.terms}, "approvedById" = '${g.system}'`)).rejects.toThrow(/only on an automated affordability attestation/)
+    })
+
+    it("a person cannot claim it, and it cannot be half written", async () => {
+      const g = await seeded(`g-person-${t}`)
+      await expect(g.update(`${g.terms}, "approvedById" = '${ls.stack.officer}', ${g.attest}`)).rejects.toThrow(/not a person/)
+      const version = (await ls.db().decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, scopeKey: "ALL" } })).id
+      await expect(g.update(`${g.terms}, "approvedById" = '${ls.stack.officer}', "automatedAffordabilityVersionId" = '${version}'`)).rejects.toThrow(/LoanApplication_automated_affordability/)
+    })
+
+    it("an application nobody submitted from a session has no attestation, and the marker cannot be added later", async () => {
+      const id = `g-website-${t}`
+      await seedUnderReview(ls.db(), ls.stack, id, { nca: false })
+      await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "authenticatedSubmissionClientId" = "clientId" WHERE id = '${id}'`)).rejects.toThrow(/fixed when it is created/)
+      const version = (await ls.db().decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, scopeKey: "ALL" } })).id
+      const system = (await ls.db().user.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, isSystem: true } })).id
+      await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET status = 'APPROVED', "approvedAmount" = 500000, "approvedTermDays" = 30, "approvedRate" = 0.05, "repaymentMethod" = 'EFT', "approvedAt" = now(), "approvedById" = '${system}', "automatedAffordabilityAttestedAt" = now(), "automatedAffordabilityVersionId" = '${version}' WHERE id = '${id}'`)).rejects.toThrow(/authenticated session/)
+    })
+
+    it("the marker names the application's own client", async () => {
+      const g = await seeded(`g-marker-${t}`)
+      await expect(g.update(`"authenticatedSubmissionClientId" = 'someone-else'`)).rejects.toThrow(/fixed when it is created/)
+      const other = `g-marker-other-${t}`
+      await seedUnderReview(ls.db(), ls.stack, other, { nca: false })
+      await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" DISABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
+      await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "authenticatedSubmissionClientId" = 'someone-else' WHERE id = '${other}'`)).rejects.toThrow(/LoanApplication_authenticated_submission/)
+      await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" ENABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
+    })
+
+    it.each([
+      ["no bureau check at all, the standing decision", null],
+      ["a check that failed", { ok: false }],
+      ["a check of an earlier review", { reviewGeneration: "an-earlier-review" }],
+      ["a check from a bureau that does not serve the jurisdiction", { provider: "experian" }],
+      ["a check older than the lender's window", { createdAt: new Date(Date.now() - 61 * 86_400_000) }],
+    ])("%s", async (label, over) => {
+      const g = await seeded(`g-b-${label.length}-${t}`)
+      if (over) await g.bureauCheck(over)
+      await expect(g.approveAsEngine()).rejects.toThrow(/no current bureau check of this review/)
+    })
+
+    it("the lender's own window counts, not just the ceiling", async () => {
+      const g = await seeded(`g-window-${t}`)
+      await g.bureauCheck({ createdAt: new Date(Date.now() - 10 * 86_400_000) })
+      await ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { bureauMaxAgeDays: 5 } })
+      await expect(g.approveAsEngine()).rejects.toThrow(/no current bureau check of this review/)
+      await ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { bureauMaxAgeDays: 60 } })
+    })
+
+    it("control: the same statement with a current check passes this guard, so the refusals above are about the check", async () => {
+      const g = await seeded(`g-control-${t}`)
+      await g.bureauCheck()
+      await g.approveAsEngine().catch((error: Error) => expect(error.message).not.toMatch(/bureau check of this review|attestation|authenticated session|setting is not on/))
+    })
+
+    it("outside an approval it does not stand, and it is never there from the start", async () => {
+      const g = await seeded(`g-outside-${t}`)
+      await expect(g.update(g.attest)).rejects.toThrow(/only with the engine/)
+      await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" DISABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
+      await expect(g.update(g.attest)).rejects.toThrow(/LoanApplication_automated_affordability/)
+      await ls.db().$executeRawUnsafe(`ALTER TABLE "LoanApplication" ENABLE TRIGGER "LoanApplication_guard_automated_affordability"`)
+      const row = await ls.applicationOf(g.id)
+      const version = (await ls.db().decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, scopeKey: "ALL" } })).id
+      await expect(ls.db().loanApplication.create({ data: { tenantId: ls.stack.tenant, reference: `APP-ins-${t}`, clientId: row.clientId, productId: row.productId, appliedAmount: 500_000, appliedTermDays: 30, status: "APPROVED", approvedAt: new Date(), approvedById: ls.stack.officer, automatedAffordabilityAttestedAt: new Date(), automatedAffordabilityVersionId: version } })).rejects.toThrow(/never at creation/)
+    })
+
+    it("once stamped it cannot be edited or removed", async () => {
+      const done = await ls.db().loanApplication.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, status: "APPROVED", automatedAffordabilityAttestedAt: { not: null } } })
+      await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = now() WHERE id = '${done.id}'`)).rejects.toThrow(/cannot be changed/)
+      await expect(ls.db().$executeRawUnsafe(`UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = NULL, "automatedAffordabilityVersionId" = NULL WHERE id = '${done.id}'`)).rejects.toThrow(/cannot be changed/)
+    })
+  })
+
+  it("a change of the setting waits for an approval in flight: the approval reads it FOR SHARE, so it cannot commit under a setting withdrawn behind it", async () => {
+    const pending = await reviewedByStaff(`share-${t}`, true)
+    let release = () => undefined as void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let locked = () => undefined as void
+    const lockedNow = new Promise<void>((resolve) => { locked = resolve })
+    const holder2 = ls.db().$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT 1 FROM "DecisionEngineConfig" WHERE "tenantId" = '${ls.stack.tenant}' FOR UPDATE`)
+      locked()
+      await held
+    }, { timeout: 30_000 })
+    await lockedNow
+    const approval = pending.approve()
+    let waited = false
+    for (let i = 0; i < 200 && !waited; i++) {
+      const rows = await ls.db().$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%LoanApplication%'`)
+      waited = Number(rows[0].n) > 0
+      if (!waited) await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    release()
+    await holder2
+    expect(await approval).toMatchObject({ execution: "APPROVED" })
+    expect(waited).toBe(true)
+  })
+
+  it("the public website form, no session, an existing client's details: no enquiry, no attestation, and it goes to staff", async () => {
+    const clientId = `web-${t}`
+    await borrower(clientId)
+    const client = await ls.db().client.findUniqueOrThrow({ where: { id: clientId } })
+    const product = await ls.db().loanProduct.findUniqueOrThrow({ where: { id: ls.stack.product } })
+    const res = await websiteApply(new NextRequest("http://localhost/api/website/apply", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9" }, body: JSON.stringify({
+      firstName: client.firstName, lastName: client.lastName, email: client.email, phone: client.phone, idNumber: client.idNumber, productType: product.productType, amount: 5000, termDays: 30, purpose: "Other", turnstileToken: "x", popiaConsent: true,
+    }) }))
+    expect(res.status, JSON.stringify(await res.clone().json())).toBeLessThan(300)
+    const application = await ls.db().loanApplication.findFirstOrThrow({ where: { clientId }, orderBy: { createdAt: "desc" } })
+    await ls.settled(application.id)
+    expect(await ls.runOf(application.id)).toMatchObject({ execution: "REFERRED", reasonCodes: ["NO_BUREAU"] })
+    expect(await ls.applicationOf(application.id)).toMatchObject({ status: "UNDER_REVIEW", authenticatedSubmissionClientId: null, automatedAffordabilityAttestedAt: null })
+    expect(await ls.db().creditBureauCheck.count({ where: { applicationId: application.id } })).toBe(0)
+    expect((await ls.settled(application.id)).chargedAt).toBeNull()
+  })
+
+  it("the engine with a website application's bureau check on file still refuses to attest it", async () => {
+    const clientId = `web2-${t}`
+    await borrower(clientId)
+    holder.hold = true
+    const portal = await ls.apply(clientId)
+    holder.held = null
+    holder.hold = false
+    // A sibling with no session marker, as the website form writes it, with a bureau check put there by hand.
+    const id = `web2-app-${t}`
+    await seedUnderReview(ls.db(), ls.stack, id, { nca: false })
+    await ls.db().auditLog.create({ data: { tenantId: ls.stack.tenant, action: "APPLICATION_SUBMITTED_BY_CLIENT", entity: "LoanApplication", entityId: id, newValue: { source: "website_apply" } } })
+    void portal
+    const generation = randomUUID()
+    await ls.db().loanApplication.update({ where: { id }, data: { bureauReviewGeneration: generation } })
+    const client = await ls.db().client.findUniqueOrThrow({ where: { id: `${id}-client` } })
+    await ls.db().creditBureauCheck.create({ data: { tenantId: ls.stack.tenant, clientId: client.id, applicationId: id, reviewGeneration: generation, subjectFingerprint: bureauSubjectFingerprint(client), provider: "simulated", score: 640, riskGrade: "LOW", adverseInfo: [], declineReasons: [], obligations: { totalMonthly: 0 }, ok: true } })
+    await clearOpenFlags(ls.db(), ls.stack, id)
+    expect(await runWithTenant(ls.stack.tenant, () => runAutoDecision({ tenantId: ls.stack.tenant, applicationId: id, trigger: "DIGITAL_SUBMISSION" }))).toMatchObject({ execution: "REFERRED", verdict: { reasonCodes: ["NOT_AN_AUTHENTICATED_SUBMISSION"] } })
+  })
+
+  describe("every obligation counts on top of the higher of declared and bureau", () => {
+    const second = () => `${ls.stack.product}-b`
+    const AMOUNT = 3800 // Instalment about M 4,059: one fits R10,450 NDI after the bureau's M 3,950, two do not.
+    beforeAll(async () => {
+      const base = await ls.db().loanProduct.findUniqueOrThrow({ where: { id: ls.stack.product } })
+      await ls.db().loanProduct.create({ data: { ...base, id: second(), code: `${base.code}-B`, createdAt: undefined, updatedAt: undefined } as never })
+      expect((await ls.change(ENGINE_CONFIG_KIND, "both", ls.engine({ keyFactsInstantApproval: true, s71SignOff: true, automatedDeclineNotice: NOTICE, productIds: [ls.stack.product, ls.declineProduct, second()] }))).status).toBe(200)
+    })
+
+    it("one after the other: the first is attested, the second sees it and refers, though max(declared, bureau) would absorb it", async () => {
+      const clientId = `sib-${t}`
+      await borrower(clientId)
+      const first = await ls.apply(clientId, ls.stack.product, { amount: AMOUNT })
+      await ls.settled(first)
+      expect(await ls.applicationOf(first)).toMatchObject({ status: "APPROVED" })
+      const next = await ls.apply(clientId, second(), { amount: AMOUNT })
+      await ls.settled(next)
+      expect(await ls.runOf(next)).toMatchObject({ execution: "REFERRED", reasonCodes: ["AFFORDABILITY_NOT_ATTESTED"] })
+      expect(await ls.applicationOf(next)).toMatchObject({ status: "UNDER_REVIEW", automatedAffordabilityAttestedAt: null })
+    })
+
+    it("at the same time: both verdicts were reached before either committed, and the locked re-check stops what the facts could not see", async () => {
+      const clientId = `sib2-${t}`
+      await borrower(clientId)
+      holder.hold = true
+      const a = await ls.apply(clientId, ls.stack.product, { amount: AMOUNT })
+      holder.held = null
+      holder.hold = true
+      const b = await ls.apply(clientId, second(), { amount: AMOUNT })
+      holder.held = null
+      holder.hold = false
+      const inTenant = <T,>(fn: () => Promise<T>) => runWithTenant(ls.stack.tenant, fn)
+      const system = await ls.db().user.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, isSystem: true } })
+      const version = await ls.db().decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, scopeKey: "ALL" } })
+      for (const id of [a, b]) await inTenant(() => startApplicationReview({ tenant: { id: ls.stack.tenant }, user: { id: system.id, email: system.email }, id, autoDecisionTrigger: "MANUAL", assignToUser: false }))
+      const context = async (id: string) => ({
+        tenantId: ls.stack.tenant, applicationId: id, trigger: "DIGITAL_SUBMISSION", mode: "LIVE" as const, role: "CHAMPION" as const, loaded: (await loadDecisionFacts(prisma, ls.stack.tenant, id))!, attestsAffordability: true, startedAt: performance.now(), now: new Date(),
+        version: { id: version.id, scopeKey: version.scopeKey, version: version.version },
+        verdict: { decision: "APPROVE" as const, reasonCodes: ["RULES_PASSED"], declineCategory: null, riskGrade: null, gradeRank: null, score: null, pricingTier: null, limitCapCents: null, hits: [] },
+      })
+      const [ca, cb] = await inTenant(() => Promise.all([context(a), context(b)]))
+      const outcomes = await inTenant(() => Promise.all([approveThroughStaffPath(ca, "EFT"), approveThroughStaffPath(cb, "EFT")]))
+      expect(outcomes.map((o) => o?.execution)).toEqual(["REFERRED", "REFERRED"])
+      for (const id of [a, b]) expect(await ls.applicationOf(id)).toMatchObject({ status: "UNDER_REVIEW", automatedAffordabilityAttestedAt: null })
+      expect(outcomes[0]?.note).toMatch(/other obligations counted/)
+    })
+
+    it("a small sibling does not stop a second loan the client can carry", async () => {
+      const clientId = `sib3-${t}`
+      await borrower(clientId)
+      const first = await ls.apply(clientId, ls.stack.product, { amount: 1000 })
+      await ls.settled(first)
+      const next = await ls.apply(clientId, second(), { amount: 1000 })
+      await ls.settled(next)
+      expect(await ls.applicationOf(next)).toMatchObject({ status: "APPROVED" })
+    })
   })
 
   it("the database refuses it when the setting has been withdrawn, whatever the code did", async () => {
     const id = `withdrawn-${t}`
-    await seedUnderReview(ls.db(), ls.stack, id, { nca: false })
+    await seedUnderReview(ls.db(), ls.stack, id, { nca: false, authenticated: true })
     const system = await ls.db().user.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, isSystem: true } })
     const approvedOne = await ls.db().loanApplication.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, automatedAffordabilityVersionId: { not: null } } })
     await ls.db().tenantConfig.update({ where: { tenantId: ls.stack.tenant }, data: { screeningProvider: null } })
@@ -546,7 +758,7 @@ suite("the same setting cannot be reached on a South African instance (real Post
     await za.db().$transaction([
       za.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" DISABLE TRIGGER USER`),
       za.db().$executeRawUnsafe(`CREATE TEMP TABLE forged ON COMMIT DROP AS SELECT * FROM "ChangeRequest" WHERE id = '${config.changeRequestId}'`),
-      za.db().$executeRawUnsafe(`UPDATE forged SET id = '${copy}', payload = payload || '{"keyFactsInstantApproval": true}'::jsonb`),
+      za.db().$executeRawUnsafe(`UPDATE forged SET id = '${copy}', "decidedAt" = now() AT TIME ZONE 'UTC' + interval '1 hour', payload = payload || '{"keyFactsInstantApproval": true}'::jsonb`),
       za.db().$executeRawUnsafe(`INSERT INTO "ChangeRequest" SELECT * FROM forged`),
       za.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" ENABLE TRIGGER USER`),
     ])
@@ -555,7 +767,7 @@ suite("the same setting cannot be reached on a South African instance (real Post
 
   it("an NCA application cannot carry an attestation, approved or not", async () => {
     const id = `nca-stamp-${t}`
-    await seedUnderReview(za.db(), za.stack, id, { nca: true })
+    await seedUnderReview(za.db(), za.stack, id, { nca: true, authenticated: true })
     const version = (await za.db().decisionRuleSetVersion.findFirstOrThrow({ where: { tenantId: za.stack.tenant } })).id
     const stamp = `UPDATE "LoanApplication" SET "automatedAffordabilityAttestedAt" = now(), "automatedAffordabilityVersionId" = '${version}' WHERE id = '${id}'`
     await expect(za.db().$executeRawUnsafe(stamp)).rejects.toThrow(/only with the engine/)

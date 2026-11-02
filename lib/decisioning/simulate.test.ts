@@ -13,6 +13,7 @@ const db = {
   loanApplication: { findMany: vi.fn(async () => [{ id: "a1", productId: "prod_1", status: "UNDER_REVIEW", submittedAt: now }]) },
   decisionRuleSetVersion: { findMany: vi.fn(async () => [{ id: "v1", scopeKey: "ALL", version: 1, effectiveFrom: new Date("2026-01-01T00:00:00.000Z"), challengerOnly: false, rules, scorecard: null }]) },
   autoDecisionRun: { findMany: vi.fn(async () => []) },
+  decisionEngineConfig: { findUnique: vi.fn(async () => ({ keyFactsInstantApproval: false })) },
 }
 const replay = (disclosureRegime: string) => {
   h.load.mockResolvedValue({ facts: facts({ bureauScore: null }), application: { disclosureRegime }, bureauCheckId: null, affordabilitySource: "SNAPSHOT" })
@@ -24,6 +25,27 @@ describe("simulateRuleSet replays what the live run would do", () => {
 
   it("refers a key-facts application nobody bureau-checked, for the live set and the candidate, as the engine does", async () => {
     expect(await replay("KEY_FACTS")).toMatchObject({ live: { APPROVE: 0, REFER: 1 }, candidate: { APPROVE: 0, REFER: 1 } })
+  })
+
+  describe("a key-facts application with a bureau check", () => {
+    const checked = (over: object, setting: boolean | null) => {
+      db.decisionEngineConfig.findUnique.mockResolvedValueOnce(setting === null ? null as never : { keyFactsInstantApproval: setting })
+      h.load.mockResolvedValue({ facts: facts(), application: { disclosureRegime: "KEY_FACTS", authenticatedSubmission: true }, attestationAffordable: true, bureauCheckId: "chk", affordabilitySource: "SNAPSHOT", ...over })
+      return simulateRuleSet({ tenantId: "t1", candidate: { productId: null, rules, scorecard: null }, now }, db as never)
+    }
+
+    it("approves only as the live run would: with the lender's setting on and the engine able to attest", async () => {
+      expect(await checked({}, true)).toMatchObject({ live: { APPROVE: 1, REFER: 0 }, candidate: { APPROVE: 1, REFER: 0 } })
+    })
+
+    it.each([
+      ["the setting is off", {}, false],
+      ["the lender has no engine", {}, null],
+      ["the application came from the public website form", { application: { disclosureRegime: "KEY_FACTS", authenticatedSubmission: false } }, true],
+      ["it is not affordable with the client's other obligations", { attestationAffordable: false }, true],
+    ])("refers where %s", async (_label, over, setting) => {
+      expect(await checked(over, setting)).toMatchObject({ live: { APPROVE: 0, REFER: 1 }, candidate: { APPROVE: 0, REFER: 1 } })
+    })
   })
 
   it("leaves an NCA_PASQ application to the rules", async () => {

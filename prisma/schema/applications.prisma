@@ -192,6 +192,9 @@ model LoanApplication {
   /// trigger guardLoanApplicationAutomatedAffordability).
   automatedAffordabilityAttestedAt        DateTime?
   automatedAffordabilityVersionId         String?
+  /// The client whose authenticated portal session submitted this application. Written by the portal route alone and never
+  /// changed: the public website form cannot produce it, so it is what tells a client's own submission from someone typing their details.
+  authenticatedSubmissionClientId         String?
   /// Staff who captured the application or changed the figures it is decided on (staff wizard, lead conversion,
   /// affordability edits, edits of the client's income/expenses while it is open) and the API key's creator for
   /// an application made through the API. Grows only (trigger guardLoanApplicationSegregationOfDuties): where

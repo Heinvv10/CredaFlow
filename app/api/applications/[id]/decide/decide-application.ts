@@ -57,6 +57,7 @@ import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord, type AutomationFacts } from "@/lib/learning-loop/records"
 import { frozenIdentityInput } from "@/lib/non-nca-documents/identity"
+import { attestationAffordable } from "@/lib/decisioning/attestation-obligations"
 import { approvalEvidenceRules, automatedAffordabilityAllowedUnder, KEY_FACTS_CREDIT_LIFE, keyFactsCreditLifeRefusal } from "@/lib/non-nca-documents/regime-evidence"
 
 // The CreditDecisionRecord_override_reason CHECK (migration
@@ -1325,6 +1326,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
     // locks immediately before the state write. Pinning only
     // LoanApplication.updatedAt did not detect a concurrent Client/debt or
     // Product edit because those rows have independent revisions.
+    const attestsAffordability = automation?.attestsAffordability === true && automatedAffordabilityAllowedUnder(application.disclosureRegime)
     let approvalWrite
     try {
       approvalWrite = await prisma.$transaction(async (tx) => {
@@ -1364,6 +1366,14 @@ export async function decideApplication({ tenant, user, id, formData, automation
         })
         if (openFlags > 0) {
           return { ok: false as const, reason: "checks_open" as const }
+        }
+        // Under the client lock, so two applications the engine approves at once count each other.
+        if (attestsAffordability && !(await attestationAffordable(tx as never, {
+          tenantId: tenant.id, applicationId: id, clientId: application.clientId, monthlyIncomeCents: application.client.monthlyIncome, monthlyExpensesCents: application.client.monthlyExpenses,
+          applicationDebts: application.existingDebtObligations, clientDebts: application.client.debtObligations, bureauObligationsCents: bureauMonthlyObligations(bureauCheck?.obligations),
+          instalmentCents: instalment, ndiBufferPct,
+        }))) {
+          return { ok: false as const, reason: "attestation_unaffordable" as const }
         }
         if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, user.id, { providerRequired: evidenceRules.screeningProvider }))) {
           return { ok: false as const, reason: "screening_changed" as const }
@@ -1515,9 +1525,9 @@ export async function decideApplication({ tenant, user, id, formData, automation
               recklessLendingAssessedAt: decisionAt,
             }),
             // The engine's attestation stands in for a person only where the regime allows it; it never satisfies an s81 assessment.
-            ...(automation?.attestsAffordability && automatedAffordabilityAllowedUnder(application.disclosureRegime) && {
+            ...(attestsAffordability && {
               automatedAffordabilityAttestedAt: decisionAt,
-              automatedAffordabilityVersionId: automation.ruleSetVersionId,
+              automatedAffordabilityVersionId: automation!.ruleSetVersionId,
             }),
           },
         })
@@ -1663,6 +1673,9 @@ export async function decideApplication({ tenant, user, id, formData, automation
           { error: "Approval blocked: a credit check was raised while approving. Refresh Credit checks and clear it first." },
           { status: 409 },
         )
+      }
+      if (approvalWrite.reason === "attestation_unaffordable") {
+        return NextResponse.json({ error: "The engine cannot attest this application's affordability with the client's other obligations counted; staff must decide." }, { status: 422 })
       }
       if (approvalWrite.reason === "compliance_changed") {
         return NextResponse.json(

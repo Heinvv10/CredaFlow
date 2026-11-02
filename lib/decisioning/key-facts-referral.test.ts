@@ -81,7 +81,7 @@ describe("withKeyFactsReferral", () => {
 
 describe("withKeyFactsAttestation", () => {
   const approve: Verdict = { decision: "APPROVE", reasonCodes: ["RULES_PASSED"], declineCategory: null, riskGrade: "A", gradeRank: 0, score: 700, pricingTier: "T1", limitCapCents: null, hits: [] }
-  const digital = { regime: "KEY_FACTS", allowed: true, trigger: "DIGITAL_SUBMISSION", facts: facts({ channel: "PORTAL", affordabilityGatePasses: true, expensesBelowMinimum: false }) }
+  const digital = { regime: "KEY_FACTS", allowed: true, trigger: "DIGITAL_SUBMISSION", facts: facts({ channel: "PORTAL", affordabilityGatePasses: true, expensesBelowMinimum: false }), authenticatedSubmission: true, affordable: true }
 
   it("attests a digital key-facts approval on a passing affordability gate, and leaves the verdict as it is", () => {
     expect(withKeyFactsAttestation(approve, digital)).toEqual({ verdict: approve, note: null, attested: true })
@@ -99,12 +99,20 @@ describe("withKeyFactsAttestation", () => {
     expect(note).toContain("instant approval")
   })
 
+  it("refers the public website form: it shares the PORTAL channel and nobody signed in", () => {
+    expect(withKeyFactsAttestation(approve, { ...digital, authenticatedSubmission: false })).toMatchObject({ attested: false, verdict: { decision: "REFER", reasonCodes: ["NOT_AN_AUTHENTICATED_SUBMISSION"] } })
+  })
+
+  it("refers when the gate passes on the approval's own debt figure but not with every other obligation on top", () => {
+    expect(withKeyFactsAttestation(approve, { ...digital, affordable: false })).toMatchObject({ attested: false, verdict: { decision: "REFER", reasonCodes: ["AFFORDABILITY_NOT_ATTESTED"] } })
+  })
+
   it.each([
     ["a person pressed the button", { trigger: "MANUAL" }],
     ["staff started the review", { trigger: "REVIEW_STARTED" }],
     ["staff captured it", { facts: facts({ channel: "STAFF", affordabilityGatePasses: true, expensesBelowMinimum: false }) }],
   ])("refers an application that is not a digital submission: %s", (_label, over) => {
-    expect(withKeyFactsAttestation(approve, { ...digital, ...over })).toMatchObject({ attested: false, verdict: { decision: "REFER", reasonCodes: ["NOT_A_DIGITAL_SUBMISSION"] } })
+    expect(withKeyFactsAttestation(approve, { ...digital, ...over })).toMatchObject({ attested: false, verdict: { decision: "REFER", reasonCodes: ["NOT_AN_AUTHENTICATED_SUBMISSION"] } })
   })
 
   it.each([

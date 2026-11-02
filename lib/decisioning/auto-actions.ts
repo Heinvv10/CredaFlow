@@ -168,7 +168,7 @@ function automationFor(ctx: RunContext, execution: AutoDecisionExecution, reason
     bureauCheckId: ctx.loaded.bureauCheckId,
     exactInputs,
     expectedUpdatedAt: ctx.loaded.application.updatedAt,
-    attestsAffordability: execution === "APPROVED" && ctx.attestsAffordability === true,
+    attestsAffordability: ctx.attestsAffordability === true,
     inTransaction: async (tx) => {
       await writeGrade(tx, ctx, false)
       // A decline stores the wording in force when it commits, not the one read when the verdict was made.

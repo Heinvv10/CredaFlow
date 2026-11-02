@@ -100,7 +100,7 @@ export async function runAutoDecision(input: { tenantId: string; applicationId: 
         decide({ facts: loaded.facts, rules, scorecard: parseScorecard(row.scorecard) }),
         { regime: loaded.application.disclosureRegime, bureauCheckId: loaded.bureauCheckId, facts: loaded.facts, rules },
       ))
-      const attestation = withKeyFactsAttestation(verdict, { regime: loaded.application.disclosureRegime, allowed: config.keyFactsInstantApproval, trigger, facts: loaded.facts })
+      const attestation = withKeyFactsAttestation(verdict, { regime: loaded.application.disclosureRegime, allowed: config.keyFactsInstantApproval, trigger, facts: loaded.facts, authenticatedSubmission: loaded.application.authenticatedSubmission, affordable: loaded.attestationAffordable })
       verdict = attestation.verdict
       referralNote ??= attestation.note
       attestsAffordability = attestation.attested

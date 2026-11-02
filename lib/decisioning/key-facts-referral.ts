@@ -67,6 +67,10 @@ export interface KeyFactsAttestationInput {
   allowed: boolean
   trigger: string
   facts: DecisionFacts
+  /** The client submitted it from their authenticated portal session (LoanApplication.authenticatedSubmissionClientId). The PORTAL channel also covers the public website form. */
+  authenticatedSubmission: boolean
+  /** It is affordable with every other obligation counted on top (./attestation-obligations.ts). */
+  affordable: boolean
 }
 
 /** Why the engine must not attest affordability for this approval, or null. */
@@ -74,10 +78,10 @@ function attestationRefusal(input: KeyFactsAttestationInput): { reasonCode: stri
   if (input.allowed !== true) {
     return { reasonCode: "KEY_FACTS_INSTANT_APPROVAL_OFF", note: "The lender has not switched on instant approval of key-facts applications; staff must decide." }
   }
-  if (input.trigger !== "DIGITAL_SUBMISSION" || input.facts.channel !== "PORTAL") {
-    return { reasonCode: "NOT_A_DIGITAL_SUBMISSION", note: "The engine attests affordability only for an application the client submitted digitally; staff must decide." }
+  if (input.trigger !== "DIGITAL_SUBMISSION" || input.facts.channel !== "PORTAL" || input.authenticatedSubmission !== true) {
+    return { reasonCode: "NOT_AN_AUTHENTICATED_SUBMISSION", note: "The engine attests affordability only for an application the client submitted from their signed-in portal; staff must decide." }
   }
-  if (input.facts.affordabilityGatePasses !== true || input.facts.expensesBelowMinimum !== false) {
+  if (input.facts.affordabilityGatePasses !== true || input.facts.expensesBelowMinimum !== false || input.affordable !== true) {
     return { reasonCode: "AFFORDABILITY_NOT_ATTESTED", note: "The engine cannot attest this application's affordability; staff must decide." }
   }
   return null
