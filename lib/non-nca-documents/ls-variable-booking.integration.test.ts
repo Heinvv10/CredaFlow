@@ -60,7 +60,7 @@ import { approve, createDraft, submit } from "@/lib/maker-checker/service"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { repriceTenantLoans } from "@/lib/product-engine/reprice-batch"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { AGREEMENT_KEY, KFS_KEY, createTemplate } from "./gate.integration-fixture"
+import { AGREEMENT_KEY, KFS_KEY, OFFER_KEY, createTemplate } from "./gate.integration-fixture"
 import { lsFlow } from "./ls-flow.integration-fixture"
 import { clearOpenFlags, createRlsRole, seedStack, seedUnderReview, stackOf } from "./ls-stack.integration-fixture"
 
@@ -81,6 +81,7 @@ suite("a balloon on a variable rate, paid out through the key-facts route (real 
     fresh = await createThrowawayDb({ instance: { jurisdiction: "LS", currency: "LSL" } })
     holder.tenantId = stack.tenant
     await seedStack(db(), stack, { code: "VBAL", isDemoLender: true })
+    await createTemplate(db(), stack.tenant, OFFER_KEY, BODY("Offer letter"))
     await createTemplate(db(), stack.tenant, KFS_KEY, BODY("Key facts statement"))
     await createTemplate(db(), stack.tenant, AGREEMENT_KEY, BODY("Loan agreement"))
     vi.stubEnv("TENANT_RLS", "on")
