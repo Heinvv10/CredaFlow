@@ -33,6 +33,9 @@ ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_automated_affordab
   ))
 );
 
+ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_authenticatedSubmissionClientId_fkey"
+  FOREIGN KEY ("authenticatedSubmissionClientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
 ALTER TABLE "LoanApplication" ADD CONSTRAINT "LoanApplication_authenticated_submission" CHECK (
   "authenticatedSubmissionClientId" IS NULL OR "authenticatedSubmissionClientId" = "clientId"
 );
