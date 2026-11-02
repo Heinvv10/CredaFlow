@@ -19,7 +19,7 @@ import { liveAffordability, snapshotAffordability, type AffordabilityFacts } fro
 import { attestationAffordable } from "./attestation-obligations"
 import type { DecisionFacts } from "./facts"
 
-type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput">
+type Db = Pick<typeof prisma, "loanApplication" | "tenantConfig" | "creditBureauCheck" | "auditLog" | "loan" | "tenant" | "productVersion" | "productPricingRule" | "applicationPricingInput" | "referenceRate">
 
 export interface LoadedFacts {
   facts: DecisionFacts

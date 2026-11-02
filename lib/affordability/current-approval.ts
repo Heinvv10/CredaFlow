@@ -2,6 +2,7 @@ import type { LoanCalcResult } from "@/lib/loan-calculator"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { approvalTermsFor, capApplicationFor, versionLimitRefusal } from "@/lib/product-engine/approval-terms"
+import { productTypeRefusal } from "@/lib/product-types/rules"
 import { Prisma } from "@prisma/client"
 import {
   lockAffordabilityApplicationEvidence,
@@ -134,6 +135,7 @@ export const approvalEvidenceApplicationInclude = Prisma.validator<Prisma.LoanAp
       initiationFeeModel: true,
       initiationFeePct: true,
       initiationFeeMax: true,
+      maxAmount: true,
       monthlyServiceFee: true,
       productType: true,
     },
@@ -370,6 +372,11 @@ export async function verifyLockedCurrentAffordabilityApproval(
   }
   // A client the lender recorded as deceased is never bound or paid, in either regime: the approval no longer describes them.
   if (context.application.client.deceasedAt) return { ok: false, reason: "changed" }
+  // Held under the client's lock (loadLockedApprovalContext), as at approval: a revolving limit is not exceeded between approval and
+  // payout, nor a group lent to once a member defaults. Reads nothing for the product types an NCA lender has.
+  if (await productTypeRefusal(tx, args.tenantId, context.application, { principalCents: context.application.appliedAmount, limitCents: context.application.product.maxAmount })) {
+    return { ok: false, reason: "changed" }
+  }
   // Agreement generation, signing and disbursement: strict. This is the gate
   // that has always required identity evidence before the consumer is bound.
   if (!await hasCurrentCompositeKyc(tx, context.application, "payout")) {
@@ -520,6 +527,7 @@ export async function verifyLockedApprovalCandidate(
     terms = await approvalTermsFor(tx, args.tenantId, { id: application.id, productId: application.productId, appliedTermDays: application.appliedTermDays, riskGradeRank: application.riskGradeRank }, application.product, sastCalendarDate(args.calculationStartDate))
     if (terms.repayment && terms.repayment.frequency !== "MONTHLY" && application.creditLifeElection === "ACCEPTED") return { ok: false, reason: "changed" }
     if (terms.ncaIssues.length > 0 || versionLimitRefusal(terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays })) return { ok: false, reason: "changed" }
+    if (await productTypeRefusal(tx, args.tenantId, application, { principalCents: application.appliedAmount, limitCents: terms.limits?.maxAmountCents ?? application.product.maxAmount })) return { ok: false, reason: "changed" }
     if (terms.versioned && !(await approvalInterestCapCheck(tx, args.tenantId, capApplicationFor(application, terms, { principalCents: application.appliedAmount, termDays: application.appliedTermDays }))).ok) return { ok: false, reason: "changed" }
     calculation = calculateLoan({
       principal: application.appliedAmount,
@@ -629,6 +637,7 @@ export async function verifyLockedApprovalCandidate(
     ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
     ...frozenIdentityInput(application),
     ...(terms.repayment ? { repayment: terms.repayment } : {}),
+    ...(terms.variableRate ? { variableRate: terms.variableRate } : {}),
     ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
   }
   const affordability = evaluateAffordabilityGate(inputs)
@@ -862,6 +871,7 @@ export function verifyCurrentAffordabilityApproval(args: {
       ndiBufferPct: tenantConfig?.ndiBufferPct ?? 110,
       ...frozenIdentityInput(application),
       ...(frozen.repayment ? { repayment: frozen.repayment } : {}),
+      ...(frozen.variableRate ? { variableRate: frozen.variableRate } : {}),
       ...(frozen.productVersion ? { productVersion: frozen.productVersion } : {}),
     },
     applicationDebts,

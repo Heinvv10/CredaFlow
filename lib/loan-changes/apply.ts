@@ -8,6 +8,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { loadSettings } from "@/lib/ifrs9/store"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
+import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { applyManualReceiptInTx } from "@/lib/loan/apply-payment"
 import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { PERIOD_DAYS } from "@/lib/product-engine/types"
@@ -16,9 +17,15 @@ import { loanChangeApplication } from "./approval"
 import { computeChange, inArrears, involvedLoanIds, type ChangeLoan, type InPlaceComputed, type NewLoanComputed } from "./compute"
 import { LoanChangeRefused, type FreshRow } from "./plan"
 import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
-import type { LoanChangePayload } from "./types"
+import { isNewLoanType, type LoanChangePayload } from "./types"
 
 type Ctx = ApplyContext<LoanChangePayload>
+
+/** A variable-rate loan stays on its reference through a change: dropping these columns would turn it fixed with nothing to show for it. */
+const variableRateOf = (loan: ChangeLoan) => {
+  const { rateBasis, rateMarginPa, referenceRate, referenceEffectiveDate } = loan.terms[0] ?? {}
+  return rateBasis ? { rateBasis, rateMarginPa, referenceRate, referenceEffectiveDate } : {}
+}
 
 /** A change that eases terms for a borrower who cannot meet them. Any change to a loan in arrears is one too. */
 const FORBEARANCE_TYPES: readonly string[] = ["RESCHEDULE", "RESTRUCTURE", "PAYMENT_HOLIDAY"]
@@ -106,7 +113,7 @@ async function applyInPlace(tx: Tx, ctx: Ctx, { loan, plan }: InPlaceComputed): 
     data: {
       tenantId, loanId: loan.id, sequence: sequence + 1, productVersionId: loan.terms[0]?.productVersionId ?? null, changeRequestId: request.id,
       frequency: plan.terms.frequency, structure: plan.terms.structure, graceKind: plan.terms.graceKind, graceInstalments: plan.terms.graceInstalments, instalments: plan.terms.instalments,
-      baseRatePm: plan.interestRatePm, interestRatePm: plan.interestRatePm, deferredInterest: plan.deferredInterest,
+      baseRatePm: plan.interestRatePm, interestRatePm: plan.interestRatePm, deferredInterest: plan.deferredInterest, balloonCents: loan.terms[0]?.balloonCents ?? 0, ...variableRateOf(loan),
     },
   })
   const after = { ...figures(loan), status, interestRatePm: plan.interestRatePm, maturityDate: plan.maturityDate, outstandingPrincipal: plan.outstandingPrincipal, totalRepayable: plan.totalRepayable, arrearsAmount: plan.arrearsAmount, daysInArrears: plan.daysInArrears }
@@ -168,7 +175,7 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
     data: {
       tenantId, loanId: created.id, sequence: 1, productVersionId: primary.terms[0]?.productVersionId ?? null, changeRequestId: request.id,
       frequency: plan.terms.frequency, structure: plan.terms.structure, graceKind: plan.terms.graceKind, graceInstalments: 0, instalments: plan.terms.instalments,
-      baseRatePm: interestRatePm, interestRatePm,
+      baseRatePm: interestRatePm, interestRatePm, ...variableRateOf(primary),
     },
   })
   const after = { loanId: created.id, reference: created.reference, principal: plan.principal, interestRatePm, totalRepayable: plan.totalRepayable, maturityDate: plan.maturityDate, settledCents, newMoneyCents }
@@ -202,6 +209,13 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
 }
 
 export async function applyLoanChange(tx: Tx, ctx: Ctx): Promise<void> {
+  // A new loan on a revolving product is a draw on the borrower's limit: it takes the client's lock, as a draw's approval and payout do
+  // (lib/affordability/current-approval.ts), so the limit is read with no other draw in flight. Before the loan locks: a draw holding the
+  // client lock never waits on a loan.
+  if (isNewLoanType(ctx.payload.type)) {
+    const primary = await tx.loan.findFirst({ where: { id: ctx.payload.loanId, tenantId: ctx.tenantId }, select: { clientId: true, product: { select: { productType: true } } } })
+    if (primary?.clientId && primary.product.productType === "REVOLVING") await lockAffordabilityClientEvidence(tx, { tenantId: ctx.tenantId, clientId: primary.clientId })
+  }
   // In one order, so two approvals of overlapping consolidations cannot deadlock.
   for (const id of [...involvedLoanIds(ctx.payload)].sort()) await lockLoanForUpdate(tx, id)
   const computed = await computeChange(tx, ctx.tenantId, ctx.payload, ctx.now)

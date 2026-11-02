@@ -6,6 +6,7 @@
  *   structure AMORTISING     equal instalments: principal and interest together clear the balance by the last one
  *   structure INTEREST_ONLY  interest every period, the whole principal with the last instalment
  *   structure BULLET         one payment at the end: principal and all the interest
+ *   structure BALLOON        equal instalments down to `balloonPct` of the principal, paid with the last instalment
  *
  *   grace PRINCIPAL_ONLY     the first `graceInstalments` instalments pay interest only; principal starts after them
  *   grace FULL               nothing is due for the first `graceInstalments` periods (no schedule rows); the interest
@@ -15,11 +16,18 @@
 export const FREQUENCIES = ["WEEKLY", "FORTNIGHTLY", "MONTHLY"] as const
 export type Frequency = (typeof FREQUENCIES)[number]
 
-export const STRUCTURES = ["AMORTISING", "INTEREST_ONLY", "BULLET"] as const
+export const STRUCTURES = ["AMORTISING", "INTEREST_ONLY", "BULLET", "BALLOON"] as const
 export type RepaymentStructure = (typeof STRUCTURES)[number]
 
 export const GRACE_KINDS = ["NONE", "PRINCIPAL_ONLY", "FULL"] as const
 export type GraceKind = (typeof GRACE_KINDS)[number]
+
+/**
+ * The references a variable rate may follow, on the lender's own approved rates. Prime is the rate the tender names; the base
+ * rate is the lender's. The SARB's repo, JIBAR and ZARONIA are South African and stay with asset finance.
+ */
+export const VARIABLE_RATE_BASES = ["PRIME", "LENDER_BASE"] as const
+export type VariableRateBasis = (typeof VARIABLE_RATE_BASES)[number]
 
 /** The interest bases the engine computes; DAILY_ACCRUAL stays with the single-payment products of lib/loan-calculator.ts. */
 export type EngineInterestModel = "FLAT" | "REDUCING_BALANCE"
@@ -32,6 +40,8 @@ export interface RepaymentTerms {
   graceInstalments: number
   /** Periods in the whole term, grace included. */
   instalments: number
+  /** BALLOON only: the share of the principal left to the last instalment, above 0 and below 1. */
+  balloonPct?: number
 }
 
 export interface ScheduleRowOut {

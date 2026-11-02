@@ -10,9 +10,10 @@ import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { NonNcaArrearsFields } from "./NonNcaArrearsFields"
 import { nonNcaArrearsBody, type NonNcaArrearsValues } from "@/lib/product-config/non-nca-arrears-form"
 import { activeCurrencySymbol } from "@/lib/utils"
+import { NON_NCA_PRODUCT_TYPES, PRODUCT_TYPE_HINT, PRODUCT_TYPE_LABELS, isNonNcaProductType, type ProductTypeName } from "@/lib/product-config/product-kind"
 
 type InterestModel = "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL"
-type ProductType = "MICRO" | "PERSONAL" | "PO_FUNDING" | "ASSET_FINANCE"
+type ProductType = ProductTypeName
 
 type LoanProduct = {
   id?: string
@@ -117,6 +118,8 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
   const [form, setForm] = useState<LoanProduct>(initial ?? EMPTY)
   const [arrears, setArrears] = useState<NonNcaArrearsValues | undefined>(nonNcaArrears)
   const [saving, setSaving] = useState(false)
+  const [reason, setReason] = useState("")
+  const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState("")
   // Preview state
   const [previewAmount, setPreviewAmount] = useState(
@@ -195,7 +198,7 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, ...arrearsBody.body }),
+        body: JSON.stringify({ ...form, ...arrearsBody.body, reason }),
       })
       if (!res.ok) {
         const text = await res.text()
@@ -203,8 +206,8 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
         try { message = JSON.parse(text).error || text } catch { message = text }
         throw new Error(message || "Save failed")
       }
-      router.push("/settings/products/loan")
-      router.refresh()
+      // Nothing has changed yet: a second person approves the request (Settings, Products, Versions and pricing, Approvals).
+      setSubmitted(true)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Save failed")
     } finally {
@@ -224,6 +227,12 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
+      )}
+
+      {submitted && (
+        <div role="status" className="mb-4 p-3 bg-green-50 border border-green-200 text-green-800 rounded-lg text-sm">
+          Submitted. Nothing changes until a second person approves it under <Link href="/settings/products/versions" className="underline">Versions and pricing, Approvals</Link>.
+        </div>
       )}
 
       <form onSubmit={save} className="space-y-5">
@@ -247,7 +256,13 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
               <option value="PERSONAL">Personal Loan</option>
               <option value="PO_FUNDING">PO Funding</option>
               <option value="ASSET_FINANCE">Asset finance (deals only)</option>
+              {(!isNcaJurisdiction() || isNonNcaProductType(form.productType)) && NON_NCA_PRODUCT_TYPES.map((type) => <option key={type} value={type}>{PRODUCT_TYPE_LABELS[type]}</option>)}
             </select>
+            {isNonNcaProductType(form.productType) && <p className="mt-1 text-xs text-gray-500">{PRODUCT_TYPE_HINT[form.productType]} Originated by staff.</p>}
+          </div>
+          <div>
+            <label className={lbl} htmlFor="product-reason">Why this change (for the approver)</label>
+            <input id="product-reason" className={inp} value={reason} onChange={e => setReason(e.target.value)} required minLength={5} maxLength={500} placeholder="e.g. New salary-backed product for the Q1 launch" />
           </div>
         </div>
 
@@ -501,9 +516,9 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
         <div className="flex justify-end gap-3">
           <Link href="/settings/products/loan"
             className="px-4 py-2 border border-gray-200 text-sm rounded-lg hover:bg-gray-50">Cancel</Link>
-          <button type="submit" disabled={saving}
+          <button type="submit" disabled={saving || submitted}
             className="px-6 py-2 bg-[#4F46E5] text-white text-sm font-semibold rounded-lg hover:bg-[#4338CA] disabled:opacity-50">
-            {saving ? "Saving…" : form.id ? "Update Product" : "Create Product"}
+            {saving ? "Submitting…" : "Submit for approval"}
           </button>
         </div>
       </form>

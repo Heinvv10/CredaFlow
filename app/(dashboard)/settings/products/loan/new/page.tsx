@@ -8,7 +8,7 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 
 export default async function NewLoanProductPage() {
   // Product create is an ADMIN mutation — gate the form page to match.
-  const { tenantId } = await requireMinRole("ADMIN")
+  const { tenantId } = await requireMinRole("LOAN_ADMIN")
   const assetFinance = resolveFeatureFlags(await getTenantConfig(tenantId)).featureAssetFinance
   const day = sastCalendarDate(new Date())
   const interestBasis = { day, repo: await capRepoRate(prisma, tenantId, day) }

@@ -43,6 +43,7 @@ ADMIN approves with step-up TOTP (`approve_loan_change`), and `apply.ts` runs in
   opened the application. A change in place is not new credit: one second person.
 - **The ledger moves only new money**: the new loan credits PAYOUT_CLEARING for the settled part, the receipts debit it.
 - **Bounds**: maturity stays inside `maxTermDays`, a new loan inside `maxAmount`, no rate above the product's and the loan's own.
+- **A variable-rate or balloon loan keeps both** (`lib/product-engine`): every appended row copies the reference columns and `balloonCents`, a new loan keeps the reference, and no proposal may set a variable loan's rate. A revolving new loan is held to the limit across the client's revolving products (`revolvingLimitRefusal`), the loans it settles left out.
 - **Signed paper**: `SIGNED_DOCUMENT_TYPES`, the borrower's, not deleted; the checker opens it from the proposal.
 - **A bounced receipt on a settled loan** reverses: the settlement stands and exactly that amount is owed on the old loan, due at once.
 - **Book as at a past date** (`lib/reports/book-as-of.ts`): a change after that date is read through `scheduleBefore` and `before`.

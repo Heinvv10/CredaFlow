@@ -12,6 +12,7 @@ import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { approvalTermsFor, capApplicationFor, versionLimitRefusal } from "@/lib/product-engine/approval-terms"
+import { groupEditedBy, productTypeRefusal } from "@/lib/product-types/rules"
 import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
 import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
@@ -123,7 +124,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
   const application = await prisma.loanApplication.findUnique({
     where: { id, tenantId: tenant.id },
     include: {
-      product: { select: { code: true, interestRatePm: true, productType: true, interestModel: true, initiationFeeModel: true, initiationFeePct: true, initiationFeeMax: true, monthlyServiceFee: true } },
+      product: { select: { code: true, interestRatePm: true, productType: true, interestModel: true, initiationFeeModel: true, initiationFeePct: true, initiationFeeMax: true, monthlyServiceFee: true, maxAmount: true } },
       loan: { select: { id: true } },
       client: {
         select: {
@@ -1027,15 +1028,21 @@ export async function decideApplication({ tenant, user, id, formData, automation
     }
     const limitRefusal = versionLimitRefusal(terms, { principalCents: approvalPrincipal, termDays: approvalTermDays })
     if (limitRefusal) return NextResponse.json({ error: `Approval blocked: ${limitRefusal}.`, productVersionRefused: true }, { status: 422 })
+    // The salary-backed, SME, group and revolving types each need something of the application (lib/product-types/rules.ts).
+    const typeRefusal = await productTypeRefusal(prisma, tenant.id, application, { principalCents: approvalPrincipal, limitCents: terms.limits?.maxAmountCents ?? application.product.maxAmount })
+    if (typeRefusal) return NextResponse.json({ error: `Approval blocked: ${typeRefusal}.`, productTypeRefused: true }, { status: 422 })
     // Staff set the application's pricing inputs, which a pricing rule prices on: whoever set them does not approve the loan, whether or
     // not a rule ended up pricing it (inputs that match no rule today are still a way to steer the price). The audit trail names every
     // setter, not only the last to update (A sets, B touches, A approves); each is also input staff of the application (inputStaffIds),
     // which the segregation-of-duties rules of an engine approval and its disbursement cover.
     const inputsSetByApprover = await prisma.auditLog.count({
-      where: { tenantId: tenant.id, entity: "LoanApplication", entityId: id, action: AuditAction.APPLICATION_PRICING_INPUT_SET, userId: user.id },
+      where: { tenantId: tenant.id, entity: "LoanApplication", entityId: id, action: { in: [AuditAction.APPLICATION_PRICING_INPUT_SET, AuditAction.APPLICATION_PRODUCT_FACTS_SET] }, userId: user.id },
     })
     if (inputsSetByApprover > 0) {
-      return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
+      return NextResponse.json({ error: "Approval blocked: you set this application's pricing inputs or product facts. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
+    }
+    if (application.product.productType === "GROUP" && await groupEditedBy(prisma, tenant.id, id, user.id)) {
+      return NextResponse.json({ error: "Approval blocked: you created this application's lending group or changed its members. A different person approves it.", pricingInputsSetByApprover: true }, { status: 403 })
     }
     // Credit life is billed a premium per month of cover, bound to repayment rows (lib/insurance/credit-life-billing.ts): a weekly or
     // fortnightly schedule has several rows to a month, so the premium periods would be counted per row. Until that is right, no
@@ -1179,6 +1186,7 @@ export async function decideApplication({ tenant, user, id, formData, automation
       monthlyServiceFeeCents: terms.monthlyServiceFee,
       ...frozenIdentityInput(application),
       ...(terms.repayment ? { repayment: terms.repayment } : {}),
+      ...(terms.variableRate ? { variableRate: terms.variableRate } : {}),
       ...(terms.versioned ? { productVersion: { id: terms.versioned.productVersionId, version: terms.versioned.version, baseRatePm: terms.versioned.baseRatePm, pricingRuleId: terms.versioned.pricingRuleId, pricingRuleName: terms.versioned.pricingRuleName, pricingInputs: terms.versioned.pricingInputs } } : {}),
       initiationFeePayment: application.initiationFeePayment,
       ndiBufferPct,

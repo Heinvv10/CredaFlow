@@ -2,11 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { logAudit } from "@/lib/audit"
-import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
-import { loanProductCreateCapRefusal } from "@/lib/product-config/interest-cap"
-import { micro30ContractIssues } from "@/lib/product-config/micro30"
-import { nonNcaArrearsAudit, parseNonNcaArrearsTerms } from "@/lib/product-config/non-nca-arrears"
+import { changeRequestErrorResponse, presentChangeRequest } from "@/lib/maker-checker/http"
+import { productCreateRefusal } from "@/lib/product-config/product-change-rules"
+import { proposeProductChange } from "@/lib/product-config/propose"
+import { PENDING_APPROVAL, productFieldsFromBody } from "./product-body"
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
@@ -20,86 +19,22 @@ export async function GET(req: NextRequest) {
   })
 }
 
+/** Proposes a new product. Nothing is created until a second person approves the request this answers 202 with (spec 2.1.3). */
 export async function POST(req: NextRequest) {
-  const guard = await requireApiRole("ADMIN")
+  const guard = await requireApiRole("LOAN_ADMIN")
   if (guard.error) return guard.error
   return withTenantContext(req, async (tenant) => {
     const body = await req.json()
-    const boundsIssues = loanProductBoundsIssues(body)
-    if (boundsIssues.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Amounts must be positive with a minimum no higher than the maximum, and terms must be whole days with a minimum no higher than the maximum.",
-          invalidFields: boundsIssues,
-        },
-        { status: 422 },
-      )
+    const parsed = productFieldsFromBody(body)
+    if ("response" in parsed) return parsed.response
+    const product = { ...parsed.fields, active: body.active ?? true }
+    const refusal = await productCreateRefusal(prisma, tenant.id, product)
+    if (refusal) return NextResponse.json(refusal.body, { status: refusal.status })
+    try {
+      const request = await proposeProductChange(tenant.id, guard.user, `New loan product: ${product.code}`, { action: "CREATE", reason: body.reason, product })
+      return NextResponse.json({ status: PENDING_APPROVAL, request: presentChangeRequest(request, guard.user.id, guard.user.role) }, { status: 202 })
+    } catch (error) {
+      return changeRequestErrorResponse(error)
     }
-    const arrears = parseNonNcaArrearsTerms(body)
-    if ("issues" in arrears) {
-      return NextResponse.json(
-        {
-          error: "The NON_NCA arrears terms must be a default-interest margin as an annual decimal from 0 to below 1 (0.02 = 2%) and a collection fee in whole cents, or null.",
-          invalidFields: arrears.issues,
-        },
-        { status: 422 },
-      )
-    }
-    const data = {
-      tenantId: tenant.id,
-      code: body.code,
-      name: body.name,
-      productType: body.productType,
-      minAmount: Math.round(body.minAmount * 100),
-      maxAmount: Math.round(body.maxAmount * 100),
-      minTermDays: Number(body.minTermDays),
-      maxTermDays: Number(body.maxTermDays),
-      interestRatePm: Number(body.interestRatePm) / 100,
-      interestModel: body.interestModel,
-      initiationFeeModel: body.initiationFeeModel === "NCA_REG42" ? "NCA_REG42" as const : "FLAT_PCT" as const,
-      initiationFeePct: Number(body.initiationFeePct ?? 0) / 100,
-      initiationFeeMax: Math.round((body.initiationFeeMax ?? 0) * 100),
-      monthlyServiceFee: Math.round((body.monthlyServiceFee ?? 0) * 100),
-      active: body.active ?? true,
-      ...arrears.data,
-    }
-    const contractIssues = micro30ContractIssues(data)
-    if (contractIssues.length > 0) {
-      return NextResponse.json(
-        {
-          error: "MICRO30 must use the approved fixed 30-day daily-accrual contract with a 5% monthly rate and R69 service fee.",
-          invalidFields: contractIssues,
-        },
-        { status: 422 },
-      )
-    }
-    // NCA Regulation 42: the rate may not exceed the cap for the credit type
-    // the product writes (lib/loan/nca-interest-cap.ts).
-    const capRefusal = await loanProductCreateCapRefusal(tenant.id, data)
-    if (capRefusal) return NextResponse.json(capRefusal, { status: 422 })
-    const product = await prisma.loanProduct.create({
-      data,
-    })
-
-    void logAudit({
-      tenantId: tenant.id,
-      userId: guard.user.id,
-      userEmail: guard.user.email,
-      action: "LOAN_PRODUCT_CREATED",
-      entity: "LoanProduct",
-      entityId: product.id,
-      newValue: {
-        code: product.code, name: product.name, productType: product.productType,
-        minAmount: product.minAmount, maxAmount: product.maxAmount,
-        minTermDays: product.minTermDays, maxTermDays: product.maxTermDays,
-        interestRatePm: product.interestRatePm, interestModel: product.interestModel,
-        initiationFeeModel: product.initiationFeeModel,
-        initiationFeePct: product.initiationFeePct, initiationFeeMax: product.initiationFeeMax,
-        monthlyServiceFee: product.monthlyServiceFee, active: product.active,
-        ...nonNcaArrearsAudit(product),
-      },
-    })
-
-    return NextResponse.json(product, { status: 201 })
   })
 }

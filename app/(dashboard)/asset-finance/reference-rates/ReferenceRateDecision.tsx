@@ -25,7 +25,7 @@ function reachText(reach: Reach | undefined): string | null {
  * decide_asset_finance who did not record it; the API and
  * CHECK ReferenceRate_four_eyes enforce both rules again.
  */
-export function ReferenceRateDecision({ rateId }: { rateId: string }) {
+export function ReferenceRateDecision({ rateId, endpoint = "/api/asset-finance/reference-rates" }: { rateId: string; endpoint?: string }) {
   const router = useRouter()
   const [saving, setSaving] = useState<"APPROVE" | "REJECT" | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -34,7 +34,7 @@ export function ReferenceRateDecision({ rateId }: { rateId: string }) {
   const decide = async (decision: "APPROVE" | "REJECT") => {
     setSaving(decision)
     setError(null)
-    const result = await sendJson(`/api/asset-finance/reference-rates/${rateId}/decide`, "POST", { decision })
+    const result = await sendJson(`${endpoint}/${rateId}/decide`, "POST", { decision })
     setSaving(null)
     if (!result.ok) {
       setError(result.error)

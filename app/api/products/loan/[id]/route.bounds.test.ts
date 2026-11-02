@@ -1,22 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const {
-  requireApiRole,
-  transaction,
-  queryRaw,
-  findUnique,
-  update,
-  count,
-  auditCreate,
-} = vi.hoisted(() => ({
+const { requireApiRole, findUnique, count, versionCount, propose } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
-  transaction: vi.fn(),
-  queryRaw: vi.fn(),
   findUnique: vi.fn(),
-  update: vi.fn(),
   count: vi.fn(),
-  auditCreate: vi.fn(),
+  versionCount: vi.fn(),
+  propose: vi.fn(),
 }))
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole }))
@@ -28,7 +18,9 @@ vi.mock("@/lib/tenant", () => ({
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    $transaction: (...args: unknown[]) => transaction(...args),
+    loanProduct: { findUnique },
+    loanApplication: { count },
+    productVersion: { count: versionCount },
     // Approved SARB repo 7%: the NCA unsecured cap is 28% a year (2.33% a month).
     referenceRate: {
       findMany: vi.fn(async () => []),
@@ -36,13 +28,8 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }))
-vi.mock("@/lib/audit", () => ({
-  logAudit: vi.fn(),
-  AuditAction: {
-    LOAN_PRODUCT_UPDATED: "LOAN_PRODUCT_UPDATED",
-    LOAN_PRODUCT_DEACTIVATED: "LOAN_PRODUCT_DEACTIVATED",
-  },
-}))
+vi.mock("@/lib/product-config/propose", () => ({ proposeProductChange: propose }))
+vi.mock("@/lib/maker-checker/http", () => ({ presentChangeRequest: (row: unknown) => row, changeRequestErrorResponse: (error: unknown) => { throw error } }))
 
 import { PUT } from "./route"
 
@@ -83,6 +70,7 @@ function request(change: Record<string, unknown> = {}) {
     initiationFeeMax: before.initiationFeeMax / 100,
     monthlyServiceFee: before.monthlyServiceFee / 100,
     active: before.active,
+    reason: "Quarterly review of the product",
     ...change,
   }
   return new NextRequest("http://localhost/api/products/loan/product-1", {
@@ -104,6 +92,13 @@ const personal = {
 const custom = { ...before, ...personal }
 
 const context = { params: Promise.resolve({ id: "product-1" }) }
+/** The payload a route proposed: nothing is written until a second person approves it. */
+const proposed = () => propose.mock.calls.at(-1)![3] as { product: Record<string, unknown>; reason: string; action: string }
+
+beforeEach(() => {
+  propose.mockResolvedValue({ id: "cr-1" })
+  versionCount.mockResolvedValue(0)
+})
 
 describe("PUT /api/products/loan/[id] bounds validation", () => {
   beforeEach(() => {
@@ -112,20 +107,6 @@ describe("PUT /api/products/loan/[id] bounds validation", () => {
       user: { id: "admin-1", email: "admin@example.test" },
     })
     findUnique.mockResolvedValue(custom)
-    update.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
-      Promise.resolve({ ...custom, ...data }),
-    )
-    queryRaw.mockResolvedValue([])
-    auditCreate.mockResolvedValue({ id: "audit-1" })
-    transaction.mockImplementation(
-      (callback: (tx: unknown) => unknown) => callback({
-        $queryRaw: queryRaw,
-        loanProduct: { findUnique, update },
-        loanApplication: { count },
-        productVersion: { count: async () => 0 },
-        auditLog: { create: auditCreate },
-      }),
-    )
   })
 
   async function expectRejected(change: Record<string, unknown>, field: string) {
@@ -135,7 +116,7 @@ describe("PUT /api/products/loan/[id] bounds validation", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       invalidFields: expect.arrayContaining([field]),
     }))
-    expect(transaction).not.toHaveBeenCalled()
+    expect(propose).not.toHaveBeenCalled()
   }
 
   it("rejects a minimum amount above the maximum before opening a transaction", async () => {
@@ -158,13 +139,10 @@ describe("PUT /api/products/loan/[id] bounds validation", () => {
     await expectRejected({ minTermDays: 120, maxTermDays: 60 }, "maxTermDays")
   })
 
-  it("still lets a valid non-MICRO30 update reach the transaction", async () => {
+  it("still lets a valid non-MICRO30 update through to a proposal", async () => {
     const response = await PUT(request({ ...personal, name: "Renamed Loan" }), context)
 
-    expect(response.status).toBe(200)
-    expect(transaction).toHaveBeenCalledOnce()
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ minAmount: 50_000, maxAmount: 200_000, maxTermDays: 90 }),
-    }))
+    expect(response.status).toBe(202)
+    expect(proposed().product).toEqual(expect.objectContaining({ minAmount: 50_000, maxAmount: 200_000, maxTermDays: 90 }))
   })
 })

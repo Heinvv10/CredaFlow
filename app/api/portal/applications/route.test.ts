@@ -659,13 +659,13 @@ describe("POST /api/portal/applications", () => {
     const productWhere = (findFirstProduct.mock.calls[0][0] as { where: Record<string, unknown> }).where
     expect(productWhere).toEqual(expect.objectContaining({ code: "MICRO30", active: true }))
     // Never resolved BY type: the only type filter is the asset-finance exclusion.
-    expect(productWhere.productType).toEqual({ not: "ASSET_FINANCE" })
+    expect(productWhere.productType).toEqual({ notIn: ["ASSET_FINANCE", "SALARY_BACKED", "SME", "GROUP", "REVOLVING"] })
   })
 
   it("never resolves an asset-finance product: both the lookup and the in-transaction re-read exclude it (Fair Score E4)", async () => {
     await POST(buildReq(validBody))
     for (const [args] of findFirstProduct.mock.calls as unknown as Array<[{ where: Record<string, unknown> }]>) {
-      expect(args.where.productType).toEqual({ not: "ASSET_FINANCE" })
+      expect(args.where.productType).toEqual({ notIn: ["ASSET_FINANCE", "SALARY_BACKED", "SME", "GROUP", "REVOLVING"] })
     }
     expect(findFirstProduct.mock.calls.length).toBeGreaterThanOrEqual(2)
   })

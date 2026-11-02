@@ -80,7 +80,7 @@ export async function checkApprovalReach(db: DecisionDb, rate: ReferenceRate, to
 
 export async function decideReferenceRate(
   tx: DecisionDb,
-  input: { tenantId: string; rateId: string; decision: ReferenceRateDecision; deciderId: string; deciderEmail?: string; today: string },
+  input: { tenantId: string; rateId: string; decision: ReferenceRateDecision; deciderId: string; deciderEmail?: string; today: string; /** Asset finance's loan-reach bell does not apply: the product engine's own loans reprice on it. */ skipReach?: boolean },
 ): Promise<DecisionOutcome> {
   const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT "id" FROM "ReferenceRate" WHERE "id" = ${input.rateId} AND "tenantId" = ${input.tenantId} FOR UPDATE
@@ -100,7 +100,7 @@ export async function decideReferenceRate(
     where: { id: pending.id, tenantId: input.tenantId },
     data: { status, decidedById: input.deciderId, decidedAt: new Date() },
   })
-  const reach = status === "APPROVED" ? await checkApprovalReach(tx, rate, input.today) : null
+  const reach = status === "APPROVED" && !input.skipReach ? await checkApprovalReach(tx, rate, input.today) : null
   await logAuditStrict({
     tenantId: input.tenantId,
     userId: input.deciderId,

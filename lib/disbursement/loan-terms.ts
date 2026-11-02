@@ -1,5 +1,6 @@
 import type { prisma } from "@/lib/prisma"
 import type { AffordabilityDecisionInputs } from "@/lib/affordability/snapshot"
+import { dbDate } from "@/lib/asset-finance/dates"
 import { graceDeferredInterest } from "@/lib/product-engine/schedule"
 
 /**
@@ -19,6 +20,8 @@ export async function recordOriginationTerms(
       deferredInterest: terms.interestModel === "DAILY_ACCRUAL" ? 0 : graceDeferredInterest({ principalCents: terms.principalCents, interestRatePm: terms.interestRatePm, interestModel: terms.interestModel, startDate, repayment: terms.repayment }),
       frequency: terms.repayment?.frequency ?? null, structure: terms.repayment?.structure ?? null, graceKind: terms.repayment?.graceKind ?? null,
       graceInstalments: terms.repayment?.graceInstalments ?? 0, instalments: terms.repayment?.instalments ?? null,
+      balloonCents: terms.repayment?.balloonPct ? Math.round(terms.principalCents * terms.repayment.balloonPct) : 0,
+      ...(terms.variableRate ? { rateBasis: terms.variableRate.basis, rateMarginPa: terms.variableRate.marginPa, referenceRate: terms.variableRate.referenceRate, referenceEffectiveDate: dbDate(terms.variableRate.referenceEffectiveDate) } : {}),
       baseRatePm: v.baseRatePm, interestRatePm: terms.interestRatePm, pricingRuleId: v.pricingRuleId, pricingRuleName: v.pricingRuleName, pricingInputs: v.pricingInputs,
     },
   })

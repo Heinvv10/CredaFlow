@@ -25,7 +25,7 @@ const type = (r: ReturnType<typeof create>, id: string, value: string) => act(as
 const click = (r: ReturnType<typeof create>, label: string) => act(async () => { r.root.findAll((n) => n.type === "button" && n.children.includes(label))[0]!.props.onClick() })
 
 const product = { id: "p1", code: "PERS", name: "Personal", productType: "PERSONAL" as const, active: true, minAmount: 100_000, maxAmount: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0.05, initiationFeeMax: 100_000, monthlyServiceFee: 6_900 }
-const config = { minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0.05, initiationFeeMaxCents: 100_000, monthlyServiceFeeCents: 6_900, repayment: null, collateral: [], eligibility: { minAge: null, maxAge: null, minMonthlyIncomeCents: null, minEmploymentMonths: null } }
+const config = { minAmountCents: 100_000, maxAmountCents: 800_000, minTermDays: 28, maxTermDays: 180, interestRatePm: 0.03, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const, initiationFeePct: 0.05, initiationFeeMaxCents: 100_000, monthlyServiceFeeCents: 6_900, repayment: null, variableRate: null, collateral: [], eligibility: { minAge: null, maxAge: null, minMonthlyIncomeCents: null, minEmploymentMonths: null } }
 const overview = (over: Partial<EngineOverview> = {}): EngineOverview => ({
   today: "2027-03-01", nca: false, currency: "ZAR" as const, products: [product], rules: [], requests: [], canManage: true, canApprove: false,
   versions: [
