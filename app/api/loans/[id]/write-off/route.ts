@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { withTenantContext } from "@/lib/tenant"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 interface WriteOffBody {
   action: "request" | "approve" | "reject"
@@ -92,6 +93,8 @@ export async function PATCH(
             { status: 422 }
           )
         }
+        const controlled = await accountControlRefusal(prisma, { tenantId: tenant.id, makerIds: [loan.writeOffRequestedById], checkerId: guard.user.id })
+        if (controlled) return NextResponse.json({ error: controlled }, { status: 403 })
 
         // Guard against the read-then-write race: a concurrent approve or
         // reject on the same loan could both pass the status check above.

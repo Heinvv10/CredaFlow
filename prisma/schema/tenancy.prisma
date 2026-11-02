@@ -66,6 +66,7 @@ model Tenant {
   applicationCheckFlags      ApplicationCheckFlag[]
   applicationPricingInputs   ApplicationPricingInput[]
   approvalCases              ApprovalCase[]
+  approvalConditionClearances ApprovalConditionClearance[]
   approvalDelegations        ApprovalDelegation[]
   approvalEscalations        ApprovalEscalation[]
   approvalMatrixVersions     ApprovalMatrixVersion[]

@@ -7,6 +7,7 @@ import type { RecoveryActor } from "./recovery-create"
 import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
 import type { SigningTx } from "./signing-prepare"
 import type { BankAccountFields } from "./supplier-input"
+import { requireTwoPeople } from "./recovery-two-people"
 
 export type RefundDone = { kind: "done"; id: string; amountCents: number }
 
@@ -83,6 +84,7 @@ export async function approveRefund(actor: RecoveryActor, recoveryId: string): P
     if (!refund) return { kind: "not_found" }
     if (refund.status !== "PENDING_APPROVAL") throw new RecoveryRefusal(`The refund is already ${refund.status.toLowerCase().replace("_", " ")}`)
     if (refund.createdById === actor.userId) throw new RecoveryRefusal("A refund is approved by someone other than the person who created it")
+    await requireTwoPeople(tx, actor, [refund.createdById])
     await requireStandingProceeds(tx, actor.tenantId, recoveryId)
     await tx.recoveryRefund.update({ where: { id: refund.id, tenantId: actor.tenantId }, data: { status: "APPROVED", approvedById: actor.userId } })
     await logAuditStrict({
@@ -101,6 +103,7 @@ export async function releaseRefund(actor: RecoveryActor, recoveryId: string): P
     if (refund.approvedById === actor.userId || refund.createdById === actor.userId) {
       throw new RecoveryRefusal("A refund is released by someone other than the people who created and approved it")
     }
+    await requireTwoPeople(tx, actor, [refund.createdById, refund.approvedById])
     await requireStandingProceeds(tx, actor.tenantId, recoveryId)
     const releasedAt = new Date()
     await tx.recoveryRefund.update({ where: { id: refund.id, tenantId: actor.tenantId }, data: { status: "RELEASED", releasedById: actor.userId, releasedAt } })

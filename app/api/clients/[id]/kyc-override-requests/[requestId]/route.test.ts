@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
 
@@ -83,6 +85,13 @@ describe("PUT /api/clients/[id]/kyc-override-requests/[requestId]", () => {
     h.requestUpdate.mockResolvedValue({ id: "request-1" })
     h.auditCreate.mockResolvedValue({ id: "audit-1" })
     h.lockEvidence.mockResolvedValue(undefined)
+  })
+
+  it("refuses an approval the two-people rule refuses, granting nothing (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const response = await call()
+    expect(response.status).toBe(403)
+    expect(h.clientUpdate).not.toHaveBeenCalled()
   })
 
   it("approves by a different senior, grants VERIFIED in the same transaction, and audits both actions", async () => {

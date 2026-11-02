@@ -22,6 +22,8 @@ export interface PlanInput {
    * delegate: above `authority.level` only when such a delegation is being refused.
    */
   blockedAuthorityLevel: number
+  /** The level the user would hold were the pending level not branch-scoped (./evaluate.ts holdsAtBranch): above `authority.level` only when that scope is what refuses them. */
+  outOfBranchLevel?: number
   /** The decision engine is asking. */
   automated: boolean
   /** The latest committee decision at the committee's level, if any. */
@@ -61,6 +63,9 @@ export function planApproval(input: PlanInput): ApprovalPlan {
   if (authority.level < next) {
     if (input.blockedAuthorityLevel >= next) {
       return refuse(403, "DELEGATOR_ALREADY_ACTED", `Level ${next} (${level.name}) would come to you only by a delegation from someone who captured this application or already approved it; one person does not hold two seats.`)
+    }
+    if ((input.outOfBranchLevel ?? 0) >= next) {
+      return refuse(403, "BRANCH_AUTHORITY_REQUIRED", `Level ${next} (${level.name}) is held branch by branch, and this application is not at your branch.`)
     }
     return refuse(403, "LEVEL_AUTHORITY_REQUIRED", `Level ${next} (${level.name}) needs the ${level.role} role or a delegation of that authority; yours reaches level ${authority.level}.`)
   }

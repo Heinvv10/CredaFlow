@@ -36,11 +36,11 @@ async function escalateOne(caseId: string, tenantId: string, now: Date): Promise
       data: { escalationCount: { increment: 1 }, lastEscalatedAt: now, dueAt: new Date(now.getTime() + hours(pending.slaHours)) },
     })
     if (claimed.count !== 1) return "skipped"
-    const application = await tx.loanApplication.findFirst({ where: { id: theCase.applicationId, tenantId }, select: { reference: true, appliedAmount: true, inputStaffIds: true } })
+    const application = await tx.loanApplication.findFirst({ where: { id: theCase.applicationId, tenantId }, select: { reference: true, appliedAmount: true, branchId: true, inputStaffIds: true } })
     if (!application) return "skipped"
     const steps = await tx.approvalStep.findMany({ where: { caseId: theCase.id }, select: { approverId: true } })
     const exclude = [...application.inputStaffIds, ...steps.map((s) => s.approverId)]
-    const recipients = await approversForLevel(tx, { tenantId, levels, level: toLevel, amountCents: application.appliedAmount, exclude, now })
+    const recipients = await approversForLevel(tx, { tenantId, levels, level: toLevel, amountCents: application.appliedAmount, branchId: application.branchId, exclude, now })
     const atTop = theCase.pendingLevel >= top
     if (!atTop) {
       await tx.approvalEscalation.create({ data: { tenantId, caseId: theCase.id, fromLevel: theCase.pendingLevel, toLevel, notifiedUserIds: recipients } })

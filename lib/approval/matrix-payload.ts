@@ -21,12 +21,14 @@ function parseLevels(raw: unknown, problems: Problems): MatrixLevel[] {
   raw.forEach((entry, i) => {
     const path = `payload.levels[${i}]`
     if (!isObject(entry)) return problems.add(path, "expected an object")
-    rejectUnknownKeys(entry, ["level", "name", "role", "slaHours", "committee"], path, problems)
+    rejectUnknownKeys(entry, ["level", "name", "role", "slaHours", "committee", "branchScoped"], path, problems)
     if (entry.level !== i + 1) problems.add(path, `levels must be consecutive from 1 (expected level ${i + 1})`)
     if (typeof entry.name !== "string" || entry.name.trim() !== entry.name || entry.name.length < 1 || entry.name.length > 60) problems.add(`${path}.name`, "1 to 60 characters, no surrounding spaces")
     if (!(APPROVER_ROLES as readonly string[]).includes(entry.role as string)) problems.add(`${path}.role`, `a role that may approve: ${APPROVER_ROLES.join(", ")}`)
     if (!isCount(entry.slaHours, MAX_SLA_HOURS) || entry.slaHours < 1) problems.add(`${path}.slaHours`, `a whole number of hours from 1 to ${MAX_SLA_HOURS}`)
     if (typeof entry.committee !== "boolean") problems.add(`${path}.committee`, "true or false")
+    if (entry.branchScoped !== undefined && typeof entry.branchScoped !== "boolean") problems.add(`${path}.branchScoped`, "true or false")
+    if (entry.branchScoped === true && entry.committee === true) problems.add(`${path}.branchScoped`, "the committee sits for the lender, not for a branch")
     levels.push(entry as unknown as MatrixLevel)
   })
   const rank = (role: ApproverRole) => APPROVER_ROLES.indexOf(role)

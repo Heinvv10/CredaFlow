@@ -13,6 +13,9 @@ restrictions — SAST working hours and a CIDR IP allowlist
 (`staff-access-*.ts`), checked at sign-in and on every node-side session read.
 
 ## Critical Rules
+- **Two people, not two accounts** (`account-control.ts`): every two-person control asks
+  `accountControlRefusal` before its approving act. A new one is added to
+  `account-control-census.test.ts`, which also fails on an unlisted four-eyes constraint.
 - **The IP allowlist is only as strong as the proxy.** The caller's address is
   `callerIp()` (`lib/rate-limit.ts`): the X-Forwarded-For hop that
   `TRUSTED_PROXY` trusted proxies appended. When `TRUSTED_PROXY` is set, the

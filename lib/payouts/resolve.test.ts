@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { fakePayoutDb, payoutRow } from "./payouts.test-helpers"
 import { signSimulatedWebhook, simulatedPayouts } from "./providers/simulated"
 import { ingestNotification, parseResolveAction, resolvePayout, valueDate } from "./resolve"
@@ -31,6 +33,14 @@ describe("resolvePayout — staff actions", () => {
     expect(parseResolveAction({ action: "confirm_paid", note: "ok" })).toBeNull()
     expect(parseResolveAction({ action: "confirm_failed", note: "Bank says account closed" })).toMatchObject({ action: "confirm_failed" })
     expect(parseResolveAction({ action: "retry" })).toBeNull()
+  })
+
+  it("refuses a confirmation the two-people rule refuses (F12)", async () => {
+    twoPeople.refusal.mockResolvedValueOnce("Two people, not two accounts")
+    const { db, rows } = fakePayoutDb([payoutRow({ status: "NEEDS_REVIEW" })])
+    const out = await resolvePayout(db, { tenantId: "t-1", payoutId: "po-1", actor, request: { action: "confirm_paid", note: "Seen on Netcash report 14 Oct", providerReference: "NC-1" } } as never)
+    expect(out).toMatchObject({ ok: false, status: 403 })
+    expect(rows[0].status).toBe("NEEDS_REVIEW")
   })
 
   it("confirms a payout under review, naming who and why", async () => {

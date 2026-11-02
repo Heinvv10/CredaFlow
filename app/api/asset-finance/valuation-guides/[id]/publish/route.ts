@@ -28,6 +28,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: "Valuation guide not found" }, { status: 404 })
       case "not_draft":
         return NextResponse.json({ error: `The guide is already ${result.status}` }, { status: 409 })
+      case "account_controlled":
+        return NextResponse.json({ error: result.error }, { status: 403 })
       case "self_publish":
         return NextResponse.json({ error: "A guide is published by someone other than the person who loaded it" }, { status: 403 })
       case "not_yet_effective":

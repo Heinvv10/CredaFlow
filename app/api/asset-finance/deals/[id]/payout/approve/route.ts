@@ -18,6 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: "Payout not found" }, { status: 404 })
       case "not_pending":
         return refuse("not_pending", 409, `Only a payout awaiting approval is approved; this one is ${result.status}`)
+      case "account_controlled":
+        return refuse("four_eyes_account_controlled", 403, result.error)
       case "same_user":
         return refuse("four_eyes", 403, "The payout's creator cannot approve it; a second user must")
       case "approved":

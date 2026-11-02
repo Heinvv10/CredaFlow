@@ -38,6 +38,7 @@ import {
   signingOtpChallengeIdFrom,
   signingOtpRefusal,
 } from "@/lib/signing-otp/policy"
+import { committeeConditionsRefusal } from "@/lib/approval/conditions"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -281,6 +282,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     if (application.status !== "APPROVED") {
       return NextResponse.json({ error: "Only an approved application can be signed" }, { status: 409 })
     }
+    const openConditions = await committeeConditionsRefusal(prisma, tenant.id, id)
+    if (openConditions) return NextResponse.json({ error: openConditions, code: "COMMITTEE_CONDITIONS" }, { status: 409 })
     if (!application.agreementGeneratedAt) {
       return NextResponse.json({ error: "Agreement has not been generated yet" }, { status: 422 })
     }

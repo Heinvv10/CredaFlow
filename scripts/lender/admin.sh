@@ -4,6 +4,7 @@
 # SUPER_ADMIN; provision-lender.sh runs the same CLI for the very first one.
 #
 #   admin.sh <lender-dir> --email <email> [--break-glass [--reactivate]] [--dry-run] [--name <name>]
+#   admin.sh <lender-dir> --second <email> --role ADMIN [--dry-run] [--name <name>]   (one-shot: the lender's second person)
 #
 # A DEACTIVATED SUPER_ADMIN is only reset with --reactivate (a warning is printed).
 #

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
+import { accountControlRefusal } from "@/lib/security/account-control"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { publishVersion } from "@/lib/asset-finance/documents/templates/store"
 import { storeResponse, templateActor } from "@/lib/asset-finance/documents/templates/route-helpers"
@@ -59,6 +60,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         { status: 409 }
       )
     }
+    const controlled = template.requiresApproval ? await accountControlRefusal(prisma, { tenantId: tenant.id, makerIds: [version.approvedById], checkerId: guard.user.id }) : null
+    if (controlled) return NextResponse.json({ error: controlled }, { status: 409 })
 
     // Queried before the transaction so we know exactly which version(s) got
     // archived for the audit trail below — updateMany's return value is only

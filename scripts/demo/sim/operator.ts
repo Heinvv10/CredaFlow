@@ -34,7 +34,7 @@ import bcrypt from "bcryptjs"
 
 import { generateTotpSecret } from "../../../lib/totp"
 import { demoLender } from "../../../prisma/demo-lender"
-import { STAFF, type StoredStaff } from "../breadth/staff"
+import { BAKE_STAFF, STAFF, type StoredStaff } from "../breadth/staff"
 import { SIM_DB_SERVICE_ADDRESS } from "./env"
 
 export const OPERATOR_TENANT_SLUG = demoLender().slug
@@ -94,6 +94,45 @@ export async function provisionOperator(db: OperatorDb): Promise<StoredStaff> {
     select: { id: true },
   })
   return { userId: user.id, email: spec.email, password, totpSecret }
+}
+
+/**
+ * The bake's staff (breadth/staff.ts BAKE_STAFF), written like the operator and the seed's staff: TOTP enrolled, no AuditLog row. A baked
+ * admin and baked staff member can therefore sit a two-person control on day one, with no bypass in the rule. A rerun gives a new password.
+ */
+export async function provisionBakeStaff(db: OperatorDb): Promise<StoredStaff[]> {
+  const { tenant } = await operatorTarget(db)
+  const out: StoredStaff[] = []
+  for (const spec of BAKE_STAFF) {
+    const existing = await db.user.findUnique({ where: { email: spec.email }, select: { tenantId: true, totpSecret: true } })
+    if (existing && existing.tenantId !== tenant.id) throw new Error(`refused: ${spec.email} exists in tenant ${existing.tenantId ?? "none"}`)
+    const password = randomBytes(18).toString("base64url")
+    const totpSecret = existing?.totpSecret ?? generateTotpSecret()
+    const fields = { tenantId: tenant.id, active: true, totpSecret, totpEnabled: true, password: await bcrypt.hash(password, 12) }
+    const user = await db.user.upsert({
+      where: { email: spec.email }, update: fields,
+      create: { ...fields, email: spec.email, name: spec.name, role: spec.role, phone: "phone" in spec ? spec.phone : undefined },
+      select: { id: true },
+    })
+    out.push({ userId: user.id, email: spec.email, password, totpSecret })
+  }
+  return out
+}
+
+/** The bake staff's credentials from the provisioning output (its last line). */
+export function parseBakeStaffCredentials(text: string): StoredStaff[] {
+  const lines = text.trim().split("\n")
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(lines[lines.length - 1] ?? "")
+  } catch {
+    parsed = null
+  }
+  const staff = parsed as Array<Partial<StoredStaff>> | null
+  const complete = Array.isArray(staff) && staff.length === BAKE_STAFF.length
+    && BAKE_STAFF.every((spec, i) => staff[i]?.email === spec.email && staff[i]?.userId && staff[i]?.password && staff[i]?.totpSecret)
+  if (!complete) throw new Error("provision-operator --store-staff: stdin does not hold the bake staff's credentials")
+  return staff as StoredStaff[]
 }
 
 /** Deactivates the operator, ends its sessions and sets a password that is never stored. */

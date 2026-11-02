@@ -24,6 +24,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { dbDate, isoOfDbDate } from "./dates"
 import { needsSecondApprover } from "./maintenance-fund"
 import type { SigningTx } from "./signing-prepare"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export interface ClaimActor {
   tenantId: string
@@ -119,6 +120,8 @@ export async function approveMaintenanceClaim(tx: SigningTx, actor: ClaimActor, 
   if (!claim) return { kind: "not_found" }
   if (claim.status !== "SUBMITTED") return refused("not_submitted", `The claim is ${claim.status}`)
   if (claim.submittedById === actor.userId) return refused("same_user", "The person who submitted a claim cannot approve it")
+  const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [claim.submittedById, claim.firstApprovedById], checkerId: actor.userId })
+  if (controlled) return refused("account_controlled", controlled)
   const settled = settledRefusal(claim)
   if (settled) return settled
   const config = await tx.tenantConfig.findUnique({ where: { tenantId }, select: { maintenanceClaimDualApprovalCents: true } })

@@ -70,6 +70,7 @@ export { BookingRaceError } from "./booking-terms"
 import { isLeaseContract } from "./lease-input"
 import { bookLease } from "./lease-booking"
 import { creditLifeBundleFor, type CreditLifeBundleReader } from "./booking-credit-life"
+import { clearerRefusal } from "@/lib/approval/conditions"
 
 export type BookingResult =
   | { kind: "not_found" }
@@ -85,6 +86,10 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
     const loaded = await loadBookingDeal(tx, tenantId, dealId)
     if (loaded.kind !== "loaded") return loaded
     const { deal } = loaded
+    // Whoever cleared a committee condition does not also release the payout, for a lease either (the database repeats it: guardPayoutConditionClearer),
+    // and the one who releases it is a different person from those behind it, not a second account of one.
+    const clearer = await clearerRefusal(tx, tenantId, deal.application.id, actor.userId, [deal.payout.createdById, deal.payout.approvedById])
+    if (clearer) return refuse("committee_condition_clearer", clearer)
     // An operating or full-maintenance lease books its rentals (./lease-booking.ts).
     if (isLeaseContract(deal.contractType)) return bookLease(tx, actor, deal, today)
     const { application, asset, entity, client, payout } = deal

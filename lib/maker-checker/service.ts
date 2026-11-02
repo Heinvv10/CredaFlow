@@ -6,6 +6,7 @@ import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { ChangeRequestError, InvalidPayloadError } from "./errors"
 import { handlerFor } from "./handlers"
 import { approvePermissionFor, type Actor, type ApprovalGateOutcome, type ChangeHandler, type Tx } from "./types"
+import { accountControlRefusal, changesSignInOrRole } from "@/lib/security/account-control"
 
 type Db = Pick<typeof prisma, "$transaction" | "changeRequest">
 
@@ -56,14 +57,6 @@ const MAX_TRAIL_ROWS = 5000
 /** A first TOTP enrolment this soon after the account was created is its setup, not a takeover. */
 const FIRST_ENROLMENT_SETUP_DAYS = 7
 
-/** What on a USER_UPDATED row is a change of how someone signs in or what they may do: role, email, password. */
-function changesAccessOnUpdate(row: { oldValue: unknown; newValue: unknown }): boolean {
-  const asObject = (value: unknown): Record<string, unknown> => (value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {})
-  const before = asObject(row.oldValue)
-  const after = asObject(row.newValue)
-  return "role" in before || "role" in after || "email" in before || "email" in after || after.passwordChanged === true
-}
-
 /**
  * Four eyes is two different PEOPLE. A maker account is refused as a source of approvable changes when
  *  - it is younger than 30 days and a tenant user created it (USER_CREATED, written only by the staff-management route) or SSO
@@ -72,7 +65,7 @@ function changesAccessOnUpdate(row: { oldValue: unknown; newValue: unknown }): b
  *    account must be 30 days old whatever its origin;
  *  - in the last 30 days, and whoever wrote the row, its SSO identity was linked or its role synced, its second factor was replaced,
  *    disabled or reset (or enrolled again after any of those; a first enrolment is how an account is set up), or its role, email or password was changed (an account taken over);
- *  - the CHECKER created or changed it (USER_CREATED, USER_UPDATED, TOTP_RESET_BY_ADMIN) in the last 30 days.
+ *  - the shared rule between the maker and the checker (lib/security/account-control.ts) refuses them.
  * The trail is the audit log the user, SSO and TOTP routes already write.
  */
 async function refuseControlledMaker(
@@ -91,7 +84,7 @@ async function refuseControlledMaker(
     if (minted) throw refuse(`The account that drafted this was created less than ${MAKER_ACCOUNT_CONTROL_DAYS} days ago by a user or by SSO: its changes cannot be approved yet`)
   }
   const takenOver = async (row: { action: string; oldValue: unknown; newValue: unknown; createdAt: Date }): Promise<boolean> => {
-    if (row.action === AuditAction.USER_UPDATED) return changesAccessOnUpdate(row)
+    if (row.action === AuditAction.USER_UPDATED) return changesSignInOrRole(row)
     if (row.action !== AuditAction.TOTP_ENROLLED) return true
     // A user's FIRST enrolment is how a new account is set up (staff TOTP is on by default), not a takeover. An enrolment after an
     // earlier one, a replacement, a disable or an admin reset is.
@@ -138,14 +131,8 @@ async function refuseControlledMaker(
     if (scanned >= MAX_TRAIL_ROWS) throw refuse("The account that drafted this has too many recent changes on record to check: its changes cannot be approved yet")
     cursor = page[page.length - 1].id
   }
-  const control = await tx.auditLog.findFirst({
-    where: {
-      tenantId, entity: "User", entityId: makerId, userId: checkerId, createdAt: { gte: since },
-      action: { in: [AuditAction.USER_CREATED, AuditAction.USER_UPDATED, AuditAction.TOTP_RESET_BY_ADMIN] },
-    },
-    select: { id: true },
-  })
-  if (control) throw refuse(`You created or changed the account of the person who drafted this within the last ${MAKER_ACCOUNT_CONTROL_DAYS} days: another approver must decide it`)
+  const control = await accountControlRefusal(tx, { tenantId, makerIds: [makerId], checkerId, now })
+  if (control) throw refuse(control)
 }
 
 async function load(tx: Pick<Tx, "changeRequest">, tenantId: string, id: string): Promise<ChangeRequest> {

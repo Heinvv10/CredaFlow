@@ -66,8 +66,9 @@ async function ensureBranches(b: Breadth): Promise<Record<string, string>> {
   return ids
 }
 
+/** The operator assigns branches and the roster: an admin's edits would stand between it and that staff member for 30 days (lib/security/account-control.ts). */
 async function placeStaff(b: Breadth, branchIds: Record<string, string>): Promise<void> {
-  const admin = b.sim.actors.admin
+  const admin = await as(b, "operator")
   const users = (await admin.get<{ users: Array<{ id: string; email: string; branchId: string | null }> }>("/api/settings/users")).json?.users ?? []
   const placements: Array<{ userId: string; branchId: string }> = []
   for (const key of Object.keys(STAFF) as StaffKey[]) {
@@ -112,7 +113,7 @@ async function enableSettings(b: Breadth): Promise<void> {
 }
 
 async function rosterInbox(b: Breadth): Promise<void> {
-  const admin = b.sim.actors.admin
+  const admin = await as(b, "operator")
   const users = (await admin.get<{ users: Array<{ id: string; email: string }> }>("/api/settings/users")).json?.users ?? []
   const emails = [b.sim.actors.creds.officer.email, b.sim.actors.loanAdminCreds.email, STAFF.officer2.email, STAFF.branchManager.email, STAFF.insurance.email]
   for (const email of emails) {

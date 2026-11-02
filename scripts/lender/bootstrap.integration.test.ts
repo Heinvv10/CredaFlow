@@ -11,7 +11,8 @@ import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
 import { randomUUID } from "node:crypto"
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { bootstrapSuperAdmin, BootstrapRefusal } from "./bootstrap-admin"
+import { decideReferenceRate } from "@/lib/asset-finance/reference-rate-decision"
+import { bootstrapSuperAdmin, BootstrapRefusal, provisionSecondPerson } from "./bootstrap-admin"
 import { bootstrapTenant } from "./bootstrap-tenant"
 import { parseTenantConfig } from "./tenant-config"
 import { validFile } from "./tenant-config.test-helpers"
@@ -33,6 +34,7 @@ suite("lender bootstrap (real DB)", () => {
     const t = await db.tenant.findUnique({ where: { slug } })
     if (t) {
       await purgeAuditRowsForTest(db, { tenantId: t.id })
+      await db.$transaction([db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"), db.referenceRate.deleteMany({ where: { tenantId: t.id } })])
       await db.user.deleteMany({ where: { tenantId: t.id } })
       await db.tenantConfig.deleteMany({ where: { tenantId: t.id } })
       await db.tenant.delete({ where: { id: t.id } })
@@ -80,5 +82,23 @@ suite("lender bootstrap (real DB)", () => {
     expect(await bcrypt.compare(r.password, after.password)).toBe(true)
     expect(after.totpSecret).toBe(r.totpSecret)
     expect(await db.auditLog.count({ where: { tenantId: tenant.id, action: "SUPER_ADMIN_BREAK_GLASS_RESET" } })).toBe(1)
+  })
+
+  it("the bootstrap pair sit opposite each other on a real two-person control on day one, either way round; a second run refuses", async () => {
+    const tenant = await db.tenant.findUniqueOrThrow({ where: { slug } })
+    const first = await db.user.findFirstOrThrow({ where: { tenantId: tenant.id, role: "SUPER_ADMIN" } })
+    const made = await provisionSecondPerson(db, { tenantSlug: slug, email: email("second"), role: "ADMIN", dryRun: false, operator: "it@host" })
+    if (made.kind !== "second-created") throw new Error("expected a created account")
+    expect(await db.auditLog.count({ where: { tenantId: tenant.id, entityId: made.userId, action: "USER_CREATED" } })).toBe(0)
+
+    const decide = async (makerId: string, checkerId: string, day: string) => {
+      const rate = await db.referenceRate.create({ data: { tenantId: tenant.id, basis: "REPO", effectiveDate: new Date(`2026-03-${day}T00:00:00Z`), rate: "0.0775", requestedById: makerId } })
+      return db.$transaction((tx) => decideReferenceRate(tx as never, { tenantId: tenant.id, rateId: rate.id, decision: "APPROVE", deciderId: checkerId, today: "2026-11-01" }))
+    }
+    expect(await decide(first.id, made.userId, "01")).toMatchObject({ kind: "decided" })
+    expect(await decide(made.userId, first.id, "02")).toMatchObject({ kind: "decided" })
+
+    await expect(provisionSecondPerson(db, { tenantSlug: slug, email: email("third"), role: "ADMIN", dryRun: false, operator: "it@host" })).rejects.toMatchObject({ code: "SECOND_PERSON_EXISTS" })
+    await expect(provisionSecondPerson(db, { tenantSlug: slug, email: email("third"), role: "SUPER_ADMIN", dryRun: false, operator: "it@host" })).rejects.toMatchObject({ code: "ROLE_NOT_ALLOWED" })
   })
 })

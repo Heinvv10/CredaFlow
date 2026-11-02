@@ -199,9 +199,32 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     }))).toContain("Payout_four_eyes")
     staff(fx.officer, "CREDIT_OFFICER")
     expect((await routes().approve(fx.dealId)).status).toBe(403) // no decide_asset_finance
+    // Whoever cleared a committee condition of the application is out of the payout: route and database (F9).
+    const clearer = (await database().user.create({ data: { tenantId: fx.tenantId, email: `clearer-${fx.tenantId}@booking-it.test`, password: "not-a-real-login", name: "Clearer", role: "LOAN_ADMIN" } })).id
+    const applicationId = (await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId } })).applicationId
+    const condition = "Obtain the fleet insurance schedule"
+    const theCase = await database().approvalCase.create({ data: { tenantId: fx.tenantId, applicationId, requiredLevels: 1, levelsSnapshot: [{ level: 1, name: "One", role: "LOAN_ADMIN", slaHours: 24, committee: false }] } })
+    await database().approvalStep.create({ data: { tenantId: fx.tenantId, caseId: theCase.id, applicationId, level: 1, approverId: fx.adminB, via: "ROLE", conditions: [condition] } })
+    await database().approvalCase.update({ where: { id: theCase.id }, data: { status: "APPROVED", completedAt: new Date() } })
+    await database().approvalConditionClearance.create({ data: { tenantId: fx.tenantId, caseId: theCase.id, applicationId, conditionIndex: 0, condition, note: "Schedule on file", clearedById: clearer } })
+    staff(clearer, "LOAN_ADMIN")
+    expect((await routes().approve(fx.dealId)).status).toBe(403)
+    expect(await sqlError(() => database().payout.update({ where: { id: payout.id }, data: { status: "APPROVED", approvedById: clearer, approvedAt: new Date() } }))).toContain("cleared a committee condition")
     staff(fx.adminB, "LOAN_ADMIN")
     expect((await routes().approve(fx.dealId)).status).toBe(200)
     expect(await database().payout.findUniqueOrThrow({ where: { id: payout.id } })).toMatchObject({ status: "APPROVED", approvedById: fx.adminB })
+    staff(clearer, "LOAN_ADMIN")
+    expect((await routes().book(fx.dealId)).status).toBe(422)
+    expect(await database().payout.findUniqueOrThrow({ where: { id: payout.id } })).toMatchObject({ status: "APPROVED" })
+    // An account the approver minted, and one the clearer minted, are not a second person at booking either (F12).
+    for (const minter of [fx.adminB, clearer]) {
+      const sock = (await database().user.create({ data: { tenantId: fx.tenantId, email: `sock-${minter}@booking-it.test`, password: "not-a-real-login", name: "Second account", role: "LOAN_ADMIN" } })).id
+      await database().auditLog.create({ data: { tenantId: fx.tenantId, userId: minter, action: "USER_CREATED", entity: "User", entityId: sock } })
+      staff(sock, "LOAN_ADMIN")
+      const refused = await routes().book(fx.dealId)
+      expect(refused.status).toBe(422)
+      expect((await refused.json()).error).toContain("Two people")
+    }
     expect(await database().auditLog.count({ where: { entityId: payout.id, action: "ASSET_PAYOUT_APPROVED", userId: fx.adminB } })).toBe(1)
   })
 

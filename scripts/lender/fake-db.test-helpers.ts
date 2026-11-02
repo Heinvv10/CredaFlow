@@ -90,6 +90,8 @@ export function createFakeDb(seed: Partial<FakeTables> = {}) {
       },
     },
     auditLog: {
+      findFirst: async ({ where }: { where: Row }) =>
+        tables.auditLogs.find((row) => Object.entries(where).every(([key, value]) => row[key] === value)) ?? null,
       create: async ({ data }: { data: Row }) => {
         tables.auditLogs.push({ id: nextId(), ...data })
         return data

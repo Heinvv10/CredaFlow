@@ -16,6 +16,8 @@ export interface MatrixLevel {
   slaHours: number
   /** The credit committee's level: its approval is a recorded committee decision (lib/approval/committee.ts). At most one, and the last. */
   committee: boolean
+  /** Held only at one's own branch: staff assigned to a branch approve this level for that branch's applications; staff with no branch (head office) for any. */
+  branchScoped?: boolean
 }
 
 export interface MatrixRuleWhen {

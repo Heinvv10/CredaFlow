@@ -6,6 +6,7 @@ import { loadLatestRun, lockSubjectScreening } from "./store"
 import { amlStatusFor, reviewEligibility, type ReviewRefusalCode, type ScreeningState } from "./state"
 import { readSubjectScreening } from "./gate"
 import { refOf } from "./subject"
+import { accountControlRefusal } from "@/lib/security/account-control"
 
 export const SCREENING_DECISIONS: readonly ScreeningDecision[] = ["FALSE_POSITIVE", "ACCEPTED", "REJECTED"]
 
@@ -26,7 +27,7 @@ export type ReviewInput = {
 
 export type ReviewOutcome =
   | { ok: true; state: ScreeningState }
-  | { ok: false; status: 400 | 403 | 404 | 409 | 422; code: ReviewRefusalCode | "not_found" | "superseded" | "reason_length"; error: string }
+  | { ok: false; status: 400 | 403 | 404 | 409 | 422; code: ReviewRefusalCode | "not_found" | "superseded" | "reason_length" | "account_controlled"; error: string }
 
 const REFUSALS: Record<ReviewRefusalCode, { status: 403 | 409 | 422; error: string }> = {
   already_decided: { status: 409, error: "This match has already been decided." },
@@ -84,6 +85,10 @@ export async function reviewScreeningCheck(input: ReviewInput): Promise<ReviewOu
       caller: { id: actor.id, role: actor.role, totpVerified: actor.totpVerified || input.totpWaived },
     })
     if (!eligibility.allowed) return { ok: false, code: eligibility.code, ...REFUSALS[eligibility.code] }
+    if (config.requireSecondReviewer) {
+      const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [check.triggeredById], checkerId: actor.id })
+      if (controlled) return { ok: false, status: 403, code: "account_controlled", error: controlled }
+    }
 
     const reviewedAt = new Date()
     const written = await tx.screeningCheck.updateMany({

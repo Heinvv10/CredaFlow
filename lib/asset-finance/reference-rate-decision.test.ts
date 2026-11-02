@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+const twoPeople = vi.hoisted(() => ({ refusal: vi.fn(async (): Promise<string | null> => null) }))
+vi.mock("@/lib/security/account-control", () => ({ accountControlRefusal: twoPeople.refusal }))
 import { decideReferenceRate, type DecisionDb } from "./reference-rate-decision"
 
 const m = vi.hoisted(() => ({ logAuditStrict: vi.fn() }))

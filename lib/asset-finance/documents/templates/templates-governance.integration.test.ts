@@ -171,6 +171,28 @@ suite.sequential("lender-owned asset-finance template governance (real Postgres)
     expect(audit.newValue).toMatchObject({ approvedContentSha256: v.contentSha256, approvalBasis: "LENDER_LEGAL", attestation: true, legalSignOff: true, approverRole: "SUPER_ADMIN" })
   })
 
+  it("the two-people rule holds approval and publishing: an account the author minted cannot approve, one the approver minted cannot publish (F12)", async () => {
+    await database().tenantConfig.update({ where: { tenantId: b.tenantId }, data: { isDemoLender: true } })
+    await adoptStarter(actor(b, b.adminA), "af.suretyship")
+    const template = await database().documentTemplate.findFirstOrThrow({ where: { tenantId: b.tenantId, key: { startsWith: "af.suretyship" } } })
+    const v = await latest(database(), template.id)
+    expect(v.createdById).toBe(b.adminA)
+    const mint = async (by: string, name: string) => {
+      const user = await database().user.create({ data: { tenantId: b.tenantId, email: `${name}-${b.tenantId}@test.invalid`, password: "not-a-real-login", name, role: "ADMIN" } })
+      await database().auditLog.create({ data: { tenantId: b.tenantId, userId: by, action: "USER_CREATED", entity: "User", entityId: user.id } })
+      return user.id
+    }
+    const authorsAccount = await mint(b.adminA, "author-puppet")
+    expect(await approveVersion(actor(b, authorsAccount), template.id, v.id, legalInput(v.contentSha256))).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("Two people") })
+    expect((await latest(database(), template.id)).approvedById).toBeNull()
+    expect(await approveVersion(actor(b, b.adminB), template.id, v.id, legalInput(v.contentSha256))).toMatchObject({ ok: true })
+    const approversAccount = await mint(b.adminB, "approver-puppet")
+    expect(await publishVersion(actor(b, approversAccount), template.id, v.id)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("Two people") })
+    expect((await latest(database(), template.id)).status).toBe("DRAFT")
+    expect(await publishVersion(actor(b, b.adminA), template.id, v.id)).toMatchObject({ ok: true })
+    await database().tenantConfig.update({ where: { tenantId: b.tenantId }, data: { isDemoLender: false } })
+  })
+
   it("a demo lender's approval is synthetic, never a legal one, and stops issuing if the lender stops being a demo lender", async () => {
     await database().tenantConfig.update({ where: { tenantId: b.tenantId }, data: { isDemoLender: true } })
     await adoptStarter(actor(b, b.adminA), "af.resolution")
