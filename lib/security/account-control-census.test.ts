@@ -17,6 +17,8 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "paying out a key-facts loan (segregation of duties, and against whoever confirmed the account)", file: "lib/non-nca-documents/payout-gates.ts" },
   { control: "confirming a key-facts payout account (the shared list of the people behind the payout)", file: "lib/non-nca-documents/payout-people.ts" },
   { control: "confirming an address staff set for a borrower (signing codes and login recovery)", file: "lib/contact/identity-confirmation.ts" },
+  { control: "witnessing a signature: not whoever confirmed the borrower's address (the code request and the signing transaction)", file: "lib/signing-otp/challenge.ts" },
+  { control: "requesting a branch signing code: not whoever confirmed the address it goes to", file: "lib/contact/identity-confirmation.ts" },
   { control: "countersigning an in-branch signature (segregation of duties)", file: "app/api/applications/[id]/agreement/countersign/route.ts" },
   { control: "document template approval", file: "app/api/documents/templates/[id]/versions/[versionId]/approve/route.ts" },
   { control: "document template publishing", file: "app/api/documents/templates/[id]/versions/[versionId]/publish/route.ts" },

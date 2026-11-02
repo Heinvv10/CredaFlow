@@ -201,6 +201,23 @@ function regime(jurisdiction: StackJurisdiction) {
       await expect(spend).rejects.toMatchObject({ reason: "identity_confirmed_by_witness" })
     })
 
+    it("a second account of the confirmer does not witness either: refused at the code and when it is spent", async () => {
+      holder.tenantId = stack.tenant
+      const clientId = await borrower("witness-puppet")
+      const email = await staffChangesEmail(clientId, stack.officer)
+      expect((await confirmAs(clientId, email, stack.senior)).status).toBe(200)
+      const puppet = `witness-puppet-${t}`
+      await db().user.create({ data: { id: puppet, tenantId: stack.tenant, email: `${puppet}@test.invalid`, password: "not-a-real-login", name: "Witness puppet", role: "LOAN_ADMIN" } })
+      await db().auditLog.create({ data: { tenantId: stack.tenant, userId: stack.senior, userEmail: `${stack.senior}@test.invalid`, action: "USER_CREATED", entity: "User", entityId: puppet } })
+      expect(await requestCode(clientId, email, "branch", puppet)).toMatchObject({ ok: false, signingOtp: "identity_confirmed_by_witness" })
+      const issued = await requestCode(clientId, email, "branch", stack.disburser)
+      if (!issued.ok) throw new Error(issued.error)
+      const spend = runWithTenant(stack.tenant, () => (holder.app as typeof import("@/lib/prisma").prisma).$transaction((tx) => consumeSigningOtp(tx, {
+        tenantId: stack.tenant, clientId, purpose: "AGREEMENT", subjectId: `app-${clientId}`, documentSha256: "a".repeat(64), challengeId: issued.challenge.challengeId, method: "branch", now: new Date(), witnessUserId: puppet,
+      })))
+      await expect(spend).rejects.toMatchObject({ reason: "identity_confirmed_by_witness" })
+    })
+
     it("a staff-set address cannot recover the portal login: no code is sent, a code is not accepted, and activation is refused", async () => {
       holder.tenantId = stack.tenant
       const clientId = await borrower("recover")

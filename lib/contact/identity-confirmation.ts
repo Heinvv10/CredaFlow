@@ -20,12 +20,12 @@ export const NO_UNCONFIRMED_IDENTITY_WHERE: Prisma.ClientWhereInput = {
 
 export type SigningIdentityRefusal = "identity_unconfirmed" | "identity_confirmed_by_witness"
 
-type IdentityReader = Pick<typeof prisma, "contactIdentity">
+type IdentityReader = Pick<typeof prisma, "contactIdentity" | "auditLog">
 
 /**
  * Whether a signing code may go to this destination. A value staff set is unverified until someone else confirms it: without
  * this, one officer could type their own address, take the borrower's code and witness the signature. `witnessUserId` is the
- * staff member driving the signature: the person who confirmed the address does not also witness it. A row with no setter (the
+ * staff member driving the signature: the person who confirmed the address, or an account they control, does not also witness it. A row with no setter (the
  * borrower's own, or from before this rule) is verified. A destination with no row fails at delivery, as it always has.
  */
 export async function signingIdentityRefusal(db: IdentityReader, args: {
@@ -40,7 +40,11 @@ export async function signingIdentityRefusal(db: IdentityReader, args: {
   })
   if (!identity?.setByStaffUserId) return null
   if (!identity.confirmedAt) return "identity_unconfirmed"
-  return args.witnessUserId && identity.confirmedByUserId === args.witnessUserId ? "identity_confirmed_by_witness" : null
+  if (!args.witnessUserId || !identity.confirmedByUserId) return null
+  // Two people, not two accounts: a second account of the confirmer does not witness either.
+  if (identity.confirmedByUserId === args.witnessUserId) return "identity_confirmed_by_witness"
+  const controlled = await accountControlRefusal(db, { tenantId: args.tenantId, makerIds: [identity.confirmedByUserId], checkerId: args.witnessUserId })
+  return controlled ? "identity_confirmed_by_witness" : null
 }
 
 export type ConfirmResult = { ok: true } | { ok: false; status: 403 | 409; error: string }

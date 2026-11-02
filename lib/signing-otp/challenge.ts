@@ -10,10 +10,11 @@
  */
 import type { SigningOtpPurpose } from "@prisma/client"
 import type { prisma as PrismaClientInstance } from "@/lib/prisma"
+import { accountControlRefusal } from "@/lib/security/account-control"
 import { SIGNING_OTP_SIGN_WINDOW_MS, signingOtpMatches } from "./code"
 
 type Db = Pick<typeof PrismaClientInstance, "signingOtpChallenge">
-type ConsumeDb = Db & Partial<Pick<typeof PrismaClientInstance, "contactIdentity">>
+type ConsumeDb = Db & Partial<Pick<typeof PrismaClientInstance, "contactIdentity" | "auditLog">>
 
 const DELIVERED: readonly string[] = ["ACCEPTED", "SIMULATED"]
 
@@ -160,12 +161,16 @@ export async function consumeSigningOtp(
   args: SigningBinding & { challengeId: string; method: "portal" | "branch"; now: Date; witnessUserId?: string },
 ): Promise<SigningOtpEvidence> {
   const { challengeId, method, now, witnessUserId, ...binding } = args
-  // Whoever confirmed the borrower's address does not also witness the signature it authorises.
+  // Whoever confirmed the borrower's address does not also witness the signature it authorises, nor does an account they control.
   if (witnessUserId) {
-    const confirmedByWitness = await tx.contactIdentity!.findFirst({
-      where: { tenantId: binding.tenantId, confirmedByUserId: witnessUserId, contact: { clientId: binding.clientId } }, select: { id: true },
+    const confirmations = await tx.contactIdentity!.findMany({
+      where: { tenantId: binding.tenantId, confirmedByUserId: { not: null }, contact: { clientId: binding.clientId } }, select: { confirmedByUserId: true },
     })
-    if (confirmedByWitness) throw new SigningOtpRefusedError("identity_confirmed_by_witness")
+    const confirmers = [...new Set(confirmations.flatMap((row) => (row.confirmedByUserId ? [row.confirmedByUserId] : [])))]
+    if (confirmers.includes(witnessUserId)) throw new SigningOtpRefusedError("identity_confirmed_by_witness")
+    if (confirmers.length > 0 && await accountControlRefusal({ auditLog: tx.auditLog! }, { tenantId: binding.tenantId, makerIds: confirmers, checkerId: witnessUserId })) {
+      throw new SigningOtpRefusedError("identity_confirmed_by_witness")
+    }
   }
   const consumed = await tx.signingOtpChallenge.updateMany({
     where: {
@@ -196,7 +201,7 @@ export async function consumeSigningOtp(
 export const SIGNING_OTP_REFUSAL_MESSAGES: Record<ConsumeRefusal | "required" | VerifyRefusal | "identity_unconfirmed", string> = {
   required: "Verify the one-time code sent to you before signing.",
   identity_unconfirmed: "Staff set this address and it has not been confirmed. A second staff member confirms it on the client record.",
-  identity_confirmed_by_witness: "You confirmed this address, so another staff member must witness the signature.",
+  identity_confirmed_by_witness: "You confirmed this address, or one of your accounts is tied to whoever did, so another staff member must witness the signature.",
   not_found: "That one-time code request was not found. Request a new code.",
   not_verified: "Enter the one-time code sent to you before signing.",
   verification_stale: "Your code was verified too long ago. Request a new code and sign again.",
