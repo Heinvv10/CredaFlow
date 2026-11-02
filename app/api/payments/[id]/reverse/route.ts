@@ -1,3 +1,4 @@
+import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
 import { reconcileRateCorrections } from "@/lib/asset-finance/rate-correction"
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
@@ -42,11 +43,16 @@ export async function PATCH(
           amount: true,
           reversed: true,
           allocationStatus: true,
+          paymentMethod: true,
         },
       })
 
       if (!payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 })
       if (payment.reversed) return NextResponse.json({ error: "Payment already reversed" }, { status: 409 })
+      // Its balance now sits in the new loan (the database refuses it too: Payment_loan_settlement_update).
+      if (payment.paymentMethod === LOAN_SETTLEMENT_METHOD) {
+        return NextResponse.json({ error: "A settlement by a new loan cannot be reversed" }, { status: 409 })
+      }
       if (payment.allocationStatus !== "ALLOCATED") {
         return NextResponse.json(
           { error: "Only allocated payments can be reversed; use receipt reconciliation instead" },
@@ -147,7 +153,10 @@ export async function PATCH(
 
         // An early settlement re-priced the schedule; the reversal re-opens the
         // contract as signed (lib/loan/contractual-schedule.ts).
-        const contractualRows = await contractualScheduleOf(tx, loan, loan.repaymentSchedule, id)
+        // Not on a loan a new loan paid off (lib/loan-changes): that settlement stands and the new loan holds its balance. A receipt
+        // that bounces leaves exactly its amount owed on the old loan, on the rows the settlement priced.
+        const settledByNewLoan = await tx.payment.count({ where: { tenantId: tenant.id, loanId: payment.loanId, paymentMethod: LOAN_SETTLEMENT_METHOD, reversed: false } }) > 0
+        const contractualRows = settledByNewLoan ? loan.repaymentSchedule : await contractualScheduleOf(tx, loan, loan.repaymentSchedule, id)
         const perRowPaid = allocateReceipts(contractualRows, totalReceipts)
         const postRows = contractualRows.map((row, i) => ({
           ...row,
@@ -167,11 +176,16 @@ export async function PATCH(
           })
         }
 
-        const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
+        // What the settlement priced was all raised the day it closed the loan, and it is owed now: its rows stay on that day, so
+        // the ledger's receivable and the balance say the same.
+        const settledOn = settledByNewLoan ? loan.closedAt : null
+        if (settledOn) await tx.repaymentSchedule.updateMany({ where: { tenantId: tenant.id, loanId: payment.loanId, dueDate: { gt: settledOn } }, data: { dueDate: settledOn } })
+        const datedRows = settledOn ? postRows.map((row) => (row.dueDate > settledOn ? { ...row, dueDate: settledOn } : row)) : postRows
+        const balances = recomputeLoanBalances(loan.principal, datedRows, asOf)
         const restoredTotalInterest =
-          loan.commercialCancelledAt ? loan.totalInterest : loan.contractualTotalInterest ?? loan.totalInterest
+          loan.commercialCancelledAt || settledByNewLoan ? loan.totalInterest : loan.contractualTotalInterest ?? loan.totalInterest
         const restoredTotalRepayable =
-          loan.commercialCancelledAt ? loan.totalRepayable : loan.contractualTotalRepayable ?? loan.totalRepayable
+          loan.commercialCancelledAt || settledByNewLoan ? loan.totalRepayable : loan.contractualTotalRepayable ?? loan.totalRepayable
         const remainsCompleted = totalReceipts >= restoredTotalRepayable
 
         // Roll last-payment fields back to the most recent remaining receipt (or
@@ -196,10 +210,12 @@ export async function PATCH(
             totalPaid: totalReceipts,
             totalInterest: restoredTotalInterest,
             totalRepayable: restoredTotalRepayable,
+            // The priced rows are now the contract of what is left: what pays them closes the loan.
+            ...(settledByNewLoan ? { contractualTotalInterest: restoredTotalInterest, contractualTotalRepayable: restoredTotalRepayable } : {}),
             outstandingPrincipal: balances.outstandingPrincipal,
             arrearsAmount: balances.arrearsAmount,
             daysInArrears: balances.daysInArrears,
-            nextPaymentDate: nextPaymentDueDate(postRows),
+            nextPaymentDate: nextPaymentDueDate(datedRows),
             lastPaymentDate: latestRemaining?.receivedAt ?? null,
             lastPaymentAmount: latestRemaining?.amount ?? null,
             // Only re-open a previously-COMPLETED loan that the remaining

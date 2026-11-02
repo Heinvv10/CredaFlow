@@ -3,7 +3,7 @@ import { CASH_RECEIPTS, cashPaidPercent, cashReceivedCents, displayPaymentMethod
 
 describe("balance waivers are not cash", () => {
   it("excludes the WAIVER method from any cash-collected query", () => {
-    expect(CASH_RECEIPTS).toEqual({ paymentMethod: { not: "WAIVER" } })
+    expect(CASH_RECEIPTS).toEqual({ paymentMethod: { notIn: ["WAIVER", "LOAN_SETTLEMENT"] } })
   })
 
   it("labels a waiver as a waived balance and leaves every other method to the caller's format", () => {
@@ -23,6 +23,7 @@ describe("cashReceivedCents", () => {
       { amount: 5_000, paymentMethod: "EFT", allocationStatus: "UNAPPLIED", reversed: false },
       { amount: 2_000, paymentMethod: "CASH", allocationStatus: "REFUNDED", reversed: false },
       { amount: 1_000, paymentMethod: "CASH" },
+      { amount: 900_000, paymentMethod: "LOAN_SETTLEMENT", allocationStatus: "ALLOCATED", reversed: false },
     ])).toBe(51_000)
   })
 })

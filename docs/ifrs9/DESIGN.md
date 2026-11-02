@@ -27,6 +27,14 @@ default trigger wins the stage; a loan back at Stage 1 sheds it), which the next
 `RESTRUCTURE_PROBATION` while it is being served. Because every step takes the longer figure, a
 restructured loan that defaulted needs 12 months in Stage 3 and 12 more in Stage 2.
 
+A live loan is never given the status RESTRUCTURED: receipts, mandates and reminders need ACTIVE or
+DEFAULTED. A forbearance (`lib/loan-changes`) sets `Loan.restructuredAt`, which counts as RESTRUCTURED
+until a MONTHLY run has staged it; from the next run the loan's triggers have cleared and the probation
+runs from there; every restructure restarts that clock, so rescheduling a loan that does not pay never cures it. A
+loan in default when restructured goes to Stage 3, not `restructuredStage`, and holds it through the clock. A loan booked by a top-up, refinance or consolidation starts from the worst prior stage
+of the loans it replaced, so replacing a Stage 3 loan does not cure it. A run for a date before a change reads
+the schedule and status that change replaced (`LoanChange.scheduleBefore`).
+
 The cure clock belongs to the trigger stage being left. A trigger at or above the
 loan's own stage restarts it. A Stage 3 loan whose default triggers have cleared but
 which is again over the SICR threshold (say 40 days past due) does **not** restart

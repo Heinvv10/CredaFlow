@@ -1,3 +1,4 @@
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { prisma } from "@/lib/prisma"
 import { presentChangeRequest } from "@/lib/maker-checker/http"
 import { listChangeRequests } from "@/lib/maker-checker/service"
@@ -60,8 +61,9 @@ export async function loadDecisioningOverview(tenantId: string, viewer: { id: st
       effectiveFrom: v.effectiveFrom.toISOString().slice(0, 10), challengerOnly: v.challengerOnly, changeRequestId: v.changeRequestId, createdAt: v.createdAt.toISOString(),
     })),
     config: config
-      ? { mode: config.mode, channels: config.channels, productIds: config.productIds, repaymentMethod: config.repaymentMethod, challengerVersionId: config.challengerVersionId, challengerPercent: config.challengerPercent, s71SignOff: config.s71SignedOffAt !== null, automatedDeclineNotice: config.automatedDeclineNotice }
-      : { mode: "OFF" as const, channels: [] as string[], productIds: [] as string[], repaymentMethod: "EFT" as const, challengerVersionId: null, challengerPercent: 0, s71SignOff: false, automatedDeclineNotice: null },
+      ? { mode: config.mode, channels: config.channels, productIds: config.productIds, repaymentMethod: config.repaymentMethod, challengerVersionId: config.challengerVersionId, challengerPercent: config.challengerPercent, s71SignOff: config.s71SignedOffAt !== null, automatedDeclineNotice: config.automatedDeclineNotice, keyFactsInstantApproval: config.keyFactsInstantApproval }
+      : { mode: "OFF" as const, channels: [] as string[], productIds: [] as string[], repaymentMethod: "EFT" as const, challengerVersionId: null, challengerPercent: 0, s71SignOff: false, automatedDeclineNotice: null, keyFactsInstantApproval: false },
+    keyFactsInstance: !isNcaJurisdiction(),
     requests: requests
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((r) => presentChangeRequest(r, viewer.id, viewer.role)),

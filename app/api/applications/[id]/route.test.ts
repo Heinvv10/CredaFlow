@@ -628,6 +628,7 @@ it("PATCH action:update — maps a database open-tuple collision to a verified 4
       clientId: "c1",
       productId: "p1",
       status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED"] },
+      loanChangeRequestId: null,
     },
     select: { id: true, reference: true, status: true },
   })
@@ -679,6 +680,14 @@ it("DELETE refuses to cancel an application with an attached loan or in APPROVED
   const res = await DELETE(deleteReq(), ctx)
 
   expect(res.status).toBe(409)
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
+it("DELETE refuses a loan change's application: it is closed by rejecting or withdrawing the change", async () => {
+  findUniqueMock.mockResolvedValue({ id: "app-1", reference: "APP-1", status: "UNDER_REVIEW", loan: null, loanChangeRequestId: "cr-1" })
+  const res = await DELETE(deleteReq(), ctx)
+  expect(res.status).toBe(409)
+  expect(((await res.json()) as { error: string }).error).toMatch(/belongs to a loan change/)
   expect(updateManyMock).not.toHaveBeenCalled()
 })
 

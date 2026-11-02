@@ -8,22 +8,30 @@
 
 export const WAIVER_METHOD = "WAIVER"
 export const BALANCE_WAIVED_LABEL = "Balance waived"
+/** The old loan's balance moved into a new loan (lib/loan-changes): a receipt on every balance and guard, no money moved. */
+export const LOAN_SETTLEMENT_METHOD = "LOAN_SETTLEMENT"
+export const SETTLED_BY_NEW_LOAN_LABEL = "Settled by new loan"
 
 /** Spread into any Payment where-clause that totals money actually received. */
-export const CASH_RECEIPTS = { paymentMethod: { not: WAIVER_METHOD } } as const
+export const CASH_RECEIPTS = { paymentMethod: { notIn: [WAIVER_METHOD, LOAN_SETTLEMENT_METHOD] as Array<"WAIVER" | "LOAN_SETTLEMENT"> } }
 
 export function isBalanceWaiver(method: string | null | undefined): boolean {
   return method === WAIVER_METHOD
 }
 
-/** The waiver label, or the surface's own formatting for a real method. */
+export function isNonCashReceipt(method: string | null | undefined): boolean {
+  return isBalanceWaiver(method) || method === LOAN_SETTLEMENT_METHOD
+}
+
+/** The waiver or settlement label, or the surface's own formatting for a real method. */
 export function displayPaymentMethod(method: string, format: (method: string) => string): string {
+  if (method === LOAN_SETTLEMENT_METHOD) return SETTLED_BY_NEW_LOAN_LABEL
   return isBalanceWaiver(method) ? BALANCE_WAIVED_LABEL : format(method)
 }
 
 /**
  * Cash actually received on a loan: live ALLOCATED receipts, excluding
- * waivers, reversals and unapplied or refunded money. This is "Total paid"
+ * waivers, settlements by a new loan, reversals and unapplied or refunded money. This is "Total paid"
  * wherever it is shown; Loan.totalPaid is only the share applied to the
  * instalments once default charges exist.
  */
@@ -35,7 +43,7 @@ export function cashReceivedCents(payments: Array<{
 }>): number {
   return payments.reduce((sum, p) => (
     p.reversed
-    || isBalanceWaiver(p.paymentMethod)
+    || isNonCashReceipt(p.paymentMethod)
     || (p.allocationStatus !== undefined && p.allocationStatus !== "ALLOCATED")
       ? sum
       : sum + p.amount

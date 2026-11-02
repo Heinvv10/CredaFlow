@@ -37,9 +37,9 @@ agreement** from the lender's own versioned templates, not by the PASQ. `LoanApp
   CHECK `LoanApplication_key_facts_no_credit_life`. Offering cover later is a feature (a Lesotho product), not a switch.
 - **Screening is the identity-risk check a KEY_FACTS loan has**: decide and readiness refuse while no provider is
   configured, also inside the transaction. The simulated provider counts where `SIMULATED_INTEGRATIONS` permits it.
-- **The decision engine cannot approve a KEY_FACTS application** until a Lesotho bureau is integrated
-  (`lib/decisioning/key-facts-referral.ts`): it refers (`NO_BUREAU`, `MISSING_FACT`) and strips the grade, which was scored on
-  facts nobody checked. With no bureau check a scorecard decline refers too; a rule's decline on known facts stands.
+- **The decision engine approves a KEY_FACTS application only with the lender's instant approval on and a bureau check of this review**
+  (`lib/decisioning/key-facts-referral.ts`, tender 2.3.9, Partial until a Lesotho bureau exists: `docs/non-nca-go-live.md`). With no bureau check it refers (`NO_BUREAU`, `MISSING_FACT`) and strips the grade, which was scored on facts nobody checked; a scorecard decline
+  refers too; a rule's decline on known facts stands. Only the simulated bureau can be asked today (`KEY_FACTS_BUREAU_PROVIDERS`).
 - Staff issue (`CREDIT_OFFICER`); only the borrower accepts and signs (`lib/proxy/shared-client-api.ts`). PASQ routes answer 409 (`refusal.ts`).
   Each step refuses a deceased borrower under the client row lock (`borrower-gate.ts`); the portal's refusal does not say why.
 - **Disbursing** (`disburse.ts`, `payout-gates.ts`): every gate in one SERIALIZABLE transaction on the NCA route's lock protocol; a dry run for the page. No debit mandate: EFT. Rules: `docs/non-nca-go-live.md`.

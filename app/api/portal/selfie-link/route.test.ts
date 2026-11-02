@@ -43,7 +43,7 @@ describe("POST /api/portal/selfie-link", () => {
     const res = await post()
     expect(res.status).toBe(200)
     expect(h.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", clientId: `client-${n}`, status: { in: ["SUBMITTED", "UNDER_REVIEW", "APPROVED"] } },
+      where: { tenantId: "tenant-1", clientId: `client-${n}`, status: { in: ["SUBMITTED", "UNDER_REVIEW", "APPROVED"] }, loanChangeRequestId: null },
     }))
     expect(h.mint).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       tenantId: "tenant-1", applicationId: "app-1", clientId: `client-${n}`, channel: "PORTAL", createdById: null,

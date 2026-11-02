@@ -38,6 +38,7 @@ export const portalLabels: Catalog["portalLabels"] = {
   method_CASH: "Kontant",
   method_DEBIT_ORDER: "Debietorder",
   method_CARD: "Kaart",
+  method_LOAN_SETTLEMENT: "Vereffen deur nuwe lening",
   methodWaived: "Saldo kwytgeskeld",
   doc_ID_COPY: "ID-afskrif",
   doc_PAYSLIP: "Salarisstrokie",

@@ -22,9 +22,47 @@ The bank accepts these or changes them:
   `SIMULATED_INTEGRATIONS=screening`, which a real lender never sets.
 - **The approval matrix rules for key-facts products set `ungraded: true`.** A key-facts application has no risk grade,
   so `riskGradeRankMin` never matches it and the row would fall to the default level.
-- **Debts on a key-facts application are self-declared.** There are no bureau obligations to check them against, and the
-  bank must accept that for affordability.
-- **No automated engine approval.** Until a Lesotho bureau is integrated the engine refers every key-facts application.
+- **Debts on a key-facts application are self-declared** unless instant approval (below) made a bureau enquiry for it. With no bureau
+  obligations to check them against, the bank must accept that for affordability.
+- **No automated engine approval until a bureau exists for the jurisdiction.** The engine refers every key-facts application
+  with no bureau check of its review, and a South African bureau is never asked about a foreign consumer. See the next section.
+
+## Instant approval of digital applications (tender 2.3.9): Partial
+
+**Status: Partial until a Lesotho credit bureau is integrated.** The whole path is built and proven with the simulated bureau, which
+a deployed build refuses unless `SIMULATED_INTEGRATIONS` names it: on a demo stack only. A real lender with no Lesotho bureau gets
+no instant approval: the application refers to staff (`NO_BUREAU`), which is the standing decision and not a fault. A lender cannot
+even switch the setting on while its bureau order has no bureau for the jurisdiction. Adding one means an adapter under
+`lib/bureau/providers/`, adding it to `KEY_FACTS_BUREAU_PROVIDERS` and `APPROVAL_BUREAU_PROVIDERS` (`lib/compliance/bureau.ts`), a
+migration adding it to `guardLoanApplicationAutomatedAffordability`'s provider list, and a decision on the score floor: `TenantConfig.bureauMinScore` is calibrated on the Experian Sigma band.
+
+The setting: Settings, Decision rules, "Instant approval of digital applications" (`DecisionEngineConfig.keyFactsInstantApproval`).
+Off by default, a maker-checker change a SUPER_ADMIN approves, audited, and refused on a South African instance by the code and the
+database. With it on and the engine LIVE for the portal channel, an application the client submitted from their signed-in portal gets a
+bureau enquiry, and if the rules approve and it stays affordable with every obligation counted, the engine attests affordability and
+approves through the staff path. The public website form never gets this: nobody signed in, so it gets no enquiry and refers. The bank accepts:
+
+- **No person assesses affordability on such a loan.** The attestation, the rule set version and the run are on the record, and the
+  decision log marks it automated. What stands behind it is the affordability gate on self-declared income and expenses and, on top of the
+  higher of declared debt and the bureau's obligations, this lender's loans and approved applications and the client's other open
+  applications. If any of those cannot be read the application refers. The bank's legal team confirms this is lawful in Lesotho, and that the rule set is one it approves.
+- **Only an approval is instant, and only a clean file.** KYC must already be verified: an applicant whose documents a person has not yet
+  verified stays with staff, so a first-time borrower will usually not get an instant decision. An open credit check (a payslip that did
+  not validate, a statement that did not read), a screening match, the lender's record of a death, an approval-matrix level that needs a
+  person, or a figure the gate cannot pass all send it to staff, with no attestation.
+- **The approval matrix must allow it.** The engine never approves what needs a person: a matrix requiring level 1 keeps every such
+  application pending. Set `requiredLevels: 0` on the rule for the small digital loans the bank wants instant. A loan with a scorecard
+  grade is matched by grade, not by `ungraded`.
+- **The bureau score floor must be calibrated.** `TenantConfig.bureauMinScore` left at its default (450, below the Sigma band) refuses every
+  approval as uncalibrated, so every application is referred (`HARD_GATE_REFUSED`). Set an in-band floor for the bureau in use.
+- **The 60 seconds.** Decided after the response is sent; measured from `submittedAt`, kept on the run (`submissionLatencyMs`) and shown on
+  the Decision rules page. A bureau that is slow adds its own time, up to 25 seconds per bureau. If the task is lost to a restart the sweep
+  takes it within about 8 minutes, so a target missed on a restart is seen in the p95, and the decision is still made. The client's
+  application page shows the decision the next time it loads: it does not refresh itself, and the first page after submitting can still say under review.
+- **An automated decline still needs the POPIA s71-style sign-off.** The setting changes approvals only; until the sign-off is recorded a
+  decline verdict is referred. The bank decides whether Lesotho's Data Protection Act asks for the same wording.
+- **Payout does not change.** The second person, in-person or biometric KYC and segregation of duties apply. Staff whose input the
+  application carries cannot disburse an application the engine approved.
 
 ## Legal wording the bank must supply
 

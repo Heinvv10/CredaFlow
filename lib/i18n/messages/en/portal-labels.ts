@@ -42,6 +42,7 @@ export const portalLabels = {
   method_CASH: "Cash",
   method_DEBIT_ORDER: "Debit order",
   method_CARD: "Card",
+  method_LOAN_SETTLEMENT: "Settled by new loan",
   methodWaived: "Balance waived",
   doc_ID_COPY: "ID Copy",
   doc_PAYSLIP: "Payslip",

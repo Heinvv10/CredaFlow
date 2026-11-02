@@ -161,6 +161,7 @@ model Tenant {
   loanApplications           LoanApplication[]
   loanArrearsLetters         LoanArrearsLetter[]
   loanArrearsSnapshots       LoanArrearsSnapshot[]
+  loanChanges                LoanChange[]
   loanCharges                LoanCharge[]
   loanDocumentIssuances      LoanDocumentIssuance[]
   loanNotes                  LoanNote[]

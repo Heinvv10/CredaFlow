@@ -187,6 +187,11 @@ model Loan {
   // booking path sets it; nullable only so an image older than this column can
   // still book loans while the migration runs ahead of the new image.
   monthlyServiceFee           Int?
+  // When the loan was last restructured as a forbearance (lib/loan-changes). The status stays ACTIVE or DEFAULTED, which every
+  // receipt, mandate and reminder path needs; IFRS 9 reads this (lib/ifrs9/staging.ts, restructuredInForce).
+  restructuredAt              DateTime?
+  // It was in default when last restructured: IFRS 9 keeps it in Stage 3 until it has cured by its clock.
+  defaultedAtRestructure      Boolean          @default(false)
   createdAt                   DateTime         @default(now())
   updatedAt                   DateTime         @updatedAt
   client                      Client?          @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -218,6 +223,8 @@ model Loan {
   leaseRentals               LeaseRental[]
   leaseTerminationQuotes     LeaseTerminationQuote[]
   legalMatters               LegalMatter[]
+  loanChangeBookedThis       LoanChange?             @relation("LoanChangeNewLoan")
+  loanChanges                LoanChange[]            @relation("LoanChangeLoan")
   maintenanceFund            MaintenanceFund?
   meterReadings              AssetMeterReading[]
   ncaSurplusAccounts NcaSurplusAccount[]
@@ -308,6 +315,11 @@ model RepaymentSchedule {
   assetFinanceOpeningBalanceCents Int?
   creditLifePremiumDue            Int            @default(0)
   feesDue                         Int
+  // The parts of this row a loan change carried here (lib/loan-changes). Interest and fees already earned, which a later change
+  // never reduces, and arrears principal a reschedule moved, which bears no interest. 0 on every other row.
+  carriedPrincipalDue             Int            @default(0)
+  carriedInterestDue              Int            @default(0)
+  carriedFeesDue                  Int            @default(0)
   totalDue                        Int
   totalPaid                       Int            @default(0)
   status                          ScheduleStatus @default(PENDING)
@@ -409,6 +421,8 @@ enum PaymentMethod {
   // Non-cash credit closing a sub-R1 residue (lib/loan/small-balance-waiver.ts).
   // Never cash collected: see lib/payments/waiver.ts.
   WAIVER
+  // Non-cash: a new loan paid this one off (lib/loan-changes). Never reversed.
+  LOAN_SETTLEMENT
 }
 
 model BankStatementImport {

@@ -107,7 +107,7 @@ export async function seedBorrower(db: PrismaClient, stack: Stack, id: string, o
  * A borrower and an UNDER_REVIEW application. Returns the statement bytes for the suite to put in its storage double
  * (the payout gate reads the stored file back and hashes it).
  */
-export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean; dealerId?: string }): Promise<BorrowerBytes> {
+export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string, opts: { nca: boolean; documents?: boolean; income?: number; bank?: boolean; bureau?: boolean; dealerId?: string; authenticated?: boolean }): Promise<BorrowerBytes> {
   const statement = await seedBorrower(db, stack, id, opts)
   const clientId = `${id}-client`
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId }, include: { expenseBreakdown: true } })
@@ -120,7 +120,8 @@ export async function seedUnderReview(db: PrismaClient, stack: Stack, id: string
   await db.loanApplication.create({
     data: {
       id, tenantId: stack.tenant, reference: `APP-${id}`, clientId, productId: stack.product, ...TERMS, initiationFeePayment: "DEFERRED", status: "UNDER_REVIEW", submittedAt,
-      assignedToId: stack.officer, bureauReviewGeneration: opts.nca ? randomUUID() : null, existingDebtObligations: [],
+      assignedToId: stack.officer, bureauReviewGeneration: opts.nca || opts.authenticated ? randomUUID() : null, existingDebtObligations: [],
+      ...(opts.authenticated ? { authenticatedSubmissionClientId: clientId } : {}),
       affordabilityResult: withAffordabilitySnapshot(null, submission) as object,
       ...(opts.nca ? {
         clientAffordabilityDeclaredAt: submittedAt, recklessLendingAssessed: true, recklessLendingAssessedAt: submittedAt, recklessLendingAssessedById: stack.officer,

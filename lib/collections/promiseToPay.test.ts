@@ -69,7 +69,7 @@ describe("getPromiseToPayStatus", () => {
     await getPromiseToPayStatus("loan-1", "tenant-1")
 
     expect(paymentFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ paymentMethod: { not: "WAIVER" } }),
+      where: expect.objectContaining({ paymentMethod: { notIn: ["WAIVER", "LOAN_SETTLEMENT"] } }),
     }))
   })
 

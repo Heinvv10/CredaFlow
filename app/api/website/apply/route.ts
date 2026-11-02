@@ -785,6 +785,7 @@ export async function POST(req: NextRequest) {
               clientId: confirmedExistingClient.id,
               productId: existingProduct.id,
               status: { in: [...OPEN_APPLICATION_STATUSES] },
+              loanChangeRequestId: null,
             },
             select: { id: true, reference: true, status: true },
           })
@@ -852,6 +853,7 @@ export async function POST(req: NextRequest) {
                     clientId: confirmedExistingClient.id,
                     productId: product.id,
                     status: { in: [...OPEN_APPLICATION_STATUSES] },
+                    loanChangeRequestId: null,
                   },
                   select: { id: true, reference: true, status: true },
                 })
@@ -998,6 +1000,7 @@ export async function POST(req: NextRequest) {
                     clientId: snapshotClient.id,
                     productId: snapshotProduct.id,
                     status: { in: [...OPEN_APPLICATION_STATUSES] },
+                    loanChangeRequestId: null,
                   },
                   select: { id: true, reference: true, status: true },
                 })
@@ -1427,6 +1430,7 @@ export async function POST(req: NextRequest) {
                     clientId: confirmedExistingClient.id,
                     productId: product.id,
                     status: { in: [...OPEN_APPLICATION_STATUSES] },
+                    loanChangeRequestId: null,
                   },
                   select: { id: true, reference: true, status: true },
                 })

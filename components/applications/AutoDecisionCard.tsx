@@ -38,6 +38,7 @@ const EXECUTION_TEXT: Record<Run["execution"], string> = {
 export function AutoDecisionCard({ applicationId, canRun }: Props) {
   const router = useRouter()
   const [runs, setRuns] = useState<Run[] | null>(null)
+  const [attested, setAttested] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -46,8 +47,8 @@ export function AutoDecisionCard({ applicationId, canRun }: Props) {
   useEffect(() => {
     let ignore = false
     fetch(`/api/applications/${applicationId}/auto-decision`)
-      .then(async (res) => (res.ok ? ((await res.json()) as { runs: Run[] }).runs : null))
-      .then((loaded) => { if (!ignore && loaded) setRuns(loaded) })
+      .then(async (res) => (res.ok ? ((await res.json()) as { runs: Run[]; affordabilityAttestedAt: string | null }) : null))
+      .then((loaded) => { if (!ignore && loaded) { setRuns(loaded.runs); setAttested(loaded.affordabilityAttestedAt !== null) } })
       .catch((error: unknown) => console.error("[auto-decision] could not load runs:", error))
     return () => { ignore = true }
   }, [applicationId, reload])
@@ -82,6 +83,7 @@ export function AutoDecisionCard({ applicationId, canRun }: Props) {
             </p>
             <p className="text-[var(--cf-text-secondary)]">Reason codes: {run.reasonCodes.join(", ")}</p>
             {run.note && <p className="text-[var(--cf-text-secondary)]">Why staff must decide: {run.note}</p>}
+            {attested && run.execution === "APPROVED" && <p className="text-[var(--cf-text-secondary)]">Affordability attested automatically under {run.ruleSet}: no person assessed it.</p>}
           </li>
         ))}
       </ul>

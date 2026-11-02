@@ -20,7 +20,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { loadLoanCharges } from "@/lib/loan/charges-summary"
-import { loadDefaultInterestRaised, loadPriorStaging, loadRunLoans, priorRunFingerprint } from "./loan-input"
+import { inheritPriorStaging, loadDefaultInterestRaised, loadPriorStaging, loadRunLoans, priorRunFingerprint } from "./loan-input"
 import { missingDefaults } from "./parameters"
 import { monthlyInstants, periodEndDate, previousMonthKey } from "./period"
 import { assessLoan, buildSnapshot, type RunContext, type SnapshotData } from "./snapshot"
@@ -77,6 +77,7 @@ async function periodClosed(tenantId: string, periodKey: string): Promise<boolea
 
 async function snapshotRows(tenantId: string, ctx: RunContext, asOf: Date | null, runDate: string): Promise<SnapshotData[]> {
   const [loans, priors] = await Promise.all([loadRunLoans(prisma, tenantId, ctx.runAt, asOf), loadPriorStaging(prisma, tenantId, runDate)])
+  await inheritPriorStaging(prisma, tenantId, priors)
   const net = ctx.settings.stage3InterestBasis === "NET_BASIS" && ctx.periodStart != null && ctx.chargesLive
   const raised = net ? await loadDefaultInterestRaised(prisma, tenantId, loans.map((l) => l.id), ctx.periodStart!, runDate) : new Map<string, number>()
   const rows: SnapshotData[] = []

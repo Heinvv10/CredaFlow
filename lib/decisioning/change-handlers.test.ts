@@ -35,6 +35,33 @@ describe("who may approve engine settings", () => {
   })
 })
 
+describe("instant key-facts approval", () => {
+  const verify = (instance: { jurisdiction: string } | null, order: string[]) => decisionEngineConfigHandler.verify!({
+    loanProduct: { findMany: async () => [] },
+    decisionRuleSetVersion: { findMany: async () => [], findFirst: async () => null },
+    instanceJurisdiction: { findUnique: async () => instance },
+    tenantConfig: { findFirst: async () => ({ bureauProviderOrder: order }) },
+  } as never, "t", payload({ mode: "OFF", productIds: [], keyFactsInstantApproval: true }))
+
+  it("is a change only a SUPER_ADMIN approves and an ADMIN or above drafts, even with the engine in shadow", () => {
+    expect(permissionFor({ mode: "SHADOW", keyFactsInstantApproval: true })).toBe("approve_decision_engine_live")
+    expect(canDo("ADMIN", permissionFor({ mode: "SHADOW", keyFactsInstantApproval: true }))).toBe(false)
+    expect(canDo("LOAN_ADMIN", decisionEngineConfigHandler.makePermissionFor!(payload({ mode: "SHADOW", keyFactsInstantApproval: true })))).toBe(false)
+  })
+
+  it.each([["a South African instance", { jurisdiction: "ZA" }], ["an instance with no jurisdiction row", null]])("is refused on %s", async (_label, instance) => {
+    await expect(verify(instance, ["simulated"])).rejects.toMatchObject({ problems: [expect.stringContaining("National Credit Act")] })
+  })
+
+  it("is refused with no bureau that can be asked about this jurisdiction's consumers: it would do nothing", async () => {
+    await expect(verify({ jurisdiction: "LS" }, ["experian", "transunion"])).rejects.toMatchObject({ problems: [expect.stringContaining("bureau")] })
+  })
+
+  it("is accepted on a Lesotho instance with such a bureau", async () => {
+    await expect(verify({ jurisdiction: "LS" }, ["experian", "simulated"])).resolves.toBeUndefined()
+  })
+})
+
 describe("the engine settings refuse asset-finance products", () => {
   const tx = (products: Array<{ id: string; productType: string }>) => ({
     loanProduct: { findMany: async () => products },

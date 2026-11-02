@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { isBalanceWaiver } from "@/lib/payments/waiver"
+import { isNonCashReceipt } from "@/lib/payments/waiver"
 import { sendEmail } from "@/lib/email/service"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
@@ -61,8 +61,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!payment.loan.client) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
-    if (isBalanceWaiver(payment.paymentMethod)) {
-      return NextResponse.json({ error: "A waived balance is not a payment received" }, { status: 409 })
+    if (isNonCashReceipt(payment.paymentMethod)) {
+      return NextResponse.json({ error: "A waived balance or a settlement by a new loan is not a payment received" }, { status: 409 })
     }
 
     const clientName = `${payment.loan.client.firstName} ${payment.loan.client.lastName}`

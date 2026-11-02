@@ -35,6 +35,14 @@ export function approvalEvidenceRules(application: { disclosureRegime?: string |
   return { creditLifeElection: nca, affordabilityDeclaration: nca, recklessLendingAssessment: nca, bureauCheck: nca, screeningProvider: !nca }
 }
 
+/**
+ * Whether the decision engine may attest affordability itself (DecisionEngineConfig.keyFactsInstantApproval). Never under the
+ * NCA: s81 asks a person to assess the consumer. The CHECK LoanApplication_automated_affordability says the same.
+ */
+export function automatedAffordabilityAllowedUnder(regime: string | null | undefined): boolean {
+  return regime === "KEY_FACTS"
+}
+
 /** The regime the database stamps on an application created now (guardLoanApplicationDisclosureRegime's insert trigger). */
 export function newApplicationRegime(): "NCA_PASQ" | "KEY_FACTS" {
   return isNcaJurisdiction() ? "NCA_PASQ" : "KEY_FACTS"
