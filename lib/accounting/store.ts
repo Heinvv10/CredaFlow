@@ -78,6 +78,7 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       id: true, reference: true, principal: true, initiationFee: true, startDate: true,
       status: true, writeOffAt: true, closedAt: true,
       application: { select: { initiationFeePayment: true } },
+      loanChangeBookedThis: { select: { settledCents: true } },
       repaymentSchedule: {
         orderBy: { installmentNo: "asc" },
         select: { id: true, installmentNo: true, dueDate: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalDue: true, totalPaid: true },
@@ -102,6 +103,7 @@ export async function loadSourceLoans(db: AccountingDb, tenantId: string, asOf: 
       reference: loan.reference,
       principal: loan.principal,
       initiationFee: loan.initiationFee,
+      settledCents: loan.loanChangeBookedThis?.settledCents ?? 0,
       upfrontFee: loan.application.initiationFeePayment === "UPFRONT",
       startDate: loan.startDate,
       status: loan.status,

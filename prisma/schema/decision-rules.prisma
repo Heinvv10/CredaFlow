@@ -62,6 +62,7 @@ model DecisionRuleSetVersion {
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   autoDecisionRuns         AutoDecisionRun[]
+  automatedAffordabilityApplications LoanApplication[] @relation("ApplicationAutomatedAffordabilityVersion")
   engineConfigsChallenging DecisionEngineConfig[] @relation("DecisionEngineChallenger")
   gradedApplications       LoanApplication[]      @relation("ApplicationRiskGradeVersion")
 
@@ -93,6 +94,10 @@ model DecisionEngineConfig {
   /// The paragraph added to the client's decline message for an automated
   /// decision, as approved by the lender's legal team (lib/decisioning/notice.ts).
   automatedDeclineNotice String?
+  /// Non-NCA lenders only (trigger guardDecisionEngineConfig refuses it on a South African instance): the engine may attest
+  /// affordability itself, so a digital key-facts application with a bureau check can be approved with no person.
+  /// lib/decisioning/key-facts-referral.ts. Automated declines still need the s71 sign-off above.
+  keyFactsInstantApproval Boolean               @default(false)
   /// The approved ChangeRequest that wrote this row (trigger guardDecisionEngineConfig).
   changeRequestId     String
   updatedAt           DateTime                @updatedAt

@@ -159,7 +159,7 @@ describe("population predicates", () => {
       reversed: false,
       receivedAt: { gte: start, lt: end },
       // A small-balance waiver is a credit, not cash that reached us.
-      paymentMethod: { not: "WAIVER" },
+      paymentMethod: { notIn: ["WAIVER", "LOAN_SETTLEMENT"] },
     })
   })
 

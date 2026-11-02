@@ -59,6 +59,14 @@ applications only for the same `riskGradeVersionId`. `getRiskGrade` reads it.
   attestation) stops the engine deciding that application again. Reopen and the
   client notice apply only while the CURRENT decline is the system user's; the
   notice is the wording stored on that run, not a later edit.
+- **Instant key-facts approval** (`keyFactsInstantApproval`, tender 2.3.9): off by default, one maker-checker setting a SUPER_ADMIN approves, and
+  never on an NCA instance (`verify`, `guardDecisionEngineConfig`). `withKeyFactsAttestation` lets the engine stand in for a person's
+  affordability assessment only for a submission from the client's signed-in portal (`authenticatedSubmissionClientId`, written only by the portal
+  route: the website form shares the `PORTAL` channel and the audit action, so neither is evidence) whose gate passes with every other obligation
+  on top (`attestation-obligations.ts`, re-run under the client lock); anything else refers.
+  The attestation is stamped with the approval (`automatedAffordabilityAttestedAt`, `...VersionId`). CHECK `LoanApplication_automated_affordability`
+  keeps it off NCA rows; `guardLoanApplicationAutomatedAffordability` needs the system user, the marker, the setting (FOR SHARE) and a current bureau
+  check of the review from a listed provider, and refuses a key-facts engine approval without it. It is not an s81 assessment: nothing stamps `recklessLendingAssessed`.
 - **SoD for an engine approval**: the people whose attestations it rested on
   (reckless-lending, income, bureau override) and every staff member in
   `LoanApplication.inputStaffIds` (who captured it, submitted it, edited its debts, or changed

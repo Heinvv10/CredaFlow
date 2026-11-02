@@ -19,6 +19,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/components/portal/ExecutedAgreementCard", () => ({ ExecutedAgreementCard: () => null }))
 vi.mock("@/components/portal/PasqAcknowledgementCard", () => ({ PasqAcknowledgementCard: () => null }))
 
+import { notFound } from "next/navigation"
 import ApplicationDetailPage from "./page"
 
 const app = {
@@ -37,6 +38,18 @@ const render = async () =>
 beforeEach(() => vi.clearAllMocks())
 
 describe("portal application detail", () => {
+  it("opens a loan change's application only once it is disbursed: the borrower did not apply for it", async () => {
+    vi.mocked(notFound).mockImplementation(() => { throw new Error("NEXT_NOT_FOUND") })
+    const change = { ...app, loanChangeRequestId: "cr1" }
+    let row = { ...change, status: "UNDER_REVIEW" }
+    h.app.mockImplementation(async ({ where }: { where: { OR?: Array<Record<string, unknown>> } }) =>
+      (!where.OR || where.OR.some((clause) => Object.entries(clause).every(([key, value]) => row[key as keyof typeof row] === value)) ? row : null))
+    h.loan.mockResolvedValue(null)
+    await expect(render()).rejects.toThrow("NEXT_NOT_FOUND")
+    row = change
+    expect(await render()).toContain("APP-MNSKSZ0Y-GCRU")
+  })
+
   it("shows a disbursed application whose loan is paid up as Settled", async () => {
     h.app.mockResolvedValue(app)
     h.loan.mockResolvedValue({ id: "l1", reference: "LN-MNSKSZ0Y-ABCD", status: "COMPLETED" })

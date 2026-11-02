@@ -70,8 +70,11 @@ function ordinarySources(loan: SourceLoan, asOf: Date): DesiredSource[] {
   const disbursement: Vector = {}
   if (live && before(loan.startDate, asOf)) {
     const fee = loan.upfrontFee ? loan.initiationFee : 0
+    const settled = loan.settledCents ?? 0
     addTo(disbursement, "LOAN_BOOK", loan.principal)
-    addTo(disbursement, viaChannel ? "PAYOUT_CLEARING" : "BANK", -(loan.principal - fee))
+    addTo(disbursement, viaChannel ? "PAYOUT_CLEARING" : "BANK", -(loan.principal - fee - settled))
+    // No cash: the old loans' LOAN_SETTLEMENT receipts debit the same clearing (sources-receipts.ts), so only new money reaches BANK.
+    addTo(disbursement, "PAYOUT_CLEARING", -settled)
     addTo(disbursement, "FEE_INCOME", -fee)
   }
   out.push({

@@ -19,8 +19,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       take: 10,
       include: { ruleSetVersion: { select: { scopeKey: true, version: true, name: true } } },
     })
+    const application = await prisma.loanApplication.findFirst({ where: { id, tenantId: tenant.id }, select: { automatedAffordabilityAttestedAt: true } })
     return NextResponse.json({
       riskGrade: await getRiskGrade(prisma, tenant.id, id),
+      affordabilityAttestedAt: application?.automatedAffordabilityAttestedAt ?? null,
       runs: runs.map((r) => ({
         id: r.id, createdAt: r.createdAt, mode: r.mode, role: r.role, trigger: r.trigger, verdict: r.verdict, execution: r.execution,
         reasonCodes: r.reasonCodes, riskGrade: r.riskGrade, score: r.score, latencyMs: r.latencyMs, note: r.executionNote,

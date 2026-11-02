@@ -1,5 +1,5 @@
 import type { AssetDealStatus, BusinessEntityType, EntityDocumentType, EntityRole, NcaRegime, PaymentMethod } from "@prisma/client"
-import { BALANCE_WAIVED_LABEL } from "@/lib/payments/waiver"
+import { BALANCE_WAIVED_LABEL, SETTLED_BY_NEW_LOAN_LABEL } from "@/lib/payments/waiver"
 import { LEASE_RULE_ID, type NcaRuleId } from "./nca-classifier"
 import {
   NCA_JURISTIC_THRESHOLD_CENTS,
@@ -98,6 +98,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   DEBIT_ORDER: "Debit order",
   CARD: "Card",
   WAIVER: BALANCE_WAIVED_LABEL,
+  LOAN_SETTLEMENT: SETTLED_BY_NEW_LOAN_LABEL,
 }
 
 export function paymentMethodLabel(method: string): string {

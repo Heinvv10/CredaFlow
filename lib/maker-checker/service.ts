@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { ChangeRequestError, InvalidPayloadError } from "./errors"
 import { handlerFor } from "./handlers"
-import { approvePermissionFor, type Actor, type ChangeHandler, type Tx } from "./types"
+import { approvePermissionFor, type Actor, type ApprovalGateOutcome, type ChangeHandler, type Tx } from "./types"
 import { accountControlRefusal, changesSignInOrRole } from "@/lib/security/account-control"
 
 type Db = Pick<typeof prisma, "$transaction" | "changeRequest">
@@ -253,6 +253,18 @@ function translate(error: unknown): never {
   throw error
 }
 
+/** A handler's approval gate, for a submitted request the actor did not make. A level recorded, or refused, ends the attempt here. */
+async function runApprovalGate(scope: Scope & { id: string; note?: string }, db: Db): Promise<ApprovalGateOutcome | null> {
+  const request = await load(db, scope.tenantId, scope.id)
+  const handler = handlerOrThrow(request.kind)
+  if (!handler.approvalGate || request.status !== "SUBMITTED") return null
+  if (request.makerId === scope.actor.id) throw selfApproval()
+  mayMake(handler, scope.actor)
+  const outcome = await handler.approvalGate({ tenantId: scope.tenantId, request, payload: handler.parse(request.payload), actor: scope.actor, note: scope.note })
+  if (!outcome.proceed) throw new ChangeRequestError(outcome.levelRecorded ? "APPROVAL_LEVEL_RECORDED" : "APPROVAL_REFUSED", outcome.message)
+  return outcome
+}
+
 /**
  * SUBMITTED -> APPROVED, applying the payload in the same transaction: the
  * handler's writes and the approval commit together or not at all. Approvals of
@@ -261,6 +273,7 @@ function translate(error: unknown): never {
  */
 export async function approve(scope: Scope & { id: string; note?: string }, db: Db = prisma): Promise<ChangeRequest> {
   await requireStepUp(scope.tenantId, scope.actor)
+  const gate = await runApprovalGate(scope, db)
   try {
     return await db.$transaction(async (tx) => {
       const peek = await load(tx, scope.tenantId, scope.id)
@@ -286,6 +299,7 @@ export async function approve(scope: Scope & { id: string; note?: string }, db: 
         if (current !== approved.baseRef) throw stale("What this change was drafted against has changed since it was submitted. Withdraw it and draft it again.")
       }
       await handler.verify?.(tx, scope.tenantId, payload)
+      if (gate?.proceed) await gate.inTransaction?.(tx)
       await handler.apply(tx, { tenantId: scope.tenantId, request: approved, payload, checker: scope.actor, now })
       await audit(tx, scope, AuditAction.CHANGE_REQUEST_APPROVED, approved, { makerId: approved.makerId, note: approved.decisionNote })
       return approved
@@ -312,6 +326,7 @@ export async function reject(scope: Scope & { id: string; note: string }, db: Db
       })
       if (changed.count !== 1) throw new ChangeRequestError("WRONG_STATE", "Only a submitted change can be rejected")
       const rejected = await load(tx, scope.tenantId, row.id)
+      await handler.closed?.(tx, { tenantId: scope.tenantId, request: rejected, actor: scope.actor })
       await audit(tx, scope, AuditAction.CHANGE_REQUEST_REJECTED, rejected, { makerId: rejected.makerId, note })
       return rejected
     })
@@ -324,7 +339,8 @@ export async function reject(scope: Scope & { id: string; note: string }, db: Db
 export async function withdraw(scope: Scope & { id: string }, db: Db = prisma): Promise<ChangeRequest> {
   return db.$transaction(async (tx) => {
     const row = await load(tx, scope.tenantId, scope.id)
-    mayMake(handlerOrThrow(row.kind), scope.actor)
+    const handler = handlerOrThrow(row.kind)
+    mayMake(handler, scope.actor)
     if (row.makerId !== scope.actor.id) throw new ChangeRequestError("NOT_MAKER", "Only the person who drafted a change can withdraw it")
     const changed = await tx.changeRequest.updateMany({
       where: { id: row.id, tenantId: scope.tenantId, status: { in: ["DRAFT", "SUBMITTED"] } },
@@ -332,6 +348,7 @@ export async function withdraw(scope: Scope & { id: string }, db: Db = prisma): 
     })
     if (changed.count !== 1) throw new ChangeRequestError("WRONG_STATE", "Only a draft or submitted change can be withdrawn")
     const withdrawn = await load(tx, scope.tenantId, row.id)
+    await handler.closed?.(tx, { tenantId: scope.tenantId, request: withdrawn, actor: scope.actor })
     await audit(tx, scope, AuditAction.CHANGE_REQUEST_WITHDRAWN, withdrawn)
     return withdrawn
   })

@@ -25,6 +25,11 @@ describe("parseRuleSetPayload", () => {
 })
 
 describe("parseEngineConfigPayload", () => {
+  it("keeps instant key-facts approval off unless asked: a request drafted before the setting existed still parses", () => {
+    expect(parseEngineConfigPayload(engine).keyFactsInstantApproval).toBe(false)
+    expect(parseEngineConfigPayload({ ...engine, keyFactsInstantApproval: true }).keyFactsInstantApproval).toBe(true)
+    expect(problems(() => parseEngineConfigPayload({ ...engine, keyFactsInstantApproval: "yes" }))).toMatch(/keyFactsInstantApproval/)
+  })
   it("accepts off, shadow and a full live config", () => {
     expect(parseEngineConfigPayload({ ...engine, mode: "OFF", channels: [], productIds: [] }).mode).toBe("OFF")
     expect(parseEngineConfigPayload(engine).mode).toBe("SHADOW")

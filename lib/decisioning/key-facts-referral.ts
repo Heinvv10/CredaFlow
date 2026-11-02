@@ -1,4 +1,5 @@
 import type { DecisionFacts } from "./facts"
+import { automatedAffordabilityAllowedUnder } from "@/lib/non-nca-documents/regime-evidence"
 import { REASON_SCORE_BELOW_CUTOFF } from "./decide"
 import type { Node, RuleDef, Verdict } from "./types"
 
@@ -17,7 +18,7 @@ function comparedFields(node: Node, into: Set<keyof DecisionFacts>) {
 }
 
 /**
- * Why the engine must hand a KEY_FACTS application to staff instead of approving it, or null.
+ * Why the engine must hand a KEY_FACTS application to staff instead of approving it for want of evidence, or null.
  *
  * A rule never fires on a fact that is not known, so a rule set written for a bureau passes every bureau rule
  * for an application nobody bureau-checked. South Africa's staff approval path refuses a missing bureau
@@ -58,4 +59,44 @@ export function withKeyFactsReferral(verdict: Verdict, input: Parameters<typeof 
   const declinedOnScore = referral.reasonCode === "NO_BUREAU" && verdict.reasonCodes.includes(REASON_SCORE_BELOW_CUTOFF)
   if (verdict.decision !== "APPROVE" && !declinedOnScore) return { verdict: ungraded, note: null }
   return { verdict: { ...ungraded, decision: "REFER", reasonCodes: [referral.reasonCode], declineCategory: null }, note: referral.note }
+}
+
+export interface KeyFactsAttestationInput {
+  regime: string | null | undefined
+  /** The lender's setting (DecisionEngineConfig.keyFactsInstantApproval). */
+  allowed: boolean
+  trigger: string
+  facts: DecisionFacts
+  /** The client submitted it from their authenticated portal session (LoanApplication.authenticatedSubmissionClientId). The PORTAL channel also covers the public website form. */
+  authenticatedSubmission: boolean
+  /** It is affordable with every other obligation counted on top (./attestation-obligations.ts). */
+  affordable: boolean
+}
+
+/** Why the engine must not attest affordability for this approval, or null. */
+function attestationRefusal(input: KeyFactsAttestationInput): { reasonCode: string; note: string } | null {
+  if (input.allowed !== true) {
+    return { reasonCode: "KEY_FACTS_INSTANT_APPROVAL_OFF", note: "The lender has not switched on instant approval of key-facts applications; staff must decide." }
+  }
+  if (input.trigger !== "DIGITAL_SUBMISSION" || input.facts.channel !== "PORTAL" || input.authenticatedSubmission !== true) {
+    return { reasonCode: "NOT_AN_AUTHENTICATED_SUBMISSION", note: "The engine attests affordability only for an application the client submitted from their signed-in portal; staff must decide." }
+  }
+  if (input.facts.affordabilityGatePasses !== true || input.facts.expensesBelowMinimum !== false || input.affordable !== true) {
+    return { reasonCode: "AFFORDABILITY_NOT_ATTESTED", note: "The engine cannot attest this application's affordability; staff must decide." }
+  }
+  return null
+}
+
+/**
+ * The last step of an approval of a key-facts application (after withKeyFactsReferral, so a bureau check is on file and every
+ * compared fact is known): the engine attests affordability in place of a person, or refers. An approval it cannot attest
+ * becomes a referral, keeping the grade: this applicant was bureau-checked. Only an application whose regime allows an automated
+ * attestation is touched, so an NCA_PASQ verdict passes through and still needs a person's s81 assessment in the staff path.
+ * The database holds the same rule (guardLoanApplicationAutomatedAffordability). Pure.
+ */
+export function withKeyFactsAttestation(verdict: Verdict, input: KeyFactsAttestationInput): { verdict: Verdict; note: string | null; attested: boolean } {
+  if (!automatedAffordabilityAllowedUnder(input.regime) || verdict.decision !== "APPROVE") return { verdict, note: null, attested: false }
+  const refusal = attestationRefusal(input)
+  if (!refusal) return { verdict, note: null, attested: true }
+  return { verdict: { ...verdict, decision: "REFER", reasonCodes: [refusal.reasonCode], declineCategory: null }, note: refusal.note, attested: false }
 }

@@ -1,5 +1,6 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { isKeyFactsBureau } from "@/lib/compliance/bureau"
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import type { ChangeHandler, Tx } from "@/lib/maker-checker/types"
 import {
@@ -58,14 +59,16 @@ export const decisionRuleSetHandler: ChangeHandler<RuleSetPayload> = {
   },
 }
 
+/** Going LIVE, recording the s71 sign-off or letting the engine attest affordability is the change that lets it decide on its own. */
+const decidesAlone = (payload: EngineConfigPayload) => payload.mode === "LIVE" || payload.s71SignOff || payload.keyFactsInstantApproval
+
 export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
   kind: ENGINE_CONFIG_KIND,
   label: "Decision engine settings",
   payloadVersion: 1,
   makePermission: "manage_decision_rules",
-  makePermissionFor: (payload) => (payload.mode === "LIVE" || payload.s71SignOff ? "manage_decision_engine_live" : "manage_decision_rules"),
-  // Going LIVE, or recording the s71 sign-off, is the change that lets the engine decide and decline on its own.
-  approvePermission: (payload) => (payload.mode === "LIVE" || payload.s71SignOff ? "approve_decision_engine_live" : "approve_decision_rules"),
+  makePermissionFor: (payload) => (decidesAlone(payload) ? "manage_decision_engine_live" : "manage_decision_rules"),
+  approvePermission: (payload) => (decidesAlone(payload) ? "approve_decision_engine_live" : "approve_decision_rules"),
   parse: parseEngineConfigPayload,
   async verify(tx: Tx, tenantId, payload) {
     const problems: string[] = []
@@ -89,6 +92,12 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
       const bare = payload.productIds.filter((id) => !scopes.has(id) && !scopes.has("ALL"))
       if (bare.length > 0) problems.push(`payload.productIds: no approved rule set applies to ${bare.join(", ")}; approve one first`)
     }
+    if (payload.keyFactsInstantApproval) {
+      const instance = await tx.instanceJurisdiction.findUnique({ where: { id: 1 }, select: { jurisdiction: true } })
+      const lender = await tx.tenantConfig.findFirst({ where: { tenantId }, select: { bureauProviderOrder: true } })
+      if (!instance || instance.jurisdiction === "ZA") problems.push("payload.keyFactsInstantApproval: a lender under the National Credit Act needs a person's assessment of every approval")
+      else if (!lender?.bureauProviderOrder.some(isKeyFactsBureau)) problems.push("payload.keyFactsInstantApproval: the lender's bureau order has no bureau for this jurisdiction, and an application with no bureau check is never approved automatically")
+    }
     if (problems.length > 0) throw new InvalidPayloadError(problems)
   },
   // Drafted against the settings now in force: approving over a newer change would silently undo it.
@@ -108,6 +117,7 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
       challengerVersionId: payload.challengerVersionId,
       challengerPercent: payload.challengerPercent,
       automatedDeclineNotice: payload.automatedDeclineNotice,
+      keyFactsInstantApproval: payload.keyFactsInstantApproval,
       s71SignedOffAt: payload.s71SignOff ? (keepSignOff ? previous!.s71SignedOffAt : now) : null,
       s71SignedOffById: payload.s71SignOff ? (keepSignOff ? previous!.s71SignedOffById : checker.id) : null,
       changeRequestId: request.id,
@@ -121,8 +131,8 @@ export const decisionEngineConfigHandler: ChangeHandler<EngineConfigPayload> = {
       action: AuditAction.DECISION_ENGINE_CONFIG_APPLIED,
       entity: "DecisionEngineConfig",
       entityId: tenantId,
-      oldValue: previous ? { mode: previous.mode, channels: previous.channels, productIds: previous.productIds, challengerPercent: previous.challengerPercent, s71SignedOff: previous.s71SignedOffAt !== null } : { mode: "OFF" },
-      newValue: { mode: data.mode, channels: data.channels, productIds: data.productIds, repaymentMethod: data.repaymentMethod, challengerVersionId: data.challengerVersionId, challengerPercent: data.challengerPercent, s71SignedOff: data.s71SignedOffAt !== null, noticeSet: data.automatedDeclineNotice !== null, changeRequestId: request.id, makerId: request.makerId },
+      oldValue: previous ? { mode: previous.mode, channels: previous.channels, productIds: previous.productIds, challengerPercent: previous.challengerPercent, s71SignedOff: previous.s71SignedOffAt !== null, keyFactsInstantApproval: previous.keyFactsInstantApproval } : { mode: "OFF" },
+      newValue: { mode: data.mode, channels: data.channels, productIds: data.productIds, repaymentMethod: data.repaymentMethod, challengerVersionId: data.challengerVersionId, challengerPercent: data.challengerPercent, s71SignedOff: data.s71SignedOffAt !== null, noticeSet: data.automatedDeclineNotice !== null, keyFactsInstantApproval: data.keyFactsInstantApproval, changeRequestId: request.id, makerId: request.makerId },
     }, tx)
   },
 }

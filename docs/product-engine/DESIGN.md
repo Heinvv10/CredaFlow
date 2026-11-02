@@ -60,3 +60,4 @@ A product's type, and whether it is the MICRO30 contract product, are locked onc
 - Monthly dates of a structured (non-NCA) schedule are SAST calendar months clamped to month end (31 Jan, 28 Feb), unlike the legacy `setMonth` (3 Mar); the legacy schedule, used by every NCA lender, is untouched.
 - Collateral and eligibility are stored and shown but not enforced at origination.
 - Balloon and variable/reference-rate repricing (2.6.1) are not built.
+- Loan changes (2.6.6) are `lib/loan-changes`: they call `generateSchedule` on the balance and terms that remain, and append to `LoanTerms`.

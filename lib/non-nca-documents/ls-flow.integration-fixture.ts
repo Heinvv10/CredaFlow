@@ -43,9 +43,9 @@ export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder)
   }
 
   /** The route a borrower without a biometric takes to payout-grade KYC: a named senior attests they compared them to the ID. */
-  async function attestKyc(id: string) {
+  async function attestKyc(id: string, clientId = `${id}-client`) {
     as(stack.senior, "ADMIN")
-    const res = await postJson(attestInPerson, `${id}-client`, { method: "IN_PERSON_BRANCH", note: "Compared the borrower to the ID at the branch." })
+    const res = await postJson(attestInPerson, clientId, { method: "IN_PERSON_BRANCH", note: "Compared the borrower to the ID at the branch." })
     expect(res.status, JSON.stringify(await res.clone().json())).toBe(200)
   }
 
@@ -60,12 +60,12 @@ export function lsFlow(db: () => PrismaClient, stack: Stack, holder: FlowHolder)
   }
 
   /** Issue, acknowledge and sign: what the staff panel and the borrower's portal do (in the request's tenant frame, as the routes do). */
-  async function issueAndSign(id: string) {
+  async function issueAndSign(id: string, clientId = `${id}-client`, clientEmail = `${id}@test.invalid`) {
     const inTenant = <T,>(fn: () => Promise<T>) => runWithTenant(stack.tenant, fn)
     const issued = await inTenant(() => issueLoanDocuments({ tenantId: stack.tenant, applicationId: id, staff: { id: stack.officer, email: `${stack.officer}@test.invalid` } }))
     expect(issued).toMatchObject({ ok: true })
     const docs = (await inTenant(() => loanDocumentState(stack.tenant, id)))!.keyFacts!.documents
-    const base = { tenantId: stack.tenant, applicationId: id, clientId: `${id}-client`, clientEmail: `${id}@test.invalid` }
+    const base = { tenantId: stack.tenant, applicationId: id, clientId, clientEmail }
     expect(await inTenant(() => acknowledgeKeyFacts({ ...base, shown: docs.find((d) => d.kind === "KEY_FACTS_STATEMENT")!.pdfSha256 }))).toMatchObject({ ok: true })
     expect(await inTenant(() => signKeyFactsAgreement({
       ...base, agreementDocumentSha256: docs.find((d) => d.kind === "LOAN_AGREEMENT")!.pdfSha256, signature: "Synthetic Borrower", signingOtpChallengeId: null, ipAddress: "203.0.113.9",

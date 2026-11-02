@@ -34,7 +34,8 @@ async function getApplicationDetail(id: string, email: string) {
   if (!client) return null
 
   const application = await prisma.loanApplication.findFirst({
-    where: { id, tenantId },
+    // Not a loan change's open application: the borrower did not apply for it (lib/loan-changes).
+    where: { id, tenantId, OR: [{ loanChangeRequestId: null }, { status: "DISBURSED" }] },
     // An explicit select: the borrower's page never loads the staff-only
     // declineInternalNote (or anything else it does not show).
     select: {

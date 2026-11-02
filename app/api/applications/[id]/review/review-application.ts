@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
 import type { Trigger } from "@/lib/decisioning/auto-decision"
 import { runAutoDecisionSafely } from "@/lib/decisioning/run-safely"
-import { runBureauReviewCheck } from "@/lib/compliance/bureau-review"
+import { keyFactsBureauApplies, runBureauReviewCheck } from "@/lib/compliance/bureau-review"
 import {
   lockAffordabilityApplicationEvidence,
   lockAffordabilityClientEvidence,
@@ -256,8 +256,9 @@ export async function startApplicationReview({ tenant, user, id, autoDecisionTri
       return { kind: "mismatches" as const, documents: criticalMismatches }
     }
 
-    // The daily limits are on paid pulls: a key-facts application has no bureau enquiry, so it spends no slot.
-    if (admit && approvalEvidenceRules(application).bureauCheck && !(await admit(tx))) return { kind: "not_admitted" as const }
+    // The daily limits are on paid pulls: a key-facts application has no bureau enquiry, so it spends no slot, unless its
+    // lender has instant approval on.
+    if (admit && (approvalEvidenceRules(application).bureauCheck || await keyFactsBureauApplies(tx, tenant.id, application)) && !(await admit(tx))) return { kind: "not_admitted" as const }
 
     const changed = await tx.loanApplication.updateMany({
       where: {

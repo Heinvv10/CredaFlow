@@ -64,6 +64,8 @@ describe("tenant-scope — ALS primitives", () => {
       // Document Template System (Task 5). DocumentTemplateVersion is scoped
       // transitively via its template relation and is NOT added.
       "DocumentTemplate",
+      // Loan changes (lib/loan-changes): non-null tenantId, FORCE RLS, written only by the approved change's handler.
+      "LoanChange",
       // Phase 7 collection engine — non-null tenantId; lib/avs.ts passes
       // explicit tenantId on create and guards cross-tenant on read.
       "AvsCheck",

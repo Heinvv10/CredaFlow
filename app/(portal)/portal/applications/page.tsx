@@ -21,7 +21,8 @@ async function getApplications(email: string) {
   if (!client) return { client: null, applications: [] }
 
   const applications = await prisma.loanApplication.findMany({
-    where: { clientId: client.id, tenantId },
+    // Not a loan change's open application: the borrower did not apply for it (lib/loan-changes).
+    where: { clientId: client.id, tenantId, OR: [{ loanChangeRequestId: null }, { status: "DISBURSED" }] },
     // An explicit select: never the staff-only declineInternalNote.
     select: {
       id: true, reference: true, status: true, appliedAmount: true, createdAt: true,
