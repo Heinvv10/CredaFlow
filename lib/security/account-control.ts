@@ -6,7 +6,8 @@
  *    the connection up, whenever they did). The maker mints S1, S1 mints S2, S2 approves: refused. A phone, a name or an inbox tick is no hold;
  *  - one person holds the credentials of both: created them both, or reset the email, password or second factor of both, or any mix. This line
  *    leaves out role, branch and activation changes, which do not hand anyone the account: an admin placing the team on branches separates nobody.
- *    Accepted residual risk: two accounts sharing an SSO connection's controller are not related by that alone.
+ *    An account minted by whoever configured an SSO connection is related to an account that came through it. Accepted residual risk: two
+ *    accounts that both came through one connection are not related by that alone.
  *
  * The trail is the audit log the staff, SSO and TOTP routes write. An operator-provisioned, bootstrap or seeded account leaves no such row (or names
  * a principal who is not the lender's staff), so it is exempt. A line too long to walk is refused, never passed unread. Refusing a request is not
@@ -90,11 +91,14 @@ export async function accountControlRefusal(
   const makers = [...new Set(input.makerIds.flatMap((id) => (id && id !== checkerId ? [id] : [])))]
   if (makers.length === 0) return null
   const since = new Date((input.now ?? new Date()).getTime() - ACCOUNT_CONTROL_DAYS * 86_400_000)
-  const [checkerHolds, makerHolds, checkerKeys, makerKeys] = await Promise.all([
+  const [checkerHolds, makerHolds, checkerKeys, makerKeys, checkerSso, makerSso] = await Promise.all([
     line(db, tenantId, [checkerId], since, givesControl, true), line(db, tenantId, makers, since, givesControl, true),
     line(db, tenantId, [checkerId], since, givesCredentials, false), line(db, tenantId, makers, since, givesCredentials, false),
+    line(db, tenantId, [checkerId], since, givesCredentials, true), line(db, tenantId, makers, since, givesCredentials, true),
   ])
-  if (checkerHolds.truncated || makerHolds.truncated || checkerKeys.truncated || makerKeys.truncated) return ACCOUNT_CONTROL_UNREADABLE
+  if ([checkerHolds, makerHolds, checkerKeys, makerKeys, checkerSso, makerSso].some((walked) => walked.truncated)) return ACCOUNT_CONTROL_UNREADABLE
   if (makers.some((id) => checkerHolds.ids.includes(id)) || makerHolds.ids.includes(checkerId)) return ACCOUNT_CONTROL_REFUSAL
-  return makerKeys.ids.some((id) => checkerKeys.ids.includes(id)) ? ACCOUNT_CONTROL_REFUSAL : null
+  // SSO on one side only: a mint and a JIT account on one controller's connection are related; two JIT accounts through it are not.
+  const shared = (a: readonly string[], b: readonly string[]) => a.some((id) => b.includes(id))
+  return shared(makerKeys.ids, checkerSso.ids) || shared(makerSso.ids, checkerKeys.ids) ? ACCOUNT_CONTROL_REFUSAL : null
 }

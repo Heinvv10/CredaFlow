@@ -15,7 +15,7 @@ const run = randomUUID().replaceAll("-", "").slice(0, 10)
 const tenantId = `ac-${run}`
 const otherTenant = `ac-other-${run}`
 const id = (name: string) => `ac-${name}-${run}`
-const people = ["root", "m", "c", "s1", "s2", "x", "y", "boss", "h1", "h2", "old1", "old2", "e1", "e2", "i1", "i2", "d1", "d2", "o1", "t1", "t2", "t3", "n1", "n2", "n3", "b1", "b2", "b3", "boss2", "h3", "h4", "h5", "a1", "a2", "a3", "k1", "k2", "k3", "r1", "r2", "r3", "j1", "j2", "sso", ...Array.from({ length: 11 }, (_, i) => `link${i}`)].map(id)
+const people = ["root", "m", "c", "s1", "s2", "x", "y", "boss", "h1", "h2", "old1", "old2", "e1", "e2", "i1", "i2", "d1", "d2", "o1", "t1", "t2", "t3", "n1", "n2", "n3", "b1", "b2", "b3", "boss2", "h3", "h4", "h5", "a1", "a2", "a3", "k1", "k2", "k3", "r1", "r2", "r3", "j1", "j2", "sso", "w1", "w2", "w3", "s1m", ...Array.from({ length: 11 }, (_, i) => `link${i}`)].map(id)
 const DAY = 86_400_000
 
 /** AuditLog.createdAt is stamped by the database: a row is always "now", and the window is tested by moving the rule's own clock. */
@@ -114,6 +114,13 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
     expect(await decide([id("a1")], id("a3"))).toContain("Two people")
   })
 
+  it("the credentials line is read on credentials alone, on each side: a mint on one side and a branch move on the other are not one person", async () => {
+    await trail("USER_CREATED", id("w1"), id("w2"))
+    await update(id("w1"), id("w3"), { oldValue: { branchId: null }, newValue: { branchId: "here" } })
+    expect(await decide([id("w2")], id("w3"))).toBeNull()
+    expect(await decide([id("w3")], id("w2"))).toBeNull()
+  })
+
   it("activation is a hold: the value on a new row, and on an older row the name of what changed", async () => {
     await update(id("o1"), id("e2"), { oldValue: { active: false }, newValue: { active: true } })
     expect(await decide([id("o1")], id("e2"))).toContain("Two people")
@@ -128,6 +135,10 @@ suite("two people, not two accounts: the rule (real Postgres)", () => {
     expect(await decide([id("sso")], id("j1"))).toContain("Two people")
     expect(await decide([id("j2")], id("sso"))).toContain("Two people")
     expect(await decide([id("j1")], id("j2"))).toBeNull()
+    // A mint by the connection's controller opposite an account through that connection: one person may hold both.
+    await trail("USER_CREATED", id("sso"), id("s1m"))
+    expect(await decide([id("s1m")], id("j1"))).toContain("Two people")
+    expect(await decide([id("j2")], id("s1m"))).toContain("Two people")
   })
 
   it("a line too long to walk is refused, not passed unread, on either side", async () => {

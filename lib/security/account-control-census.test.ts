@@ -31,6 +31,7 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "payout retry", file: "lib/payouts/retry.ts" },
   { control: "disbursement reversal", file: "lib/payouts/reversal.ts" },
   { control: "payout recovery case: escalating and closing it", file: "lib/payouts/recovery.ts" },
+  { control: "acknowledging an unapplied provider report", file: "lib/payouts/unapplied-reports.ts" },
   { control: "confirming a payout's outcome", file: "lib/payouts/resolve.ts" },
   { control: "resolving a provider conflict", file: "lib/payouts/conflicts.ts" },
   { control: "asset-finance payout", file: "lib/asset-finance/payout.ts", constraint: "Payout_four_eyes" },
@@ -57,9 +58,26 @@ const NOT_CONTROLS = new Set<string>([])
  * why it is none. A new pair fails until it is placed.
  */
 const COMPARED_COLUMNS: Readonly<Record<string, string>> = {
+  "acknowledgedById/createdById": "acknowledging an unapplied provider report",
+  "acknowledgedById/disbursedById": "acknowledging an unapplied provider report",
+  "acknowledgedById/escalatedById": "acknowledging an unapplied provider report",
+  "acknowledgedById/openedById": "acknowledging an unapplied provider report",
+  "acknowledgedById/requestedById": "acknowledging an unapplied provider report",
   "activatedById/approvedById": "lender legal template publishing",
   "agreementCountersignedById/agreementSignedByUserId": "countersigning",
+  "approvedById/clearedById": "clearing a committee condition, asset-finance payout",
   "approvedById/conflictResolvedById": "resolving a provider conflict",
+  "approvedById/releaseAuthorisedById": "NCA surplus account",
+  "bureauOverrideById/disbursedById": "disbursing: the engine's attesters",
+  "clearedById/createdById": "clearing a committee condition, asset-finance payout",
+  "clearedById/releasedById": "clearing a committee condition, asset-finance payout",
+  "conflictResolvedById/createdById": "resolving a provider conflict",
+  "conflictResolvedById/disbursedById": "resolving a provider conflict",
+  "createdById/releaseAuthorisedById": "NCA surplus account",
+  "createdById/returnedById": "confirming a payout's outcome",
+  "disbursedById/incomeVerifiedById": "disbursing: the engine's attesters",
+  "disbursedById/recklessLendingAssessedById": "disbursing: the engine's attesters",
+  "disbursedById/returnedById": "confirming a payout's outcome",
   "approvedById/createdById": "asset-finance payout, recovery refund, dealer payable run",
   "approvedById/disbursedById": "disbursing, payout retry",
   "approvedById/firstApprovedById": "maintenance claim",
@@ -99,6 +117,9 @@ describe("the inventory of two-person controls", () => {
       const sql = readFileSync(join(root, dir.name, "migration.sql"), "utf8")
       for (const m of sql.matchAll(/"(\w+(?:ById|UserId))"\)?\s*(?:=|<>|IS NOT DISTINCT FROM|IS DISTINCT FROM)\s*(?:lower\(btrim\()?(?:NEW|OLD|[a-z])?\.?"(\w+(?:ById|UserId))"/g)) {
         if (m[1] !== m[2]) seen.add([m[1], m[2]].sort().join("/"))
+      }
+      for (const m of sql.matchAll(/"(\w+(?:ById|UserId))"\)?\s+(?:NOT\s+)?IN\s*\(([^)]*)\)/g)) {
+        for (const other of m[2].matchAll(/"(\w+(?:ById|UserId))"/g)) if (m[1] !== other[1]) seen.add([m[1], other[1]].sort().join("/"))
       }
     }
     expect([...seen].filter((pair) => !(pair in COMPARED_COLUMNS)).sort()).toEqual([])

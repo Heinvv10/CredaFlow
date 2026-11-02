@@ -97,6 +97,11 @@ suite.sequential("who may acknowledge a report not applied (real Postgres)", () 
     await report(loan.payoutId, "PAID")
     const entry = await entryOf(loan.payoutId)
     await refusedEverywhere(entry.id, user("-ret"))
+    // An account the person who confirmed it created is not a second person (lib/security/account-control.ts).
+    const puppet = user("-sock")
+    await db.user.create({ data: { id: puppet.id, tenantId: tenant.tenantId, email: puppet.email, password: "x", role: "LOAN_ADMIN" } })
+    await db.auditLog.create({ data: { tenantId: tenant.tenantId, userId: user("-ret").id, action: "USER_CREATED", entity: "User", entityId: puppet.id } })
+    expect(await acknowledgeUnappliedReport(prisma, { tenantId: tenant.tenantId, id: entry.id, note: "Checked with the provider", actor: puppet })).toMatchObject({ ok: false, status: 403, error: expect.stringContaining("Two people") })
     expect(await acknowledgeUnappliedReport(prisma, { tenantId: tenant.tenantId, id: entry.id, note: "Checked with the provider", actor: user("-clk") })).toEqual({ ok: true })
   })
 
