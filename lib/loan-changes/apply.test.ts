@@ -37,7 +37,9 @@ describe("applyLoanChange", () => {
   it("locks every loan involved first, in one order, so overlapping consolidations cannot deadlock", async () => {
     const { tx, calls } = recordingTx()
     await applyLoanChange(tx, ctx({ type: "CONSOLIDATION", loanId: "l2", otherLoanIds: ["l3", "l1"], instalments: 6, reason: "reason", signedDocumentId: "d" }))
-    expect(calls.slice(0, 3)).toEqual(["lock l1", "lock l2", "lock l3"])
+    expect(calls.filter((c) => c.startsWith("lock")).slice(0, 3)).toEqual(["lock l1", "lock l2", "lock l3"])
+    // The one read before the loan locks is the primary's product type, for the revolving client lock (none here: not REVOLVING).
+    expect(calls.indexOf("lock l1")).toBeLessThanOrEqual(1)
   })
 
   it("writes the row a receipt part-paid as paid on the last payment's date, or the day of the change", async () => {

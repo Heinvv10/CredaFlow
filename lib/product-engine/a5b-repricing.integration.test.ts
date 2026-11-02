@@ -122,6 +122,10 @@ suite("A5b repricing (real Postgres, real routes)", () => {
       expect(await write({ interestRatePm: 0.5, baseRatePm: 0.5 })).toContain("approved reference rate")
       expect(await write({ instalments: 24 })).toContain("approved reference rate")
       expect(await write({ balloonCents: 100_000 })).toContain("approved reference rate")
+      // An approved value not yet in effect backs no repricing row, however it is written.
+      await approveRate(day(3), "0.17", "LENDER_BASE")
+      const future = Math.round((0.2 / 12) * 1e8) / 1e8
+      expect(await write({ referenceEffectiveDate: dbDate(day(3)), referenceRate: 0.17, interestRatePm: future, baseRatePm: future })).toContain("approved reference rate")
       expect(await write({})).toBe("written")
     })
 

@@ -8,6 +8,12 @@ import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
+const future = vi.hoisted(() => ({ reference: null as null | { rate: number; effectiveDate: string } }))
+// One test hands decide an approved reference value not yet in effect, which the code never picks: the database must refuse it on its own.
+vi.mock("@/lib/product-engine/variable-rate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/product-engine/variable-rate")>()
+  return { ...actual, referenceOn: async (...args: Parameters<typeof actual.referenceOn>) => future.reference ?? actual.referenceOn(...args) }
+})
 const holder = vi.hoisted(() => ({ app: null as object | null, tenantId: "", userId: "", role: "LOAN_ADMIN", files: new Map<string, Buffer>() }))
 vi.mock("@/lib/prisma", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/prisma")>()
@@ -168,5 +174,22 @@ suite("a balloon on a variable rate, paid out through the key-facts route (real 
     expect(inputs.approval.inputs.interestRatePm).toBeCloseTo(0.014, 8)
     expect(inputs.approval.inputs.variableRate).toMatchObject({ referenceRate: 0.15 })
     expect(inputs.approval.inputs.variableRate.marginPa).toBeCloseTo(0.018, 7)
+  }, 120_000)
+
+  it("the database refuses an approval priced off a reference value not yet in effect", async () => {
+    const ahead = sastCalendarDate(new Date(Date.now() + 5 * 86_400_000))
+    await approvedRate(ahead, "0.2")
+    const id = `ahead-${t}`
+    const { statement } = await seedUnderReview(db(), stack, id, { nca: false })
+    holder.files.set(statement.path, statement.bytes)
+    await clearOpenFlags(db(), stack, id)
+    await db().applicationPricingInput.create({ data: { applicationId: id, tenantId: stack.tenant, channel: "BRANCH" } })
+    future.reference = { rate: 0.2, effectiveDate: ahead }
+    try {
+      expect((await decideForm(id, { action: "approve", repaymentMethod: "EFT" })).status).toBe(500)
+    } finally {
+      future.reference = null
+    }
+    expect((await db().loanApplication.findUniqueOrThrow({ where: { id } })).status).toBe("UNDER_REVIEW")
   }, 120_000)
 })

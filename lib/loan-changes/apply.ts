@@ -8,6 +8,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { loadSettings } from "@/lib/ifrs9/store"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
+import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { applyManualReceiptInTx } from "@/lib/loan/apply-payment"
 import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { PERIOD_DAYS } from "@/lib/product-engine/types"
@@ -16,7 +17,7 @@ import { loanChangeApplication } from "./approval"
 import { computeChange, inArrears, involvedLoanIds, type ChangeLoan, type InPlaceComputed, type NewLoanComputed } from "./compute"
 import { LoanChangeRefused, type FreshRow } from "./plan"
 import { LOAN_SETTLEMENT_METHOD } from "@/lib/payments/waiver"
-import type { LoanChangePayload } from "./types"
+import { isNewLoanType, type LoanChangePayload } from "./types"
 
 type Ctx = ApplyContext<LoanChangePayload>
 
@@ -208,6 +209,13 @@ async function applyNewLoan(tx: Tx, ctx: Ctx, computed: NewLoanComputed): Promis
 }
 
 export async function applyLoanChange(tx: Tx, ctx: Ctx): Promise<void> {
+  // A new loan on a revolving product is a draw on the borrower's limit: it takes the client's lock, as a draw's approval and payout do
+  // (lib/affordability/current-approval.ts), so the limit is read with no other draw in flight. Before the loan locks: a draw holding the
+  // client lock never waits on a loan.
+  if (isNewLoanType(ctx.payload.type)) {
+    const primary = await tx.loan.findFirst({ where: { id: ctx.payload.loanId, tenantId: ctx.tenantId }, select: { clientId: true, product: { select: { productType: true } } } })
+    if (primary?.clientId && primary.product.productType === "REVOLVING") await lockAffordabilityClientEvidence(tx, { tenantId: ctx.tenantId, clientId: primary.clientId })
+  }
   // In one order, so two approvals of overlapping consolidations cannot deadlock.
   for (const id of [...involvedLoanIds(ctx.payload)].sort()) await lockLoanForUpdate(tx, id)
   const computed = await computeChange(tx, ctx.tenantId, ctx.payload, ctx.now)

@@ -202,6 +202,7 @@ BEGIN
         SELECT 1 FROM "ReferenceRate" r
         WHERE r."tenantId" = NEW."tenantId" AND r."basis" = NEW."rateBasis" AND r."effectiveDate" = NEW."referenceEffectiveDate"
           AND r."status" = 'APPROVED' AND r."rate"::DOUBLE PRECISION = NEW."referenceRate"
+          AND r."effectiveDate" <= (now() AT TIME ZONE 'Africa/Johannesburg')::DATE
       ) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A repricing follows an approved reference rate on the loan''s own basis, margin and structure';
     END IF;
@@ -302,7 +303,7 @@ $function$;
 
 -- guardSignedDebitMandateAuthority holds an approval's rate to the LoanProduct row or a pricing rule, so a variable rate, which prices off the
 -- reference, was refused and decide answered 500. A rate off the row now also stands as what a variable version gives: outside the NCA only,
--- on the version of this product named in the approval, from an APPROVED reference value of its basis, at reference + the version's margin
+-- on the version of this product named in the approval, from an APPROVED reference value of its basis already in effect, at reference + the version's margin
 -- (floored at 0), with a live rule applied to that base if one priced it.
 DO $body$
 DECLARE definition TEXT; changed TEXT;
@@ -316,6 +317,7 @@ BEGIN
                   ON reference."tenantId" = version."tenantId" AND reference."basis" = version."rateBasis"
                 WHERE version."id" = new_approval #>> '{inputs,productVersion,id}' AND version."tenantId" = NEW."tenantId" AND version."productId" = product."id"
                   AND reference."status" = 'APPROVED'
+                  AND reference."effectiveDate" <= (now() AT TIME ZONE 'Africa/Johannesburg')::DATE
                   AND reference."basis"::TEXT = new_approval #>> '{inputs,variableRate,basis}'
                   AND reference."effectiveDate" = (new_approval #>> '{inputs,variableRate,referenceEffectiveDate}')::DATE
                   AND reference."rate"::DOUBLE PRECISION = (new_approval #>> '{inputs,variableRate,referenceRate}')::DOUBLE PRECISION

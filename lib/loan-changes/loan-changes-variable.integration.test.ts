@@ -27,12 +27,13 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
 
 import { dbDate } from "@/lib/asset-finance/dates"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { POST as actionRoute } from "@/app/api/maker-checker/[id]/[action]/route"
 import { createAppPrismaClient } from "@/lib/prisma"
 import { repriceTenantLoans } from "@/lib/product-engine/reprice-batch"
 import { bookLoan, changeRoutes, type LoanFixture } from "./loan-changes.integration-fixture"
 
 const suite = process.env.RUN_LOAN_CHANGES_IT === "1" ? describe.sequential : describe.skip
-const { draftAndSubmit, proposeAndApprove } = changeRoutes(holder)
+const { as, req, params, draftAndSubmit, proposeAndApprove } = changeRoutes(holder)
 const day = (offset: number) => sastCalendarDate(new Date(Date.now() + offset * 86_400_000))
 
 suite("loan changes on a variable-rate or balloon loan (real Postgres, real routes)", () => {
@@ -151,4 +152,30 @@ suite("loan changes on a variable-rate or balloon loan (real Postgres, real rout
     expect(submitted.status).toBe(422)
     expect(JSON.stringify(await submitted.json())).toContain("exceeds the revolving limit")
   })
+
+  it("a refinance of a revolving loan waits on the client's lock, as a draw does", async () => {
+    const l = await bookLoan(db())
+    const loan = await db().loan.findUniqueOrThrow({ where: { id: l.loanId } })
+    await db().loanProduct.update({ where: { id: loan.productId }, data: { productType: "REVOLVING", maxAmount: 10_000_000 } })
+    const { id, submitted } = await draftAndSubmit(l, { type: "REFINANCE", instalments: 12 })
+    expect(submitted.status).toBe(200)
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let locked!: () => void
+    const taken = new Promise<void>((resolve) => { locked = resolve })
+    const holding = db().$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`affordability-client:${l.tenantId}:${loan.clientId}`}))::text`
+      locked()
+      await held
+    }, { timeout: 30_000 })
+    await taken
+    as(l, "checker")
+    let finished = false
+    const approval = actionRoute(req({ note: "Seen the paper" }), params({ id, action: "approve" })).then((res) => { finished = true; return res })
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
+    expect(finished).toBe(false)
+    release()
+    await holding
+    expect((await approval).status).toBe(200)
+  }, 60_000)
 })
