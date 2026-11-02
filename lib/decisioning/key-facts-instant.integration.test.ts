@@ -275,7 +275,7 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     expect(await ls.db().decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: ls.stack.tenant } })).toMatchObject({ keyFactsInstantApproval: true })
     // A real approved request that did not say so cannot carry the setting: what is written is what was approved.
     const older = await ls.db().changeRequest.findFirstOrThrow({ where: { tenantId: ls.stack.tenant, kind: ENGINE_CONFIG_KIND, status: "APPROVED" }, orderBy: { createdAt: "asc" } })
-    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = '${older.id}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/applies once/)
+    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = '${older.id}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/match the approved/)
   })
 
   it("an approved request applies once: an old approval cannot be pointed at again to turn the setting back on", async () => {
@@ -283,21 +283,6 @@ suite("instant approval of a digital key-facts application (real Postgres, real 
     expect((await ls.change(ENGINE_CONFIG_KIND, "off", ls.engine({ keyFactsInstantApproval: false }))).status).toBe(200)
     await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = '${on.changeRequestId}', "keyFactsInstantApproval" = true WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/applies once/)
     expect((await ls.change(ENGINE_CONFIG_KIND, "on again", ls.engine({ keyFactsInstantApproval: true }))).status).toBe(200)
-    // The payload binding on its own: the newest approved request, with a value it did not approve.
-    const config = await ls.db().decisionEngineConfig.findUniqueOrThrow({ where: { tenantId: ls.stack.tenant } })
-    await ls.db().$transaction([
-      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" DISABLE TRIGGER USER`),
-      ls.db().$executeRawUnsafe(`CREATE TEMP TABLE newer ON COMMIT DROP AS SELECT * FROM "ChangeRequest" WHERE id = '${config.changeRequestId}'`),
-      ls.db().$executeRawUnsafe(`UPDATE newer SET id = 'newer-${t}', "decidedAt" = now() AT TIME ZONE 'UTC' + interval '1 hour', payload = payload || '{"keyFactsInstantApproval": false}'::jsonb`),
-      ls.db().$executeRawUnsafe(`INSERT INTO "ChangeRequest" SELECT * FROM newer`),
-      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" ENABLE TRIGGER USER`),
-    ])
-    await expect(ls.db().$executeRawUnsafe(`UPDATE "DecisionEngineConfig" SET "changeRequestId" = 'newer-${t}' WHERE "tenantId" = '${ls.stack.tenant}'`)).rejects.toThrow(/match the approved/)
-    await ls.db().$transaction([
-      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" DISABLE TRIGGER USER`),
-      ls.db().$executeRawUnsafe(`DELETE FROM "ChangeRequest" WHERE id = 'newer-${t}'`),
-      ls.db().$executeRawUnsafe(`ALTER TABLE "ChangeRequest" ENABLE TRIGGER USER`),
-    ])
   })
 
   it("approves a client's digital submission in under 60 seconds, as an automated decision that names its rule set", async () => {

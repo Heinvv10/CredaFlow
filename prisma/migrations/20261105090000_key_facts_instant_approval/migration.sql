@@ -132,7 +132,7 @@ BEGIN
   IF changed = definition THEN RAISE EXCEPTION USING MESSAGE = 'guardDecisionEngineConfig request read shape changed'; END IF;
   definition := changed;
   changed := replace(definition,
-    $sql$  -- What was approved is what is written:$sql$,
+    $sql$  RETURN NEW;$sql$,
     $sql$  -- A request applies once: the one in force was decided earlier, or this is an old approval being pointed at again.
   IF EXISTS (
     SELECT 1 FROM "DecisionEngineConfig" e JOIN "ChangeRequest" p ON p."tenantId" = e."tenantId" AND p."id" = e."changeRequestId"
@@ -140,8 +140,8 @@ BEGIN
   ) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approved change request applies once: this one is not newer than the one in force';
   END IF;
-  -- What was approved is what is written:$sql$);
-  IF changed = definition THEN RAISE EXCEPTION USING MESSAGE = 'guardDecisionEngineConfig payload comment shape changed'; END IF;
+  RETURN NEW;$sql$);
+  IF changed = definition THEN RAISE EXCEPTION USING MESSAGE = 'guardDecisionEngineConfig return shape changed'; END IF;
   EXECUTE changed;
 END;
 $body$;
