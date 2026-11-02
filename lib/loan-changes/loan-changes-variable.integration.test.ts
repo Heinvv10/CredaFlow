@@ -133,16 +133,21 @@ suite("loan changes on a variable-rate or balloon loan (real Postgres, real rout
   })
 
   it("a new loan on a revolving product is held to the limit across the client's revolving products, the loan it settles left out", async () => {
-    const l = await bookLoan(db())
-    const loan = await db().loan.findUniqueOrThrow({ where: { id: l.loanId } })
-    await db().loanProduct.update({ where: { id: loan.productId }, data: { productType: "REVOLVING", maxAmount: 1_000_000 } })
-    expect((await draftAndSubmit(l, { type: "REFINANCE", instalments: 12 })).submitted.status).toBe(200)
+    const revolving = async () => {
+      const l = await bookLoan(db())
+      const loan = await db().loan.findUniqueOrThrow({ where: { id: l.loanId } })
+      await db().loanProduct.update({ where: { id: loan.productId }, data: { productType: "REVOLVING", maxAmount: 1_000_000 } })
+      return { l, loan }
+    }
+    const alone = await revolving()
+    expect((await draftAndSubmit(alone.l, { type: "REFINANCE", instalments: 12 })).submitted.status).toBe(200)
 
+    const { l, loan } = await revolving()
     const n = randomUUID().slice(0, 8)
     const other = await db().loanProduct.create({ data: { tenantId: l.tenantId, code: `R${n}`, name: "Other line", productType: "REVOLVING", minAmount: 1, maxAmount: 1_000_000, minTermDays: 1, maxTermDays: 720, interestRatePm: 0.02, interestModel: "REDUCING_BALANCE" } })
     const application = await db().loanApplication.create({ data: { tenantId: l.tenantId, reference: `APP-${n}`, clientId: loan.clientId, productId: other.id, appliedAmount: 700_000, appliedTermDays: 90 } })
     await db().loan.create({ data: { tenantId: l.tenantId, reference: `LN-${n}`, applicationId: application.id, clientId: loan.clientId, productId: other.id, principal: 700_000, totalInterest: 0, initiationFee: 0, totalRepayable: 700_000, outstandingPrincipal: 700_000, startDate: new Date(), maturityDate: new Date(), interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", status: "ACTIVE" } })
-    const { submitted } = await draftAndSubmit(l, { type: "TOP_UP", instalments: 12, newMoneyCents: 100_000, payoutReference: `REF-${n}` })
+    const { submitted } = await draftAndSubmit(l, { type: "REFINANCE", instalments: 12 })
     expect(submitted.status).toBe(422)
     expect(JSON.stringify(await submitted.json())).toContain("exceeds the revolving limit")
   })
