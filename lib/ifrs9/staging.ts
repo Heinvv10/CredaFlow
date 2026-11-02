@@ -19,6 +19,8 @@ export interface StagingInput {
   flags: readonly SicrFlagKind[]
   /** It was in default when restructured (Loan.defaultedAtRestructure): the restructure does not take it below Stage 3. */
   defaultedAtRestructure?: boolean
+  /** A change made since the last MONTHLY run (restructuredInForce), as against a loan whose status stays RESTRUCTURED run after run. */
+  newRestructure?: boolean
 }
 
 export interface PriorStaging {
@@ -107,8 +109,10 @@ export function classifyStage(input: StagingInput, settings: Ifrs9Settings, prio
   const restructured = restructuredNow || prior.restructured
   let stage = prior.stage
   let stageSince = prior.stageSince
-  // A restructure is not a cure: each one starts the clock again, and only time paid on the new terms runs it.
-  let cureStartedOn = restructuredNow ? runDate : prior.cureStartedOn ?? runDate
+  // A restructure is not a cure: each one starts the clock again, and only time paid on the new terms runs it. The clock
+  // starts on the change itself, not on every run the status stays RESTRUCTURED.
+  const restarts = restructuredNow && (input.newRestructure === true || !prior.restructured)
+  let cureStartedOn = restarts ? runDate : prior.cureStartedOn ?? runDate
   while (stage > triggerStage) {
     const base = stage === 3 ? settings.stage3ProbationMonths : settings.stage2ProbationMonths
     const months = restructured ? Math.max(base, settings.restructuredProbationMonths) : base

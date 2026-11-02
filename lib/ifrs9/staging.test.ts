@@ -162,6 +162,27 @@ describe("the restructured marker", () => {
   })
   const monthEnd = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
 
+  it("starts the clock once for a status that stays RESTRUCTURED: Stage 3 is held 12 months, not until the status ends", () => {
+    let prior: PriorStaging = { stage: 3, stageSince: "2026-09-30", cureStartedOn: null, restructured: false }
+    const stages: number[] = []
+    for (let i = 0; i < 14; i++) {
+      const result = classifyStage(loan({ status: "RESTRUCTURED" }), p, prior, monthEnd(2026 + Math.floor((9 + i) / 12), ((9 + i) % 12) + 1))
+      stages.push(result.stage)
+      prior = next(prior, result)
+    }
+    expect(stages).toEqual([...Array<number>(12).fill(3), 2, 2])
+  })
+
+  it("starts the clock when the status first turns RESTRUCTURED, even part-way through an ordinary cure", () => {
+    const curing: PriorStaging = { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: false }
+    expect(classifyStage(loan({ status: "RESTRUCTURED" }), p, curing, "2026-10-31")).toMatchObject({ stage: 3, cureStartedOn: "2026-10-31" })
+  })
+
+  it("restarts the clock on a new restructure, even in the probation of the last", () => {
+    const prior: PriorStaging = { stage: 3, stageSince: "2026-01-31", cureStartedOn: "2026-02-28", restructured: true }
+    expect(classifyStage(loan({ status: "RESTRUCTURED", newRestructure: true }), p, prior, "2026-10-31")).toMatchObject({ stage: 3, cureStartedOn: "2026-10-31" })
+  })
+
   it("is kept when a default trigger wins the stage, so the loan still serves the longer probation once it is ACTIVE again", () => {
     const sep = classifyStage(loan({ dpd: 120, status: "RESTRUCTURED" }), p, null, "2026-09-30")
     expect(sep).toMatchObject({ stage: 3, restructured: true })

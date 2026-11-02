@@ -85,9 +85,10 @@ export function assessLoan(loan: RunLoan, ctx: RunContext, prior: PriorStaging |
   const runDate = sastCalendarDate(ctx.runAt)
   const { daysInArrears: dpd } = recomputeLoanBalances(loan.principal, loan.schedule, ctx.runAt)
   // Only an ACTIVE loan: a restructured loan that defaults again is DEFAULTED, and Stage 3.
-  const status = loan.status === "ACTIVE" && restructuredInForce(loan.restructuredOn, runDate, prior) ? "RESTRUCTURED" : loan.status
+  const newRestructure = loan.status === "ACTIVE" && restructuredInForce(loan.restructuredOn, runDate, prior)
+  const status = newRestructure ? "RESTRUCTURED" : loan.status
   const staging = classifyStage(
-    { dpd, status, defaultedAtRestructure: loan.defaultedAtRestructure, collectionsStage: loan.collectionsStage, debtReview: loan.debtReview, flags: loan.flags },
+    { dpd, status, newRestructure, defaultedAtRestructure: loan.defaultedAtRestructure, collectionsStage: loan.collectionsStage, debtReview: loan.debtReview, flags: loan.flags },
     ctx.settings, prior, runDate,
   )
   return { dpd, staging, suspended: suspensionApplies(dpd, staging.stage, loan.contractType, ctx.settings), prior }

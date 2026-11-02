@@ -471,6 +471,15 @@ describe("POST /api/portal/applications", () => {
     expect(openCheck).toMatchObject({ loanChangeRequestId: null })
   })
 
+  it("reads the winner of a race as the index does: a loan change's application is not one", async () => {
+    findFirstApplication.mockResolvedValue(null)
+    createApplication.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "5.x" }))
+    await POST(buildReq(validBody)).catch(() => undefined)
+    const reads = findFirstApplication.mock.calls.map((call: unknown[]) => (call[0] as { where: Record<string, unknown> }).where).filter((where: Record<string, unknown>) => "status" in where)
+    expect(reads.length).toBeGreaterThanOrEqual(2)
+    expect(reads.at(-1)).toMatchObject({ loanChangeRequestId: null })
+  })
+
   it("maps the database winner of a concurrent submission race to 409", async () => {
     findFirstApplication
       .mockResolvedValueOnce(null)
