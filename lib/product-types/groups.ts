@@ -23,7 +23,7 @@ export async function resolveMembers(db: Pick<typeof prisma, "client">, tenantId
  * as a decision locks one, so an approval cannot read the old membership after this commits.
  */
 export async function recordGroupEditor(tx: Tx, tenantId: string, groupId: string, userId: string): Promise<number> {
-  const rows = await tx.applicationProductFacts.findMany({ where: { tenantId, borrowerGroupId: groupId, application: { status: { in: [...OPEN_APPLICATION_STATUSES] } } }, select: { applicationId: true } })
+  const rows = await tx.applicationProductFacts.findMany({ where: { tenantId, borrowerGroupId: groupId, application: { status: { in: [...OPEN_APPLICATION_STATUSES] }, loanChangeRequestId: null } }, select: { applicationId: true } })
   const ids = rows.map((r) => r.applicationId).sort()
   if (ids.length === 0) return 0
   await tx.$queryRaw`SELECT "id" FROM "LoanApplication" WHERE "tenantId" = ${tenantId} AND "id" = ANY(${ids}) ORDER BY "id" FOR UPDATE`
