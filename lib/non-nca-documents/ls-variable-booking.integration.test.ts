@@ -130,7 +130,7 @@ suite("a balloon on a variable rate, paid out through the key-facts route (real 
     expect(decided.status, JSON.stringify(await decided.clone().json())).toBe(200)
     await attestKyc(id)
     await issueAndSign(id)
-    expect((await verifyAccount(stack.officer, id)).status).toBe(200)
+    expect((await verifyAccount(stack.senior, id)).status).toBe(200)
     const paid = await disburseAs(stack.disburser, id)
     expect(paid.status, JSON.stringify(await paid.clone().json())).toBe(200)
 
