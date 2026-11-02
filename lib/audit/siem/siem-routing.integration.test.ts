@@ -35,6 +35,28 @@ suite("siem-routing", () => {
     expect(await db.auditSiemDelivery.count({ where: { tenantId: t } })).toBe(4)
   })
 
+  it("forwards a row made in the same millisecond as the switch-off: createdAt and changedAt are TIMESTAMP(3), and a tie must not lose it", async () => {
+    // One DO block is well under a millisecond apart, so about half of these tie. Stops at the first that does.
+    const old = "https://old.example.invalid/ingest"
+    let tied = ""
+    for (let i = 0; i < 200 && !tied; i++) {
+      const t = await tenant(`tie-${i}`)
+      await enable(t, old)
+      await db.$executeRawUnsafe(`DO $tie$ BEGIN
+        INSERT INTO "AuditLog" ("id", "tenantId", "action", "entity", "entityId") VALUES ('tie-${i}-${token}', '${t}', 'LOAN_NOTE_ADDED', 'Thing', 'tied');
+        UPDATE "AuditPolicy" SET "siemEnabled" = false WHERE "tenantId" = '${t}';
+      END $tie$`)
+      const [{ same }] = await db.$queryRawUnsafe<Array<{ same: boolean }>>(`SELECT r."changedAt" = a."createdAt" AS same FROM "AuditPolicyRevision" r JOIN "AuditLog" a ON a."tenantId" = r."tenantId" WHERE r."tenantId" = '${t}' AND a."entityId" = 'tied' AND NOT r."newEnabled"`)
+      if (same) tied = t
+    }
+    expect(tied, "no insert tied with its switch-off in 200 tries").not.toBe("")
+    await chain(tied)
+    const rec = recorder()
+    await deliver(rec.send, T0)
+    expect(rec.calls.map((c) => c.url)).toEqual([old])
+    expect(rec.calls[0].events.map((e) => e.entityId)).toEqual(["tied"])
+  })
+
   it("prunes an unstamped leftover of a lender that is not forwarding, and records the pruning as an audit row", async () => {
     const t = await tenant("prune")
     await write(t, 1)
