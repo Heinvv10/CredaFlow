@@ -10,13 +10,20 @@ import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
-const forge = vi.hoisted(() => ({ reference: null as null | { rate: number; effectiveDate: string }, baseShift: 0, ruleShift: 0 }))
+const forge = vi.hoisted(() => ({
+  reference: null as null | { rate: number; effectiveDate: string }, baseShift: 0, ruleShift: 0, noRuleShift: 0, marginShift: 0,
+  rule: null as null | { id: string; name: string; ratePm: number },
+}))
 vi.mock("@/lib/product-engine/variable-rate", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/product-engine/variable-rate")>()
   return {
     ...actual,
     referenceOn: async (...args: Parameters<typeof actual.referenceOn>) => forge.reference ?? actual.referenceOn(...args),
     rateFromReference: (...args: Parameters<typeof actual.rateFromReference>) => actual.rateFromReference(...args) + forge.baseShift,
+    frozenVariableRate: (...args: Parameters<typeof actual.frozenVariableRate>) => {
+      const frozen = actual.frozenVariableRate(...args)
+      return { ...frozen, marginPa: frozen.marginPa + forge.marginShift }
+    },
   }
 })
 vi.mock("@/lib/product-engine/pricing", async (importOriginal) => {
@@ -25,7 +32,8 @@ vi.mock("@/lib/product-engine/pricing", async (importOriginal) => {
     ...actual,
     resolvePricing: (...args: Parameters<typeof actual.resolvePricing>) => {
       const priced = actual.resolvePricing(...args)
-      return priced.ruleId ? { ...priced, ratePm: priced.ratePm + forge.ruleShift } : priced
+      if (forge.rule) return { ...priced, ratePm: forge.rule.ratePm, ruleId: forge.rule.id, ruleName: forge.rule.name }
+      return { ...priced, ratePm: priced.ratePm + (priced.ruleId ? forge.ruleShift : forge.noRuleShift) }
     },
   }
 })
@@ -142,6 +150,9 @@ suite("the database's guard on a variable-rate approval (real Postgres)", () => 
     forge.reference = null
     forge.baseShift = 0
     forge.ruleShift = 0
+    forge.noRuleShift = 0
+    forge.marginShift = 0
+    forge.rule = null
   })
   afterAll(async () => {
     vi.unstubAllEnvs()
@@ -184,6 +195,24 @@ suite("the database's guard on a variable-rate approval (real Postgres)", () => 
   it("refuses a base rate that is not the reference plus the version's margin", async () => {
     forge.baseShift = 0.001
     expect(await decide("margin")).toEqual(refused)
+  })
+
+  it("refuses a rate off the base with no rule to explain it, even with a margin that agrees", async () => {
+    forge.noRuleShift = -0.002
+    expect(await decide("no-rule")).toEqual(refused)
+  })
+
+  it("refuses a frozen margin the rate does not come from: the next repricing would run on it", async () => {
+    forge.marginShift = 0.01
+    expect(await decide("frozen-margin")).toEqual(refused)
+  })
+
+  it("refuses a rate a retired rule would give", async () => {
+    await approved("PRODUCT_PRICING_RULE", "Old discount", { action: "CREATE", rule: { productId: stack.product, name: "Old discount", segment: null, channel: null, riskRankMin: null, riskRankMax: null, campaignCode: null, validFrom: TODAY, validTo: null, priority: 0, rate: { mode: "ADD", value: -0.002 }, initiationFeePct: null } })
+    const rule = await db().productPricingRule.findFirstOrThrow({ where: { tenantId: stack.tenant, name: "Old discount" } })
+    await approved("PRODUCT_PRICING_RULE", "Retire", { action: "RETIRE", ruleId: rule.id })
+    forge.rule = { id: rule.id, name: rule.name, ratePm: 0.008 }
+    expect(await decide("retired")).toEqual(refused)
   })
 
   it("refuses a rule-priced rate that is not what the live rule gives", async () => {
