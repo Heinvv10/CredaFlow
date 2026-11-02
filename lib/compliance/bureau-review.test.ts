@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const applicationFindUniqueMock = vi.fn()
@@ -12,12 +14,14 @@ const getCreditReportMock = vi.fn()
 const subjectFingerprintMock = vi.fn()
 const tenantConfigFindUniqueMock = vi.fn()
 const auditLogCreateMock = vi.fn()
+const engineConfigFindUniqueMock = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findUnique: (args: unknown) => applicationFindUniqueMock(args) },
     client: { findUnique: (args: unknown) => clientFindUniqueMock(args) },
     tenantConfig: { findUnique: (args: unknown) => tenantConfigFindUniqueMock(args) },
+    decisionEngineConfig: { findUnique: (args: unknown) => engineConfigFindUniqueMock(args) },
     creditBureauCheck: {
       findMany: (args: unknown) => priorCheckFindManyMock(args),
     },
@@ -39,6 +43,7 @@ vi.mock("@/lib/compliance/bureau-subject", () => ({
   bureauSubjectFingerprint: (...args: unknown[]) => subjectFingerprintMock(...args),
 }))
 
+import { KEY_FACTS_BUREAU_PROVIDERS, isKeyFactsBureau } from "./bureau"
 import { runBureauReviewCheck } from "./bureau-review"
 
 const request = {
@@ -249,6 +254,42 @@ describe("bureau review generation binding", () => {
     expect(recorded.data.data).not.toHaveProperty("provider")
   })
 
+  it.each([
+    ["the setting is off", { mode: "LIVE", keyFactsInstantApproval: false }],
+    ["the engine is only rehearsing", { mode: "SHADOW", keyFactsInstantApproval: true }],
+    ["the lender has no engine", null],
+  ])("still asks no bureau about a key-facts application when %s", async (_label, config) => {
+    applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS", authenticatedSubmissionClientId: "client-1" })
+    engineConfigFindUniqueMock.mockResolvedValue(config)
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["simulated"], bureauCredentials: null })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("skipped")
+
+    expect(bureauCheckCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("asks no bureau on the public website form's say-so, with instant key-facts approval on: nobody signed in", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS", authenticatedSubmissionClientId: null })
+    engineConfigFindUniqueMock.mockResolvedValue({ mode: "LIVE", keyFactsInstantApproval: true })
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["simulated"], bureauCredentials: null })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("skipped")
+
+    expect(bureauCheckCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("with instant key-facts approval on, asks a bureau that serves the jurisdiction and never a South African one", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS", authenticatedSubmissionClientId: "client-1" })
+    txApplicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS" })
+    engineConfigFindUniqueMock.mockResolvedValue({ mode: "LIVE", keyFactsInstantApproval: true })
+    tenantConfigFindUniqueMock.mockResolvedValue({ bureauProviderOrder: ["experian", "simulated"], bureauCredentials: null })
+
+    await expect(runBureauReviewCheck(request)).resolves.toBe("stored")
+
+    expect(getCreditReportMock).not.toHaveBeenCalled()
+    expect(bureauCheckCreateMock.mock.calls.map(([args]) => [args.data.provider, args.data.ok])).toEqual([["experian", false], ["simulated", true]])
+  })
+
   it("reports a key-facts skip as stale when the review moved on before it could be recorded", async () => {
     applicationFindUniqueMock.mockResolvedValue({ ...currentReview, disclosureRegime: "KEY_FACTS" })
     txApplicationFindUniqueMock.mockResolvedValue({ ...currentReview, bureauReviewGeneration: "a-newer-generation" })
@@ -336,5 +377,24 @@ describe("bureau review generation binding", () => {
     expect(bureauCheckCreateMock.mock.calls[0][0].data.obligations).toMatchObject({
       scoreDropAlert: { previous: 600, current: 500, drop: 100 },
     })
+  })
+})
+
+describe("isKeyFactsBureau", () => {
+  it("is the list the database guard holds: a provider added to one must be added to the other", () => {
+    const sql = readFileSync(join(process.cwd(), "prisma/migrations/20261105090000_key_facts_instant_approval/migration.sql"), "utf8")
+    const listed = /b\."provider" IN \(([^)]*)\)/.exec(sql)![1].split(",").map((p) => p.trim().replace(/'/g, ""))
+    expect(listed).toEqual([...KEY_FACTS_BUREAU_PROVIDERS])
+  })
+
+  it("is no South African bureau, and the simulated one only where this deployment permits it", () => {
+    expect(isKeyFactsBureau("experian")).toBe(false)
+    expect(isKeyFactsBureau("transunion")).toBe(false)
+    expect(isKeyFactsBureau("simulated")).toBe(true)
+    vi.stubEnv("NODE_ENV", "production")
+    expect(isKeyFactsBureau("simulated")).toBe(false)
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-bureau")
+    expect(isKeyFactsBureau("simulated")).toBe(true)
+    vi.unstubAllEnvs()
   })
 })

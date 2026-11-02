@@ -1,3 +1,5 @@
+import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+
 // NCA s.81 (reckless lending prohibition) requires a current credit
 // assessment before entering into a credit agreement. NCR enforcement
 // guidance for short-term unsecured lending treats 30-60 days as "current";
@@ -39,6 +41,18 @@ export const APPROVAL_BUREAU_PROVIDERS: readonly string[] = ["experian", "simula
 
 export function isApprovalBureau(providerId: string): boolean {
   return APPROVAL_BUREAU_PROVIDERS.includes(providerId)
+}
+
+/**
+ * Bureaus that can be asked about a consumer of a key-facts application (outside South Africa). No real one exists yet:
+ * the South African bureaus would run a South African identity check on a foreign number. A Lesotho bureau joins this list
+ * (and APPROVAL_BUREAU_PROVIDERS, once its score is on a band the gate is calibrated for). The simulated bureau counts only
+ * where this deployment permits it.
+ */
+export const KEY_FACTS_BUREAU_PROVIDERS: readonly string[] = ["simulated"]
+
+export function isKeyFactsBureau(providerId: string): boolean {
+  return KEY_FACTS_BUREAU_PROVIDERS.includes(providerId) && isApprovalBureau(providerId) && (providerId !== "simulated" || isSimulationPermitted("simulated-bureau"))
 }
 
 /** What makes any bureau check usable for approval: successful, current under

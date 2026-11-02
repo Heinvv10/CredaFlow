@@ -110,6 +110,18 @@ export function EngineSettings({ overview, onDone }: { overview: Overview; onDon
             The lender&apos;s legal team has approved automated declines and the notice above
           </label>
         </fieldset>
+        {overview.keyFactsInstance && (
+          <fieldset className="space-y-3 rounded-lg border border-[var(--cf-border-subtle)] p-4" disabled={locked}>
+            <legend className="px-1 text-sm font-semibold">Instant approval of digital applications</legend>
+            <p className="text-sm text-[var(--cf-text-secondary)]">
+              Lets the engine attest affordability itself, so a client&apos;s digital application that passes every check is approved within a minute with no person. It needs a bureau check on file: with none, the application goes to staff. KYC, screening, credit checks and the approval matrix all still apply, and an automated decline still needs the sign-off above.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={cfg.keyFactsInstantApproval} onChange={() => patch({ keyFactsInstantApproval: !cfg.keyFactsInstantApproval })} />
+              The engine may attest affordability for digital applications
+            </label>
+          </fieldset>
+        )}
         {problems.length > 0 && <ul role="alert" className="list-disc space-y-1 pl-5 text-sm text-[var(--cf-danger)]">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
         {sent && <p role="status" className="text-sm text-[var(--cf-success)]">Submitted: a second person must approve it before it applies.</p>}
         {overview.canManage && <Button type="button" disabled={busy} onClick={submitChange}>Submit for approval</Button>}

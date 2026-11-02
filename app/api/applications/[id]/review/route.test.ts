@@ -13,6 +13,7 @@ const queryRawMock = vi.fn()
 const auditLogCreateMock = vi.fn()
 const transactionMock = vi.fn()
 const runBureauReviewCheckMock = vi.fn()
+const keyFactsBureauAppliesMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 vi.mock("@/lib/tenant", () => ({
@@ -38,6 +39,7 @@ vi.mock("@/lib/audit", () => ({
 }))
 vi.mock("@/lib/compliance/bureau-review", () => ({
   runBureauReviewCheck: (args: unknown) => runBureauReviewCheckMock(args),
+  keyFactsBureauApplies: () => keyFactsBureauAppliesMock(),
 }))
 
 import { POST } from "./route"
@@ -153,19 +155,24 @@ beforeEach(() => {
   runBureauReviewCheckMock.mockResolvedValue("stored")
 })
 
-it("charges the daily paid-pull limits to an NCA application only: a key-facts review makes no bureau enquiry", async () => {
+it("charges the daily paid-pull limits to an NCA application, and to a key-facts one only where instant approval makes a bureau enquiry", async () => {
   const review = (admit: () => Promise<boolean>) => startApplicationReview({ tenant: { id: "t1" }, user: { id: "system" } as never, id: "app-1", autoDecisionTrigger: "DIGITAL_SUBMISSION", assignToUser: false, admit })
   const refused = vi.fn(async () => false)
 
   findUniqueMock.mockResolvedValue({ ...applicationWithClient, disclosureRegime: "KEY_FACTS" })
+  keyFactsBureauAppliesMock.mockResolvedValue(false)
   expect(await review(refused)).toMatchObject({ ok: true })
   expect(refused).not.toHaveBeenCalled()
+
+  keyFactsBureauAppliesMock.mockResolvedValue(true)
+  expect(((await review(refused)) as Response).status).toBe(429)
+  expect(refused).toHaveBeenCalledTimes(1)
 
   findUniqueMock.mockResolvedValue({ ...applicationWithClient, disclosureRegime: "NCA_PASQ" })
   const stopped = await review(refused)
   expect(stopped).toBeInstanceOf(Response)
   expect((stopped as Response).status).toBe(429)
-  expect(refused).toHaveBeenCalledTimes(1)
+  expect(refused).toHaveBeenCalledTimes(2)
 })
 
 it("claims a SUBMITTED application into UNDER_REVIEW (happy path)", async () => {
