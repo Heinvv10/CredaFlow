@@ -1,6 +1,7 @@
 import type { Channel, Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
+import { accountControlRefusal } from "@/lib/security/account-control"
 import { maskEmail, maskPhone } from "@/lib/signing-otp/code"
 
 export const CONFIRMABLE_CHANNELS: readonly Channel[] = ["EMAIL", "WHATSAPP"]
@@ -67,6 +68,8 @@ export async function confirmContactIdentity(args: {
     if (identity.setByStaffUserId === by.id) {
       return { ok: false as const, status: 403 as const, error: "You set this address, so someone else must confirm it." }
     }
+    const controlled = await accountControlRefusal(tx, { tenantId, makerIds: [identity.setByStaffUserId], checkerId: by.id })
+    if (controlled) return { ok: false as const, status: 403 as const, error: controlled }
     const claimed = await tx.contactIdentity.updateMany({
       where: { id: identityId, tenantId, confirmedAt: null },
       data: { confirmedAt: new Date(), confirmedByUserId: by.id },

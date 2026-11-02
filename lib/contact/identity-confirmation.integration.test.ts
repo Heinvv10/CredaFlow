@@ -233,6 +233,19 @@ function regime(jurisdiction: StackJurisdiction) {
       expect(await db().clientOtp.count({ where: { email, used: false } })).toBe(2)
     })
 
+    it("a second account of whoever set the address is not a second person", async () => {
+      holder.tenantId = stack.tenant
+      const clientId = await borrower("puppet")
+      const email = await staffChangesEmail(clientId, stack.officer)
+      await db().user.create({ data: { id: `puppet-${t}`, tenantId: stack.tenant, email: `puppet-${t}@test.invalid`, password: "not-a-real-login", name: "Puppet", role: "LOAN_ADMIN" } })
+      await db().auditLog.create({ data: { tenantId: stack.tenant, userId: stack.officer, userEmail: `${stack.officer}@test.invalid`, action: "USER_CREATED", entity: "User", entityId: `puppet-${t}` } })
+      const res = await confirmAs(clientId, email, `puppet-${t}`)
+      expect(res.status).toBe(403)
+      expect((await res.json()).error).toContain("Two people")
+      expect((await identityOf(email)).confirmedAt).toBeNull()
+      expect((await confirmAs(clientId, email, stack.confirmer)).status).toBe(200)
+    })
+
     it("the borrower's own change needs no one", async () => {
       holder.tenantId = stack.tenant
       const clientId = await borrower("own")

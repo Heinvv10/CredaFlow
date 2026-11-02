@@ -33,6 +33,7 @@ vi.mock("@/lib/prisma", () => {
 vi.mock("@/lib/audit", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/audit")>()), logAuditStrict: vi.fn(async () => undefined) }))
 
 import { approveMaintenanceClaim } from "@/lib/asset-finance/maintenance-claims"
+import { confirmContactIdentity } from "@/lib/contact/identity-confirmation"
 import { decideMeterReadingVoid } from "@/lib/asset-finance/meter-void"
 import { approveSurplusAccount } from "@/lib/asset-finance/nca-surplus-account"
 import { approvePayout } from "@/lib/asset-finance/payout"
@@ -73,6 +74,7 @@ const CASES: Case[] = [
   { name: "valuation guide", rows: { $queryRaw: [{ id: "g" }], valuationGuide: { id: "g", status: "DRAFT", uploadedById: "maker", effectiveOn: new Date("2026-01-01T00:00:00Z"), simulated: false, name: "G" } }, makers: ["maker"], run: () => publishGuide({ tenantId, userId: "checker" } as never, "g") },
   { name: "payout retry", rows: { disbursementPayout: { id: "p", status: "AWAITING_APPROVAL", loanId: "l", requestedById: "maker", disbursedById: "payer" }, loan: { status: "ACTIVE" } }, makers: ["maker", "payer"], run: () => decidePayoutRetry(tx, { ...moneyDecision, payoutId: "p" }) },
   { name: "disbursement reversal", rows: { disbursementReversal: { id: "r", status: "REQUESTED", loanId: "l", requestedById: "maker" }, disbursementPayout: { disbursedById: "payer" } }, makers: ["maker", "payer"], run: () => decideDisbursementReversal(tx, { ...moneyDecision, reversalId: "r" }) },
+  { name: "confirming a staff-set address", rows: { contactIdentity: { id: "i", channel: "EMAIL", value: "a@test.invalid", setByStaffUserId: "maker" } }, makers: ["maker"], run: () => confirmContactIdentity({ tenantId, clientId: "c", identityId: "i", by: { id: "checker", email: "checker@test.invalid", note: "Called the borrower back." } }) },
   { name: "provider conflict", rows: {}, makers: ["payer", "maker", "first"], run: () => resolveProviderConflict(tx, { tenantId, outcome: "not_paid", note: "Checked with the bank", paidAt: null, actor: staff, payout: { id: "p", providerConflictAt: new Date(), conflictResolvedAt: null, providerConflictState: "PAID", disbursedById: "payer", createdById: "maker", approvedById: "first" } } as never) },
 ]
 

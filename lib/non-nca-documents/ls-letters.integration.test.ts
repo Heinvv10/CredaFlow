@@ -360,10 +360,35 @@ suite("the letters and the branch (real Postgres, real routes)", () => {
       const witness = await flow.disburseAs(stack.officer, id)
       await db().tenantConfig.update({ where: { tenantId: stack.tenant }, data: { requireSegregationOfDuties: true } })
       expect(witness.status).toBe(422)
-      expect(await witness.json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties" })
+      expect(await witness.json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties", error: expect.stringContaining("You witnessed") })
       expect(await db().loan.count({ where: { applicationId: id } })).toBe(0)
       await expect(db().loanApplication.update({ where: { id }, data: { status: "DISBURSED", disbursedAt: new Date(), disbursedById: stack.officer } })).rejects.toThrow(/witness of the borrower/)
       expect((await flow.disburseAs(stack.disburser, id)).status).toBe(200)
+    })
+
+    it("a witness behind nothing else, segregation on: they cannot confirm the account or pay, nor can an account of theirs; a stranger pays", async () => {
+      const id = `branch10-${t}`
+      await flow.approvedApplication(id)
+      const { agreement } = await digests(id)
+      const witnessId = stack.disburser
+      const challenge = await verifiedCode(id, agreement, { requestedByUserId: witnessId })
+      const d = await digests(id)
+      asStaff(witnessId)
+      const signed = await branchSign(post({ witnessAttested: true, offerSha256: d.offer, keyFactsSha256: d.kfs, agreementDocumentSha256: d.agreement, signature: "Synthetic Borrower", signingOtpChallengeId: challenge }), on(id))
+      expect(signed.status, JSON.stringify(await signed.clone().json())).toBe(200)
+      const confirmed = await flow.verifyAccount(witnessId, id)
+      expect(confirmed.status).toBe(409)
+      expect((await confirmed.json()).error).toContain("witnessed its signature")
+      expect((await flow.verifyAccount(stack.confirmer, id)).status).toBe(200)
+      expect(await (await flow.disburseAs(witnessId, id)).json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties", error: expect.stringContaining("You witnessed") })
+      const staffRow = (name: string) => ({ id: `${name}-${t}`, tenantId: stack.tenant, email: `${name}-${t}@test.invalid`, password: "not-a-real-login", name, role: "LOAN_ADMIN" as const })
+      await db().user.createMany({ data: [staffRow("puppet"), staffRow("stranger")] })
+      await db().auditLog.create({ data: { tenantId: stack.tenant, userId: witnessId, userEmail: `${witnessId}@test.invalid`, action: "USER_CREATED", entity: "User", entityId: `puppet-${t}` } })
+      expect(await (await flow.disburseAs(`puppet-${t}`, id)).json()).toMatchObject({ disbursementPrecondition: "segregation_of_duties", error: expect.stringContaining("Two people") })
+      expect(await db().loan.count({ where: { applicationId: id } })).toBe(0)
+      await expect(db().loanApplication.update({ where: { id }, data: { status: "DISBURSED", disbursedAt: new Date(), disbursedById: witnessId } })).rejects.toThrow(/witness of the borrower/)
+      const paid = await flow.disburseAs(`stranger-${t}`, id)
+      expect(paid.status, JSON.stringify(await paid.clone().json())).toBe(200)
     })
 
     it("a staff member has no path through the borrower's own routes", async () => {
