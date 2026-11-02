@@ -1,4 +1,4 @@
-import type { Channel } from "@prisma/client"
+import type { Channel, Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { maskEmail, maskPhone } from "@/lib/signing-otp/code"
@@ -9,13 +9,13 @@ export const CONFIRMABLE_CHANNELS: readonly Channel[] = ["EMAIL", "WHATSAPP"]
 export const CONFIRMATION_NOTE_MIN = 10
 
 /**
- * For the client lookups of forgot-password, reset and portal activation: a client with a staff-set address nobody has confirmed
- * is not found. Staff who can type an address cannot recover the borrower's login through it. In the query, so a match costs
+ * For the client lookups of forgot-password, reset and portal activation: a client with a staff-set address nobody has confirmed,
+ * or one that could not be recorded because another Contact holds it, is not found. Staff who can type an address cannot recover the borrower's login through it. In the query, so a match costs
  * no extra read and the answer stays the same for an account that does not exist.
  */
-export const NO_UNCONFIRMED_IDENTITY_WHERE = {
-  NOT: { contact: { identities: { some: { setByStaffUserId: { not: null }, confirmedAt: null } } } },
-} as const
+export const NO_UNCONFIRMED_IDENTITY_WHERE: Prisma.ClientWhereInput = {
+  NOT: { contact: { OR: [{ identities: { some: { setByStaffUserId: { not: null }, confirmedAt: null } } }, { staffAddressUnresolvedAt: { not: null } }] } },
+}
 
 export type SigningIdentityRefusal = "identity_unconfirmed" | "identity_confirmed_by_witness"
 

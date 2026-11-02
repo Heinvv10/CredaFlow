@@ -433,6 +433,8 @@ model Contact {
 
   blockedAt     DateTime?
   blockedReason String?
+  // A staff-set address another Contact holds: no identity row can carry the setter, so login recovery stays shut (lib/contact/sync-client-channels.ts).
+  staffAddressUnresolvedAt DateTime?
   spamScore     Int?
 
   // Merge bookkeeping (forensic retention — POPIA s.16 + 7y audit window).

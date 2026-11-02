@@ -7,11 +7,15 @@
 -- reject a row the running code writes, because nothing writes these columns before this ships. Ordinary messages
 -- do not read them.
 --
--- Rollback (hand-written): ALTER TABLE "ContactIdentity" DROP CONSTRAINT "ContactIdentity_confirmation", then DROP the three columns.
+-- Rollback (hand-written): ALTER TABLE "ContactIdentity" DROP CONSTRAINT "ContactIdentity_confirmation", then DROP the three columns and "Contact"."staffAddressUnresolvedAt".
 
 ALTER TABLE "ContactIdentity" ADD COLUMN "setByStaffUserId" TEXT;
 ALTER TABLE "ContactIdentity" ADD COLUMN "confirmedAt" TIMESTAMP(3);
 ALTER TABLE "ContactIdentity" ADD COLUMN "confirmedByUserId" TEXT;
+
+-- A staff-set address another Contact already holds has no row of its own to carry the setter: the Contact is marked,
+-- and login recovery stays shut until a later change resolves it.
+ALTER TABLE "Contact" ADD COLUMN "staffAddressUnresolvedAt" TIMESTAMP(3);
 
 -- Confirmed whole, only a staff-set value is ever confirmed, and never by the person who set it.
 ALTER TABLE "ContactIdentity" ADD CONSTRAINT "ContactIdentity_confirmation" CHECK (

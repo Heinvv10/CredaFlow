@@ -6,9 +6,13 @@ function tx(contact: object | null, holder: object | null = null) {
   const create = vi.fn(async (_: unknown) => ({}))
   const update = vi.fn(async (_: unknown) => ({}))
   const identityUpdate = vi.fn(async (_: unknown) => ({}))
-  return { deleteMany, create, update, identityUpdate, db: { contact: { findFirst: async () => contact, update }, contactIdentity: { deleteMany, create, update: identityUpdate, findFirst: async () => holder } } as never }
+  const contactCreate = vi.fn(async (a: { data: object }) => ({ id: "ct-new", primaryEmail: null, primaryWaJid: null, staffAddressUnresolvedAt: null, ...a.data }))
+  return { deleteMany, create, update, identityUpdate, contactCreate, db: {
+    $queryRaw: async () => [], client: { findFirst: async () => ({ firstName: "A", lastName: "B", phone: "+26658000001", deceasedAt: null }) },
+    contact: { findFirst: async () => contact, update, create: contactCreate }, contactIdentity: { deleteMany, create, update: identityUpdate, findFirst: async () => holder },
+  } as never }
 }
-const contact = { id: "ct1", primaryEmail: "old@x.invalid", primaryWaJid: "26658000001@s.whatsapp.net" }
+const contact = { id: "ct1", primaryEmail: "old@x.invalid", primaryWaJid: "26658000001@s.whatsapp.net", staffAddressUnresolvedAt: null as Date | null }
 const scope = { tenantId: "t1", clientId: "c1", setByStaffUserId: null }
 
 describe("syncClientContactChannels", () => {
@@ -60,13 +64,35 @@ describe("syncClientContactChannels", () => {
     expect(update).toHaveBeenCalledWith({ where: { id: "ct1" }, data: { primaryEmail: null } })
   })
 
-  it("does nothing when neither changed (a case change is no change), or the client has no Contact", async () => {
+  it("does nothing when neither changed: a case change is no change", async () => {
     const same = tx(contact)
     await syncClientContactChannels(same.db, { ...scope, before: { email: "OLD@x.invalid", whatsapp: "+26658000001" }, after: { email: "old@x.invalid", whatsapp: "26658000001" } })
     expect(same.deleteMany).not.toHaveBeenCalled()
     const none = tx(null)
-    expect(await syncClientContactChannels(none.db, { ...scope, before: { email: "a@x.invalid" }, after: { email: "b@x.invalid" } })).toEqual([])
-    expect(none.create).not.toHaveBeenCalled()
+    await syncClientContactChannels(none.db, { ...scope, before: { email: "a@x.invalid" }, after: { email: "a@x.invalid" } })
+    expect(none.contactCreate).not.toHaveBeenCalled()
+  })
+
+  it("a client with no Contact gets one: the changed address carries the setter, what did not change carries none", async () => {
+    const none = tx(null)
+    await syncClientContactChannels(none.db, { ...scope, setByStaffUserId: "u9", before: { email: "a@x.invalid", whatsapp: "+26658000001" }, after: { email: "b@x.invalid", whatsapp: "+26658000001" } })
+    expect(none.contactCreate).toHaveBeenCalledTimes(1)
+    const rows = none.create.mock.calls.map((call) => (call[0] as { data: { channel: string; value: string; setByStaffUserId?: string | null } }).data)
+    expect(rows.find((r) => r.channel === "EMAIL")).toMatchObject({ value: "b@x.invalid", setByStaffUserId: "u9" })
+    expect(rows.find((r) => r.channel === "WHATSAPP")?.setByStaffUserId).toBeUndefined()
+    expect(rows.find((r) => r.channel === "SMS")?.setByStaffUserId).toBeUndefined()
+  })
+
+  it("a staff address another Contact holds marks the Contact, and a later resolved change clears it", async () => {
+    const held = tx(contact, { id: "i2", contactId: "someone-else" })
+    await syncClientContactChannels(held.db, { ...scope, setByStaffUserId: "u9", before: { email: "old@x.invalid" }, after: { email: "taken@x.invalid" } })
+    expect(held.update).toHaveBeenCalledWith({ where: { id: "ct1" }, data: { staffAddressUnresolvedAt: expect.any(Date) } })
+    const cleared = tx({ ...contact, staffAddressUnresolvedAt: new Date() })
+    await syncClientContactChannels(cleared.db, { ...scope, setByStaffUserId: "u9", before: { email: "taken@x.invalid" }, after: { email: "free@x.invalid" } })
+    expect(cleared.update).toHaveBeenCalledWith({ where: { id: "ct1" }, data: { staffAddressUnresolvedAt: null } })
+    const own = tx(contact, { id: "i2", contactId: "someone-else" })
+    await syncClientContactChannels(own.db, { ...scope, before: { email: "old@x.invalid" }, after: { email: "taken@x.invalid" } })
+    expect(own.update).not.toHaveBeenCalledWith({ where: { id: "ct1" }, data: { staffAddressUnresolvedAt: expect.any(Date) } })
   })
 })
 

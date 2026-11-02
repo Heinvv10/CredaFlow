@@ -21,7 +21,9 @@ vi.mock("@/lib/prisma", () => ({
     client: { findFirst: findFirstClient, update: updateClient },
     // The sync itself: lib/contact/sync-client-channels.test.ts.
     $transaction: (fn: (tx: unknown) => unknown) => fn({
-      client: { update: updateClient }, contact: { findFirst: findContact, update: updateContact },
+      $queryRaw: async () => [],
+      client: { update: updateClient, findFirst: async () => ({ firstName: "A", lastName: "B", phone: null, deceasedAt: null }) },
+      contact: { findFirst: findContact, update: updateContact, create: async () => ({ id: "ct-new", primaryEmail: null, primaryWaJid: null, staffAddressUnresolvedAt: null }) },
       contactIdentity: { deleteMany: async () => ({ count: 1 }), findFirst: async () => null, create: async () => ({}) },
     }),
   },
