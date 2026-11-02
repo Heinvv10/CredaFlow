@@ -73,6 +73,13 @@ suite("the default marker and the IFRS 9 run (real Postgres, real runs, a Lesoth
     return { runId: run.runId, stage: snapshot.stage, reasons: snapshot.reasons }
   }
   const row = (l: LoanFixture) => db().loan.findUniqueOrThrow({ where: { id: l.loanId } })
+  /** What the accounting close leaves: a month with an export batch can no longer be superseded. */
+  const closeMonth = (l: LoanFixture, periodKey: string) => db().$transaction(async (tx) => {
+    const batch = await tx.accountingExportBatch.create({
+      data: { tenantId: l.tenantId, periodKey, periodStart: new Date(`${periodKey}-01T00:00:00+02:00`), periodEnd: new Date(`${periodEndDate(periodKey)}T23:59:59+02:00`), createdById: l.checkerId },
+    })
+    await tx.accountingExportBatch.update({ where: { id: batch.id }, data: { status: "CLOSED", closedAt: new Date(), linesSha256: "empty-synthetic-month" } })
+  })
 
   it("a change before any run keeps the marker, an ON_DEMAND run does not spend it, and the MONTHLY run stages the loan at 3", async () => {
     const l = await defaulted()
@@ -93,6 +100,7 @@ suite("the default marker and the IFRS 9 run (real Postgres, real runs, a Lesoth
     const l = await defaulted({ stage2ProbationMonths: 0, stage3ProbationMonths: 0, restructuredProbationMonths: 0 })
     await reschedulePastTheRuns(l)
     expect(await monthly(l, monthAhead(1))).toMatchObject({ stage: 3, reasons: ["RESTRUCTURED"] })
+    await closeMonth(l, monthAhead(1))
     expect(await monthly(l, monthAhead(2))).toMatchObject({ stage: 1, reasons: [] })
     const { restructuredAt } = await row(l)
     await proposeAndApprove(l, { type: "RATE_CHANGE", interestRatePm: 0.03 })
@@ -106,10 +114,39 @@ suite("the default marker and the IFRS 9 run (real Postgres, real runs, a Lesoth
     const l = await defaulted()
     await reschedulePastTheRuns(l)
     await monthly(l, monthAhead(1))
+    await closeMonth(l, monthAhead(1))
+    const { restructuredAt } = await row(l)
     await proposeAndApprove(l, { type: "RATE_CHANGE", interestRatePm: 0.03 })
+    expect((await row(l)).restructuredAt).toEqual(restructuredAt)
     const held = await monthly(l, monthAhead(2))
     expect(held.stage).toBe(3)
     expect(held.reasons).toContain("PROBATION_FROM_STAGE_3")
+  })
+
+  it("a run in an open month does not spend the marker: that run can still be replaced", async () => {
+    const l = await defaulted()
+    await reschedulePastTheRuns(l)
+    await monthly(l, monthAhead(1))
+    const { restructuredAt } = await row(l)
+    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12 })
+    const after = await row(l)
+    expect(after.defaultedAtRestructure).toBe(true)
+    expect(after.restructuredAt!.getTime()).toBeGreaterThan(restructuredAt!.getTime())
+  })
+
+  it("replacing a month's run after a later restructure reads the restructure that stood that month, at Stage 3", async () => {
+    const l = await defaulted()
+    await reschedulePastTheRuns(l)
+    const period = sastCalendarDate(new Date()).slice(0, 7)
+    const first = await monthly(l, period)
+    expect(first.stage).toBe(3)
+    await proposeAndApprove(l, { type: "RESTRUCTURE", instalments: 12 })
+    // The second change dated in the month after: the run below is the first thing to read it from there.
+    await db().loan.update({ where: { id: l.loanId }, data: { restructuredAt: new Date(`${monthAhead(1)}-02T10:00:00+02:00`) } })
+    const later = new Date(`${monthAhead(1)}-03T10:00:00+02:00`)
+    const run = await runWithTenant(l.tenantId, () => executeRun(l.tenantId, { kind: "MONTHLY", periodKey: period, now: later, actor: actor(l), supersede: { runId: first.runId, reason: "A corrected PD" } }))
+    const snapshot = await db().ifrs9LoanSnapshot.findUniqueOrThrow({ where: { runId_loanId: { runId: run.runId, loanId: l.loanId } } })
+    expect(snapshot).toMatchObject({ stage: 3, reasons: ["RESTRUCTURED"] })
   })
 
   it("replacing the month's run stages the loan at 3 again: the marker is still there for it to read", async () => {

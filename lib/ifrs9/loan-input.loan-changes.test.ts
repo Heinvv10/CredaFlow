@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/reports/book-as-of", () => ({ loadAsOfLoans: async () => [{ id: "l", statusAsOf: "ACTIVE" }], scheduleAsOf: () => [] }))
+
 import { inheritPriorStaging, loadRunLoans } from "./loan-input"
 import type { PriorStaging } from "./staging"
 
@@ -49,6 +52,18 @@ describe("loadRunLoans", () => {
     const db = { loan: { findMany: async () => [{ id: "l", reference: "L", productId: "p", contractType: "LOAN", status: "ACTIVE", collectionsStage: "NONE", debtReviewNoticeAt: null, startDate: new Date(0), principal: 1, outstandingPrincipal: 1, chargesOutstanding: 0, restructuredAt: null, ifrs9Flags: [], terms, repaymentSchedule: [] }] } } as never
     const [loan] = await loadRunLoans(db, "t", new Date(), null)
     expect(loan!.graceDeferral).toBeUndefined()
+  })
+
+  it("a run of a past month reads the restructure that stood then, not one made since", async () => {
+    const runAt = new Date("2026-10-31T21:59:00Z")
+    const row = { id: "l", reference: "L", productId: "p", contractType: "LOAN", status: "ACTIVE", collectionsStage: "NONE", debtReviewNoticeAt: null, startDate: new Date(0), principal: 1, outstandingPrincipal: 1, chargesOutstanding: 0, restructuredAt: new Date("2026-11-02T08:00:00Z"), ifrs9Flags: [], terms: [] }
+    const newestFirst = [{ loanId: "l", appliedAt: new Date("2026-11-02T08:00:00Z") }, { loanId: "l", appliedAt: new Date("2026-10-20T08:00:00Z") }]
+    const db = {
+      loan: { findMany: async () => [row] },
+      loanChange: { findMany: async ({ where }: { where: { appliedAt?: { lte: Date } } }) => newestFirst.filter((c) => !where.appliedAt || c.appliedAt <= where.appliedAt.lte).slice(0, 1) },
+    } as never
+    const [loan] = await loadRunLoans(db, "t", runAt, new Date("2026-10-31T22:00:00Z"))
+    expect(loan!.restructuredOn).toBe("2026-10-20")
   })
 
   it("a full grace still reads through when the origination is the only row", async () => {

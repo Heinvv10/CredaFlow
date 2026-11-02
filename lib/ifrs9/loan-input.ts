@@ -71,10 +71,17 @@ export async function loadRunLoans(db: Pick<Db, "loan" | "payment" | "auditLog" 
   const asOfLoans = await loadAsOfLoans(db, tenantId, asOf)
   const byId = new Map(asOfLoans.map((l) => [l.id as string, l]))
   const rows = await db.loan.findMany({ where: { tenantId, id: { in: [...byId.keys()] }, status: { not: "CANCELLED" } }, orderBy: { id: "asc" }, select: BASE_SELECT })
+  // A later restructure has moved Loan.restructuredAt past this month: the one that stood then is in the change history.
+  const movedOn = rows.filter((row) => row.restructuredAt !== null && row.restructuredAt > runAt).map((row) => row.id)
+  const standing = movedOn.length === 0 ? [] : await db.loanChange.findMany({
+    where: { tenantId, loanId: { in: movedOn }, markedRestructured: true, appliedAt: { lte: runAt } },
+    orderBy: [{ loanId: "asc" }, { appliedAt: "desc" }], distinct: ["loanId"], select: { loanId: true, appliedAt: true },
+  })
+  const restructuredThen = new Map(standing.map((change) => [change.loanId, change.appliedAt]))
   return rows.map((row) => {
     const schedule = scheduleAsOf(byId.get(row.id)!, asOf).map(({ dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid }) => ({ dueDate, principalDue, interestDue, feesDue, totalDue, totalPaid }))
     const status = byId.get(row.id)!.statusAsOf ?? (row.status === "COMPLETED" || row.status === "WRITTEN_OFF" ? "ACTIVE" : row.status)
-    return runLoan(row, schedule, recomputeLoanBalances(row.principal, schedule, runAt).outstandingPrincipal, status)
+    return runLoan({ ...row, restructuredAt: restructuredThen.get(row.id) ?? row.restructuredAt }, schedule, recomputeLoanBalances(row.principal, schedule, runAt).outstandingPrincipal, status)
   })
 }
 

@@ -24,14 +24,16 @@ type Ctx = ApplyContext<LoanChangePayload>
 const FORBEARANCE_TYPES: readonly string[] = ["RESCHEDULE", "RESTRUCTURE", "PAYMENT_HOLIDAY"]
 
 /**
- * The marker's loans a MONTHLY run has staged at 3 since it was set. The day of the change is not since it: restructuredInForce
- * (lib/ifrs9/staging.ts) counts a run that day as not yet having staged the restructure.
+ * The marker's loans a MONTHLY run has staged at 3 since it was set, in a closed month. The day of the change is not since it:
+ * restructuredInForce (lib/ifrs9/staging.ts) counts a run that day as not yet having staged the restructure. An open month's run
+ * can still be superseded, and its replacement reads the marker again.
  */
-async function stagedMarkers(tx: Tx, tenantId: string, loans: ChangeLoan[]): Promise<Set<string>> {
+async function spentMarkers(tx: Tx, tenantId: string, loans: ChangeLoan[]): Promise<Set<string>> {
   const marked = loans.filter((loan) => loan.defaultedAtRestructure && loan.restructuredAt)
   if (marked.length === 0) return new Set()
+  const closed = await tx.accountingExportBatch.findMany({ where: { tenantId }, distinct: ["periodKey"], select: { periodKey: true } })
   const latest = await tx.ifrs9LoanSnapshot.findMany({
-    where: { tenantId, loanId: { in: marked.map((loan) => loan.id) }, stage: 3, run: { kind: "MONTHLY" } },
+    where: { tenantId, loanId: { in: marked.map((loan) => loan.id) }, stage: 3, run: { periodKey: { in: closed.map((batch) => batch.periodKey) } } },
     orderBy: [{ loanId: "asc" }, { runDate: "desc" }], distinct: ["loanId"], select: { loanId: true, runDate: true },
   })
   const stagedOn = new Map(latest.map((row) => [row.loanId, row.runDate.toISOString().slice(0, 10)]))
@@ -40,14 +42,14 @@ async function stagedMarkers(tx: Tx, tenantId: string, loans: ChangeLoan[]): Pro
 
 /**
  * In default: DEFAULTED, or at the lender's IFRS 9 threshold and not yet marked so by the nightly job, or marked by an earlier change
- * no MONTHLY run has staged at 3. So a second change, or a new loan replacing this one, cannot lose the marker first. Once a run has
- * staged it the marker is spent: the Stage 3 hold is the prior stage and the cure clock, and a later rate cut does not send a cured
- * loan back. The column itself stays set, because replacing that month's run stages the loan from it again.
+ * whose marker is not spent. So a second change, or a new loan replacing this one, cannot lose the marker first. Once spent, the Stage
+ * 3 hold is the prior stage and the cure clock, and a later rate cut does not send a cured loan back. The column is never cleared by
+ * the run: replacing an open month's run reads it again.
  */
 async function inDefault(tx: Tx, tenantId: string, loans: ChangeLoan[], asOf: Date): Promise<boolean> {
   const { defaultDpd } = await loadSettings(tx, tenantId)
-  const staged = await stagedMarkers(tx, tenantId, loans)
-  return loans.some((loan) => (loan.defaultedAtRestructure && !staged.has(loan.id)) || loan.status === "DEFAULTED"
+  const spent = await spentMarkers(tx, tenantId, loans)
+  return loans.some((loan) => (loan.defaultedAtRestructure && !spent.has(loan.id)) || loan.status === "DEFAULTED"
     || recomputeLoanBalances(loan.principal, loan.repaymentSchedule, asOf).daysInArrears >= defaultDpd)
 }
 
