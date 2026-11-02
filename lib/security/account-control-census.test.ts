@@ -50,8 +50,8 @@ const CONTROLS: ReadonlyArray<{ control: string; file: string; constraint?: stri
   { control: "valuation behind a lease purchase", file: "lib/asset-finance/lease-term-end.ts" },
 ]
 
-/** Every kind maker-checker approves, each under the rule: DECISION_ENGINE_CONFIG carries the F7 instant key-facts setting, LOAN_CHANGE the A3 loan changes. */
-const CHANGE_KINDS = ["APPROVAL_MATRIX", "DECISION_ENGINE_CONFIG", "DECISION_RULE_SET", "LOAN_CHANGE", "PRODUCT_PRICING_RULE", "PRODUCT_VERSION"]
+/** Every kind maker-checker approves, each under the rule: DECISION_ENGINE_CONFIG carries the F7 instant key-facts setting, LOAN_CHANGE the A3 loan changes, LOAN_PRODUCT the A5b product create/edit/deactivate. */
+const CHANGE_KINDS = ["APPROVAL_MATRIX", "DECISION_ENGINE_CONFIG", "DECISION_RULE_SET", "LOAN_CHANGE", "LOAN_PRODUCT", "PRODUCT_PRICING_RULE", "PRODUCT_VERSION"]
 
 /** A constraint the census has looked at that needs no rule of its own: not a decision by a second person, or a decision named above by another route. */
 const NOT_CONTROLS = new Set<string>([])
