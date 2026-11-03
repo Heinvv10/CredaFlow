@@ -15,6 +15,9 @@ describe("isBusinessDateColumn", () => {
     ["MaintenanceFund", "leaseEndDate"],
     ["Recovery", "chargesFrozenUntil"],
     ["DealerCommissionRate", "effectiveFrom"],
+    ["BusinessEntity", "financialYearEnd"],
+    ["EntityFinancials", "periodEnd"],
+    ["AgentTask", "dueAt"],
   ])("excludes %s.%s from event-clock leak detection", (table, column) => {
     expect(isBusinessDateColumn(table, column)).toBe(true)
   })
@@ -30,5 +33,8 @@ describe("isBusinessDateColumn", () => {
     expect(isBusinessDateColumn("Payment", "chargesFrozenUntil")).toBe(false)
     expect(isBusinessDateColumn("DealerCommissionRate", "createdAt")).toBe(false)
     expect(isBusinessDateColumn("DealerCommissionLine", "effectiveOn")).toBe(false)
+    expect(isBusinessDateColumn("BusinessEntity", "createdAt")).toBe(false)
+    expect(isBusinessDateColumn("EntityFinancials", "updatedAt")).toBe(false)
+    expect(isBusinessDateColumn("AgentTask", "completedAt")).toBe(false)
   })
 })
