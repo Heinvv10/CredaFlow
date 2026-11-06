@@ -1,16 +1,18 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { baselineConstraintSql, baselineFunctionSql, baselineTriggerSql } from "@/lib/db-baseline.test-helpers"
+import { JURISDICTIONS, profileFor } from "./profiles"
 
 // Static pins on migrations 20261029101000_jurisdiction_guards,
-// 20261029110000_jurisdiction_instance_guard and 20261029120000_instance_jurisdiction;
+// 20261029110000_jurisdiction_instance_guard, 20261029120000_instance_jurisdiction
+// and 20261108090100_kenya_jurisdiction_currency;
 // the rules run against Postgres in RUN_DB_IT (instance-guard.integration.test.ts).
 const MIGRATION = "prisma/migrations/20261029120000_instance_jurisdiction/migration.sql"
 const flat = (sql: string) => sql.replace(/\s+/g, " ")
 
 describe("jurisdiction hand-written objects", () => {
-  it("ties currency to jurisdiction on the lender and on the instance: ZA is rand only, LS is loti or rand", () => {
-    const rule = `(("jurisdiction" = 'ZA' AND "currency" = 'ZAR') OR ("jurisdiction" = 'LS' AND "currency" IN ('LSL', 'ZAR')))`
+  it("ties currency to jurisdiction on the lender and on the instance: ZA is rand only, LS is loti or rand, KE is shillings only", () => {
+    const rule = `(("jurisdiction" = 'ZA' AND "currency" = 'ZAR') OR ("jurisdiction" = 'LS' AND "currency" IN ('LSL', 'ZAR')) OR ("jurisdiction" = 'KE' AND "currency" = 'KES'))`
     expect(flat(baselineConstraintSql("TenantConfig_jurisdiction_currency"))).toContain(rule)
     expect(flat(baselineConstraintSql("InstanceJurisdiction_jurisdiction_currency"))).toContain(rule)
     expect(flat(baselineConstraintSql("InstanceJurisdiction_singleton"))).toContain(`CHECK (("id" = 1))`)
@@ -113,5 +115,28 @@ describe("jurisdiction hand-written objects", () => {
     expect(fn).toContain(`SELECT 1 FROM public."LoanApplication" WHERE "tenantId" = OLD."tenantId"`)
     expect(fn).toContain(`SELECT 1 FROM public."Loan" WHERE "tenantId" = OLD."tenantId"`)
     expect(fn).toContain("retire the lender by setting its status to SUSPENDED")
+  })
+})
+
+describe("the Kenyan enum values", () => {
+  const ENUMS = "prisma/migrations/20261108090000_kenya_enum_values/migration.sql"
+  const CHECKS = "prisma/migrations/20261108090100_kenya_jurisdiction_currency/migration.sql"
+
+  it("are added in a migration of their own, before the CHECKs that use them (Postgres cannot use a new value in the same transaction)", () => {
+    const enums = flat(readFileSync(ENUMS, "utf8"))
+    expect(enums).toContain(`ALTER TYPE "Jurisdiction" ADD VALUE IF NOT EXISTS 'KE'`)
+    expect(enums).toContain(`ALTER TYPE "LenderCurrency" ADD VALUE IF NOT EXISTS 'KES'`)
+    expect(enums).not.toMatch(/CONSTRAINT/)
+    expect(readFileSync(CHECKS, "utf8")).not.toMatch(/ALTER TYPE/)
+  })
+
+  it("the currency rule mirrors the profiles: every allowed pair and no other", () => {
+    for (const name of ["TenantConfig_jurisdiction_currency", "InstanceJurisdiction_jurisdiction_currency"]) {
+      const sql = flat(baselineConstraintSql(name))
+      const pairs = [...sql.matchAll(/"jurisdiction" = '(\w+)' AND "currency" (?:= '(\w+)'|IN \(([^)]*)\))/g)]
+        .flatMap((m) => (m[2] ? [m[2]] : m[3].split(",").map((c) => c.trim().replace(/'/g, ""))).map((c) => `${m[1]}/${c}`))
+      const expected = JURISDICTIONS.flatMap((j) => profileFor(j).allowedCurrencies.map((c) => `${j}/${c}`))
+      expect(pairs.sort(), name).toEqual(expected.sort())
+    }
   })
 })

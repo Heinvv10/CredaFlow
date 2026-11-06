@@ -7,6 +7,7 @@
 import { execFileSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
+import type { Currency, Jurisdiction } from "./profiles"
 
 export interface ThrowawayDb {
   name: string
@@ -16,7 +17,7 @@ export interface ThrowawayDb {
   drop: () => Promise<void>
 }
 
-export async function createThrowawayDb(opts: { instance?: { jurisdiction: "ZA" | "LS"; currency: "ZAR" | "LSL" } } = {}): Promise<ThrowawayDb> {
+export async function createThrowawayDb(opts: { instance?: { jurisdiction: Jurisdiction; currency: Currency } } = {}): Promise<ThrowawayDb> {
   const admin = new PrismaClient()
   const name = `jur_it_${randomBytes(6).toString("hex")}`
   await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`)
@@ -26,7 +27,7 @@ export async function createThrowawayDb(opts: { instance?: { jurisdiction: "ZA" 
     cwd: process.cwd(), env: { ...process.env, DATABASE_URL: url.toString() }, stdio: ["ignore", "pipe", "pipe"],
   })
   const db = new PrismaClient({ datasources: { db: { url: url.toString() } } })
-  // The migration leaves ZA / ZAR on an empty database; a Lesotho suite sets its own, as an operator does.
+  // The migration leaves ZA / ZAR on an empty database; a Lesotho or Kenyan suite sets its own, as an operator does.
   if (opts.instance && (opts.instance.jurisdiction !== "ZA" || opts.instance.currency !== "ZAR")) {
     await db.instanceJurisdiction.update({ where: { id: 1 }, data: opts.instance })
   }
