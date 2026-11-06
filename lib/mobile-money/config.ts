@@ -1,3 +1,5 @@
+import { isDemoMode } from "@/lib/config/demo-mode"
+import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { findMobileMoneyProvider, mobileMoneyProviderRefusal, STK_PUSH_PROVIDER_ID } from "./registry"
 
 /**
@@ -14,4 +16,14 @@ export function mpesaPaybill(): string | null {
 export function stkPushAvailable(): boolean {
   const provider = findMobileMoneyProvider(STK_PUSH_PROVIDER_ID)
   return mpesaPaybill() !== null && provider !== null && mobileMoneyProviderRefusal(provider) === null
+}
+
+/**
+ * "Simulate paybill payment" books a receipt for money that never moved, on any
+ * loan staff name. Only a demo stack (DEMO_MODE=true) that also permits the
+ * simulated provider offers it: a staging box with real loans and
+ * SIMULATED_INTEGRATIONS set still does not.
+ */
+export function paybillSimulationOffered(): boolean {
+  return isDemoMode() && isSimulationPermitted("simulated-mpesa")
 }

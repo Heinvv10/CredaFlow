@@ -57,6 +57,9 @@ suite("M-Pesa money waiting for a person (real DB)", () => {
       .toMatchObject({ status: "BOOKED", loanId: f.A.loanId, paymentId: out.payment.id, resolvedById: staff.id })
     expect(await f.fresh.db.payment.findUniqueOrThrow({ where: { id: out.payment.id } }))
       .toMatchObject({ paymentMethod: "MOBILE_MONEY", amount: 50_000, idempotencyKey: "mpesa-c2b:SIMRV00001", capturedBy: staff.id })
+    // The receipt's own audit names the staff member who booked it, not the ingest's machine actor.
+    expect(await f.fresh.db.auditLog.findFirstOrThrow({ where: { entityId: f.A.loanId, action: "PAYMENT_RECORDED", newValue: { path: ["paymentId"], equals: out.payment.id } } }))
+      .toMatchObject({ userId: staff.id, userEmail: staff.email })
     expect((await f.fresh.db.auditLog.findMany({ where: { entityId: row.id } })).map((a) => a.action)).toContain("MOBILE_MONEY_ALLOCATED")
     await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff }))
       .rejects.toMatchObject({ code: "ALREADY_RESOLVED" })
@@ -91,6 +94,68 @@ suite("M-Pesa money waiting for a person (real DB)", () => {
       .rejects.toMatchObject({ code: "NOT_FOUND" })
     await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.B.reference, actor: staff }))
       .rejects.toMatchObject({ code: "LOAN_NOT_FOUND" })
+  })
+
+  const pending = (checkoutRequestId: string | null, amount: number) => f.fresh.db.mobileMoneyTransaction.create({
+    data: { tenantId: f.A.tenantId, provider: "simulated", checkoutRequestId, billRef: f.A.reference, amount, status: "PENDING", loanId: f.A.loanId, simulated: true },
+  })
+  const stkPaid = (co: string, transId: string, amount: string) =>
+    f.signed(f.A.tenantId, { type: "STK", checkoutRequestId: co, result: "PAID", transId, amount, msisdn: "254712345678" })
+
+  it("books what the provider reported for an STK amount mismatch, only once staff confirm it (breaker2 N1)", async () => {
+    await pending("ws_CO_SIM_n1", 50_000)
+    expect(await f.deliver(f.A.tenantId, stkPaid("ws_CO_SIM_n1", "SIMN1000001", "200.00"))).toMatchObject({ outcome: "NEEDS_REVIEW" })
+    const row = await f.fresh.db.mobileMoneyTransaction.findFirstOrThrow({ where: { transId: "SIMN1000001" } })
+    expect(row).toMatchObject({ amount: 50_000, reportedAmount: 20_000 })
+    const alloc = (confirmedAmount?: number) => allocateMobileMoney(f.db, {
+      tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff, ...(confirmedAmount ? { confirmedAmount } : {}),
+    })
+    await expect(alloc()).rejects.toMatchObject({ code: "AMOUNT_UNCONFIRMED" })
+    await expect(alloc(50_000)).rejects.toMatchObject({ code: "AMOUNT_UNCONFIRMED" })
+    const out = await alloc(20_000)
+    expect(out.payment.amount).toBe(20_000)
+    const audit = await f.fresh.db.auditLog.findFirstOrThrow({ where: { entityId: row.id, action: "MOBILE_MONEY_ALLOCATED" } })
+    expect(audit.newValue).toMatchObject({ amount: 20_000, requestedAmount: 50_000, reportedAmount: 20_000, amountConfirmedById: staff.id })
+  })
+
+  it("resolves a row once under allocate/allocate/reject at once, and never for another lender (breaker2 N2)", async () => {
+    const row = await unmatched(f.A.tenantId, "SIMN2000001")
+    await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.B.reference, actor: staff })).rejects.toMatchObject({ code: "LOAN_NOT_FOUND" })
+    const before = await f.payments(f.A.loanId)
+    await Promise.allSettled([
+      allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff }),
+      allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff }),
+      rejectMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, reason: "not ours", actor: staff }),
+    ])
+    expect((await f.payments(f.A.loanId)) - before).toBeLessThanOrEqual(1)
+    await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff })).rejects.toMatchObject({ code: "ALREADY_RESOLVED" })
+    await expect(allocateMobileMoney(f.db, { tenantId: f.B.tenantId, id: row.id, loanReference: f.B.reference, actor: staff })).rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("leaves a row reviewable when the chosen loan is closed (breaker2 N3)", async () => {
+    const row = await unmatched(f.A.tenantId, "SIMN3000001")
+    const closed = await f.loan()
+    await f.fresh.db.loan.update({ where: { id: closed.loanId }, data: { status: "COMPLETED" } })
+    await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: closed.reference, actor: staff })).rejects.toMatchObject({ code: "NOT_ACTIVE" })
+    expect((await f.fresh.db.mobileMoneyTransaction.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("UNMATCHED")
+  })
+
+  it("keeps a real result for a push claimed but never answered, booking nothing (breaker2 N4)", async () => {
+    const claim = await pending(null, 10_000)
+    const before = await f.payments(f.A.loanId)
+    expect(await f.deliver(f.A.tenantId, stkPaid("ws_CO_SIM_orphan", "SIMN4000001", "100.00"))).toMatchObject({ outcome: "UNMATCHED" })
+    expect(await f.fresh.db.mobileMoneyTransaction.findFirst({ where: { transId: "SIMN4000001" } })).not.toBeNull()
+    expect(await f.payments(f.A.loanId)).toBe(before)
+    expect((await f.fresh.db.mobileMoneyTransaction.findUniqueOrThrow({ where: { id: claim.id } })).status).toBe("PENDING")
+  })
+
+  it("a paybill confirmation of a payment staff already allocated is a replay (breaker2 N5)", async () => {
+    await f.deliver(f.A.tenantId, stkPaid("ws_CO_SIM_n5", "SIMN5000001", "100.00"))
+    const row = await f.fresh.db.mobileMoneyTransaction.findFirstOrThrow({ where: { transId: "SIMN5000001" } })
+    await allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff })
+    const before = await f.payments(f.A.loanId)
+    expect(await f.deliver(f.A.tenantId, f.paybill(f.A.tenantId, "SIMN5000001", f.A.reference, "100.00"))).toEqual({ outcome: "DUPLICATE" })
+    expect(await f.payments(f.A.loanId)).toBe(before)
   })
 
   it("holds the money UNAPPLIED when the charges replay refuses it", async () => {

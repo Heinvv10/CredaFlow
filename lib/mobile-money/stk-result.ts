@@ -57,6 +57,7 @@ export async function ingestStkResult(db: MobileMoneyDb, ctx: IngestContext, cb:
         ...(cb.kind === "STK_PAID" ? { transId: cb.transId, msisdnLast4: cb.msisdnLast4, transactedAt: cb.transactedAt } : {}),
         ...("paymentId" in settled ? { paymentId: settled.paymentId } : {}),
         ...("reviewReason" in settled ? { reviewReason: settled.reviewReason } : {}),
+        ...("reportedAmount" in settled ? { reportedAmount: settled.reportedAmount } : {}),
       },
     })
     if (claimed.count !== 1) throw new DuplicateDelivery()
@@ -72,7 +73,9 @@ export async function ingestStkResult(db: MobileMoneyDb, ctx: IngestContext, cb:
   if (cb.amountCents !== push.amount) {
     return settleWithoutReceipt(db, settle, {
       status: "NEEDS_REVIEW",
-      reviewReason: `The provider reported ${formatZAR(cb.amountCents)} for a push of ${formatZAR(push.amount)}: not booked. Confirm the amount and capture the receipt by hand.`,
+      // Kept beside the pushed amount: staff confirm and book what the provider reported, never the request.
+      reportedAmount: cb.amountCents,
+      reviewReason: `The provider reported ${formatZAR(cb.amountCents)} for a push of ${formatZAR(push.amount)}: not booked. Confirm the reported amount with the provider, then allocate it.`,
     })
   }
   return bookReceipt(db, {

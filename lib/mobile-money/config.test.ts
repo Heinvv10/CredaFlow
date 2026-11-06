@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { mpesaPaybill, stkPushAvailable } from "./config"
+import { mpesaPaybill, paybillSimulationOffered, stkPushAvailable } from "./config"
 import { mobileMoneyCaptureOffered } from "./label"
 
 afterEach(() => { vi.unstubAllEnvs() })
@@ -33,6 +33,20 @@ describe("stkPushAvailable", () => {
     expect(stkPushAvailable()).toBe(false)
     vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-mpesa")
     expect(stkPushAvailable()).toBe(true)
+  })
+})
+
+describe("paybillSimulationOffered", () => {
+  it("needs both a demo stack (DEMO_MODE=true) and permission to simulate M-Pesa", () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    expect(paybillSimulationOffered()).toBe(true)
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "")
+    expect(paybillSimulationOffered()).toBe(false)
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-mpesa")
+    expect(paybillSimulationOffered()).toBe(true)
+    vi.stubEnv("DEMO_MODE", "")
+    expect(paybillSimulationOffered()).toBe(false)
   })
 })
 

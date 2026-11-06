@@ -52,7 +52,7 @@ export function SimulatePaybillForm() {
     <form onSubmit={submit} className="bg-white rounded-lg shadow-sm p-5 space-y-3">
       <div>
         <p className="text-sm font-semibold text-gray-900">Simulate paybill payment</p>
-        <p className="text-xs text-amber-700">SIMULATED: no money moves. Only offered on a demo or test stack.</p>
+        <p className="text-xs text-amber-700">SIMULATED: no money moves. Only offered on a demo stack.</p>
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-gray-600">Account number (loan reference)

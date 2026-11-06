@@ -7,7 +7,9 @@
  * loan staff name, through the same receipt path and idempotency key as the
  * ingest (`mpesa-c2b:<TransID>`), so one transaction can never become two
  * receipts; reject records who and why. Both lock the row, so two staff
- * clicking at once resolve it once.
+ * clicking at once resolve it once. Where the provider reported another amount
+ * than an STK push asked for, what is booked is the REPORTED amount, and only
+ * once staff confirm that figure (`confirmedAmount`); the audit keeps both.
  */
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -21,7 +23,7 @@ export const REVIEWABLE_STATUSES = ["UNMATCHED", "NEEDS_REVIEW"] as const
 export const REJECT_REASON_MIN = 5
 export const REJECT_REASON_MAX = 500
 
-export type MobileMoneyReviewErrorCode = "NOT_FOUND" | "ALREADY_RESOLVED" | "LOAN_NOT_FOUND" | "SIMULATION_FORBIDDEN"
+export type MobileMoneyReviewErrorCode = "NOT_FOUND" | "ALREADY_RESOLVED" | "LOAN_NOT_FOUND" | "SIMULATION_FORBIDDEN" | "AMOUNT_UNCONFIRMED"
 
 export class MobileMoneyReviewError extends Error {
   constructor(readonly code: MobileMoneyReviewErrorCode, message: string) {
@@ -38,7 +40,7 @@ export function listMobileMoneyForReview(tenantId: string) {
     where: { tenantId, status: { in: [...REVIEWABLE_STATUSES] } },
     orderBy: { createdAt: "asc" },
     select: {
-      id: true, status: true, transId: true, billRef: true, amount: true, reviewReason: true,
+      id: true, status: true, transId: true, billRef: true, amount: true, reportedAmount: true, reviewReason: true,
       transactedAt: true, createdAt: true, simulated: true, msisdnLast4: true,
       loan: { select: { id: true, reference: true } },
     },
@@ -58,7 +60,11 @@ async function lockOpen(tx: PaymentTx, tenantId: string, id: string) {
 }
 
 /** Books the transaction as a receipt on the loan staff named, and marks it BOOKED, atomically. */
-export async function allocateMobileMoney(db: MobileMoneyDb, input: { tenantId: string; id: string; loanReference: string; actor: Actor }) {
+export async function allocateMobileMoney(db: MobileMoneyDb, input: {
+  tenantId: string; id: string; loanReference: string; actor: Actor
+  /** cents; required, and must equal the reported amount, on a row whose reported amount differs from its push */
+  confirmedAmount?: number
+}) {
   const { tenantId, actor } = input
   return db.$transaction(async (tx) => {
     const row = await lockOpen(tx, tenantId, input.id)
@@ -66,10 +72,16 @@ export async function allocateMobileMoney(db: MobileMoneyDb, input: { tenantId: 
     if (row.simulated && !isSimulationPermitted("simulated-mpesa")) {
       throw new MobileMoneyReviewError("SIMULATION_FORBIDDEN", "A simulated M-Pesa payment cannot be booked here: reject it")
     }
+    // What the provider says arrived. On a mismatch row staff must confirm that very figure.
+    const amount = row.reportedAmount ?? row.amount
+    if (row.reportedAmount !== null && input.confirmedAmount !== row.reportedAmount) {
+      throw new MobileMoneyReviewError("AMOUNT_UNCONFIRMED",
+        "The provider reported a different amount than was requested: confirm the reported amount before booking it")
+    }
     const loanId = await matchLoanByReference(tx, tenantId, input.loanReference)
     if (!loanId) throw new MobileMoneyReviewError("LOAN_NOT_FOUND", `No loan has the reference ${input.loanReference.trim()}`)
     const receipt = await applyManualReceiptInTx(tx, mobileMoneyReceipt({
-      tenantId, loanId, amountCents: row.amount, transId: row.transId,
+      tenantId, loanId, amountCents: amount, transId: row.transId,
       receivedAt: valueDate(row.transactedAt ?? row.createdAt, new Date()), simulated: row.simulated,
     }, { capturedById: actor.id, capturedByEmail: actor.email, auditUserId: actor.id }))
     await tx.mobileMoneyTransaction.update({
@@ -80,7 +92,10 @@ export async function allocateMobileMoney(db: MobileMoneyDb, input: { tenantId: 
       tenantId, userId: actor.id, userEmail: actor.email ?? undefined,
       action: AuditAction.MOBILE_MONEY_ALLOCATED, entity: "MobileMoneyTransaction", entityId: row.id,
       oldValue: { status: row.status, loanId: row.loanId },
-      newValue: { status: "BOOKED", loanId, paymentId: receipt.payment.id, amount: row.amount, transId: row.transId },
+      newValue: {
+        status: "BOOKED", loanId, paymentId: receipt.payment.id, amount, transId: row.transId,
+        ...(row.reportedAmount !== null ? { requestedAmount: row.amount, reportedAmount: row.reportedAmount, amountConfirmedById: actor.id } : {}),
+      },
     }, tx)
     return { transactionId: row.id, loanId, payment: receipt.payment, idempotentReplay: receipt.idempotentReplay }
   })

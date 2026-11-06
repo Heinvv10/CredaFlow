@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
+import { paybillSimulationOffered } from "@/lib/mobile-money/config"
 import { canActOnPaymentNotifications } from "@/lib/payments/payment-notifications"
 import { ingestMobileMoneyCallback } from "@/lib/mobile-money/c2b-ingest"
 import { simulatedC2BPayment, simulatedMpesa, simulatedSecretConfigured } from "@/lib/mobile-money/providers/simulated"
@@ -16,11 +16,11 @@ const SIMULATED_PAYER = "254700000000"
  * "Simulate paybill payment" for the demo: a signed C2B callback for this
  * lender, delivered through the same verification and ingest as the webhook,
  * so it books (or stays UNMATCHED) exactly as a real paybill payment would.
- * It does not exist (404) wherever simulated-mpesa is not permitted, which is
- * every deployed build that does not name it in SIMULATED_INTEGRATIONS.
+ * It does not exist (404) outside a demo stack (DEMO_MODE=true) that permits
+ * simulated-mpesa (lib/mobile-money/config.ts, paybillSimulationOffered).
  */
 export async function POST(req: NextRequest) {
-  if (!isSimulationPermitted("simulated-mpesa")) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (!paybillSimulationOffered()) return NextResponse.json({ error: "Not found" }, { status: 404 })
   const guard = await requireApiRole("COLLECTIONS_AGENT")
   if (guard.error) return guard.error
   if (!canActOnPaymentNotifications(guard.user.role)) {

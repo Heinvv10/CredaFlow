@@ -105,6 +105,10 @@ describe("startStkPush", () => {
     answer = { kind: "rejected", reason: "Simulated secret missing" }
     expect(await push(current.db)).toMatchObject({ ok: false, reason: "REJECTED" })
     expect(current.state.rows[0]).toMatchObject({ status: "CANCELLED", checkoutRequestId: null })
+    expect(current.state.writes).toContainEqual(expect.objectContaining({
+      action: "MOBILE_MONEY_STK_CANCELLED", entityId: "mm1",
+      newValue: expect.objectContaining({ status: "CANCELLED", reason: "Simulated secret missing" }),
+    }))
     expect(ingest).not.toHaveBeenCalled()
   })
 

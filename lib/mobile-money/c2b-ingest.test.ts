@@ -264,6 +264,9 @@ describe("STK push results", () => {
     pending(state)
     expect(await ingest(db, paid({ amountCents: 99_000 }))).toEqual({ outcome: "NEEDS_REVIEW", transactionId: "stk1" })
     expect(applyManualReceiptInTx).not.toHaveBeenCalled()
+    // The row keeps what was pushed AND what the provider says was paid: staff book the latter.
+    expect(state.rows[0]).toMatchObject({ status: "NEEDS_REVIEW", amount: 120_000, reportedAmount: 99_000 })
+    expect(state.audits.at(-1)?.newValue).toMatchObject({ amount: 120_000, reportedAmount: 99_000 })
   })
 
   it("finds only the lender's own push", async () => {

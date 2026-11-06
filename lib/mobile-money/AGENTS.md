@@ -27,7 +27,8 @@ only when `MPESA_PAYBILL_SHORTCODE` is set. Staff work what waits on
 - **References match exactly, case-folded** (`matchLoanByReference`), never LIKE.
 - **Simulation is guarded**: the adapter refuses to sign, push or parse where
   `isSimulationPermitted("simulated-mpesa")` is false; the ingest stores such a
-  callback NEEDS_REVIEW; staff can only reject it; the simulate route is a 404.
+  callback NEEDS_REVIEW; staff can only reject it; "Simulate paybill payment" also
+  needs DEMO_MODE (404 otherwise). A mismatched STK amount books the REPORTED figure, staff-confirmed.
 - **Verify before reading**: no signature header or an oversized body is refused
   first; the signature covers the host's tenant id (a callback for another
   lender is 401). The tenant comes from the host, never the body.

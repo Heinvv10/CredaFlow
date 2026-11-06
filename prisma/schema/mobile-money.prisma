@@ -38,8 +38,10 @@ model MobileMoneyTransaction {
   msisdnLast4       String?
   /// The account number the payer typed (BillRefNumber), trimmed.
   billRef           String
-  /// cents
+  /// cents: what the payer paid, or for an STK push what was requested
   amount            Int
+  /// cents: what the provider reported paid, where that differs from an STK push's amount (NEEDS_REVIEW). Staff confirm and book this.
+  reportedAmount    Int?
   status            MobileMoneyTransactionStatus
   /// When the provider says the money moved.
   transactedAt      DateTime?

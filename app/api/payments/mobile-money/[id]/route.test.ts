@@ -21,6 +21,7 @@ vi.mock("@/lib/mobile-money/notify", () => ({ notifyReceiptBooked }))
 
 import { PATCH } from "./route"
 import { MobileMoneyReviewError } from "@/lib/mobile-money/review"
+import { PaymentApplicationError } from "@/lib/loan/apply-payment"
 
 const patch = (body: unknown) => PATCH(
   new NextRequest("http://x/api/payments/mobile-money/mm1", { method: "PATCH", body: typeof body === "string" ? body : JSON.stringify(body) }),
@@ -49,6 +50,14 @@ describe("PATCH /api/payments/mobile-money/[id]", () => {
     expect(rejectMobileMoney.mock.calls[0][1]).toMatchObject({ tenantId: "t1", id: "mm1", reason: "Not our customer: refunded by Safaricom" })
   })
 
+  it("answers the session guard's refusal unchanged and touches nothing", async () => {
+    requireApiRole.mockResolvedValue({ error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }) })
+    expect((await patch({ action: "allocate", loanReference: "NRB-LN-1" })).status).toBe(401)
+    expect((await patch({ action: "reject", reason: "Not our customer at all" })).status).toBe(401)
+    expect(allocateMobileMoney).not.toHaveBeenCalled()
+    expect(rejectMobileMoney).not.toHaveBeenCalled()
+  })
+
   it("refuses a role that cannot record payments", async () => {
     requireApiRole.mockResolvedValue({ user: { id: "u2", email: "i@test.invalid", role: "INSURANCE_OFFICER" } })
     expect((await patch({ action: "allocate", loanReference: "NRB-LN-1" })).status).toBe(403)
@@ -59,6 +68,25 @@ describe("PATCH /api/payments/mobile-money/[id]", () => {
     expect((await patch("{nope")).status).toBe(400)
     expect((await patch({ action: "book" })).status).toBe(400)
     expect((await patch({ action: "allocate", loanReference: "  " })).status).toBe(400)
+  })
+
+  it("passes the amount staff confirmed (cents) and refuses one that is not a positive integer", async () => {
+    await patch({ action: "allocate", loanReference: "NRB-LN-1", confirmedAmount: 99_000 })
+    expect(allocateMobileMoney.mock.calls[0][1]).toMatchObject({ confirmedAmount: 99_000 })
+    for (const confirmedAmount of [990.5, -1, "99000"]) {
+      expect((await patch({ action: "allocate", loanReference: "NRB-LN-1", confirmedAmount })).status, String(confirmedAmount)).toBe(400)
+    }
+    allocateMobileMoney.mockRejectedValueOnce(new MobileMoneyReviewError("AMOUNT_UNCONFIRMED", "confirm it"))
+    expect((await patch({ action: "allocate", loanReference: "NRB-LN-1" })).status).toBe(409)
+  })
+
+  it("explains a value date the loan cannot take, and that the way out is another loan or rejecting it", async () => {
+    allocateMobileMoney.mockRejectedValueOnce(new PaymentApplicationError("INVALID_VALUE_DATE", "The value date is before the loan started"))
+    const res = await patch({ action: "allocate", loanReference: "NRB-LN-1" })
+    expect(res.status).toBe(422)
+    const { error } = await res.json()
+    expect(error).toMatch(/before the loan started/)
+    expect(error).toMatch(/another loan or reject it/)
   })
 
   it("maps review refusals: resolved 409, missing 404, simulated 409", async () => {

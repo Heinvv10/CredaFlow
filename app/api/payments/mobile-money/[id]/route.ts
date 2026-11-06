@@ -11,7 +11,7 @@ import {
 } from "@/lib/mobile-money/review"
 
 const STATUS: Record<MobileMoneyReviewError["code"], number> = {
-  NOT_FOUND: 404, LOAN_NOT_FOUND: 404, ALREADY_RESOLVED: 409, SIMULATION_FORBIDDEN: 409,
+  NOT_FOUND: 404, LOAN_NOT_FOUND: 404, ALREADY_RESOLVED: 409, SIMULATION_FORBIDDEN: 409, AMOUNT_UNCONFIRMED: 409,
 }
 
 /**
@@ -28,7 +28,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   return withTenantContext(req, async (tenant) => {
     const { id } = await params
-    const body = (await req.json().catch(() => null)) as { action?: unknown; loanReference?: unknown; reason?: unknown } | null
+    const body = (await req.json().catch(() => null)) as { action?: unknown; loanReference?: unknown; reason?: unknown; confirmedAmount?: unknown } | null
     if (!body || typeof body !== "object") return NextResponse.json({ error: "A JSON body is required" }, { status: 400 })
     const actor = { id: guard.user.id, email: guard.user.email ?? null }
     try {
@@ -44,7 +44,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (!loanReference || loanReference.length > 100) {
         return NextResponse.json({ error: "Enter the reference of the loan to allocate it to" }, { status: 400 })
       }
-      const result = await allocateMobileMoney(prisma, { tenantId: tenant.id, id, loanReference, actor })
+      const { confirmedAmount } = body
+      if (confirmedAmount !== undefined && (typeof confirmedAmount !== "number" || !Number.isSafeInteger(confirmedAmount) || confirmedAmount <= 0)) {
+        return NextResponse.json({ error: "confirmedAmount must be a positive integer (cents)" }, { status: 400 })
+      }
+      const result = await allocateMobileMoney(prisma, {
+        tenantId: tenant.id, id, loanReference, actor, ...(confirmedAmount === undefined ? {} : { confirmedAmount }),
+      })
       if (!result.idempotentReplay) notifyReceiptBooked({ tenantId: tenant.id, loanId: result.loanId, payment: result.payment })
       return NextResponse.json({ transactionId: result.transactionId, status: "BOOKED", paymentId: result.payment.id })
     } catch (err) {
@@ -53,6 +59,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (err instanceof PaymentApplicationError) {
         if (err.code === "NOT_ACTIVE") return NextResponse.json({ error: "Loan is not active" }, { status: 409 })
         if (err.code === "NOT_FOUND") return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+        if (err.code === "INVALID_VALUE_DATE") {
+          // The provider's date is fixed: this loan cannot take the payment, so say what can be done.
+          return NextResponse.json({ error: `${err.message} This payment cannot be booked on that loan: allocate it to another loan or reject it.` }, { status: 422 })
+        }
         return NextResponse.json({ error: err.message }, { status: 422 })
       }
       throw err

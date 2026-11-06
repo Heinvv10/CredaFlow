@@ -17,11 +17,24 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { ingestMobileMoneyCallback } from "./c2b-ingest"
 import { simulatedC2BPayment, simulatedMpesa } from "./providers/simulated"
 import { startStkPush } from "./stk-push"
+import { registerMobileMoneyProvider } from "./registry"
+import type { MobileMoneyProvider } from "./types"
 import { createMobileMoneyFixture, IT_SECRET, PHONE, type MobileMoneyFixture } from "./mobile-money.integration-fixture"
 
 vi.mock("@/lib/notifications", () => ({ triggerNotification: vi.fn(async () => undefined) }))
 
 const suite = process.env.RUN_DB_IT === "1" ? describe.sequential : describe.skip
+
+/** A provider whose push is accepted after a pause and answered later: the claim stays PENDING. */
+const slowPush: MobileMoneyProvider = {
+  id: "it-slow-push", displayName: "IT slow push", signatureHeader: "x-none", simulation: () => null,
+  requestStkPush: async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    return { kind: "accepted", checkoutRequestId: `ws_CO_IT_${Math.random().toString(36).slice(2)}` }
+  },
+  parseCallback: () => null,
+}
+registerMobileMoneyProvider(slowPush)
 
 suite("M-Pesa receipts on a Kenyan instance (real DB)", () => {
   let f: MobileMoneyFixture
@@ -179,6 +192,48 @@ suite("M-Pesa receipts on a Kenyan instance (real DB)", () => {
     const push = await pending(f.A.tenantId, f.A.loanId, f.A.reference, "ws_CO_SIM_xten0001")
     expect(await f.deliver(f.B.tenantId, stkPaid(f.B.tenantId, "ws_CO_SIM_xten0001", "SIMXTSTK01"))).toMatchObject({ outcome: "UNMATCHED" })
     expect(await f.fresh.db.mobileMoneyTransaction.findUniqueOrThrow({ where: { id: push.id } })).toMatchObject({ status: "PENDING", transId: null })
+  })
+
+  it("claims at most one open push per loan when two pushes race (the loan lock)", async () => {
+    const loan = await f.loan()
+    const push = () => startStkPush(f.db, {
+      tenantId: f.A.tenantId, providerId: slowPush.id, loan: { id: loan.loanId, reference: loan.reference },
+      amountCents: 10_000, phone: "0712 345 678", actorEmail: "borrower@test.invalid",
+    })
+    const outs = await Promise.all([push(), push(), push()])
+    expect(outs.filter((o) => o.ok)).toHaveLength(1)
+    expect(outs.filter((o) => !o.ok).map((o) => !o.ok && o.reason)).toEqual(["PUSH_PENDING", "PUSH_PENDING"])
+    expect(await f.fresh.db.mobileMoneyTransaction.count({ where: { loanId: loan.loanId, status: "PENDING" } })).toBe(1)
+  })
+
+  it("no other lender's push can block a loan: the composite tenant key refuses one naming it", async () => {
+    // Why the open-push lookup's tenant filter cannot change behaviour: a push is
+    // bound to (tenantId, loanId), so another lender's row can never name this loan.
+    await expect(f.fresh.db.mobileMoneyTransaction.create({
+      data: { tenantId: f.B.tenantId, provider: "simulated", billRef: f.A.reference, amount: 1_000, status: "PENDING", loanId: f.A.loanId, simulated: true },
+    })).rejects.toThrow(/MobileMoneyTransaction_tenantId_loanId_fkey|Foreign key constraint/)
+    const open = await startStkPush(f.db, {
+      tenantId: f.B.tenantId, providerId: slowPush.id, loan: { id: f.B.loanId, reference: f.B.reference },
+      amountCents: 10_000, phone: "0712 345 678", actorEmail: "b@test.invalid",
+    })
+    expect(open).toMatchObject({ ok: true })
+    const mine = await f.loan()
+    expect(await startStkPush(f.db, {
+      tenantId: f.A.tenantId, providerId: slowPush.id, loan: { id: mine.loanId, reference: mine.reference },
+      amountCents: 10_000, phone: "0712 345 678", actorEmail: "a@test.invalid",
+    })).toMatchObject({ ok: true })
+  })
+
+  it("keys a transaction per lender: one TransID in two lenders inserts twice, twice in one lender fails", async () => {
+    const insert = (id: string, tenantId: string) => f.fresh.db.$executeRawUnsafe(
+      `INSERT INTO "MobileMoneyTransaction" ("id", "tenantId", "provider", "transId", "billRef", "amount", "status", "updatedAt")
+       VALUES ($1, $2, 'simulated', 'SIMUNIQ001', 'X', 100, 'UNMATCHED', now())`, id, tenantId)
+    expect(await insert("u1", f.A.tenantId)).toBe(1)
+    expect(await insert("u2", f.B.tenantId)).toBe(1)
+    await expect(insert("u3", f.A.tenantId)).rejects.toThrow(/MobileMoneyTransaction_tenantId_provider_transId_key|already exists/)
+    const [index] = await f.fresh.db.$queryRawUnsafe<Array<{ def: string }>>(
+      `SELECT indexdef AS def FROM pg_indexes WHERE indexname = 'MobileMoneyTransaction_tenantId_provider_transId_key'`)
+    expect(index.def).toMatch(/UNIQUE INDEX .*\("tenantId", provider, "transId"\)/)
   })
 
   it("refuses a zero amount, a whole phone number, a status its columns contradict and a second (tenant, provider, transId)", async () => {

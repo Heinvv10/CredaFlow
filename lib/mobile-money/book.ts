@@ -37,7 +37,8 @@ export type IngestOutcome =
 /** The row's final state, once the money's fate is known. */
 export type Settled =
   | { status: "BOOKED" | "HELD"; paymentId: string }
-  | { status: "NEEDS_REVIEW"; reviewReason: string }
+  /** reportedAmount: what the provider says was paid, where it differs from the push's amount. */
+  | { status: "NEEDS_REVIEW"; reviewReason: string; reportedAmount?: number }
   | { status: "UNMATCHED" }
   | { status: "CANCELLED"; reason: string }
 
@@ -90,6 +91,7 @@ export async function auditSettled(tx: PaymentTx, args: {
       status: settled.status,
       ...("paymentId" in settled ? { paymentId: settled.paymentId } : {}),
       ...("reviewReason" in settled ? { reason: settled.reviewReason } : {}),
+      ...("reportedAmount" in settled ? { reportedAmount: settled.reportedAmount } : {}),
       ...("reason" in settled ? { reason: settled.reason } : {}),
     },
   }, tx)

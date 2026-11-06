@@ -23,6 +23,7 @@ CREATE TABLE "MobileMoneyTransaction" (
     "msisdnLast4" TEXT,
     "billRef" TEXT NOT NULL,
     "amount" INTEGER NOT NULL,
+    "reportedAmount" INTEGER,
     "status" "MobileMoneyTransactionStatus" NOT NULL,
     "transactedAt" TIMESTAMP(3),
     "loanId" TEXT,
@@ -75,6 +76,11 @@ ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_tena
 -- The unique keys are per lender: another lender's transaction never makes
 -- this lender's look like a replay.
 ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_amount_positive" CHECK ("amount" > 0);
+-- What the provider says was paid, where it differs from the STK push's "amount" (what was
+-- requested). Only a row waiting for a person carries one: staff confirm it and book it.
+ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_reported_amount" CHECK (
+  "reportedAmount" IS NULL OR ("reportedAmount" > 0 AND "reportedAmount" <> "amount")
+);
 ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_msisdn_last4" CHECK ("msisdnLast4" IS NULL OR "msisdnLast4" ~ '^[0-9]{4}$');
 ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_status_consistent" CHECK (
   (
