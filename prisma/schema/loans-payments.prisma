@@ -234,6 +234,7 @@ model Loan {
   loanChanges                LoanChange[]            @relation("LoanChangeLoan")
   maintenanceFund            MaintenanceFund?
   meterReadings              AssetMeterReading[]
+  mobileMoneyTransactions    MobileMoneyTransaction[]
   ncaSurplusAccounts NcaSurplusAccount[]
   ncaSurplusDeterminations NcaSurplusDetermination[]
   notes                      LoanNote[]
@@ -400,6 +401,7 @@ model Payment {
   cashThresholdReport     CashThresholdReport?
   collectionResults       CollectionResult[]
   excessPayments          Payment[]              @relation("PaymentOverpayment")
+  mobileMoneyTransaction  MobileMoneyTransaction?
   paymentNotification     PaymentNotification?
   recoveryProceeds        Recovery?              @relation("RecoveryProceedsPayment")
   remarketingSaleProceeds RemarketingSale[]      @relation("RemarketingSaleProceeds")
@@ -430,6 +432,8 @@ enum PaymentMethod {
   WAIVER
   // Non-cash: a new loan paid this one off (lib/loan-changes). Never reversed.
   LOAN_SETTLEMENT
+  // M-Pesa and similar wallets (lib/mobile-money): a paybill or STK push receipt.
+  MOBILE_MONEY
 }
 
 model BankStatementImport {

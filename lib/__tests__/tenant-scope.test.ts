@@ -231,6 +231,8 @@ describe("tenant-scope — ALS primitives", () => {
       "ApplicationProductFacts",
       "BorrowerGroup",
       "BorrowerGroupMember",
+      // M-Pesa transactions (lib/mobile-money) — non-null tenantId, passed explicitly.
+      "MobileMoneyTransaction",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

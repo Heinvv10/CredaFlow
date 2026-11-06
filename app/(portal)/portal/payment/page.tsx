@@ -8,8 +8,10 @@ import { getLenderIdentity } from "@/lib/config/identity"
 import { StitchPaymentForm } from "@/components/portal/StitchPaymentForm"
 import { ManualPaymentForm } from "@/components/portal/ManualPaymentForm"
 import { CopyReferenceButton } from "@/components/portal/CopyReferenceButton"
+import { MpesaPaymentPanel } from "@/components/portal/MpesaPaymentPanel"
 import type { LoanOption } from "@/components/portal/StitchPaymentForm"
 import { stitchConfigured } from "@/lib/stitch"
+import { mpesaPaybill, stkPushAvailable } from "@/lib/mobile-money/config"
 import { portalLoanCharges } from "@/lib/portal/loan-charges"
 import { getT } from "@/lib/i18n/server"
 import type { Translator } from "@/lib/i18n/translate"
@@ -105,6 +107,11 @@ export default async function PaymentPage() {
   const onlinePayment = await stitchConfigured(tenantId)
   const t = await getT("portalPayment")
   const bankRows = eftBankRows(t)
+  // M-Pesa (KE): only where the lender's paybill is configured, never a placeholder.
+  const paybill = mpesaPaybill()
+  const mpesaPhone = paybill
+    ? (await prisma.client.findFirst({ where: { email: session.user.email, tenantId }, select: { phone: true } }))?.phone ?? ""
+    : ""
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-8">
@@ -139,6 +146,8 @@ export default async function PaymentPage() {
           <p className="mt-3 text-xs text-[var(--cf-text-muted)]">{t("referenceQuote")}</p>
         </div>
       )}
+
+      {paybill && <MpesaPaymentPanel paybill={paybill} loans={loans} stkPush={stkPushAvailable()} phone={mpesaPhone} />}
 
       {/* Stitch online payment */}
       {onlinePayment && <StitchPaymentForm loans={loans} />}

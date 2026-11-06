@@ -110,6 +110,15 @@ it("refuses WAIVER as a keyed payment method: a waiver is not money received", a
   expect(applyManualReceiptMock).not.toHaveBeenCalled()
 })
 
+it("accepts an M-Pesa receipt (MOBILE_MONEY) captured by staff", async () => {
+  applyManualReceiptMock.mockResolvedValue({ payment: { id: "pay-mm", loanId: "loan-1", amount: 50_000 }, idempotentReplay: false })
+
+  const res = await POST(postReq({ loanId: "loan-1", amount: 50_000, paymentMethod: "MOBILE_MONEY", reference: "SIM1234567" }))
+
+  expect(res.status).toBe(200)
+  expect(applyManualReceiptMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ paymentMethod: "MOBILE_MONEY" }))
+})
+
 it("rejects a missing loanId before touching the loan", async () => {
   const res = await POST(postReq({ amount: 50_000 }))
 

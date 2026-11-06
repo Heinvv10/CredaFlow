@@ -1,0 +1,60 @@
+// ── Mobile-money receipts (lib/mobile-money, KE-4) ────────────────────────────
+// One row per M-Pesa transaction a provider reported, or per STK push the
+// borrower started. Money is booked only through applyManualReceipt (the
+// receipt it became is paymentId); this row is the provider's record of it,
+// so a replayed callback (same provider + transId) books nothing. The payer's
+// phone is kept as its last four digits only. The state CHECK, the amount
+// CHECK and the masking CHECK are hand-written in migration
+// 20261108110100_mobile_money_transactions.
+
+enum MobileMoneyTransactionStatus {
+  // An STK push sent to the borrower's phone, waiting for its callback.
+  PENDING
+  // The borrower declined or ignored the STK push. No money moved.
+  CANCELLED
+  // Booked as a receipt on the loan.
+  BOOKED
+  // Money in, held UNAPPLIED for reconciliation (the charges replay refused it).
+  HELD
+  // No loan carries the account reference. Nothing booked; staff allocate it.
+  UNMATCHED
+  // Not booked: a person decides (reviewReason says why).
+  NEEDS_REVIEW
+}
+
+model MobileMoneyTransaction {
+  id                String                       @id @default(cuid())
+  tenantId          String
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id])
+  /// lib/mobile-money/registry.ts provider id, e.g. "simulated".
+  provider          String
+  /// The provider's transaction id (M-Pesa TransID / MpesaReceiptNumber). Null while an STK push is PENDING or CANCELLED.
+  transId           String?
+  /// The STK push request id; null for a paybill (C2B) payment.
+  checkoutRequestId String?
+  /// The payer's phone, last four digits only.
+  msisdnLast4       String?
+  /// The account number the payer typed (BillRefNumber), trimmed.
+  billRef           String
+  /// cents
+  amount            Int
+  status            MobileMoneyTransactionStatus
+  /// When the provider says the money moved.
+  transactedAt      DateTime?
+  loanId            String?
+  loan              Loan?                        @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// The receipt it became (BOOKED or HELD).
+  paymentId         String?
+  payment           Payment?                     @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reviewReason      String?
+  simulated         Boolean                      @default(false)
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+
+  @@unique([provider, transId])
+  @@unique([provider, checkoutRequestId])
+  @@unique([tenantId, id])
+  @@unique([tenantId, paymentId])
+  @@index([tenantId, status])
+  @@index([loanId])
+}

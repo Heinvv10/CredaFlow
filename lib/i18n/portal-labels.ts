@@ -1,6 +1,7 @@
 import { formatStatusLabel } from "@/lib/status-style"
 import { portalLoanStatusLabel } from "@/lib/portal/loan-overview"
 import { isBalanceWaiver } from "@/lib/payments/waiver"
+import { MOBILE_MONEY_LABEL, MOBILE_MONEY_METHOD } from "@/lib/mobile-money/label"
 import { portalLabels } from "./messages/en/portal-labels"
 import type { MessageKey, Translator } from "./translate"
 
@@ -37,6 +38,8 @@ export function loanStatusTitle(t: Labels, status: string, hasArrears: boolean):
 /** The portal's payment-method wording ("EFT", "Debit order", "Balance waived"), translated. */
 export function paymentMethodLabel(t: Labels, method: string): string {
   if (isBalanceWaiver(method)) return t("methodWaived")
+  // A brand name, the same in every language: no catalogue key to translate.
+  if (method === MOBILE_MONEY_METHOD) return MOBILE_MONEY_LABEL
   const key = `method_${method}`
   return isLabelKey(key) ? t(key) : method.toLowerCase().replace("_", " ")
 }

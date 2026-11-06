@@ -14,7 +14,7 @@ import {
   PAYMENT_IDEMPOTENCY_HEADER,
 } from "@/lib/payments/idempotency"
 
-const PAYMENT_METHODS = new Set(["EFT", "CASH", "DEBIT_ORDER", "CARD"])
+const PAYMENT_METHODS = new Set(["EFT", "CASH", "DEBIT_ORDER", "CARD", "MOBILE_MONEY"])
 
 export async function POST(req: NextRequest) {
   try {
