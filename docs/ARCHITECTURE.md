@@ -242,7 +242,10 @@ and currency. It is the one source of truth.
   carry an UNVERIFIED comment: the national ID shape (8 or 9 digits,
   `national-id.ts`), the mobile prefixes (`profiles.ts`), the holiday list, the
   Sunday-holiday rule and the Eid al-Fitr dates (`business-days.ts`, a per-year
-  table: a missing year has no Eid holiday). Known gap: the date code is pinned
+  table: a missing year has no Eid holiday), and the consumer-credit rules in
+  `kenya-rules.ts`. Of those only the 20% excise on fees is wired, as a disclosure
+  on the key facts statement: the part of the fees that is excise, not a charge on
+  top (the calculator is unchanged). Known gap: the date code is pinned
   to SAST (UTC+2) and Nairobi is on EAT (UTC+3), so between 00:00 and 01:00 EAT
   the system's date is still the previous day.
 - Details and rules: `lib/jurisdiction/.claude.md`.

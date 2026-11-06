@@ -31,6 +31,8 @@ type LoanProduct = {
   initiationFeeMax: number
   monthlyServiceFee: number
   active: boolean
+  /** Outside the NCA only (Kenya: the CBK product approval); sent only there. */
+  regulatorApprovalRef?: string | null
 }
 
 const EMPTY: LoanProduct = {
@@ -190,6 +192,9 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
       setError(arrearsBody.error)
       return
     }
+    // An NCA lender's product has no regulator approval reference: its request is sent as it always was.
+    const { regulatorApprovalRef, ...withoutRegulatorRef } = form
+    const regulatorRef = isNcaJurisdiction() ? {} : { regulatorApprovalRef: regulatorApprovalRef?.trim() || null }
     setSaving(true)
     setError("")
     try {
@@ -198,7 +203,7 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, ...arrearsBody.body, reason }),
+        body: JSON.stringify({ ...withoutRegulatorRef, ...regulatorRef, ...arrearsBody.body, reason }),
       })
       if (!res.ok) {
         const text = await res.text()
@@ -260,6 +265,13 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
             </select>
             {isNonNcaProductType(form.productType) && <p className="mt-1 text-xs text-gray-500">{PRODUCT_TYPE_HINT[form.productType]} Originated by staff.</p>}
           </div>
+          {!isNcaJurisdiction() && (
+            <div>
+              <label className={lbl} htmlFor="product-regulator-approval-ref">Regulator&apos;s product approval reference</label>
+              <input id="product-regulator-approval-ref" className={inp} value={form.regulatorApprovalRef ?? ""} onChange={e => set("regulatorApprovalRef", e.target.value)} maxLength={64} placeholder="e.g. CBK/…" />
+              <p className="mt-1 text-xs text-gray-500">For a Kenyan lender: the Central Bank of Kenya (CBK) product approval reference, printed on the key facts statement. Leave it empty if the product has none; a key facts statement that prints it then refuses to render.</p>
+            </div>
+          )}
           <div>
             <label className={lbl} htmlFor="product-reason">Why this change (for the approver)</label>
             <input id="product-reason" className={inp} value={reason} onChange={e => setReason(e.target.value)} required minLength={5} maxLength={500} placeholder="e.g. New salary-backed product for the Q1 launch" />

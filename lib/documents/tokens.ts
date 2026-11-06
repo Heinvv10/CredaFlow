@@ -1,6 +1,8 @@
 import type { Client, Loan, LoanApplication, LoanProduct, Tenant, User } from "@prisma/client"
 import { differenceInCalendarDays } from "date-fns"
 import { formatDate, formatTermDays, formatZAR } from "@/lib/utils"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import { disclosesTotalCostOfCredit, exciseIncludedInFees, feeExciseRate } from "@/lib/jurisdiction/kenya-rules"
 import type { LenderIdentity } from "@/lib/config/identity"
 import type { QuoteFigures } from "@/lib/non-nca-documents/quote"
 
@@ -27,7 +29,7 @@ export interface TokenContext {
    * configured, which leaves every `tenant.*` identity token missing. */
   lender: LenderIdentity | null
   client: Client
-  application?: (LoanApplication & { product?: Pick<LoanProduct, "name"> | null }) | null
+  application?: (LoanApplication & { product?: (Pick<LoanProduct, "name"> & Partial<Pick<LoanProduct, "regulatorApprovalRef">>) | null }) | null
   loan?: Loan | null
   staff?: User | null
 }
@@ -223,12 +225,35 @@ export const TOKEN_REGISTRY: TokenDef[] = [
     group: "Approved terms",
     resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.totalRepayableCents) : null),
   },
+  // Kenya (UNVERIFIED, lib/jurisdiction/kenya-rules.ts): the excise duty already inside the fees, disclosed, not charged on
+  // top. Nothing where the lender's jurisdiction has no excise on fees, so a ZA or LS document cannot print it.
+  // The rate is one per jurisdiction, applied to the initiation and service fees together: not per product or fee type.
+  // A fee component that is exempt from excise would be over-disclosed (excise printed on a fee that carries none).
+  {
+    token: "quote.exciseDuty",
+    label: "Excise duty included in the fees",
+    group: "Approved terms",
+    resolve: (ctx) => {
+      const rate = feeExciseRate(activeJurisdiction())
+      return ctx.quote && rate > 0 ? formatZAR(exciseIncludedInFees(ctx.quote.initiationFeeCents + ctx.quote.serviceFeesCents, rate)) : null
+    },
+  },
+  {
+    token: "quote.totalCostOfCredit",
+    label: "Total cost of credit (interest and fees)",
+    group: "Approved terms",
+    // Kenya only (UNVERIFIED, kenya-rules.ts), like the excise: a ZA or LS document cannot print it.
+    resolve: (ctx) => (ctx.quote && disclosesTotalCostOfCredit(activeJurisdiction()) ? formatZAR(ctx.quote.totalInterestCents + ctx.quote.initiationFeeCents + ctx.quote.serviceFeesCents) : null),
+  },
   {
     token: "quote.repaymentMethod",
     label: "Repayment method",
     group: "Approved terms",
     resolve: (ctx) => (ctx.quote?.repaymentMethod ? (ctx.quote.repaymentMethod === "EFT" ? "EFT" : ctx.quote.repaymentMethod.replaceAll("_", " ").toLowerCase()) : null),
   },
+
+  // Product — the regulator's approval of the product (Kenya: the CBK's), set on the product outside the NCA only.
+  { token: "product.regulatorApprovalRef", label: "Regulator's product approval reference", group: "Product", resolve: (ctx) => ctx.application?.product?.regulatorApprovalRef ?? null },
 
   // Tenant — identity comes only from the tenant's validated TenantConfig
   // (lib/config/identity.ts). No configured identity ⇒ null ⇒ the empty-token

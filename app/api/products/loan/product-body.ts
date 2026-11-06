@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
 import { parseNonNcaArrearsTerms } from "@/lib/product-config/non-nca-arrears"
+import { parseRegulatorApprovalRef } from "@/lib/product-config/regulator-approval-ref"
 import type { ProductFields } from "@/lib/product-config/product-change"
 
 /** The product form's body (amounts in rand, rates in percent) as stored fields, or the 422 that refuses it. `active` is left to the caller. */
@@ -23,6 +24,15 @@ export function productFieldsFromBody(body: Record<string, unknown>): { fields: 
       ),
     }
   }
+  const regulator = parseRegulatorApprovalRef(body)
+  if ("issues" in regulator) {
+    return {
+      response: NextResponse.json(
+        { error: "The regulator's product approval reference is up to 64 letters, digits and / . - _ or spaces, or null, and a South African (NCA) lender's products carry none.", invalidFields: regulator.issues },
+        { status: 422 },
+      ),
+    }
+  }
   return {
     fields: {
       code: body.code as string,
@@ -39,6 +49,7 @@ export function productFieldsFromBody(body: Record<string, unknown>): { fields: 
       initiationFeeMax: Math.round(((body.initiationFeeMax as number | undefined) ?? 0) * 100),
       monthlyServiceFee: Math.round(((body.monthlyServiceFee as number | undefined) ?? 0) * 100),
       ...arrears.data,
+      ...regulator.data,
     },
   }
 }

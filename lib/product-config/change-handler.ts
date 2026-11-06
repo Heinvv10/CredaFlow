@@ -13,7 +13,7 @@ const refused = (refusal: ProductRefusal) => new InvalidPayloadError([refusal.bo
 const audited = (p: Prisma.LoanProductGetPayload<object>) => ({
   code: p.code, name: p.name, productType: p.productType, minAmount: p.minAmount, maxAmount: p.maxAmount, minTermDays: p.minTermDays, maxTermDays: p.maxTermDays,
   interestRatePm: p.interestRatePm, interestModel: p.interestModel, initiationFeeModel: p.initiationFeeModel, initiationFeePct: p.initiationFeePct, initiationFeeMax: p.initiationFeeMax,
-  monthlyServiceFee: p.monthlyServiceFee, active: p.active, ...nonNcaArrearsAudit(p),
+  monthlyServiceFee: p.monthlyServiceFee, active: p.active, ...nonNcaArrearsAudit(p), regulatorApprovalRef: p.regulatorApprovalRef,
 })
 
 async function existing(tx: Tx, tenantId: string, productId: string) {

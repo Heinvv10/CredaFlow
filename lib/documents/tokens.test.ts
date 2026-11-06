@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest"
+import { afterEach, describe, it, expect } from "vitest"
 import { renderTokens, resolveToken, TOKEN_REGISTRY, type TokenContext } from "./tokens"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { SAMPLE_QUOTE } from "@/lib/non-nca-documents/quote"
 import { parseLenderIdentity } from "@/lib/config/identity"
 import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 
@@ -177,5 +179,50 @@ describe("renderTokens", () => {
     const { html, missing } = renderTokens("Hi {{client.fullName}}, ID {{client.idNumber}}", baseCtx)
     expect(missing).toEqual([])
     expect(html).toBe("Hi Thabo M, ID 9001015800081")
+  })
+})
+
+// Kenya (KE-3): the CBK product approval reference and the excise duty inside the fees. Each resolves to
+// nothing where it does not apply, so no ZA or LS template can print it and theirs render as before.
+describe("the Kenyan key facts disclosures", () => {
+  afterEach(() => resetActiveJurisdiction())
+  const withQuote = { ...baseCtx, quote: SAMPLE_QUOTE } as TokenContext
+  const withRef = (regulatorApprovalRef: string | null) =>
+    ({ ...baseCtx, application: { reference: "APP-1", appliedAmount: 1, product: { name: "Personal Loan", regulatorApprovalRef } } }) as unknown as TokenContext
+
+  it("discloses the 20% excise already inside the fees under KE: KSh 244.00 of SAMPLE_QUOTE's KSh 1,464.00", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(SAMPLE_QUOTE.initiationFeeCents + SAMPLE_QUOTE.serviceFeesCents).toBe(146_400)
+    expect(resolveToken("quote.exciseDuty", withQuote)).toBe("KSh 244.00")
+    expect(resolveToken("quote.exciseDuty", baseCtx)).toBeNull()
+  })
+
+  it.each([["ZA", "ZAR"], ["LS", "LSL"]] as const)("has no excise to disclose under %s", (jurisdiction, currency) => {
+    setActiveJurisdiction({ jurisdiction, currency })
+    expect(resolveToken("quote.exciseDuty", withQuote)).toBeNull()
+    expect(renderTokens("{{quote.exciseDuty}}", withQuote).missing).toEqual(["quote.exciseDuty"])
+  })
+
+  it("prints KSh 0.00 of excise on a quote with no fees, and a large fee's excise exactly", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(resolveToken("quote.exciseDuty", { ...baseCtx, quote: { ...SAMPLE_QUOTE, initiationFeeCents: 0, serviceFeesCents: 0 } } as TokenContext)).toBe("KSh 0.00")
+    expect(resolveToken("quote.exciseDuty", { ...baseCtx, quote: { ...SAMPLE_QUOTE, initiationFeeCents: 1_500_000_000, serviceFeesCents: 600_000_000 } } as TokenContext)).toBe("KSh 3,500,000.00")
+  })
+
+  it.each([["ZA", "ZAR"], ["LS", "LSL"]] as const)("has no total cost of credit to disclose under %s", (jurisdiction, currency) => {
+    setActiveJurisdiction({ jurisdiction, currency })
+    expect(resolveToken("quote.totalCostOfCredit", withQuote)).toBeNull()
+  })
+
+  it("totals the cost of credit as the interest and every fee under KE, the excise inside them", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(resolveToken("quote.totalCostOfCredit", withQuote)).toBe("KSh 2,364.00")
+    expect(resolveToken("quote.totalCostOfCredit", baseCtx)).toBeNull()
+  })
+
+  it("prints the product's regulator approval reference, and nothing when the product has none", () => {
+    expect(resolveToken("product.regulatorApprovalRef", withRef("CBK/DEMO/0001"))).toBe("CBK/DEMO/0001")
+    expect(resolveToken("product.regulatorApprovalRef", withRef(null))).toBeNull()
+    expect(resolveToken("product.regulatorApprovalRef", baseCtx)).toBeNull()
   })
 })

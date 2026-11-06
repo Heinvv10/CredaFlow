@@ -6,6 +6,7 @@
 import { InvalidPayloadError } from "@/lib/maker-checker/errors"
 import { Problems, isObject, rejectUnknownKeys } from "@/lib/decisioning/validate-common"
 import { parseNonNcaArrearsTerms } from "./non-nca-arrears"
+import { parseRegulatorApprovalRef } from "./regulator-approval-ref"
 import { PRODUCT_TYPES, type ProductTypeName } from "./product-kind"
 
 export const LOAN_PRODUCT_KIND = "LOAN_PRODUCT"
@@ -28,6 +29,8 @@ export interface ProductFields {
   /** Absent leaves the stored value; null clears it (lib/product-config/non-nca-arrears.ts). */
   nonNcaDefaultInterestMargin?: string | null
   nonNcaCollectionFeeCents?: number | null
+  /** Outside the NCA only; absent leaves the stored value, null clears it (./regulator-approval-ref.ts). */
+  regulatorApprovalRef?: string | null
 }
 
 export type LoanProductPayload =
@@ -37,7 +40,7 @@ export type LoanProductPayload =
 
 const FIELD_KEYS = [
   "code", "name", "productType", "minAmount", "maxAmount", "minTermDays", "maxTermDays", "interestRatePm", "interestModel", "initiationFeeModel", "initiationFeePct",
-  "initiationFeeMax", "monthlyServiceFee", "active", "nonNcaDefaultInterestMargin", "nonNcaCollectionFeeCents",
+  "initiationFeeMax", "monthlyServiceFee", "active", "nonNcaDefaultInterestMargin", "nonNcaCollectionFeeCents", "regulatorApprovalRef",
 ] as const
 
 const INT4_MAX = 2_147_483_647
@@ -69,6 +72,9 @@ function parseFields(raw: unknown, problems: Problems): ProductFields | null {
   // Absent stays absent: the terms of the stored row are left alone.
   const arrears = parseNonNcaArrearsTerms(raw)
   if ("issues" in arrears) for (const key of arrears.issues) problems.add(`payload.product.${key}`, "an annual decimal from 0 to below 1 for the margin, whole cents for the fee, or null")
+  const ref = parseRegulatorApprovalRef(raw)
+  if ("issues" in ref) problems.add("payload.product.regulatorApprovalRef", "a reference of up to 64 letters, digits and / . - _ or spaces, outside the NCA only, or null")
+  else if ("regulatorApprovalRef" in ref.data) return { ...(raw as unknown as ProductFields), regulatorApprovalRef: ref.data.regulatorApprovalRef }
   return raw as unknown as ProductFields
 }
 

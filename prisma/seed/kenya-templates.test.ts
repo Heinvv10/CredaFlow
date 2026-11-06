@@ -48,6 +48,18 @@ describe("the key-facts demo templates, by jurisdiction", () => {
     expect(kfs).toMatch(/Paybill/)
   })
 
+  it("discloses in the key facts statement the CBK product approval reference, the excise inside the fees and the total cost of credit", () => {
+    const ke = nonNcaTemplateSet("KE").bodies
+    const kfs = ke.KEY_FACTS_STATEMENT
+    expect(kfs).toContain("<tr><td>CBK product approval reference</td><td>{{product.regulatorApprovalRef}}</td></tr>")
+    // Whether the excise is inside the fees or on top is the lender's finance team's to confirm: a SAMPLE gap, not a statement.
+    expect(kfs).toContain("<tr><td>Excise duty included in the fees above [SAMPLE &mdash; the lender&rsquo;s finance team confirms whether excise is included or charged on top]</td><td>{{quote.exciseDuty}}</td></tr>")
+    expect(kfs).not.toMatch(/not charged on top/)
+    expect(kfs).toContain("<tr><td>Total cost of credit (interest and fees)</td><td>{{quote.totalCostOfCredit}}</td></tr>")
+    // The other three are unchanged: the arrears letter has no application product to read a reference from.
+    for (const kind of ["OFFER_LETTER", "LOAN_AGREEMENT", "ARREARS_LETTER"] as const) expect(ke[kind], kind).not.toContain("{{product.regulatorApprovalRef}}")
+  })
+
   it.each(["LS", "KE"] as const)("%s uses only tokens the renderer knows (an unknown one blocks the document)", (j) => {
     for (const body of Object.values(nonNcaTemplateSet(j).bodies)) {
       expect(extractTokens(body).filter((t) => !KNOWN.has(t))).toEqual([])

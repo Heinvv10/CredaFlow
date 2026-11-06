@@ -21,6 +21,9 @@ model LoanProduct {
   // instalment. Never applied to an NCA loan, whose caps and s129 rules hold.
   nonNcaDefaultInterestMargin Decimal?           @db.Decimal(9, 6)
   nonNcaCollectionFeeCents    Int?
+  // The regulator's approval reference of the product, outside the NCA only (Kenya: the Central Bank of Kenya's
+  // product approval), printed on the key facts statement as {{product.regulatorApprovalRef}}. Null for ZA.
+  regulatorApprovalRef        String?
   active                      Boolean            @default(true)
   // True while the product version in effect has a repayment structure (lib/product-engine): the portal, the website and the
   // lender API, which show and schedule monthly instalments only, do not offer it. Written by the activation, never by hand.

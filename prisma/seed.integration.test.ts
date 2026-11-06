@@ -644,7 +644,9 @@ suite("Kenyan demo seed (DEMO_LENDER=nairobi) on a fresh migrated database", () 
       expect(c.phone).toMatch(/^\+2547000000\d{2}$/)
       expect(c.email).toMatch(/@nairobi-credit\.invalid$/)
     }
-    expect((await db().loanProduct.findMany({ select: { code: true }, orderBy: { code: "asc" } })).map((p) => p.code)).toEqual(["MPESA30", "PERSONAL"])
+    const products = await db().loanProduct.findMany({ select: { code: true, regulatorApprovalRef: true }, orderBy: { code: "asc" } })
+    // A demo CBK product approval reference, printed on the key facts statement (DEMO: no CBK approval exists).
+    expect(products).toEqual([{ code: "MPESA30", regulatorApprovalRef: "CBK/DEMO/0001" }, { code: "PERSONAL", regulatorApprovalRef: "CBK/DEMO/0001" }])
     // Each +254 mobile is an SMS and a WhatsApp identity, though the seed runs with no jurisdiction loaded.
     const whatsapp = await db().contactIdentity.findMany({ where: { channel: "WHATSAPP" }, select: { value: true } })
     expect(whatsapp.map((w) => w.value)).toContain("254700000001@s.whatsapp.net")
