@@ -55,6 +55,11 @@ interface ChannelValue {
   value: string
 }
 
+// A number normalisePhone cannot place (a foreign one, or a local "0…" one while no
+// jurisdiction is loaded) is no number: null, never "", which reads as a value and matches nothing.
+const phoneOrNull = (raw: string) => normalisePhone(raw) || null
+const waJidOrNull = (raw: string) => toWaJid(raw) || null
+
 function collectChannelValues(
   input: Pick<ProvisionInput, "email" | "phone" | "whatsapp">,
 ): ChannelValue[] {
@@ -113,8 +118,8 @@ export async function provisionContactForClient(
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
         primaryEmail: input.email ? normaliseEmail(input.email) : null,
-        primaryPhone: input.phone ? normalisePhone(input.phone) : null,
-        primaryWaJid: input.whatsapp ? toWaJid(input.whatsapp) : null,
+        primaryPhone: input.phone ? phoneOrNull(input.phone) : null,
+        primaryWaJid: input.whatsapp ? waJidOrNull(input.whatsapp) : null,
         ...(deceased
           ? { status: "BLOCKED" as const, blockedAt: new Date(), blockedReason: DECEASED_CONTACT_BLOCK_REASON }
           : { status: "CLIENT" as const }),
@@ -355,8 +360,8 @@ export async function resolveContactForLeadConversion(
           firstName: input.firstName ?? existing.firstName,
           lastName: input.lastName ?? existing.lastName,
           primaryEmail: input.email ? normaliseEmail(input.email) : existing.primaryEmail,
-          primaryPhone: input.phone ? normalisePhone(input.phone) : existing.primaryPhone,
-          primaryWaJid: input.whatsapp ? toWaJid(input.whatsapp) : existing.primaryWaJid,
+          primaryPhone: input.phone ? phoneOrNull(input.phone) : existing.primaryPhone,
+          primaryWaJid: input.whatsapp ? waJidOrNull(input.whatsapp) : existing.primaryWaJid,
           // Suppression/archive states are load-bearing messaging controls.
           // Only an ordinary Lead is promoted; every other convertible state
           // is retained exactly.
@@ -371,8 +376,8 @@ export async function resolveContactForLeadConversion(
           firstName: input.firstName ?? null,
           lastName: input.lastName ?? null,
           primaryEmail: input.email ? normaliseEmail(input.email) : null,
-          primaryPhone: input.phone ? normalisePhone(input.phone) : null,
-          primaryWaJid: input.whatsapp ? toWaJid(input.whatsapp) : null,
+          primaryPhone: input.phone ? phoneOrNull(input.phone) : null,
+          primaryWaJid: input.whatsapp ? waJidOrNull(input.whatsapp) : null,
           status: "CLIENT",
           firstSeenChannel: "MANUAL",
           firstSeenContext: "lead_conversion",
@@ -471,8 +476,8 @@ export async function provisionContactForLead(
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
         primaryEmail: input.email ? normaliseEmail(input.email) : null,
-        primaryPhone: input.phone ? normalisePhone(input.phone) : null,
-        primaryWaJid: input.whatsapp ? toWaJid(input.whatsapp) : null,
+        primaryPhone: input.phone ? phoneOrNull(input.phone) : null,
+        primaryWaJid: input.whatsapp ? waJidOrNull(input.whatsapp) : null,
         status: "LEAD",
         firstSeenChannel: "MANUAL",
         firstSeenContext: "lead_create",
