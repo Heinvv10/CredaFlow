@@ -51,7 +51,7 @@ export const portalPayment = {
   notifyTitle: "Notify Us of a Payment",
   notifyBody: "Already made an EFT or cash deposit? Let us know so we can allocate it to your account.",
   loan: "Loan",
-  amountPaid: "Amount Paid (R)",
+  amountPaid: "Amount Paid ({symbol})",
   paymentDate: "Payment Date",
   bankReference: "Bank Reference / Proof of Payment Ref",
   bankReferencePlaceholder: "e.g. NC-2024-001 or bank transaction ID",

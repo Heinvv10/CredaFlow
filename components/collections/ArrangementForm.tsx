@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 interface Props {
   loanId: string
@@ -50,7 +51,7 @@ export function ArrangementForm({ loanId, onCancel }: Props) {
       <p className="text-sm font-semibold text-green-800">Payment Arrangement</p>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-[11px] font-medium text-gray-600 block mb-1">Agreed Amount (R) *</label>
+          <label className="text-[11px] font-medium text-gray-600 block mb-1">Agreed Amount ({activeCurrencySymbol()}) *</label>
           <input type="number" value={arrAmount} onChange={e => setArrAmount(e.target.value)}
             className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-green-400" placeholder="e.g. 1500" />
         </div>

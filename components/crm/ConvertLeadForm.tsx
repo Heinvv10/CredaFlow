@@ -266,8 +266,8 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
           </div>
           <Field label="Employer / Business Name" value={employer} onChange={setEmployer} placeholder="Optional" disabled={recoveryMode} />
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Monthly Income (R) *" value={income} onChange={setIncome} type="number" placeholder="0" disabled={recoveryMode} />
-            <Field label="Monthly Expenses (R) *" value={expenses} onChange={setExpenses} type="number" placeholder="0" disabled={recoveryMode} />
+            <Field label={`Monthly Income (${activeCurrencySymbol()}) *`} value={income} onChange={setIncome} type="number" placeholder="0" disabled={recoveryMode} />
+            <Field label={`Monthly Expenses (${activeCurrencySymbol()}) *`} value={expenses} onChange={setExpenses} type="number" placeholder="0" disabled={recoveryMode} />
           </div>
           {income && expenses && (
             <div className="p-3 bg-amber-50 rounded-md text-sm">
@@ -314,7 +314,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
             >
               {products.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} (R{(p.minAmount / 100).toLocaleString()} – R{(p.maxAmount / 100).toLocaleString()})
+                  {p.name} ({activeCurrencySymbol()}{(p.minAmount / 100).toLocaleString()} – {activeCurrencySymbol()}{(p.maxAmount / 100).toLocaleString()})
                 </option>
               ))}
             </select>

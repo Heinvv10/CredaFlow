@@ -21,6 +21,7 @@ import {
   debtAccountTypeLabel,
   normaliseDebtAccountType,
 } from "@/lib/credit/debt-account-types"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 interface StepProps {
   data: ClientWizardData
@@ -169,7 +170,7 @@ export function Step3Employment({ data, patch, errors }: StepProps) {
       </FieldGroup>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FieldGroup label="Net monthly income (R)" required error={errors.monthlyIncome}>
+        <FieldGroup label={`Net monthly income (${activeCurrencySymbol()})`} required error={errors.monthlyIncome}>
           <input
             className={INP}
             value={data.monthlyIncome}
@@ -178,7 +179,7 @@ export function Step3Employment({ data, patch, errors }: StepProps) {
           />
         </FieldGroup>
         <FieldGroup
-          label="Gross monthly income (R)"
+          label={`Gross monthly income (${activeCurrencySymbol()})`}
           error={errors.grossMonthlyIncome}
           hint="Used to compute the NCA Regulation 23A minimum-living-expense floor"
         >
@@ -209,7 +210,7 @@ export function Step3Employment({ data, patch, errors }: StepProps) {
         const belowFloor = grossCents > 0 && sumCents < floorCents
         return (
           <div className="space-y-3 border border-[var(--cf-border-subtle)] rounded-lg p-4 bg-[var(--cf-bg-raised)]">
-            <h3 className="text-md font-semibold text-[var(--cf-text)]">Monthly expenses by category (R)</h3>
+            <h3 className="text-md font-semibold text-[var(--cf-text)]">Monthly expenses by category ({activeCurrencySymbol()})</h3>
             <p className="text-xs text-[var(--cf-text-muted)]">
               Capture each category — leave blank for zero. The total replaces the
               previous single &quot;monthly expenses&quot; field for NCA §80 evidence.
@@ -329,7 +330,7 @@ export function Step3Employment({ data, patch, errors }: StepProps) {
                 </FieldGroup>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <FieldGroup label="Outstanding balance (R)" required error={rowErrs?.outstandingBalance}>
+                <FieldGroup label={`Outstanding balance (${activeCurrencySymbol()})`} required error={rowErrs?.outstandingBalance}>
                   <input
                     className={INP}
                     value={row.outstandingBalance}
@@ -337,7 +338,7 @@ export function Step3Employment({ data, patch, errors }: StepProps) {
                     inputMode="decimal"
                   />
                 </FieldGroup>
-                <FieldGroup label="Monthly instalment (R)" required error={rowErrs?.monthlyInstalment}>
+                <FieldGroup label={`Monthly instalment (${activeCurrencySymbol()})`} required error={rowErrs?.monthlyInstalment}>
                   <input
                     className={INP}
                     value={row.monthlyInstalment}

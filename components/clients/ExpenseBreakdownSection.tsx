@@ -3,7 +3,7 @@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { formatRands } from "@/lib/utils"
+import { activeCurrencySymbol, formatRands } from "@/lib/utils"
 
 interface ExpenseBreakdownData {
   housing: number
@@ -24,15 +24,15 @@ interface ExpenseBreakdownSectionProps {
 }
 
 const FIELDS: { key: keyof ExpenseBreakdownData; label: string }[] = [
-  { key: "housing", label: "Housing/Rent (R)" },
-  { key: "transport", label: "Transport (R)" },
-  { key: "food", label: "Food & Groceries (R)" },
-  { key: "education", label: "Education (R)" },
-  { key: "insurance", label: "Insurance (R)" },
-  { key: "clothing", label: "Clothing (R)" },
-  { key: "entertainment", label: "Entertainment (R)" },
-  { key: "medical", label: "Medical (R)" },
-  { key: "other", label: "Other (R)" },
+  { key: "housing", label: "Housing/Rent" },
+  { key: "transport", label: "Transport" },
+  { key: "food", label: "Food & Groceries" },
+  { key: "education", label: "Education" },
+  { key: "insurance", label: "Insurance" },
+  { key: "clothing", label: "Clothing" },
+  { key: "entertainment", label: "Entertainment" },
+  { key: "medical", label: "Medical" },
+  { key: "other", label: "Other" },
 ]
 
 export function ExpenseBreakdownSection({ data, onChange }: ExpenseBreakdownSectionProps) {
@@ -52,7 +52,7 @@ export function ExpenseBreakdownSection({ data, onChange }: ExpenseBreakdownSect
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {FIELDS.map(({ key, label }) => (
           <div key={key}>
-            <Label htmlFor={`expense_${key}`}>{label}</Label>
+            <Label htmlFor={`expense_${key}`}>{label} ({activeCurrencySymbol()})</Label>
             <Input
               id={`expense_${key}`}
               type="number"

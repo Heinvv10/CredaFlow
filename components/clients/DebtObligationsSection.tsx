@@ -19,7 +19,7 @@ import {
   preserveOriginalDebtAccountType,
   captureOriginalDebtAccountTypes,
 } from "@/lib/credit/debt-account-types"
-import { formatRands } from "@/lib/utils"
+import { activeCurrencySymbol, formatRands } from "@/lib/utils"
 
 interface DebtObligation {
   id?: string
@@ -103,7 +103,7 @@ export function DebtObligationsSection({ debts, onChange }: DebtObligationsSecti
             </Select>
           </div>
           <div>
-            <Label>Balance (R)</Label>
+            <Label>Balance ({activeCurrencySymbol()})</Label>
             <Input
               type="number"
               step="0.01"
@@ -113,7 +113,7 @@ export function DebtObligationsSection({ debts, onChange }: DebtObligationsSecti
             />
           </div>
           <div>
-            <Label>Monthly (R)</Label>
+            <Label>Monthly ({activeCurrencySymbol()})</Label>
             <Input
               type="number"
               step="0.01"

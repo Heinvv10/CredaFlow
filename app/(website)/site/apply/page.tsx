@@ -718,10 +718,10 @@ export default function ApplyPage() {
               <Field label={t("employer")}>
                 <input className={inputClass} value={step2.employerName} onChange={(e) => setStep2({ ...step2, employerName: e.target.value })} placeholder={t("employerPlaceholder")} />
               </Field>
-              <Field label={t("netIncome")} error={errors.monthlyIncome}>
+              <Field label={t("netIncome", { symbol: activeCurrencySymbol() })} error={errors.monthlyIncome}>
                 <input className={inputClass} type="number" min={0} value={step2.monthlyIncome} onChange={(e) => setStep2({ ...step2, monthlyIncome: e.target.value })} placeholder={t("netIncomePlaceholder")} />
               </Field>
-              <Field label={t("expenses")} error={errors.monthlyExpenses}>
+              <Field label={t("expenses", { symbol: activeCurrencySymbol() })} error={errors.monthlyExpenses}>
                 <input className={inputClass} type="number" min={0} value={step2.monthlyExpenses} onChange={(e) => setStep2({ ...step2, monthlyExpenses: e.target.value })} placeholder={t("expensesPlaceholder")} />
               </Field>
             </div>

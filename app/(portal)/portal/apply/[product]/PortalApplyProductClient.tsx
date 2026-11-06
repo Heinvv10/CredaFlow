@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
-import { formatZAR } from "@/lib/utils"
+import { activeCurrencySymbol, formatZAR } from "@/lib/utils"
 import type { QualificationResult } from "@/lib/qualify"
 import type { ProductType } from "@prisma/client"
 import {
@@ -57,8 +57,8 @@ interface Props {
   ncaDeclarations?: boolean
 }
 
-/** The English copy names the rand; the figures beside it are already in the lender's currency. */
-const amountRangeLabel = (label: string, nca: boolean) => (nca ? label : label.replace(" (R)", ""))
+/** The label names the lender's currency symbol; a key-facts application drops it, the figures beside it already carry the symbol. */
+const amountRangeLabel = (label: string, nca: boolean, symbol: string) => (nca ? label : label.replace(` (${symbol})`, ""))
 
 export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, demoLenderNote, product, client, creditLifeOffer, ncaDeclarations = true }: Props) {
   const router = useRouter()
@@ -229,7 +229,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
       >
         <div>
           <label htmlFor="amount" className={labelClass}>
-            {amountRangeLabel(t("amountBetween", { min: formatZAR(product.minAmount), max: formatZAR(product.maxAmount) }), ncaDeclarations)}
+            {amountRangeLabel(t("amountBetween", { symbol: activeCurrencySymbol(), min: formatZAR(product.minAmount), max: formatZAR(product.maxAmount) }), ncaDeclarations, activeCurrencySymbol())}
           </label>
           <input
             id="amount"

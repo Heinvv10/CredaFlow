@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { resolveLeadOwner, type AssignableStaff } from "@/lib/crm/lead-assignment"
 import { EDITABLE_STAGES, type LeadFormState } from "@/lib/crm/lead-edit-form"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 // Client component: imports ONLY prisma-free modules (same rule as
 // LeadSlideOver, which owns this form's state and save path).
@@ -109,7 +110,7 @@ export function LeadEditForm({
         {/* Hideable field LAST in the grid so hiding it never re-packs the
             columns of the always-visible fields above. */}
         {show(initial.requestedRand) && (
-          <FormField label="Requested amount (R)">
+          <FormField label={`Requested amount (${activeCurrencySymbol()})`}>
             <input className={inputCls} inputMode="numeric" value={form.requestedRand} disabled={!canEdit} onChange={(e) => onChange("requestedRand", e.target.value)} placeholder="—" />
           </FormField>
         )}

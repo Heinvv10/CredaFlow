@@ -53,7 +53,7 @@ export const portalPayment: Catalog["portalPayment"] = {
   notifyTitle: "Laat weet ons van ’n betaling",
   notifyBody: "Het jy reeds ’n oorplasing of kontantdeposito gemaak? Laat weet ons sodat ons dit aan jou rekening kan toewys.",
   loan: "Lening",
-  amountPaid: "Bedrag betaal (R)",
+  amountPaid: "Bedrag betaal ({symbol})",
   paymentDate: "Betaaldatum",
   bankReference: "Bankverwysing / Verwysing op bewys van betaling",
   bankReferencePlaceholder: "bv. NC-2024-001 of banktransaksie-ID",

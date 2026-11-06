@@ -10,7 +10,7 @@ import type {
   WizardMode,
 } from "./types"
 import type { ValidationErrors } from "@/lib/validation/application-wizard"
-import { formatRands } from "@/lib/utils"
+import { activeCurrencySymbol, formatRands } from "@/lib/utils"
 
 interface StepProps {
   data: ApplicationWizardData
@@ -64,7 +64,7 @@ export function Step2LoanParams({ data, patch, errors, products }: StepProps) {
       </FieldGroup>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FieldGroup label="Applied amount (R)" required error={errors.appliedAmount}>
+        <FieldGroup label={`Applied amount (${activeCurrencySymbol()})`} required error={errors.appliedAmount}>
           <input
             className={INP}
             value={data.appliedAmount}
