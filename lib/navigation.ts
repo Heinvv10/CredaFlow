@@ -13,6 +13,7 @@ import {
   Factory,
   Contact,
   CreditCard,
+  Smartphone,
   FileCheck,
   FileText,
   Gauge,
@@ -103,6 +104,8 @@ export type NavItem = {
   minRole?: UserRole
   /** NCA-only (lib/jurisdiction): left out for a lender outside the NCA's jurisdiction. */
   ncaOnly?: boolean
+  /** M-Pesa (lib/mobile-money/label.ts): shown only where staff are offered M-Pesa capture. */
+  mobileMoney?: boolean
 }
 
 export type NavGroup = {
@@ -141,6 +144,7 @@ export const staffNavigation: NavGroup[] = [
       { href: "/loans", label: "Active Loans", icon: Wallet },
       { href: "/payments", label: "Payments", icon: CreditCard },
       { href: "/payments/bank-reconciliation", label: "Bank Reconciliation", icon: Landmark, minRole: "CREDIT_OFFICER" },
+      { href: "/payments/mobile-money", label: "M-Pesa", icon: Smartphone, minRole: "COLLECTIONS_AGENT", mobileMoney: true },
       { href: "/collections", label: "Collections", icon: AlertTriangle, badgeKey: "collections" },
     ],
   },

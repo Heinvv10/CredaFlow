@@ -8,10 +8,10 @@
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
-Borrower-facing languages (en, af, zu, xh) for the public website, the client
-portal and borrower comms. The staff app, the NCA documents (`lib/pdf`),
-legal / consent text and, for now, the portal lease pages
-(`components/portal/lease/`) stay English.
+Borrower-facing languages (en, af, zu, xh) for the public website, the client portal
+and borrower comms. The staff app, the NCA documents (`lib/pdf`), legal / consent text,
+for now the portal lease pages (`components/portal/lease/`) and the KE-only M-Pesa panel
+(`components/portal/MpesaPaymentPanel.tsx`: no catalogue key, no review goes stale) stay English.
 
 ## Critical Rules
 - **English is the source of truth.** `messages/en/*.ts` defines every key and

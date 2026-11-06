@@ -179,6 +179,7 @@ model Tenant {
   messageMentions            MessageMention[]
   messages                   Message[]
   messageTemplates           MessageTemplate[]
+  mobileMoneyTransactions    MobileMoneyTransaction[]
   ncaSurplusAccounts NcaSurplusAccount[]
   ncaSurplusDeterminations NcaSurplusDetermination[]
   ncaSurplusRemittances NcaSurplusRemittance[]

@@ -14,7 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { activeCurrencySymbol, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { activeJurisdiction, isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { MOBILE_MONEY_LABEL, MOBILE_MONEY_METHOD, mobileMoneyCaptureOffered } from "@/lib/mobile-money/label"
 import { toast } from "@/lib/toast"
 import {
   beginPaymentAttempt,
@@ -279,6 +280,7 @@ export function PaymentForm({
             <SelectItem value="CASH">Cash</SelectItem>
             <SelectItem value="DEBIT_ORDER">Debit Order</SelectItem>
             <SelectItem value="CARD">Card</SelectItem>
+            {mobileMoneyCaptureOffered(activeJurisdiction()) && <SelectItem value={MOBILE_MONEY_METHOD}>{MOBILE_MONEY_LABEL}</SelectItem>}
           </SelectContent>
         </Select>
       </div>

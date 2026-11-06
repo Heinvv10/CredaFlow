@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { badgeDescription, staffNavigation, type NavGroup, type NavItem, type StaffBadgeKey } from "@/lib/navigation"
 import { hasMinRole, type UserRole } from "@/lib/permissions"
-import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { activeJurisdiction, isNcaJurisdiction } from "@/lib/jurisdiction/active"
+import { mobileMoneyCaptureOffered } from "@/lib/mobile-money/label"
 import { isLoanBookPath, lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { cn } from "@/lib/utils"
 
@@ -39,6 +40,7 @@ export function itemEnabled(item: NavItem, role: UserRole) {
   // item's minimum role (proxy.ts refuses the page itself).
   if (lacksLoanBook(role) && isLoanBookPath(item.href)) return false
   if (item.ncaOnly && !isNcaJurisdiction()) return false
+  if (item.mobileMoney && !mobileMoneyCaptureOffered(activeJurisdiction())) return false
   if (!item.minRole) return true
   return hasMinRole(role, item.minRole)
 }

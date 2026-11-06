@@ -9,6 +9,7 @@ import { FilterSelect, FilterSummary, SearchInput } from "@/components/ui/list-f
 import { BulkUpload } from "./BulkUpload"
 import { matchesCentsAmount } from "@/lib/list-search"
 import { displayPaymentMethod } from "@/lib/payments/waiver"
+import { MOBILE_MONEY_LABEL, MOBILE_MONEY_METHOD } from "@/lib/mobile-money/label"
 import { borrowerDisplayName } from "@/lib/borrower"
 import { formatZAR } from "@/lib/utils"
 
@@ -332,7 +333,7 @@ export function PaymentsClient({
                 label="Filter by payment method"
                 options={[
                   { value: "ALL", label: "All methods" },
-                  ...methods.map((m) => ({ value: m, label: displayPaymentMethod(m, (method) => method.replace(/_/g, " ")) })),
+                  ...methods.map((m) => ({ value: m, label: displayPaymentMethod(m, (method) => method === MOBILE_MONEY_METHOD ? MOBILE_MONEY_LABEL : method.replace(/_/g, " ")) })),
                 ]}
               />
             )}
@@ -409,7 +410,7 @@ export function PaymentsClient({
                     <td className="px-4 py-3 text-right font-bold text-green-600">{formatZAR(p.amount)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${METHOD_STYLES[p.paymentMethod] ?? "bg-gray-100 text-gray-600"}`}>
-                        {displayPaymentMethod(p.paymentMethod, (method) => method.replace("_", " "))}
+                        {displayPaymentMethod(p.paymentMethod, (method) => method === MOBILE_MONEY_METHOD ? MOBILE_MONEY_LABEL : method.replace("_", " "))}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-[11px] text-gray-500 font-mono">{p.reference || "—"}</td>

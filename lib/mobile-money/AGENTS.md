@@ -1,0 +1,50 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: mobile-money
+<!-- summary: M-Pesa repayments (paybill C2B, STK push); simulated only, booked via applyManualReceipt -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+M-Pesa repayments for a Kenyan lender: a paybill (C2B) payment quoting the
+loan reference, or a portal "Pay with M-Pesa" STK push. Only the simulated
+provider exists (KE-4); the Daraja adapter is KE-6. The portal panel shows
+only when `MPESA_PAYBILL_SHORTCODE` is set. Staff work what waits on
+`/payments/mobile-money` (KE only); a demo stack also gets "Simulate paybill payment".
+
+## Critical Rules
+- **Money goes through `applyManualReceiptInTx` only** (`mobileMoneyReceipt` in
+  `lib/mobile-money/book.ts`), for the ingest and staff allocation alike. Method
+  `MOBILE_MONEY`, value date `SYSTEM_OBSERVED`, key `mpesa-c2b:<TransID>`.
+- **Exactly once, per lender**: receipt and row commit together; UNIQUE(tenantId,
+  provider, transId) or a push no longer PENDING rolls a second delivery back
+  (DUPLICATE). Only a transaction this lender already stored is a replay.
+- **Money is never dropped**: charges refused -> HELD; other refusals, amount
+  mismatches and a payment on an already-settled push -> NEEDS_REVIEW; an unknown
+  reference or push -> UNMATCHED. Staff allocate or reject those (`lib/mobile-money/review.ts`).
+- **References match exactly, case-folded** (`matchLoanByReference`), never LIKE.
+- **Simulation is guarded**: the adapter refuses to sign, push or parse where
+  `isSimulationPermitted("simulated-mpesa")` is false; the ingest stores such a
+  callback NEEDS_REVIEW; staff can only reject it; "Simulate paybill payment" also
+  needs DEMO_MODE (404 otherwise). A mismatched STK amount books the REPORTED figure, staff-confirmed.
+- **Verify before reading**: no signature header or an oversized body is refused
+  first; the signature covers the host's tenant id (a callback for another
+  lender is 401). The tenant comes from the host, never the body.
+- **Claim before send**: a push is recorded PENDING before the provider is asked;
+  one open push per loan (`STK_PENDING_WINDOW_MS`).
+- **No phone numbers stored or logged**: last four digits only (DB CHECK).
+- **payment_received only after commit, only when ALLOCATED** (`lib/mobile-money/notify.ts`).
+- **The row's columns must agree with its status** (DB CHECK, migration
+  `20261108110100_mobile_money_transactions`). Only the `RUN_DB_IT` suites prove it.
+
+## Key Files
+| File | Purpose |
+|------|---------|
+| `lib/mobile-money/c2b-ingest.ts` | Entry: match the account reference, dispatch |
+| `lib/mobile-money/stk-result.ts` | Settle a PENDING push from its result |
+| `lib/mobile-money/stk-push.ts` | Claim, push, deliver the simulated result |
+| `lib/mobile-money/review.ts` | Staff allocate / reject |
+| `lib/mobile-money/providers/simulated.ts` | Signed simulated callbacks |
+| `app/api/webhooks/mobile-money/[provider]/route.ts` | Public callback route |

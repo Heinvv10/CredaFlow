@@ -17,6 +17,10 @@ describe("paymentMethodLabel", () => {
     expect(paymentMethodLabel(en, "CARD")).toBe("Card")
   })
 
+  it("names an M-Pesa receipt M-Pesa in every language (a brand)", () => {
+    for (const locale of ["en", "af", "xh", "zu"] as const) expect(paymentMethodLabel(createTranslator(locale, "portalLabels"), "MOBILE_MONEY")).toBe("M-Pesa")
+  })
+
   it.each(["af", "zu", "xh"] as const)("%s keeps the acronym EFT upper case", (locale) => {
     expect(paymentMethodLabel(createTranslator(locale, "portalLabels"), "EFT")).toBe("EFT")
   })
