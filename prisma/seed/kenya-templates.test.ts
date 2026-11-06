@@ -32,6 +32,16 @@ describe("the key-facts demo templates, by jurisdiction", () => {
     }
   })
 
+  it("prints the repayment method as M-Pesa Paybill, not the approval's EFT, with the steps below it", () => {
+    const ke = nonNcaTemplateSet("KE").bodies
+    for (const body of Object.values(ke)) expect(body).not.toContain("{{quote.repaymentMethod}}")
+    for (const kind of ["OFFER_LETTER", "KEY_FACTS_STATEMENT", "LOAN_AGREEMENT"] as const) {
+      const row = ke[kind].indexOf("<tr><td>Repayment method</td><td>M-Pesa Paybill (see steps below)</td></tr>")
+      expect(row, kind).toBeGreaterThan(-1)
+      expect(ke[kind].indexOf("<h2>Repaying by M-Pesa Paybill</h2>"), kind).toBeGreaterThan(row)
+    }
+  })
+
   it("gives the M-Pesa Paybill route in the Kenyan key facts statement", () => {
     const kfs = nonNcaTemplateSet("KE").bodies.KEY_FACTS_STATEMENT
     expect(kfs).toMatch(/M-Pesa/)

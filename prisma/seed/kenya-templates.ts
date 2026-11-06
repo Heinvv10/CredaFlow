@@ -22,6 +22,9 @@ const GAP = "<p><em>[SAMPLE &mdash; the bank&rsquo;s legal team supplies wording
 // documents assert none: a marked gap where a licensed lender's counsel puts its licence statement and number.
 const REGULATOR = "<p><em>[SAMPLE &mdash; the lender&rsquo;s Central Bank of Kenya licence number goes here. This demo lender holds no licence.]</em></p>"
 
+// Repayment method is literal, not {{quote.repaymentMethod}}: the approval can only record EFT (LoanRepaymentMethod is
+// EFT | DEBIT_ORDER, and decide-application.ts:758 refuses anything but EFT for KEY_FACTS). FOLLOW-UP: a LoanRepaymentMethod
+// value for M-Pesa (the enum plus that decide rule), then the token comes back.
 const FIGURES = `<table>
 <tr><td>Loan amount</td><td>{{quote.principal}}</td></tr>
 <tr><td>Term</td><td>{{quote.term}}</td></tr>
@@ -34,7 +37,7 @@ const FIGURES = `<table>
 <tr><td>Last instalment due</td><td>{{quote.lastDueDate}}</td></tr>
 <tr><td>Total interest</td><td>{{quote.totalInterest}}</td></tr>
 <tr><td>Total repayable</td><td>{{quote.totalRepayable}}</td></tr>
-<tr><td>Repayment method</td><td>{{quote.repaymentMethod}}</td></tr>
+<tr><td>Repayment method</td><td>M-Pesa Paybill (see steps below)</td></tr>
 </table>`
 
 const PARTIES = `<p>Lender: {{tenant.legalName}}</p>
@@ -61,7 +64,7 @@ const ARREARS = `<table>
 </table>`
 
 export const KENYA_TEMPLATE_BODIES = {
-  OFFER_LETTER: `<h1>Offer letter</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${GAP}\n<p>Prepared {{today}}.</p>`,
+  OFFER_LETTER: `<h1>Offer letter</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n${GAP}\n<p>Prepared {{today}}.</p>`,
   ARREARS_LETTER: `<h1>Arrears letter</h1>\n${REGULATOR}\n<p>Lender: {{tenant.legalName}}</p>\n<p>Borrower: {{client.fullName}}</p>\n${ARREARS}\n${MPESA_FOR_LOAN}\n${GAP}`,
   KEY_FACTS_STATEMENT: `<h1>Key facts statement</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n${GAP}\n<p>Prepared {{today}}.</p>`,
   LOAN_AGREEMENT: `<h1>Loan agreement</h1>\n${REGULATOR}\n${PARTIES}\n<h2>Approved terms</h2>\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n<h2>Terms and conditions</h2>\n${GAP}\n<p>Prepared {{today}}.</p>`,
