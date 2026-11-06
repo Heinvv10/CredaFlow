@@ -34,12 +34,28 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import ClientPortalPage from "./page"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 describe("portal overview page", () => {
   beforeEach(() => {
     mocks.nextSchedule.mockResolvedValue(null)
     mocks.policyFindMany.mockReset()
     mocks.policyFindMany.mockRejectedValue(mocks.stop)
+  })
+
+  it.each([
+    { jurisdiction: "LS", currency: "LSL" },
+    { jurisdiction: "KE", currency: "KES" },
+  ] as const)("shows a $jurisdiction lender's borrower no insurance panel and reads no policies", async (instance) => {
+    setActiveJurisdiction(instance)
+    try {
+      mocks.loanFindMany.mockResolvedValue([])
+      const html = renderToStaticMarkup(await ClientPortalPage())
+      expect(mocks.policyFindMany).not.toHaveBeenCalled()
+      expect(html).not.toMatch(/insurance/i)
+    } finally {
+      resetActiveJurisdiction()
+    }
   })
 
   it("reads the client's policies within the session tenant", async () => {

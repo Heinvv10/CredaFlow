@@ -24,8 +24,10 @@ const PAGES: Array<[string, () => Promise<{ default: (props: never) => Promise<u
   ["compliance/fsca-return", () => import("@/app/(dashboard)/compliance/fsca-return/page")],
   ["compliance/tcf", () => import("@/app/(dashboard)/compliance/tcf/page")],
   ["compliance/fic", () => import("@/app/(dashboard)/compliance/fic/page")],
+  ["portal/insurance", () => import("@/app/(portal)/portal/insurance/page")],
+  ["portal/insurance/[id]", () => import("@/app/(portal)/portal/insurance/[id]/page")],
 ]
-const props = { searchParams: Promise.resolve({}) } as never
+const props = { searchParams: Promise.resolve({}), params: Promise.resolve({ id: "x" }) } as never
 
 describe.each(PAGES)("%s page", (_name, load) => {
   it("is not found for a lender outside the NCA's jurisdiction", async () => {

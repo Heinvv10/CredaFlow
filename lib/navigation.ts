@@ -38,6 +38,7 @@ import {
 } from "lucide-react"
 import type { ElementType } from "react"
 import type { UserRole } from "@/lib/permissions"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 
 // One definition, imported by AppShell and AppSidebar. It used to be spelled
 // out separately in all three files, so adding a badge meant editing three
@@ -240,7 +241,8 @@ export function buildPortalNavigation(whatsappE164: string | null, opts: { busin
     { href: "/portal/applications", label: "Applications", icon: FileText },
     { href: "/portal/apply", label: "Apply", icon: Upload },
     { href: "/portal/loans", label: "Loans", icon: Wallet },
-    { href: "/portal/insurance", label: "Insurance", icon: Shield },
+    // Insurance is South African (lib/registry/nca-only/070-portal-insurance.ts): no item for a lender outside the NCA.
+    ...(isNcaJurisdiction() ? [{ href: "/portal/insurance", label: "Insurance", icon: Shield }] : []),
     { href: "/portal/documents", label: "Documents", icon: FileCheck },
     { href: "/portal/statement", label: "Statements", icon: BarChart3 },
     { href: "/portal/payment", label: "Payment", icon: CreditCard },

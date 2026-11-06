@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
-import { STAFF_BADGE_KEYS, badgeDescription } from "./navigation"
+import { afterEach, describe, expect, it } from "vitest"
+import { STAFF_BADGE_KEYS, badgeDescription, buildPortalNavigation } from "./navigation"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "./jurisdiction/active"
 
 describe("badgeDescription", () => {
   // The inbox badge was read as "3 unread messages" and is nothing of the
@@ -35,3 +36,21 @@ describe("badgeDescription", () => {
 // Deliberately NOT a test that every nav badgeKey has a description: BADGE_NOUNS
 // is a Record over the same union the nav items are typed against, so that state
 // is unreachable without a cast. A test that cannot go red is not coverage.
+
+describe("portal navigation: insurance is South African", () => {
+  afterEach(() => resetActiveJurisdiction())
+  const hrefs = () => buildPortalNavigation(null).map((item) => item.href)
+
+  it("offers Insurance to a ZA lender's borrower", () => {
+    expect(hrefs()).toContain("/portal/insurance")
+  })
+
+  it.each([
+    { jurisdiction: "LS", currency: "LSL" },
+    { jurisdiction: "KE", currency: "KES" },
+  ] as const)("offers no Insurance to a $jurisdiction lender's borrower, and keeps the rest", (instance) => {
+    const za = hrefs()
+    setActiveJurisdiction(instance)
+    expect(hrefs()).toEqual(za.filter((href) => href !== "/portal/insurance"))
+  })
+})

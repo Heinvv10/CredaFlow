@@ -31,6 +31,7 @@ import {
   projectPortalLoanOverview,
 } from "@/lib/portal/loan-overview"
 import { sastHour } from "@/lib/date/sast"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 import { owesNothing } from "@/lib/loan/charges-summary"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
@@ -95,11 +96,14 @@ async function getPortalData(email: string) {
     select: { docType: true, verified: true },
   })
 
-  const insurancePolicies = await prisma.insurancePolicy.findMany({
-    where: { tenantId, clientId: client.id },
-    select: { id: true, policyNumber: true, status: true, premiumAmount: true, sumAssured: true },
-    orderBy: { createdAt: "desc" },
-  })
+  // Insurance is South African (FSCA, credit life under the NCA regulations): a lender outside the NCA sells none.
+  const insurancePolicies = isNcaJurisdiction()
+    ? await prisma.insurancePolicy.findMany({
+      where: { tenantId, clientId: client.id },
+      select: { id: true, policyNumber: true, status: true, premiumAmount: true, sumAssured: true },
+      orderBy: { createdAt: "desc" },
+    })
+    : null
 
   // Default charges owed across the client's open loans — the loans the
   // outstanding balance covers (none while off).
@@ -340,7 +344,7 @@ export default async function ClientPortalPage() {
       </DataPanel>
 
       <DocumentsSummary documents={data.documents} t={t} l={l} />
-      <InsuranceSection policies={data.insurancePolicies} t={t} l={l} />
+      {data.insurancePolicies && <InsuranceSection policies={data.insurancePolicies} t={t} l={l} />}
     </div>
   )
 }
