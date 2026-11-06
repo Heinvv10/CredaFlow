@@ -1,7 +1,8 @@
 /**
  * A tenant, its staff, one product and borrowers with approval-grade evidence, on a throwaway database whose
- * instance is Lesotho (or South Africa): the setup the decide, document and disbursement integration suites share
- * (decide-key-facts.integration.test.ts, ls-end-to-end.integration.test.ts). Everything is synthetic. Not a test file.
+ * instance is Lesotho, Kenya or South Africa: the setup the decide, document and disbursement integration suites share
+ * (decide-key-facts.integration.test.ts, ls-end-to-end.integration.test.ts, ke-end-to-end.integration.test.ts).
+ * Everything is synthetic. Not a test file.
  *
  * A borrower has the four core KYC documents verified (origination grade; uploaded before the credit checks'
  * statement window so no reader runs), a verified bank statement for the bank account on the client record, and an
@@ -18,7 +19,7 @@ import { createCreditLifeNoOfferDisclosureSha256 } from "@/lib/insurance/credit-
 import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
 import { runWithTenant } from "@/lib/tenant-scope"
 
-export type StackJurisdiction = "LS" | "ZA"
+export type StackJurisdiction = "LS" | "ZA" | "KE"
 
 export interface Stack {
   jurisdiction: StackJurisdiction
@@ -54,7 +55,7 @@ export async function seedStack(db: PrismaClient, stack: Stack, opts: { code: st
   await db.tenant.create({ data: { id: stack.tenant, slug: stack.tenant, name: "Stack IT" } })
   // An in-band (Experian Sigma) score floor: the default 450 is uncalibrated and refers every approval.
   // A key-facts approval needs a screening provider (it has no bureau): the simulated one, which a demo stack may use.
-  await db.tenantConfig.create({ data: { tenantId: stack.tenant, bureauMinScore: 580, isDemoLender: opts.isDemoLender ?? false, ...(stack.jurisdiction === "LS" ? { screeningProvider: "simulated" } : {}) } })
+  await db.tenantConfig.create({ data: { tenantId: stack.tenant, bureauMinScore: 580, isDemoLender: opts.isDemoLender ?? false, ...(stack.jurisdiction !== "ZA" ? { screeningProvider: "simulated" } : {}) } })
   for (const [id, name, role] of [[stack.officer, "Synthetic Officer", "LOAN_ADMIN"], [stack.disburser, "Synthetic Disburser", "LOAN_ADMIN"], [stack.confirmer, "Synthetic Confirmer", "CREDIT_OFFICER"], [stack.senior, "Synthetic Senior", "ADMIN"]] as const) {
     await db.user.create({ data: { id, tenantId: stack.tenant, email: `${id}@test.invalid`, password: "not-a-real-login", name, role, totpEnabled: true, lastTotpCounter: 1 } })
   }
@@ -68,18 +69,22 @@ export interface BorrowerBytes {
   statement: { path: string; bytes: Buffer }
 }
 
+/** The borrower's bank record, ID and phone in each jurisdiction's shape (all synthetic: 99… IDs, Demo Bank). */
+const BORROWER_OF: Record<StackJurisdiction, () => { bank: { bankName: string; bankAccountNumber: string; bankBranchCode: string; accountType: "CHEQUE" }; idNumber: string; phone: string }> = {
+  ZA: () => ({ bank: { bankName: "Demo Bank", bankAccountNumber: "62000012345", bankBranchCode: "250655", accountType: "CHEQUE" }, idNumber: syntheticSaIdNumber(), phone: `+2782${String(randomInt(10_000_000)).padStart(7, "0")}` }),
+  LS: () => ({ bank: { bankName: "Demo Bank Lesotho", bankAccountNumber: "62000012345", bankBranchCode: "100001", accountType: "CHEQUE" }, idNumber: `99${String(randomInt(10_000_000)).padStart(7, "0")}`, phone: `+26658${String(randomInt(1_000_000)).padStart(6, "0")}` }),
+  // Kenya: an 8-digit ID (shape only, UNVERIFIED: lib/jurisdiction/national-id.ts) and a +2547… Safaricom-range mobile.
+  KE: () => ({ bank: { bankName: "Demo Bank Kenya", bankAccountNumber: "62000012345", bankBranchCode: "100001", accountType: "CHEQUE" }, idNumber: `99${String(randomInt(1_000_000)).padStart(6, "0")}`, phone: `+2547${String(randomInt(100_000_000)).padStart(8, "0")}` }),
+}
+
 /** A borrower with verified evidence and no application: what the portal's apply route starts from. */
 export async function seedBorrower(db: PrismaClient, stack: Stack, id: string, opts: { documents?: boolean; income?: number; bank?: boolean; dealerId?: string } = {}): Promise<BorrowerBytes> {
-  const ls = stack.jurisdiction === "LS"
   const clientId = `${id}-client`
-  const bank = ls
-    ? { bankName: "Demo Bank Lesotho", bankAccountNumber: "62000012345", bankBranchCode: "100001", accountType: "CHEQUE" as const }
-    : { bankName: "Demo Bank", bankAccountNumber: "62000012345", bankBranchCode: "250655", accountType: "CHEQUE" as const }
+  const { bank, idNumber, phone } = BORROWER_OF[stack.jurisdiction]()
   await db.client.create({
     data: {
-      id: clientId, tenantId: stack.tenant, reference: `CLI-${id}`,
-      idNumber: ls ? `99${String(randomInt(10_000_000)).padStart(7, "0")}` : syntheticSaIdNumber(),
-      firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone: ls ? `+26658${String(randomInt(1_000_000)).padStart(6, "0")}` : `+2782${String(randomInt(10_000_000)).padStart(7, "0")}`,
+      id: clientId, tenantId: stack.tenant, reference: `CLI-${id}`, idNumber,
+      firstName: "Synthetic", lastName: "Borrower", email: `${id}@test.invalid`, phone,
       grossMonthlyIncome: 2_200_000, monthlyIncome: opts.income ?? 2_000_000, monthlyExpenses: 800_000,
       ...(opts.bank === false ? {} : bank), ...(opts.dealerId ? { createdByDealerId: opts.dealerId } : {}), expenseBreakdown: { create: EXPENSES },
     },
