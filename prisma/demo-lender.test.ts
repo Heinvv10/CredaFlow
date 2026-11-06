@@ -84,7 +84,7 @@ describe("demoLender", () => {
   })
 
   it.each(["nope", "toString", "__proto__", "ACME"])("refuses DEMO_LENDER=%s", (name) => {
-    expect(() => demoLender({ DEMO_LENDER: name })).toThrow(/is not one of: acme, fairscore, tsela, basotho/)
+    expect(() => demoLender({ DEMO_LENDER: name })).toThrow(/is not one of: acme, fairscore, tsela, basotho, nairobi/)
   })
 
   describe.each(Object.entries(DEMO_LENDERS))("%s", (name, lender) => {
@@ -119,6 +119,30 @@ describe("demoLender", () => {
     expect(basotho.identity).toMatchObject({ ncrNumber: null, fscaNumber: null, publicPhone: "+266 2200 0000" })
     expect(JSON.stringify(basotho).toLowerCase()).not.toContain("acme")
     expect(lenderJurisdiction(demoLender({}))).toEqual({ jurisdiction: "ZA", currency: "ZAR" })
+  })
+
+  it("selects the Kenyan profile: KE, shillings, no NCR or FSP number, +254 phones, obviously synthetic", () => {
+    const nairobi = demoLender({ DEMO_LENDER: "nairobi" })
+    expect(lenderJurisdiction(nairobi)).toEqual({ jurisdiction: "KE", currency: "KES" })
+    expect(nairobi).toMatchObject({
+      slug: "nairobi",
+      identity: {
+        legalName: "Demo Nairobi Credit Ltd",
+        ncrNumber: null,
+        fscaNumber: null,
+        companyRegNumber: "PVT-2099DEMO1",
+        registeredOffice: "1 Demo Road\nNairobi\n00100",
+        publicPhone: "+254 700 000 000",
+        collectionsPhone: "+254 700 000 001",
+      },
+      staffDomain: "nairobi-credit.example",
+      clientDomain: "nairobi-credit.invalid",
+      bureau: { supplierNumber: "NAIRO1" },
+    })
+    expect(JSON.stringify(nairobi).toLowerCase()).not.toContain("acme")
+    // Every phone the identity carries is a +254 number; none is a South African or Lesotho one.
+    const phones = [nairobi.identity.publicPhone, nairobi.identity.collectionsPhone, nairobi.identity.publicWhatsapp, nairobi.identity.collectionsPhoneSecondary].filter(Boolean)
+    for (const phone of phones) expect(phone).toMatch(/^\+254 /)
   })
 
   it("prints one field for the shell scripts", () => {

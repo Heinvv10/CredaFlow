@@ -32,8 +32,8 @@ export interface DemoLender {
   requireSegregationOfDuties: boolean
   /**
    * Where the lender operates (lib/jurisdiction). Absent = ZA / ZAR, so the
-   * South African entries need not say it. An LS lender has no NCR or FSP
-   * number, +266 phones and no asset finance (an NCA product).
+   * South African entries need not say it. An LS or KE lender has no NCR or
+   * FSP number, +266 or +254 phones and no asset finance (an NCA product).
    */
   jurisdiction?: Jurisdiction
   currency?: Currency
@@ -126,6 +126,34 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
     staffDomain: "basotho-lending.example",
     clientDomain: "basotho-lending.invalid",
     bureau: { supplierNumber: "BASO01", tradingName: "BASOTHO LENDING" },
+    requireSegregationOfDuties: false,
+  },
+  nairobi: {
+    slug: "nairobi",
+    jurisdiction: "KE",
+    currency: "KES",
+    // A clearly fictional Kenyan demo lender: a 2099 DEMO registration, a Demo
+    // Road office in Nairobi, 700 000 00x phones. It holds no NCR or FSP number
+    // because the NCA does not apply to it, and no Central Bank of Kenya licence.
+    identity: {
+      ...VALID_LENDER_COLUMNS,
+      legalName: "Demo Nairobi Credit Ltd",
+      brandName: "Demo Nairobi Credit",
+      ncrNumber: null,
+      fscaNumber: null,
+      companyRegNumber: "PVT-2099DEMO1",
+      registeredOffice: "1 Demo Road\nNairobi\n00100",
+      publicEmail: "hello@nairobi-credit.example",
+      publicPhone: "+254 700 000 000",
+      collectionsEmail: "collections@nairobi-credit.example",
+      collectionsPhone: "+254 700 000 001",
+      brandTagline: "Demo lender: Kenya jurisdiction",
+      headOfficeCity: "Nairobi",
+    },
+    colours: { primaryColor: "#1F4E79", secondaryColor: "#245E92", darkColor: "#0F1115" },
+    staffDomain: "nairobi-credit.example",
+    clientDomain: "nairobi-credit.invalid",
+    bureau: { supplierNumber: "NAIRO1", tradingName: "NAIROBI CREDIT" },
     requireSegregationOfDuties: false,
   },
 }

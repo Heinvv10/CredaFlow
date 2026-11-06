@@ -607,3 +607,90 @@ suite("Lesotho demo seed (DEMO_LENDER=basotho) on a fresh migrated database", ()
     expect(failedRunStderr(() => runSeed(fresh!.url, { DEMO_LENDER: "acme" }))).toMatch(/One instance serves one jurisdiction/)
   })
 })
+
+suite("Kenyan demo seed (DEMO_LENDER=nairobi) on a fresh migrated database", () => {
+  const admin = RUN ? new PrismaClient() : null
+  const created: string[] = []
+  let fresh: ThrowawayDb | undefined
+  const db = () => {
+    if (!fresh) throw new Error("RUN_SEED_DB_IT=1 is required")
+    return fresh.prisma
+  }
+
+  beforeAll(async () => {
+    if (!admin) throw new Error("RUN_SEED_DB_IT=1 is required")
+    fresh = await createThrowawayDb(admin, created)
+    runSeed(fresh.url, { DEMO_LENDER: "nairobi" })
+  }, 180_000)
+
+  afterAll(async () => {
+    await dropThrowawayDbs(admin, created, [fresh])
+  })
+
+  it("sets the instance to KE / KES and seeds a Kenyan lender: no NCR number, +254 phones, English only, no asset finance", async () => {
+    expect(await db().instanceJurisdiction.findMany({ select: { jurisdiction: true, currency: true } })).toEqual([{ jurisdiction: "KE", currency: "KES" }])
+    const config = await db().tenantConfig.findFirstOrThrow({ where: { tenant: { slug: "nairobi" } } })
+    expect(config).toMatchObject({
+      jurisdiction: "KE", currency: "KES", ncrNumber: null, fscaNumber: null, featureAssetFinance: false,
+      publicPhone: "+254 700 000 000", screeningProvider: "simulated", isDemoLender: true, enabledLanguages: ["en"], languageReviews: {},
+    })
+    expect(await db().assetFinanceDeal.count()).toBe(0)
+  })
+
+  it("seeds the Kenyan borrowers and products, never the South African or Lesotho ones", async () => {
+    const clients = await db().client.findMany({ select: { idNumber: true, phone: true, province: true, email: true }, orderBy: { idNumber: "asc" } })
+    expect(clients.map((c) => c.idNumber)).toEqual(["99000001", "99000002", "99000003", "99000004", "99000005"])
+    for (const c of clients) {
+      expect(c.phone).toMatch(/^\+2547000000\d{2}$/)
+      expect(c.email).toMatch(/@nairobi-credit\.invalid$/)
+    }
+    expect((await db().loanProduct.findMany({ select: { code: true }, orderBy: { code: "asc" } })).map((p) => p.code)).toEqual(["MPESA30", "PERSONAL"])
+    // Each +254 mobile is an SMS and a WhatsApp identity, though the seed runs with no jurisdiction loaded.
+    const whatsapp = await db().contactIdentity.findMany({ where: { channel: "WHATSAPP" }, select: { value: true } })
+    expect(whatsapp.map((w) => w.value)).toContain("254700000001@s.whatsapp.net")
+    expect(whatsapp).toHaveLength(5)
+  })
+
+  it("seeds a key-facts staff: super admin and payout confirmer beside the four the ZA seed has", async () => {
+    const staff = await db().user.findMany({ where: { tenant: { slug: "nairobi" } }, select: { email: true, role: true, totpEnabled: true } })
+    expect(staff.map((s) => `${s.role} ${s.email}`).sort()).toEqual([
+      "ADMIN admin@nairobi-credit.example",
+      "CREDIT_OFFICER credit.officer@nairobi-credit.example",
+      "CREDIT_OFFICER payout.confirmer@nairobi-credit.example",
+      "LOAN_ADMIN loan.admin.one@nairobi-credit.example",
+      "LOAN_ADMIN loan.admin.two@nairobi-credit.example",
+      "SUPER_ADMIN super.admin@nairobi-credit.example",
+    ])
+    expect(staff.every((s) => s.totpEnabled)).toBe(true)
+  })
+
+  it("approves the Kenyan KEY_FACTS templates and stamps every application KEY_FACTS", async () => {
+    const tenant = await db().tenant.findUniqueOrThrow({ where: { slug: "nairobi" } })
+    const templates = await db().documentTemplate.findMany({ where: { tenantId: tenant.id, key: { startsWith: "non_nca_" } }, include: { versions: true } })
+    expect(templates.map((t) => t.key).sort()).toEqual(["non_nca_arrears_letter", "non_nca_key_facts", "non_nca_loan_agreement", "non_nca_offer_letter"])
+    for (const t of templates) {
+      expect(t.versions[0]).toMatchObject({ id: t.currentVersionId, status: "ACTIVE" })
+      expect(t.versions[0].approvedById).not.toBe(t.versions[0].createdById)
+      expect(t.versions[0].notes).toMatch(/^DRAFT — not reviewed by Kenyan counsel/)
+    }
+    expect(templates.find((t) => t.key === "non_nca_key_facts")!.versions[0].bodyHtml).toContain("[SAMPLE &mdash; the lender&rsquo;s Central Bank of Kenya licence number goes here. This demo lender holds no licence.]")
+    const apps = await db().loanApplication.findMany({ select: { reference: true, disclosureRegime: true } })
+    expect(apps.length).toBeGreaterThanOrEqual(5)
+    expect(apps.filter((a) => a.disclosureRegime !== "KEY_FACTS")).toEqual([])
+  })
+
+  it("is walkable with no database surgery: an ungraded matrix rule, an approved application, a loan in arrears", async () => {
+    const tenant = await db().tenant.findUniqueOrThrow({ where: { slug: "nairobi" } })
+    const matrix = await db().approvalMatrixVersion.findFirstOrThrow({ where: { tenantId: tenant.id } })
+    expect(matrix.rules).toEqual([expect.objectContaining({ when: { ungraded: true } })])
+    const approved = await db().loanApplication.findUniqueOrThrow({ where: { reference: "APP-SEED-0005" }, include: { product: true } })
+    expect(approved).toMatchObject({ status: "APPROVED", disclosureRegime: "KEY_FACTS", repaymentMethod: "EFT", product: { code: "MPESA30" } })
+    const loan = await db().loan.findUniqueOrThrow({ where: { reference: "LN-SEED-0001" } })
+    expect(loan.status).toBe("ACTIVE")
+    expect(loan.daysInArrears).toBeGreaterThan(0)
+  })
+
+  it("refuses to seed a Lesotho lender into the same database (one jurisdiction per instance)", () => {
+    expect(failedRunStderr(() => runSeed(fresh!.url, { DEMO_LENDER: "basotho" }))).toMatch(/One instance serves one jurisdiction/)
+  })
+})
