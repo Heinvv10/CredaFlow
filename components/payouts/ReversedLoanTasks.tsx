@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { PayoutView, RecoveryView } from "@/lib/payouts/view"
-import { formatZAR } from "@/lib/utils"
+import { activeCurrencySymbol, formatZAR } from "@/lib/utils"
 import { postAction } from "./post-action"
 
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg" })
@@ -107,7 +107,7 @@ function RecoveryCase({ loanId, recovery: r, canAct }: { loanId: string; recover
               <Input type="date" aria-label="Date the funds came back" value={backOn} onChange={(e) => setBackOn(e.target.value)} className="mt-1 w-44" />
             </label>
             <label className="text-xs">
-              Amount that came back (R)
+              Amount that came back ({activeCurrencySymbol()})
               <Input inputMode="decimal" aria-label="Amount that came back" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-36" />
             </label>
             <Input placeholder="Bank reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} className="w-56" />

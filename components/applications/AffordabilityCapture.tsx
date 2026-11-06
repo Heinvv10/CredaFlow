@@ -13,7 +13,7 @@ import {
   preserveOriginalDebtAccountType,
   captureOriginalDebtAccountTypes,
 } from "@/lib/credit/debt-account-types"
-import { formatZAR } from "@/lib/utils"
+import { activeCurrencySymbol, formatZAR } from "@/lib/utils"
 import { toast } from "@/lib/toast"
 import { OwnLenderDebtRows, ownLenderPreview } from "@/components/applications/OwnLenderDebtRows"
 
@@ -281,7 +281,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
                   </button>
                 </div>
               ))}
-              <p className="pl-1 text-[10px] text-[var(--cf-text-muted)]">Columns: Creditor / Type / Monthly Instalment (R) / Outstanding Balance (R)</p>
+              <p className="pl-1 text-[10px] text-[var(--cf-text-muted)]">Columns: Creditor / Type / Monthly Instalment ({activeCurrencySymbol()}) / Outstanding Balance ({activeCurrencySymbol()})</p>
             </div>
           )}
         </div>

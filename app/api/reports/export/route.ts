@@ -21,7 +21,7 @@ import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { buildEclExport } from "@/lib/ifrs9/export"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { SAST_TIME_ZONE } from "@/lib/utils"
+import { activeCurrencySymbol, SAST_TIME_ZONE } from "@/lib/utils"
 import { section129LogRow } from "@/lib/collections/section129-reporting"
 import { arrearsBucket } from "@/lib/reports/arrears-buckets"
 import { periodFilter, resolvePeriod } from "@/lib/date/sast-period"
@@ -83,6 +83,7 @@ export async function GET(req: NextRequest) {
   if (guard.user.tenantId !== tenant.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const type = req.nextUrl.searchParams.get("type") ?? "loans"
+  const symbol = activeCurrencySymbol()
 
   let wb: ExcelJS.Workbook
   const now = new Date()
@@ -117,7 +118,7 @@ export async function GET(req: NextRequest) {
       "Days in Arrears": l.daysInArrears,
       "Arrears Amount": l.arrearsAmount / 100,
       // Beside the instalment arrears, never inside them; 0 unless charges are live.
-      "Default Charges Owing (R)": chargesOwing(l, chargesLive) / 100,
+      [`Default Charges Owing (${symbol})`]: chargesOwing(l, chargesLive) / 100,
       "Start Date": l.startDate.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }),
       "Maturity Date": l.maturityDate.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }),
       "Next Payment": l.nextPaymentDate?.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }) ?? "",
@@ -142,9 +143,9 @@ export async function GET(req: NextRequest) {
       Product: l.product.name,
       "Days in Arrears": l.daysInArrears,
       Bucket: arrearsBucket(l.daysInArrears),
-      "Arrears Amount (R)": l.arrearsAmount / 100,
-      "Default Charges Owing (R)": chargesOwing(l, chargesLive) / 100,
-      "Outstanding Principal (R)": l.outstandingPrincipal / 100,
+      [`Arrears Amount (${symbol})`]: l.arrearsAmount / 100,
+      [`Default Charges Owing (${symbol})`]: chargesOwing(l, chargesLive) / 100,
+      [`Outstanding Principal (${symbol})`]: l.outstandingPrincipal / 100,
       Status: l.status,
       // The aging covers the whole book; a NON_NCA (asset finance) agreement
       // is not NCA-regulated, so each row says which regime it is under.
@@ -191,7 +192,7 @@ export async function GET(req: NextRequest) {
       "Loan Reference": p.loan.reference,
       Client: borrowerDisplayName(p.loan),
       "ID Number": p.loan.client?.idNumber ?? "",
-      "Amount (R)": p.amount / 100,
+      [`Amount (${symbol})`]: p.amount / 100,
       Method: displayPaymentMethod(p.paymentMethod, (method) => method),
       Reference: p.reference ?? "",
       Notes: p.notes ?? "",
@@ -229,8 +230,8 @@ export async function GET(req: NextRequest) {
       Email: l.client?.email ?? "",
       Product: l.product.name,
       "Days in Arrears": l.daysInArrears,
-      "Arrears Amount (R)": l.arrearsAmount / 100,
-      "Outstanding (R)": l.outstandingPrincipal / 100,
+      [`Arrears Amount (${symbol})`]: l.arrearsAmount / 100,
+      [`Outstanding (${symbol})`]: l.outstandingPrincipal / 100,
       Status: l.status,
     }))
 
@@ -253,12 +254,12 @@ export async function GET(req: NextRequest) {
       Client: borrowerDisplayName(a),
       "ID Number": a.client?.idNumber ?? "",
       Product: a.product.name,
-      "Applied Amount (R)": a.appliedAmount / 100,
-      "Approved Amount (R)": a.approvedAmount != null ? a.approvedAmount / 100 : "",
+      [`Applied Amount (${symbol})`]: a.appliedAmount / 100,
+      [`Approved Amount (${symbol})`]: a.approvedAmount != null ? a.approvedAmount / 100 : "",
       "Term (Days)": a.appliedTermDays,
-      "Net Disposable Income (R)": a.netDisposableIncome != null ? a.netDisposableIncome / 100 : "",
-      "Affordability NDI (R)": a.affordabilityNDI != null ? a.affordabilityNDI / 100 : "",
-      "Total Existing Debt (R)": a.totalExistingDebt != null ? a.totalExistingDebt / 100 : "",
+      [`Net Disposable Income (${symbol})`]: a.netDisposableIncome != null ? a.netDisposableIncome / 100 : "",
+      [`Affordability NDI (${symbol})`]: a.affordabilityNDI != null ? a.affordabilityNDI / 100 : "",
+      [`Total Existing Debt (${symbol})`]: a.totalExistingDebt != null ? a.totalExistingDebt / 100 : "",
       "Reckless Lending Assessed": a.recklessLendingAssessed ? "Yes" : "No",
       "Reckless Assessment Note": a.recklessLendingNote ?? "",
       "Income Verification Method": a.incomeVerificationMethod ?? "",
@@ -445,10 +446,10 @@ export async function GET(req: NextRequest) {
       "Phone Number": l.client?.phone ?? "",
       "Email": l.client?.email ?? "",
       "Product Type": l.product.name,
-      "Principal Amount (R)": l.principal / 100,
-      "Initiation Fee (R)": l.initiationFee / 100,
-      "Total Interest (R)": l.totalInterest / 100,
-      "Total Repayable (R)": l.totalRepayable / 100,
+      [`Principal Amount (${symbol})`]: l.principal / 100,
+      [`Initiation Fee (${symbol})`]: l.initiationFee / 100,
+      [`Total Interest (${symbol})`]: l.totalInterest / 100,
+      [`Total Repayable (${symbol})`]: l.totalRepayable / 100,
       "Interest Rate (pm %)": l.interestRatePm,
       "Interest Model": l.interestModel,
       "Term (Days)": l.application.appliedTermDays,
@@ -509,12 +510,12 @@ export async function GET(req: NextRequest) {
       "Client Full Name": borrowerDisplayName(a),
       "ID Number": a.client?.idNumber ?? "",
       "Product": a.product.name,
-      "Applied Amount (R)": a.appliedAmount / 100,
-      "Approved Amount (R)": a.approvedAmount != null ? a.approvedAmount / 100 : "",
+      [`Applied Amount (${symbol})`]: a.appliedAmount / 100,
+      [`Approved Amount (${symbol})`]: a.approvedAmount != null ? a.approvedAmount / 100 : "",
       "Term (Days)": a.appliedTermDays,
-      "Net Disposable Income (R)": a.netDisposableIncome != null ? a.netDisposableIncome / 100 : "",
-      "Affordability NDI (R)": a.affordabilityNDI != null ? a.affordabilityNDI / 100 : "",
-      "Total Existing Debt (R)": a.totalExistingDebt != null ? a.totalExistingDebt / 100 : "",
+      [`Net Disposable Income (${symbol})`]: a.netDisposableIncome != null ? a.netDisposableIncome / 100 : "",
+      [`Affordability NDI (${symbol})`]: a.affordabilityNDI != null ? a.affordabilityNDI / 100 : "",
+      [`Total Existing Debt (${symbol})`]: a.totalExistingDebt != null ? a.totalExistingDebt / 100 : "",
       "Income Verification Method": a.incomeVerificationMethod ?? "",
       "Reckless Lending Assessed": a.recklessLendingAssessed ? "Yes" : "No",
       "Assessment Note": a.recklessLendingNote ?? "",
@@ -604,11 +605,11 @@ export async function GET(req: NextRequest) {
     const rows = Array.from(stats.values()).map((s) => ({
       Branch: s.name,
       Code: s.code,
-      "Expected Collections (R)": s.expectedCollections / 100,
-      "Actual Collections (R)": s.actualCollections / 100,
-      "Shortfall / (Surplus) (R)": (s.expectedCollections - s.actualCollections) / 100,
+      [`Expected Collections (${symbol})`]: s.expectedCollections / 100,
+      [`Actual Collections (${symbol})`]: s.actualCollections / 100,
+      [`Shortfall / (Surplus) (${symbol})`]: (s.expectedCollections - s.actualCollections) / 100,
       "Collection Rate (%)": s.expectedCollections > 0 ? ((s.actualCollections / s.expectedCollections) * 100).toFixed(1) : "N/A",
-      "Disbursements (R)": s.disbursements / 100,
+      [`Disbursements (${symbol})`]: s.disbursements / 100,
       "New Loans": s.disbursementCount,
     }))
 

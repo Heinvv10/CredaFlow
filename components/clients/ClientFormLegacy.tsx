@@ -19,7 +19,7 @@ import { DebtObligationsSection, type DebtObligation } from "./DebtObligationsSe
 import { centsToRandExpenses, centsToRandDebts, randsToCents } from "./client-edit-money"
 import { ReferralAgentField, type ReferralImpactSummary } from "./ReferralAgentField"
 import { referralPayloadFields, isReferralSaveBlocked } from "./client-referral-payload"
-import { cn } from "@/lib/utils"
+import { activeCurrencySymbol, cn } from "@/lib/utils"
 import { UNEMPLOYED_STATUSES } from "@/lib/validation/client-wizard"
 
 interface ClientFormProps {
@@ -329,8 +329,8 @@ export function ClientForm({ initialData, canEditReferralAgent = false }: Client
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div><Label htmlFor="employmentStatus">Employment Status</Label><Select name="employmentStatus" defaultValue={initialData?.employmentStatus} onValueChange={setEmploymentStatus}><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger><SelectContent><SelectItem value="EMPLOYED">Employed</SelectItem><SelectItem value="PART_TIME">Part-time / Contract</SelectItem><SelectItem value="SELF_EMPLOYED">Self Employed</SelectItem><SelectItem value="UNEMPLOYED">Unemployed</SelectItem><SelectItem value="STUDENT">Student</SelectItem><SelectItem value="PENSIONER">Pensioner</SelectItem></SelectContent></Select></div>
           <div><Label htmlFor="employerName">Employer Name</Label><Input id="employerName" name="employerName" defaultValue={initialData?.employerName} /></div>
-          <div><Label htmlFor="grossMonthlyIncome">Gross Monthly Income (R)</Label><Input id="grossMonthlyIncome" name="grossMonthlyIncome" type="number" step="0.01" min={0} defaultValue={initialData?.grossMonthlyIncome ? initialData.grossMonthlyIncome / 100 : ""} /></div>
-          <div><Label htmlFor="monthlyIncome">Net/Take-home Monthly Income (R)</Label><Input id="monthlyIncome" name="monthlyIncome" type="number" step="0.01" min={0} defaultValue={initialData?.monthlyIncome ? initialData.monthlyIncome / 100 : ""} /></div>
+          <div><Label htmlFor="grossMonthlyIncome">Gross Monthly Income ({activeCurrencySymbol()})</Label><Input id="grossMonthlyIncome" name="grossMonthlyIncome" type="number" step="0.01" min={0} defaultValue={initialData?.grossMonthlyIncome ? initialData.grossMonthlyIncome / 100 : ""} /></div>
+          <div><Label htmlFor="monthlyIncome">Net/Take-home Monthly Income ({activeCurrencySymbol()})</Label><Input id="monthlyIncome" name="monthlyIncome" type="number" step="0.01" min={0} defaultValue={initialData?.monthlyIncome ? initialData.monthlyIncome / 100 : ""} /></div>
           <div><Label htmlFor="incomeSourceType">Income Source Type</Label><Select name="incomeSourceType" defaultValue={initialData?.incomeSourceType}><SelectTrigger><SelectValue placeholder="Select source" /></SelectTrigger><SelectContent><SelectItem value="SALARY">Salary</SelectItem><SelectItem value="WAGES">Wages</SelectItem><SelectItem value="PENSION">Pension</SelectItem><SelectItem value="SOCIAL_GRANT">Social Grant</SelectItem><SelectItem value="BUSINESS_INCOME">Business Income</SelectItem><SelectItem value="RENTAL_INCOME">Rental Income</SelectItem><SelectItem value="OTHER">Other</SelectItem></SelectContent></Select></div>
           {isEmployed && (
             <>
