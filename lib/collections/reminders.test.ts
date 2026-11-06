@@ -101,6 +101,12 @@ import { extractPlaceholders } from "@/lib/whatsapp/template-components"
 import { sastStartOfDay } from "@/lib/date/sast"
 import { REMINDER_DAYS_UNTIL_DUE } from "@/lib/collections/reminder-offsets"
 import { kabeloScheduleAsAudited } from "@/lib/loan/__fixtures__/fairscore-audit-schedules"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const sastDayOffset = (days: number) => new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)
 

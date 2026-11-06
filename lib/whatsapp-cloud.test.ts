@@ -14,6 +14,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { getWabaCreds } from "./whatsapp-cloud-config"
 import { prisma } from "@/lib/prisma"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { sendWhatsAppCloudMessage } from "./whatsapp-cloud"
 
 beforeEach(() => {
@@ -22,6 +23,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  resetActiveJurisdiction()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -52,6 +54,7 @@ describe("sendWhatsAppCloudMessage", () => {
   })
 
   it("POSTs a text message to the Graph endpoint and returns the wamid", async () => {
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("WHATSAPP_GRAPH_VERSION", "v23.0")
     stubCreds()
@@ -75,6 +78,17 @@ describe("sendWhatsAppCloudMessage", () => {
       type: "text",
       text: { body: "hello" },
     })
+  })
+
+  it("refuses a local number while no jurisdiction is loaded (27 or 254?): no creds, no fetch", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    stubCreds()
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const r = await sendWhatsAppCloudMessage({ tenantId: "tn1", to: "0712345678", message: "hello" })
+    expect(r).toEqual({ ok: false, error: "WhatsApp recipient is not a number this lender can place", providerOutcome: "DEFINITELY_REJECTED" })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(getWabaCreds).not.toHaveBeenCalled()
   })
 
   it("classifies an allowlisted HTTP status as DEFINITELY_REJECTED", async () => {

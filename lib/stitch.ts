@@ -4,6 +4,8 @@
  */
 
 import { prisma } from "@/lib/prisma"
+import { activeCurrency } from "@/lib/jurisdiction/active"
+import type { Currency } from "@/lib/jurisdiction/profiles"
 import {
   isEnvCredentialsTenant,
   loadTenantCredential,
@@ -33,6 +35,28 @@ export class StitchNotConfiguredError extends Error {
     super(message)
     this.name = "StitchNotConfiguredError"
   }
+}
+
+/**
+ * Stitch collects in rand (createStitchPayment sends "ZAR"). A loti amount is the
+ * same number of rand (the loti is pegged 1:1 and the rand is legal tender in
+ * Lesotho); any other currency (KES) is refused, never sent as rand.
+ */
+const STITCH_COLLECTS: readonly Currency[] = ["ZAR", "LSL"]
+
+/** The lender bills in a currency Stitch cannot collect. */
+export class StitchCurrencyError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "StitchCurrencyError"
+  }
+}
+
+/** Why Stitch cannot take this lender's payments (null when it can). */
+export function stitchCurrencyRefusal(currency: Currency = activeCurrency()): string | null {
+  return STITCH_COLLECTS.includes(currency)
+    ? null
+    : `Online payments through Stitch are collected in rand; this lender bills in ${currency}.`
 }
 
 /**
@@ -160,6 +184,8 @@ export async function createStitchPayment(
   tenantId: string,
   input: StitchPaymentInput
 ): Promise<StitchPaymentResult> {
+  const refusal = stitchCurrencyRefusal()
+  if (refusal) throw new StitchCurrencyError(refusal)
   const account = await loadStitchAccount(tenantId)
   const token = await getStitchAccessToken(account)
   const { name: beneficiaryName, bankId, accountNumber, branchCode } = account.beneficiary

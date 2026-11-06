@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, beforeEach, afterEach } from "vitest"
 import { cleanChatText, validateChatStart } from "./validate"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const OK = { name: "Thandi Mokoena", phone: "082 123 4567", email: "Thandi@Example.co.za", consent: true }
 

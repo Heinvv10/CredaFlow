@@ -66,6 +66,12 @@ vi.mock("@/lib/contact/identity", async () => ({
 
 import { triggerNotification } from "./notifications"
 import { catalogueHash } from "@/lib/i18n/catalogue-hash"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const client = (preferredLanguage: string | null) => ({
   id: "cli1", firstName: "Thandi", lastName: "Mthembu", email: "thandi@example.test",

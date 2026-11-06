@@ -4,7 +4,8 @@ import type { Jurisdiction } from "./profiles"
 
 /**
  * Business days for DUE-DATE logic (debit-order dates, submission windows),
- * by jurisdiction. ZA delegates to the South African calendar untouched. The
+ * by jurisdiction. ZA delegates to the South African calendar untouched; LS and
+ * KE each have their own list (holidaysFor). The
  * NCA statutory deadlines (Section 129, asset-finance notices) keep calling
  * lib/compliance/sa-business-days.ts directly: they are South African law.
  *
@@ -19,6 +20,25 @@ import type { Jurisdiction } from "./profiles"
  * holiday; add it to LESOTHO_FIXED.
  */
 const LESOTHO_FIXED = ["01-01", "03-11", "04-04", "05-01", "05-25", "07-17", "10-04", "12-25", "12-26"] as const
+
+/**
+ * Kenyan holidays (Public Holidays Act): 1 Jan, Good Friday, Easter Monday,
+ * 1 May, 1 Jun (Madaraka Day), 10 Oct (Mazingira Day), 20 Oct (Mashujaa Day),
+ * 12 Dec (Jamhuri Day), 25 and 26 Dec, and Eid al-Fitr. MEDIUM confidence,
+ * compiled from published calendars; UNVERIFIED until the lender's counsel
+ * confirms the list. A holiday on a Sunday is observed on the next day that is
+ * not itself a holiday (UNVERIFIED reading of the Act). Days the Cabinet
+ * Secretary gazettes one-off are NOT modelled.
+ */
+const KENYA_FIXED = ["01-01", "05-01", "06-01", "10-10", "10-20", "12-12", "12-25", "12-26"] as const
+
+/**
+ * Eid al-Fitr, month-day by year. UNVERIFIED: the date follows the sighting
+ * of the moon and is gazetted shortly before; these are the expected dates.
+ * Replace each with the gazetted one when it is published. A year missing
+ * here has no Eid holiday, so a debit could fall on it: add the year.
+ */
+export const KENYA_EID_AL_FITR: Readonly<Record<number, string>> = { 2026: "03-20", 2027: "03-10", 2028: "02-27" }
 
 function parseDay(value: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new RangeError("Invalid ISO calendar date")
@@ -47,12 +67,41 @@ export function lesothoPublicHolidays(year: number): Set<string> {
   return holidays
 }
 
+export function kenyaPublicHolidays(year: number): Set<string> {
+  const easter = easterSunday(year)
+  const eid = KENYA_EID_AL_FITR[year]
+  const days = [
+    ...KENYA_FIXED.map((monthDay) => `${year}-${monthDay}`),
+    shiftDay(easter, -2),
+    shiftDay(easter, 1),
+    ...(eid ? [`${year}-${eid}`] : []),
+  ].sort()
+  const holidays = new Set(days)
+  for (const day of days) {
+    if (parseDay(day).getUTCDay() !== 0) continue
+    let observed = shiftDay(day, 1)
+    while (holidays.has(observed)) observed = shiftDay(observed, 1)
+    holidays.add(observed)
+  }
+  return holidays
+}
+
+const CALENDARS: Record<Exclude<Jurisdiction, "ZA">, (year: number) => Set<string>> = {
+  LS: lesothoPublicHolidays,
+  KE: kenyaPublicHolidays,
+}
+
+/** The public holidays of a jurisdiction other than ZA (whose calendar is lib/compliance/sa-business-days.ts). */
+export function holidaysFor(jurisdiction: Exclude<Jurisdiction, "ZA">, year: number): Set<string> {
+  return CALENDARS[jurisdiction](year)
+}
+
 export function isBusinessDate(day: string, jurisdiction: Jurisdiction = activeJurisdiction()): boolean {
   if (jurisdiction === "ZA") return isSouthAfricanBusinessDate(day)
   const date = parseDay(day)
   const weekday = date.getUTCDay()
   if (weekday === 0 || weekday === 6) return false
-  return !lesothoPublicHolidays(date.getUTCFullYear()).has(day)
+  return !holidaysFor(jurisdiction, date.getUTCFullYear()).has(day)
 }
 
 export function addBusinessDays(start: string, businessDays: number, jurisdiction: Jurisdiction = activeJurisdiction()): string {

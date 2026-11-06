@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto"
 import { prisma } from "@/lib/prisma"
-import { normalizePhone, waHttpFailureOutcome, type WaResult } from "./whatsapp"
+import { normalizePhone, WA_UNPLACEABLE_RECIPIENT, waHttpFailureOutcome, type WaResult } from "./whatsapp"
 import { getWabaCreds } from "./whatsapp-cloud-config"
 import { whatsappRefusalForTenant } from "./whatsapp/kill-switch"
 import { resolveWaSendMode, WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "./whatsapp/send-mode"
@@ -64,6 +64,9 @@ export async function sendWhatsAppCloudMessage(opts: CloudSendOptions): Promise<
     return { ok: true, messageId: `dry-run-${randomUUID()}`, simulated: true }
   }
 
+  const to = normalizePhone(opts.to)
+  if (!to) return { ok: false, error: WA_UNPLACEABLE_RECIPIENT, providerOutcome: "DEFINITELY_REJECTED" }
+
   let creds
   try {
     creds = await getWabaCreds(opts.tenantId)
@@ -87,7 +90,7 @@ export async function sendWhatsAppCloudMessage(opts: CloudSendOptions): Promise<
     decision.mode === "template" && opts.template
       ? {
           messaging_product: "whatsapp",
-          to: normalizePhone(opts.to),
+          to,
           type: "template" as const,
           template: {
             name: opts.template.name,
@@ -97,7 +100,7 @@ export async function sendWhatsAppCloudMessage(opts: CloudSendOptions): Promise<
         }
       : {
           messaging_product: "whatsapp",
-          to: normalizePhone(opts.to),
+          to,
           type: "text" as const,
           text: { body: opts.message },
         }

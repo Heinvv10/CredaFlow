@@ -189,8 +189,8 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
 ## Jurisdiction
 
 One instance and one database serve one jurisdiction. The `InstanceJurisdiction`
-table holds it: a single row (id = 1, CHECK) with jurisdiction (ZA or LS) and
-currency. It is the one source of truth.
+table holds it: a single row (id = 1, CHECK) with jurisdiction (ZA, LS or KE)
+and currency. It is the one source of truth.
 
 - **Written once, then by an operator only.** The migration backfills it (ZA /
   ZAR on every existing database). After that only
@@ -213,7 +213,8 @@ currency. It is the one source of truth.
   not refresh a REPEATABLE READ / SERIALIZABLE snapshot, so the reads after it
   would be stale). A LoanApplication or Loan INSERT holds the same lock shared
   until it commits, so a change of the row waits for inserts in flight and then
-  counts them. A CHECK ties currency to jurisdiction (ZA is rand only).
+  counts them. A CHECK ties currency to jurisdiction (ZA is rand only, LS loti
+  or rand, KE shillings only).
 - **The app reads the row, not the tenants.** `lib/jurisdiction/active.ts`
   holds it process-wide (synchronous formatters and gates need no tenant
   argument). `instrumentation.ts` loads it at boot (retries with backoff,
@@ -231,10 +232,19 @@ currency. It is the one source of truth.
   409; the triggers are the backstop.
 - **Lenders are retired, never deleted.** A `TenantConfig` cannot be deleted once
   the lender has a loan application or loan; set its status to SUSPENDED.
+  PROVISIONING staff may sign in (onboarding), but their config must already
+  equal the instance.
 - **NCA-only steps** are gated at their entry points by `ncaOnlyRefusal()` /
   `ncaOnlyPage()` / `ncaOnlyCronSkip()` and listed in `lib/registry/nca-only/`;
   the census and behaviour tests fail when an NCA-looking route is neither gated
-  nor declared, or does not refuse under an LS lender.
+  nor declared, or does not refuse under an LS or a KE lender.
+- **Kenya (KE) is a draft.** Facts the lender's Kenyan counsel has not confirmed
+  carry an UNVERIFIED comment: the national ID shape (8 or 9 digits,
+  `national-id.ts`), the mobile prefixes (`profiles.ts`), the holiday list, the
+  Sunday-holiday rule and the Eid al-Fitr dates (`business-days.ts`, a per-year
+  table: a missing year has no Eid holiday). Known gap: the date code is pinned
+  to SAST (UTC+2) and Nairobi is on EAT (UTC+3), so between 00:00 and 01:00 EAT
+  the system's date is still the previous day.
 - Details and rules: `lib/jurisdiction/.claude.md`.
 
 ## Non-NCA documents

@@ -1,4 +1,5 @@
-import { profileFor } from "./profiles"
+import { activeJurisdiction, isJurisdictionLoaded } from "./active"
+import { profileFor, type Jurisdiction } from "./profiles"
 
 /**
  * Lesotho phone numbers, for client capture.
@@ -12,4 +13,33 @@ import { profileFor } from "./profiles"
 export function isValidLesothoMobile(raw: string): boolean {
   const value = raw.replace(/ /g, "")
   return profileFor("LS").capture.mobilePatterns.some((pattern) => pattern.test(value))
+}
+
+/**
+ * Kenyan phone numbers, for client capture.
+ *
+ * Numbers: country code 254 and nine digits, written locally with a trunk 0.
+ * Mobiles start 7 or 10/11 (Safaricom, Airtel, Telkom); landlines (020
+ * Nairobi and the other area codes) are refused, as for Lesotho. The prefix
+ * list is UNVERIFIED against the Communications Authority's numbering plan;
+ * change it in profiles.ts. The 47 counties are in the same file.
+ */
+export function isValidKenyaMobile(raw: string): boolean {
+  const value = raw.replace(/ /g, "")
+  return profileFor("KE").capture.mobilePatterns.some((pattern) => pattern.test(value))
+}
+
+/**
+ * The country code a ten-digit local number written with the trunk 0
+ * ("0821234567", "0712345678") takes: the profile's localZeroDialCode (the
+ * lender's own; South African in Lesotho, which has no trunk prefix).
+ *
+ * Fail-closed: with no `jurisdiction` named and none loaded, null. The ZA
+ * default would turn a Kenyan "0712345678" into the South African
+ * 27712345678 and send that borrower's message to someone else. Callers treat
+ * null as "no number" (no identity, no send).
+ */
+export function trunkZeroDialCode(jurisdiction?: Jurisdiction): string | null {
+  if (!jurisdiction && !isJurisdictionLoaded()) return null
+  return profileFor(jurisdiction ?? activeJurisdiction()).capture.localZeroDialCode
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { Prisma } from "@prisma/client"
 
 // The collections reminder cron for an ENTITY borrower (asset finance, goal
@@ -71,6 +71,12 @@ import { processPaymentReminders } from "./reminders"
 import { WABA_BODY_TEMPLATES } from "@/lib/whatsapp/template-vars"
 import { sastStartOfDay } from "@/lib/date/sast"
 import { normaliseEmail, toWaJid } from "@/lib/contact/identity"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 function entityLoanDueIn(days: number) {
   const due = new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)

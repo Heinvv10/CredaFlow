@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { POST } from "./route"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const { auth, findFirstClient, findFirstLoan, createStitchPayment, createStitchRequest } = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -20,7 +21,10 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "t1" }),
 }))
-vi.mock("@/lib/stitch", () => ({ createStitchPayment }))
+vi.mock("@/lib/stitch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/stitch")>()),
+  createStitchPayment,
+}))
 const { loadChargesReplay } = vi.hoisted(() => ({ loadChargesReplay: vi.fn() }))
 vi.mock("@/lib/loan/charges-replay", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/loan/charges-replay")>()),
@@ -36,7 +40,7 @@ function makeReq(body: unknown) {
 }
 
 beforeEach(() => { process.env.NEXTAUTH_URL = "https://portal.example.com" })
-afterEach(() => { vi.clearAllMocks(); delete process.env.NEXTAUTH_URL })
+afterEach(() => { vi.clearAllMocks(); delete process.env.NEXTAUTH_URL; resetActiveJurisdiction() })
 
 describe("POST /api/portal/payment/initiate", () => {
   it("returns 401 when not signed in", async () => {
@@ -206,5 +210,17 @@ describe("POST /api/portal/payment/initiate", () => {
     expect((await POST(makeReq({ loanId: "l1", amount: 250 }))).status).toBe(200)
     findFirstLoan.mockResolvedValue(loan("COMPLETED"))
     expect((await POST(makeReq({ loanId: "l1", amount: 250 }))).status).toBe(400)
+  })
+})
+
+describe("POST /api/portal/payment/initiate for a lender Stitch cannot collect for", () => {
+  it("answers 422 for a Kenyan (KES) lender, before reading the loan or calling Stitch", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    auth.mockResolvedValue({ user: { email: "client@example.com" } })
+    const res = await POST(makeReq({ loanId: "l1", amount: 100 }))
+    expect(res.status).toBe(422)
+    expect((await res.json()).error).toMatch(/rand.*KES/)
+    expect(findFirstLoan).not.toHaveBeenCalled()
+    expect(createStitchPayment).not.toHaveBeenCalled()
   })
 })

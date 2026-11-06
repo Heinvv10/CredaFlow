@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi, afterEach } from "vitest"
 import type { Message, MessageTemplate } from "@prisma/client"
 
 const {
@@ -61,6 +61,12 @@ vi.mock("@/lib/notifications", () => ({
 
 import { KnownDispatchPersistenceError, MessageReconciliationRequiredError } from "./send"
 import { sendStaffTaskReminder } from "./staff-task-reminder"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const DUE = new Date("2026-07-22T09:00:00.000Z")
 const template = {

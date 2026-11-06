@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { normalisePhone, toWaJid } from "./identity"
+
+afterEach(() => resetActiveJurisdiction())
 
 describe("a Lesotho mobile number", () => {
   it("is an identity in its international form", () => {
@@ -12,6 +15,7 @@ describe("a Lesotho mobile number", () => {
     expect(normalisePhone("+26622000000")).toBe("")
     expect(normalisePhone("+2665800000")).toBe("")
     expect(normalisePhone("+14155550100")).toBe("")
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
     expect(normalisePhone("0821234567")).toBe("27821234567")
     expect(normalisePhone("+27821234567")).toBe("27821234567")
   })

@@ -66,3 +66,32 @@ describe("LS identity", () => {
     expect(parseLenderIdentity({ ...LS_COLUMNS, ncrNumber: "CBL-LIC-0001" }).ncrNumber).toBe("CBL-LIC-0001")
   })
 })
+
+// Obviously synthetic: a Nairobi "Demo Road" office and 000 exchanges.
+const KE_COLUMNS = {
+  ...LS_COLUMNS,
+  legalName: "Demo Nairobi Credit Ltd",
+  brandName: "Demo Nairobi Credit",
+  companyRegNumber: "PVT-2099DEMO1",
+  registeredOffice: "1 Demo Road\nNairobi\n00100",
+  publicPhone: "+254 700 000 000",
+  collectionsPhone: "+254 700 000 001",
+}
+
+describe("KE identity", () => {
+  it("is valid with no NCR number, +254 phones and a free-form registration", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(parseLenderIdentity(KE_COLUMNS)).toMatchObject({ ncrNumber: null, companyRegNumber: "PVT-2099DEMO1", publicPhoneE164: "+254700000000" })
+  })
+
+  it("refuses a South African or Lesotho phone number, and a short Kenyan one", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    for (const publicPhone of ["+27 11 000 0000", "+266 2200 0000", "+254 700 000 00"]) {
+      expect(() => parseLenderIdentity({ ...KE_COLUMNS, publicPhone }), publicPhone).toThrow(LenderIdentityError)
+    }
+  })
+
+  it("is refused under a South African lender", () => {
+    expect(validateLenderIdentityColumns(KE_COLUMNS).ok).toBe(false)
+  })
+})

@@ -5,6 +5,8 @@
  */
 
 import { randomUUID } from "node:crypto"
+import { normalisePhone } from "@/lib/contact/identity"
+import type { Jurisdiction } from "@/lib/jurisdiction/profiles"
 import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 
 export interface WaResult {
@@ -41,19 +43,22 @@ interface WaSendOptions {
   signal?: AbortSignal
 }
 
+/** The refusal for a recipient normalizePhone cannot place (unrecognised, or a local number with no jurisdiction loaded). */
+export const WA_UNPLACEABLE_RECIPIENT = "WhatsApp recipient is not a number this lender can place"
+
 // Exported for tests so the idempotent-JID contract has direct coverage.
 // Callers go through sendWhatsAppMessage which uses it internally.
-export function normalizePhone(phone: string): string {
+export function normalizePhone(phone: string, jurisdiction?: Jurisdiction): string {
   // Idempotent: accept either a raw phone OR a fully-qualified WA JID
   // (`27821234567@s.whatsapp.net`). Without the suffix-strip, callers that
   // pass a JID get a double-suffixed JID after toJid() reapplies it →
   // `27821234567@s.whatsapp.net@s.whatsapp.net` → posts never deliver.
-  let p = phone.replace(/@s\.whatsapp\.net$/i, "")
-  // Strip spaces, dashes, +
-  p = p.replace(/[\s\-+]/g, "")
-  // SA: 0821234567 → 27821234567
-  if (p.startsWith("0") && p.length === 10) p = "27" + p.slice(1)
-  return p
+  // Then the contact-identity normaliser (lib/contact/identity.ts): a local "0…"
+  // number takes the lender's country code, and the result must be a number this
+  // system recognises (SA, a Lesotho or Kenyan mobile), or "" and the senders
+  // refuse it. Under a Kenyan lender a legacy "0821234567" would otherwise go
+  // out as the malformed 254821234567.
+  return normalisePhone(phone.replace(/@s\.whatsapp\.net$/i, ""), jurisdiction)
 }
 
 function toJid(phone: string): string {
@@ -91,6 +96,9 @@ export async function sendWhatsAppMessage(opts: WaSendOptions): Promise<WaResult
     }
   }
 
+  if (!normalizePhone(opts.to)) {
+    return { ok: false, error: WA_UNPLACEABLE_RECIPIENT, providerOutcome: "DEFINITELY_REJECTED" }
+  }
   const jid = toJid(opts.to)
   const url = `${senderUrl}/send-message`
 

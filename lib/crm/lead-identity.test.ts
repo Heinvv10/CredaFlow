@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import {
   normaliseFullName,
   leadIdentityKey,
@@ -6,6 +6,12 @@ import {
   findPriorOpenLeads,
   type LeadIdentityFields,
 } from "@/lib/crm/lead-identity"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 // Expected keys are written as LITERALS. Deriving them from normalisePhone /
 // normaliseFullName — the functions under test — would make every assertion

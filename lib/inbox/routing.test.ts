@@ -1,6 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { it, expect, vi, beforeEach } from "vitest"
+import { it, expect, vi, beforeEach, afterEach } from "vitest"
 import { routeInbound } from "./routing"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 function makeTx() {
   return {
@@ -202,4 +208,41 @@ it("reuses the contact's open thread whatever channel it was opened on", async (
   expect(r.conversationId).toBe("cv-email")
   expect(tx.conversation.create).not.toHaveBeenCalled()
   expect(tx.message.create.mock.calls[0][0].data.channel).toBe("WHATSAPP")
+})
+
+// A first message from an unknown sender is accepted when it is a South African number (as
+// always) or a number of the lender's own country; anything else is still dropped.
+function provisioningTx() {
+  const tx = makeTx()
+  tx.contact.create.mockResolvedValue({ id: "ct1" })
+  tx.conversation.findFirst.mockResolvedValue(null)
+  tx.conversation.create.mockResolvedValue({ id: "cv1" })
+  tx.message.create.mockResolvedValue({ id: "m1" })
+  tx.contact.findUnique.mockResolvedValue({ lastInboundAtByChannel: null })
+  return tx
+}
+const kenyan = { fromValue: "254712345678@s.whatsapp.net", fromPhone: "254712345678" }
+
+it("a Kenyan lender takes a first message from an unknown Kenyan sender", async () => {
+  setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+  const tx = provisioningTx()
+  const r = await routeInbound(tx as any, { ...baseCtx, ...kenyan })
+  expect(r).toMatchObject({ handled: true, persisted: true, contactId: "ct1" })
+  expect(tx.contact.create.mock.calls[0][0].data).toMatchObject({ primaryPhone: "254712345678", primaryWaJid: "254712345678@s.whatsapp.net" })
+})
+
+it("a Lesotho lender takes a first message from an unknown Lesotho sender, and still a South African one", async () => {
+  setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+  for (const from of [{ fromValue: "26658000001@s.whatsapp.net", fromPhone: "26658000001" }, { fromValue: "27821234567@s.whatsapp.net", fromPhone: "27821234567" }]) {
+    const tx = provisioningTx()
+    expect(await routeInbound(tx as any, { ...baseCtx, ...from }), from.fromPhone).toMatchObject({ handled: true })
+  }
+})
+
+it("a South African lender still drops a first message from an unknown Kenyan or Lesotho sender", async () => {
+  for (const from of [kenyan, { fromValue: "26658000001@s.whatsapp.net", fromPhone: "26658000001" }]) {
+    const tx = provisioningTx()
+    expect(await routeInbound(tx as any, { ...baseCtx, ...from }), from.fromPhone).toEqual({ handled: false, persisted: false })
+    expect(tx.contact.create).not.toHaveBeenCalled()
+  }
 })

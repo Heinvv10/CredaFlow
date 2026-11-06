@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi, afterEach } from "vitest"
 import { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
 
@@ -27,6 +27,12 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 import { POST } from "./route"
 import * as contactProvision from "@/lib/contact/provision"
 import * as regimeEvidence from "@/lib/non-nca-documents/regime-evidence"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const VALID_ID = "9307225000082"
 

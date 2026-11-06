@@ -1,9 +1,11 @@
-import { afterEach, describe, it, expect, vi } from "vitest"
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 import { normalizePhone, sendWhatsAppMessage, waHttpFailureOutcome, WA_TEMPLATES } from "./whatsapp"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
+  resetActiveJurisdiction()
 })
 
 describe("WhatsApp provider outcome certainty", () => {
@@ -24,6 +26,8 @@ describe("WhatsApp provider outcome certainty", () => {
 })
 
 describe("normalizePhone (idempotent over raw phone OR fully-qualified JID)", () => {
+  beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+
   it("normalises a raw SA phone with leading 0 to E.164 digits", () => {
     expect(normalizePhone("0821234567")).toBe("27821234567")
   })
@@ -45,6 +49,67 @@ describe("normalizePhone (idempotent over raw phone OR fully-qualified JID)", ()
 
   it("case-insensitive on the JID suffix", () => {
     expect(normalizePhone("27821234567@s.WhatsApp.NET")).toBe("27821234567")
+  })
+
+  it("a local 0 number takes a Kenyan lender's country code; ZA and LS are unchanged", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(normalizePhone("0712345678")).toBe("254712345678")
+    expect(normalizePhone("+254 712 345 678")).toBe("254712345678")
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(normalizePhone("0821234567")).toBe("27821234567")
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    expect(normalizePhone("0712345678")).toBe("27712345678")
+  })
+
+  it("refuses a local 0 number while no jurisdiction is loaded (it could be 27 or 254), unless the caller names one", () => {
+    resetActiveJurisdiction()
+    expect(normalizePhone("0712345678")).toBe("")
+    expect(normalizePhone("0712345678@s.whatsapp.net")).toBe("")
+    expect(normalizePhone("0712345678", "KE")).toBe("254712345678")
+    expect(normalizePhone("27821234567")).toBe("27821234567")
+  })
+})
+
+describe("normalizePhone validates as the contact identities do (lib/contact/identity.ts)", () => {
+  it("a KE lender's legacy South African local number is not sent as a malformed 254 number", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(normalizePhone("0821234567")).toBe("")
+    expect(normalizePhone("0212345678")).toBe("")
+    expect(normalizePhone("27821234567")).toBe("27821234567")
+  })
+
+  it("refuses a number no lender here can place, and junk", () => {
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    expect(normalizePhone("+14155550100")).toBe("")
+    expect(normalizePhone("082 abc 4567")).toBe("")
+    expect(normalizePhone("")).toBe("")
+  })
+
+  it("a KE send to such a number is refused before any request", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("WA_ENABLED", "true")
+    vi.stubEnv("WA_SENDER_URL", "http://wa-sender.test:8083")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await expect(sendWhatsAppMessage({ to: "0821234567", message: "x" })).resolves.toMatchObject({ ok: false, providerOutcome: "DEFINITELY_REJECTED" })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("sendWhatsAppMessage to a recipient it cannot place", () => {
+  it("refuses before any request when a local number arrives with no jurisdiction loaded", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("WA_ENABLED", "true")
+    vi.stubEnv("WA_SENDER_URL", "http://wa-sender.test:8083")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await expect(sendWhatsAppMessage({ to: "0712345678", message: "x" })).resolves.toEqual({
+      ok: false,
+      error: "WhatsApp recipient is not a number this lender can place",
+      providerOutcome: "DEFINITELY_REJECTED",
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

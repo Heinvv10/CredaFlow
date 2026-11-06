@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
-import { createStitchPayment } from "@/lib/stitch"
+import { createStitchPayment, stitchCurrencyRefusal } from "@/lib/stitch"
 import { withTenantContext } from "@/lib/tenant"
 import { SettlementOverpaymentError } from "@/lib/loan/settlement"
 import { CHARGES_FLAG_INCLUDE } from "@/lib/loan/charges-replay"
@@ -16,6 +16,10 @@ export async function POST(req: Request) {
 
   return withTenantContext(req, async (tenant) => {
     const tenantId = tenant.id
+    // Stitch collects in rand: a lender billing in another currency (KES) cannot take
+    // a payment through it (lib/stitch.ts). Known before anything is read.
+    const currencyRefusal = stitchCurrencyRefusal()
+    if (currencyRefusal) return NextResponse.json({ error: currencyRefusal }, { status: 422 })
 
     const client = await prisma.client.findFirst({
       where: { email: session.user.email, tenantId },

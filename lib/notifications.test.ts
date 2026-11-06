@@ -153,6 +153,12 @@ import {
 import { WA_TEMPLATES } from "@/lib/whatsapp"
 import { WABA_BODY_TEMPLATES } from "@/lib/whatsapp/template-vars"
 import { extractPlaceholders } from "@/lib/whatsapp/template-components"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const baseOpts = {
   tenantId: "tn1",

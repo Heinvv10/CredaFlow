@@ -1,11 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { Prisma, type Contact, type ContactIdentity } from "@prisma/client"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import {
   ContactPromotionConflictError,
   resolveContactForLeadConversion,
   provisionContactForClient,
   provisionContactForLead,
 } from "./provision"
+
+// The app provisions after its entry point has loaded the jurisdiction; these are a ZA lender's
+// local "0…" numbers (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 interface MockTx {
   $queryRaw: ReturnType<typeof vi.fn>

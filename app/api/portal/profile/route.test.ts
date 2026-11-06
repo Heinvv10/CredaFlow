@@ -4,8 +4,14 @@
 // identity-related foot-guns: the route MUST ignore body.clientId (IDOR)
 // and body.email (auth-identity change without verification flow).
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest"
 import { PUT } from "./route"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const { findFirstClient, updateClient, logAudit, authMock, findContact, updateContact } = vi.hoisted(() => ({
   findContact: vi.fn(async () => null as object | null),

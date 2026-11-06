@@ -12,7 +12,7 @@
  */
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { parseCurrency, parseJurisdiction } from "./profiles"
+import { currencyAllowed, parseCurrency, parseJurisdiction, profileFor } from "./profiles"
 
 export type InstanceWriteResult =
   | { ok: true; changed: boolean; jurisdiction: string; currency: string }
@@ -31,7 +31,9 @@ export async function setInstanceJurisdiction(
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
-  if (jurisdiction === "ZA" && currency !== "ZAR") return { ok: false, error: "A ZA instance is billed in ZAR only" }
+  if (!currencyAllowed(jurisdiction, currency)) {
+    return { ok: false, error: `A ${jurisdiction} instance is billed in ${profileFor(jurisdiction).allowedCurrencies.join(" or ")} only` }
+  }
   const reason = typeof input.reason === "string" ? input.reason.trim() : ""
   if (!reason || reason.length > MAX_REASON) return { ok: false, error: "A reason (up to 500 characters) is required" }
   const actor = input.actor.trim()

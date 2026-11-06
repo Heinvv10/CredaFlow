@@ -81,6 +81,41 @@ describe("LS capture", () => {
   })
 })
 
+describe("KE capture", () => {
+  const asKenya = () => setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+
+  it("takes a Kenyan ID by shape, never through the SA Luhn check, and does not cross-check date of birth", () => {
+    asKenya()
+    expect(isValidIdNumber("12345678")).toBe(true)
+    expect(isValidIdNumber("123456789")).toBe(true)
+    // 9001015009086 is a Luhn-valid SA ID; for a Kenyan lender it is 13 digits, so not an ID.
+    expect(isValidIdNumber("9001015009086")).toBe(false)
+    expect(isValidIdNumber("1234567")).toBe(false)
+    const errs = validateStep1Identity({ ...base, idNumber: "12345678", dateOfBirth: "1985-06-30", phone: "0712345678", whatsapp: "+254 110 123 456" })
+    expect(errs).toEqual({})
+  })
+
+  it("refuses a South African mobile and a malformed ID with Kenyan wording", () => {
+    asKenya()
+    const errs = validateStep1Identity({ ...base, idNumber: "A1234567", dateOfBirth: "1985-06-30", phone: "0821234567" })
+    expect(errs.idNumber).toBe("Not a valid Kenyan national ID number")
+    expect(errs.phone).toBe("Use +254… or 07…/01… mobile format")
+  })
+
+  it("takes a county code and a 5-digit postcode", () => {
+    asKenya()
+    expect(validateStep2Address({ ...base, suburb: "x", city: "Nairobi", province: "047", postalCode: "00100" })).toEqual({})
+    const errs = validateStep2Address({ ...base, suburb: "x", city: "y", province: "GP", postalCode: "2000" })
+    expect(errs.province).toMatch(/Kenyan county/)
+    expect(errs.postalCode).toBe("Use a 5-digit Kenyan postal code")
+  })
+
+  it("stores an ID trimmed with its spaces removed", () => {
+    asKenya()
+    expect(canonicalIdNumber(" 1234 5678 ")).toBe("12345678")
+  })
+})
+
 describe("one canonical form of an ID number", () => {
   it("LS: trimmed and upper case, so case and whitespace variants are the same person", () => {
     asLesotho()

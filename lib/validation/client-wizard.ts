@@ -13,7 +13,12 @@ import {
 import { sastParts } from "@/lib/date/sast"
 import { activeJurisdiction } from "@/lib/jurisdiction/active"
 import { profileFor, type CaptureProfile } from "@/lib/jurisdiction/profiles"
-import { canonicalLesothoNationalId, isValidLesothoNationalId } from "@/lib/jurisdiction/national-id"
+import {
+  canonicalKenyaNationalId,
+  canonicalLesothoNationalId,
+  isValidKenyaNationalId,
+  isValidLesothoNationalId,
+} from "@/lib/jurisdiction/national-id"
 
 export type ValidationErrors<T> = Partial<Record<keyof T, string>>
 
@@ -98,11 +103,22 @@ export function isValidSaIdNumber(id: string): boolean {
 
 /**
  * The national ID check for the lender's jurisdiction: the SA ID (13 digits,
- * Luhn) for ZA, the Lesotho shape check for LS. Capture goes through this; the
- * SA-only integrations (Experian, insurance quotes) keep isValidSaIdNumber.
+ * Luhn) for ZA, the Lesotho and Kenyan shape checks for LS and KE. Capture goes
+ * through this; the SA-only integrations (Experian, insurance quotes) keep
+ * isValidSaIdNumber.
  */
 export function isValidIdNumber(id: string): boolean {
-  return capture().idScheme === "LS_ID" ? isValidLesothoNationalId(id) : isValidSaIdNumber(id)
+  const scheme = capture().idScheme
+  switch (scheme) {
+    case "SA_ID": return isValidSaIdNumber(id)
+    case "LS_ID": return isValidLesothoNationalId(id)
+    case "KE_ID": return isValidKenyaNationalId(id)
+    default: return unknownScheme(scheme)
+  }
+}
+
+function unknownScheme(scheme: never): never {
+  throw new Error(`Unknown ID scheme ${String(scheme)}`)
 }
 
 /** The capture facts of the lender's jurisdiction (lib/jurisdiction/profiles.ts). */
@@ -113,11 +129,17 @@ function capture(): CaptureProfile {
 /**
  * The form of an ID number every sink stores and every lookup compares: for a
  * Lesotho lender trimmed and upper case (so "ab123456" and " AB123456 " are one
- * person for the duplicate-identity check); a South African ID is left as typed
- * (digits only, validated as is).
+ * person for the duplicate-identity check); for a Kenyan lender trimmed with its
+ * spaces removed; a South African ID is left as typed (digits only, validated as is).
  */
 export function canonicalIdNumber(id: string): string {
-  return capture().idScheme === "LS_ID" ? canonicalLesothoNationalId(id) : id
+  const scheme = capture().idScheme
+  switch (scheme) {
+    case "SA_ID": return id
+    case "LS_ID": return canonicalLesothoNationalId(id)
+    case "KE_ID": return canonicalKenyaNationalId(id)
+    default: return unknownScheme(scheme)
+  }
 }
 
 export function deriveDobFromSaId(id: string): string {

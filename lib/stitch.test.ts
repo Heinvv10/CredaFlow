@@ -8,7 +8,8 @@ vi.mock("@/lib/prisma", () => ({
   prisma: { tenantConfig: { findUnique: tenantConfigFindUnique }, tenant: { findUnique: tenantFindUnique } },
 }))
 
-import { loadStitchAccount, loadStitchWebhookSecret, stitchConfigured } from "./stitch"
+import { createStitchPayment, loadStitchAccount, loadStitchWebhookSecret, StitchCurrencyError, stitchConfigured, stitchCurrencyRefusal } from "./stitch"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 // The STITCH_* environment is one lender's Stitch account: it serves only the
 // tenant ENV_CREDENTIALS_TENANT_SLUG names, whatever the other tenants' statuses.
@@ -74,5 +75,36 @@ describe("stitchConfigured", () => {
   it("does not hide a database failure as 'not configured'", async () => {
     tenantConfigFindUnique.mockRejectedValue(new Error("connection reset"))
     await expect(stitchConfigured("tA")).rejects.toThrow("connection reset")
+  })
+})
+
+// Stitch settles in rand. A loti amount is the same number of rand (pegged 1:1); a shilling
+// amount is not, and must never be sent as rand.
+describe("the currency Stitch collects in", () => {
+  afterEach(() => { resetActiveJurisdiction(); vi.unstubAllGlobals() })
+
+  it("rand and loti are collected; shillings are refused", () => {
+    expect(stitchCurrencyRefusal("ZAR")).toBeNull()
+    expect(stitchCurrencyRefusal("LSL")).toBeNull()
+    expect(stitchCurrencyRefusal("KES")).toMatch(/rand.*KES/)
+  })
+
+  it("follows the lender's currency", () => {
+    expect(stitchCurrencyRefusal()).toBeNull()
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(stitchCurrencyRefusal()).toBeNull()
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(stitchCurrencyRefusal()).not.toBeNull()
+  })
+
+  it("a Kenyan lender's payment is refused before the account is read or Stitch is called", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    tenantConfigFindUnique.mockReset()
+    const paying = createStitchPayment("tA", { amountRands: 100, payerReference: "LN-1", beneficiaryReference: "LN-1", externalReference: "PAY-1", redirectUrl: "https://x.invalid/cb" })
+    await expect(paying).rejects.toBeInstanceOf(StitchCurrencyError)
+    expect(tenantConfigFindUnique).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

@@ -245,11 +245,13 @@ enum TenantStatus {
 enum Jurisdiction {
   ZA
   LS
+  KE
 }
 
 enum LenderCurrency {
   ZAR
   LSL
+  KES
 }
 
 model TenantConfig {

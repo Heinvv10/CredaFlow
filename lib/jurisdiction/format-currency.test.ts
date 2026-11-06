@@ -23,6 +23,16 @@ describe("the money choke points follow the lender's currency", () => {
     expect(formatZarPdf(123456)).toBe("M 1,234.56")
   })
 
+  it("a Kenyan lender sees shillings everywhere, PDFs included", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(formatZAR(123456)).toBe("KSh 1,234.56")
+    expect(formatZAR(-5)).toBe("-KSh 0.05")
+    expect(formatRands(1000000, { whole: true })).toBe("KSh 1,000,000")
+    expect(formatZARCompact(250_000_000)).toBe("KSh2.5m")
+    expect(formatZarPdf(123456)).toBe("KSh 1,234.56")
+    expect(formatZarPdf(-5)).toBe("-KSh 0.05")
+  })
+
   // The NCA PDFs are pinned byte for byte; their negative form is the original one.
   it("a ZAR statutory PDF prints negatives exactly as it always has", () => {
     expect(formatZarPdf(-5)).toBe("R -0.05")
