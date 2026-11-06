@@ -256,7 +256,17 @@ describe("STK push results", () => {
     pending(state)
     expect(await ingest(db, paid())).toEqual({ outcome: "NEEDS_REVIEW", transactionId: "stk1" })
     expect(state.rows[0]).toMatchObject({ status: "NEEDS_REVIEW", transId: "SIMSTK0001", paymentId: null })
+    expect(state.rows[0].reportedAmount).toBeUndefined()
     expect(applyManualReceiptInTx).not.toHaveBeenCalled()
+  })
+
+  it("records the reported amount even when a forbidden simulated result also differs from the push", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const { db, state } = fakeDb()
+    pending(state)
+    expect(await ingest(db, paid({ amountCents: 99_000 }))).toMatchObject({ outcome: "NEEDS_REVIEW" })
+    expect(state.rows[0]).toMatchObject({ status: "NEEDS_REVIEW", amount: 120_000, reportedAmount: 99_000 })
+    expect(String(state.rows[0].reviewReason)).toMatch(/simulation/)
   })
 
   it("puts an amount other than the one pushed in front of a person", async () => {

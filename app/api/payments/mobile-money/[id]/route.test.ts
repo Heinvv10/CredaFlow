@@ -78,6 +78,8 @@ describe("PATCH /api/payments/mobile-money/[id]", () => {
     }
     allocateMobileMoney.mockRejectedValueOnce(new MobileMoneyReviewError("AMOUNT_UNCONFIRMED", "confirm it"))
     expect((await patch({ action: "allocate", loanReference: "NRB-LN-1" })).status).toBe(409)
+    allocateMobileMoney.mockRejectedValueOnce(new MobileMoneyReviewError("CONFIRMED_AMOUNT_DIFFERS", "not its amount"))
+    expect((await patch({ action: "allocate", loanReference: "NRB-LN-1", confirmedAmount: 99_900 })).status).toBe(409)
   })
 
   it("explains a value date the loan cannot take, and that the way out is another loan or rejecting it", async () => {

@@ -23,7 +23,8 @@ export const REVIEWABLE_STATUSES = ["UNMATCHED", "NEEDS_REVIEW"] as const
 export const REJECT_REASON_MIN = 5
 export const REJECT_REASON_MAX = 500
 
-export type MobileMoneyReviewErrorCode = "NOT_FOUND" | "ALREADY_RESOLVED" | "LOAN_NOT_FOUND" | "SIMULATION_FORBIDDEN" | "AMOUNT_UNCONFIRMED"
+export type MobileMoneyReviewErrorCode =
+  | "NOT_FOUND" | "ALREADY_RESOLVED" | "LOAN_NOT_FOUND" | "SIMULATION_FORBIDDEN" | "AMOUNT_UNCONFIRMED" | "CONFIRMED_AMOUNT_DIFFERS"
 
 export class MobileMoneyReviewError extends Error {
   constructor(readonly code: MobileMoneyReviewErrorCode, message: string) {
@@ -62,7 +63,7 @@ async function lockOpen(tx: PaymentTx, tenantId: string, id: string) {
 /** Books the transaction as a receipt on the loan staff named, and marks it BOOKED, atomically. */
 export async function allocateMobileMoney(db: MobileMoneyDb, input: {
   tenantId: string; id: string; loanReference: string; actor: Actor
-  /** cents; required, and must equal the reported amount, on a row whose reported amount differs from its push */
+  /** cents; required, and must equal the reported amount, on a row whose reported amount differs from its push. Anywhere else it must equal the row's amount: never ignored. */
   confirmedAmount?: number
 }) {
   const { tenantId, actor } = input
@@ -77,6 +78,9 @@ export async function allocateMobileMoney(db: MobileMoneyDb, input: {
     if (row.reportedAmount !== null && input.confirmedAmount !== row.reportedAmount) {
       throw new MobileMoneyReviewError("AMOUNT_UNCONFIRMED",
         "The provider reported a different amount than was requested: confirm the reported amount before booking it")
+    }
+    if (input.confirmedAmount !== undefined && input.confirmedAmount !== amount) {
+      throw new MobileMoneyReviewError("CONFIRMED_AMOUNT_DIFFERS", "The confirmed amount is not the amount of this M-Pesa payment: nothing was booked")
     }
     const loanId = await matchLoanByReference(tx, tenantId, input.loanReference)
     if (!loanId) throw new MobileMoneyReviewError("LOAN_NOT_FOUND", `No loan has the reference ${input.loanReference.trim()}`)

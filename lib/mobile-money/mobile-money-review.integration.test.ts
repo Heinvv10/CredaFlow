@@ -15,6 +15,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { Prisma } from "@prisma/client"
 import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
 import { allocateMobileMoney, rejectMobileMoney } from "./review"
+import { ingestMobileMoneyCallback } from "./c2b-ingest"
+import { simulatedMpesa } from "./providers/simulated"
 import { createMobileMoneyFixture, IT_SECRET, type MobileMoneyFixture } from "./mobile-money.integration-fixture"
 
 vi.mock("@/lib/notifications", () => ({ triggerNotification: vi.fn(async () => undefined) }))
@@ -30,6 +32,11 @@ suite("M-Pesa money waiting for a person (real DB)", () => {
     expect(await f.deliver(tenantId, f.paybill(tenantId, transId, "WRONG-REF"))).toMatchObject({ outcome: "UNMATCHED" })
     return f.fresh.db.mobileMoneyTransaction.findFirstOrThrow({ where: { tenantId, transId } })
   }
+  const pending = (checkoutRequestId: string | null, amount: number) => f.fresh.db.mobileMoneyTransaction.create({
+    data: { tenantId: f.A.tenantId, provider: "simulated", checkoutRequestId, billRef: f.A.reference, amount, status: "PENDING", loanId: f.A.loanId, simulated: true },
+  })
+  const stkPaid = (co: string, transId: string, amount: string) =>
+    f.signed(f.A.tenantId, { type: "STK", checkoutRequestId: co, result: "PAID", transId, amount, msisdn: "254712345678" })
   /** A transaction opened as the application role, bound to `tenantId` as the app binds it. */
   const asLender = <T>(tenantId: string, fn: (tx: Prisma.TransactionClient) => Promise<T>) => f.fresh.db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL ROLE ${ROLE}`)
@@ -60,9 +67,45 @@ suite("M-Pesa money waiting for a person (real DB)", () => {
     // The receipt's own audit names the staff member who booked it, not the ingest's machine actor.
     expect(await f.fresh.db.auditLog.findFirstOrThrow({ where: { entityId: f.A.loanId, action: "PAYMENT_RECORDED", newValue: { path: ["paymentId"], equals: out.payment.id } } }))
       .toMatchObject({ userId: staff.id, userEmail: staff.email })
-    expect((await f.fresh.db.auditLog.findMany({ where: { entityId: row.id } })).map((a) => a.action)).toContain("MOBILE_MONEY_ALLOCATED")
+    // The allocation's own audit row names the staff member who decided it.
+    expect(await f.fresh.db.auditLog.findFirstOrThrow({ where: { entityId: row.id, action: "MOBILE_MONEY_ALLOCATED" } }))
+      .toMatchObject({ userId: staff.id, userEmail: staff.email })
     await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff }))
       .rejects.toMatchObject({ code: "ALREADY_RESOLVED" })
+  })
+
+  it("refuses a confirmed amount that is not the payment's own, rather than ignoring it (breaker3 R3-A)", async () => {
+    const row = await unmatched(f.A.tenantId, "SIMR3A00001")
+    const before = await f.payments(f.A.loanId)
+    await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff, confirmedAmount: 99_900 }))
+      .rejects.toMatchObject({ code: "CONFIRMED_AMOUNT_DIFFERS" })
+    expect(await f.payments(f.A.loanId)).toBe(before)
+    expect((await f.fresh.db.mobileMoneyTransaction.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("UNMATCHED")
+  })
+
+  it("keeps the reported amount when a forbidden simulated STK result also differs from the push (breaker3 R3-B)", async () => {
+    await pending("ws_CO_SIM_r3b", 50_000)
+    const callback = simulatedMpesa.parseCallback({ ...stkPaid("ws_CO_SIM_r3b", "SIMR3B00001", "200.00"), tenantId: f.A.tenantId })
+    if (!callback) throw new Error("did not verify")
+    vi.stubEnv("NODE_ENV", "production")
+    expect(await ingestMobileMoneyCallback(f.db, { tenantId: f.A.tenantId, provider: simulatedMpesa, callback })).toMatchObject({ outcome: "NEEDS_REVIEW" })
+    vi.stubEnv("NODE_ENV", "test")
+    const row = await f.fresh.db.mobileMoneyTransaction.findFirstOrThrow({ where: { transId: "SIMR3B00001" } })
+    expect(row).toMatchObject({ amount: 50_000, reportedAmount: 20_000 })
+    await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff }))
+      .rejects.toMatchObject({ code: "AMOUNT_UNCONFIRMED" })
+    const out = await allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.A.reference, actor: staff, confirmedAmount: 20_000 })
+    expect(out.payment.amount).toBe(20_000)
+  })
+
+  it("the reported amount is positive, storable and differs from the push (breaker3 R3-E)", async () => {
+    const insert = (id: string, reported: string) => f.fresh.db.$executeRawUnsafe(
+      `INSERT INTO "MobileMoneyTransaction" ("id", "tenantId", "provider", "transId", "billRef", "amount", "reportedAmount", "status", "reviewReason", "updatedAt")
+       VALUES ($1, $2, 'simulated', $3, 'X', 100, ${reported}, 'NEEDS_REVIEW', 'why', now())`, id, f.A.tenantId, `SIMCK${id}`)
+    for (const [i, reported] of ["0", "-5", "100"].entries()) {
+      await expect(insert(`r3e${i}`, reported), reported).rejects.toThrow(/MobileMoneyTransaction_reported_amount/)
+    }
+    await expect(insert("r3e9", "3000000000")).rejects.toThrow(/out of range/)
   })
 
   it("books one receipt when two staff allocate the same payment at once", async () => {
@@ -95,12 +138,6 @@ suite("M-Pesa money waiting for a person (real DB)", () => {
     await expect(allocateMobileMoney(f.db, { tenantId: f.A.tenantId, id: row.id, loanReference: f.B.reference, actor: staff }))
       .rejects.toMatchObject({ code: "LOAN_NOT_FOUND" })
   })
-
-  const pending = (checkoutRequestId: string | null, amount: number) => f.fresh.db.mobileMoneyTransaction.create({
-    data: { tenantId: f.A.tenantId, provider: "simulated", checkoutRequestId, billRef: f.A.reference, amount, status: "PENDING", loanId: f.A.loanId, simulated: true },
-  })
-  const stkPaid = (co: string, transId: string, amount: string) =>
-    f.signed(f.A.tenantId, { type: "STK", checkoutRequestId: co, result: "PAID", transId, amount, msisdn: "254712345678" })
 
   it("books what the provider reported for an STK amount mismatch, only once staff confirm it (breaker2 N1)", async () => {
     await pending("ws_CO_SIM_n1", 50_000)

@@ -64,6 +64,16 @@ describe("allocateMobileMoney", () => {
     expect(applyManualReceiptInTx).not.toHaveBeenCalled()
   })
 
+  it("refuses a confirmed amount on a row with no reported difference unless it is that row's amount (never ignored)", async () => {
+    const plain = { ...mismatch, status: "UNMATCHED", amount: 50_000, reportedAmount: null }
+    const { db, updates } = fakeDb(plain)
+    await expect(allocate(db, 99_900)).rejects.toMatchObject({ code: "CONFIRMED_AMOUNT_DIFFERS" })
+    expect(updates).toEqual([])
+    expect(applyManualReceiptInTx).not.toHaveBeenCalled()
+    await allocate(fakeDb(plain).db, 50_000)
+    expect(applyManualReceiptInTx.mock.calls[0][1]).toMatchObject({ amount: 50_000 })
+  })
+
   it("books a row with no reported difference at its amount, with no confirmation needed", async () => {
     const { db } = fakeDb({ ...mismatch, status: "UNMATCHED", amount: 50_000, reportedAmount: null })
     await allocate(db)

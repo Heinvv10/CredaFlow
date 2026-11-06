@@ -69,7 +69,13 @@ export async function ingestStkResult(db: MobileMoneyDb, ctx: IngestContext, cb:
   }
 
   if (cb.kind === "STK_CANCELLED") return settleWithoutReceipt(db, settle, { status: "CANCELLED", reason: cb.reason })
-  if (ctx.forbidden) return settleWithoutReceipt(db, settle, { status: "NEEDS_REVIEW", reviewReason: ctx.forbidden })
+  if (ctx.forbidden) {
+    // Whatever the reason it waits, a different reported amount is recorded: staff book that, never the push.
+    return settleWithoutReceipt(db, settle, {
+      status: "NEEDS_REVIEW", reviewReason: ctx.forbidden,
+      ...(cb.amountCents !== push.amount ? { reportedAmount: cb.amountCents } : {}),
+    })
+  }
   if (cb.amountCents !== push.amount) {
     return settleWithoutReceipt(db, settle, {
       status: "NEEDS_REVIEW",
