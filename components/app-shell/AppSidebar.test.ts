@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest"
 import { groupEnabled, itemEnabled } from "./AppSidebar"
 import type { NavGroup, NavItem } from "@/lib/navigation"
 import type { UserRole } from "@/lib/permissions"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+import { staffNavigation } from "@/lib/navigation"
 
 const icon = (() => null) as never
 
@@ -27,6 +29,22 @@ describe("itemEnabled (sidebar nav role gate)", () => {
 
   it("denies an unrecognised role even against a gated item (fail-closed)", () => {
     expect(itemEnabled(item("BRANCH_MANAGER"), "UNKNOWN_FUTURE_ROLE" as UserRole)).toBe(false)
+  })
+})
+
+describe("the M-Pesa review page", () => {
+  const mpesa = staffNavigation.flatMap((g) => g.items).find((i) => i.href === "/payments/mobile-money")
+
+  it("is in the menu for a Kenyan lender only", () => {
+    expect(mpesa).toBeDefined()
+    if (!mpesa) return
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(itemEnabled(mpesa, "COLLECTIONS_AGENT")).toBe(true)
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    expect(itemEnabled(mpesa, "COLLECTIONS_AGENT")).toBe(false)
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(itemEnabled(mpesa, "COLLECTIONS_AGENT")).toBe(false)
+    resetActiveJurisdiction()
   })
 })
 

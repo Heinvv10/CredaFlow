@@ -28,6 +28,7 @@ vi.mock("@/lib/notifications", () => ({
 
 import { POST } from "./route"
 import { PaymentApplicationError } from "@/lib/loan/apply-payment"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 function postReq(
   body: unknown,
@@ -110,13 +111,25 @@ it("refuses WAIVER as a keyed payment method: a waiver is not money received", a
   expect(applyManualReceiptMock).not.toHaveBeenCalled()
 })
 
-it("accepts an M-Pesa receipt (MOBILE_MONEY) captured by staff", async () => {
+it("accepts an M-Pesa receipt (MOBILE_MONEY) captured by staff of a Kenyan lender", async () => {
+  setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
   applyManualReceiptMock.mockResolvedValue({ payment: { id: "pay-mm", loanId: "loan-1", amount: 50_000 }, idempotentReplay: false })
 
   const res = await POST(postReq({ loanId: "loan-1", amount: 50_000, paymentMethod: "MOBILE_MONEY", reference: "SIM1234567" }))
+  resetActiveJurisdiction()
 
   expect(res.status).toBe(200)
   expect(applyManualReceiptMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ paymentMethod: "MOBILE_MONEY" }))
+})
+
+it("refuses MOBILE_MONEY for a lender outside Kenya, as the form does not offer it", async () => {
+  for (const active of [{ jurisdiction: "ZA", currency: "ZAR" }, { jurisdiction: "LS", currency: "LSL" }] as const) {
+    setActiveJurisdiction(active)
+    const res = await POST(postReq({ loanId: "loan-1", amount: 50_000, paymentMethod: "MOBILE_MONEY" }))
+    resetActiveJurisdiction()
+    expect(res.status, active.jurisdiction).toBe(400)
+  }
+  expect(applyManualReceiptMock).not.toHaveBeenCalled()
 })
 
 it("rejects a missing loanId before touching the loan", async () => {

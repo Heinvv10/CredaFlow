@@ -41,7 +41,8 @@ describe("the sidebar for INSURANCE_OFFICER", () => {
 
   it("leaves every other role's sidebar as it was", () => {
     for (const role of ROLE_HIERARCHY.filter((r) => r !== "INSURANCE_OFFICER")) {
-      expect(visible(role)).toEqual(items.filter((i) => !i.minRole || hasMinRole(role, i.minRole)).map((i) => i.href))
+      // The default (unloaded) jurisdiction is ZA: the KE-only M-Pesa item is not offered.
+      expect(visible(role)).toEqual(items.filter((i) => !i.mobileMoney && (!i.minRole || hasMinRole(role, i.minRole))).map((i) => i.href))
     }
   })
 })

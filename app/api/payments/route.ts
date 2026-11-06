@@ -7,6 +7,8 @@ import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { hasMinRole } from "@/lib/permissions"
 import { triggerNotification } from "@/lib/notifications"
 import { withTenantContext } from "@/lib/tenant"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import { MOBILE_MONEY_METHOD, mobileMoneyCaptureOffered } from "@/lib/mobile-money/label"
 import { applyManualReceipt, PaymentApplicationError } from "@/lib/loan/apply-payment"
 import { ChargesSyncRefused } from "@/lib/loan/charges-verdict"
 import {
@@ -55,6 +57,10 @@ export async function POST(req: NextRequest) {
       const paymentMethod = data.paymentMethod ?? "EFT"
       if (typeof paymentMethod !== "string" || !PAYMENT_METHODS.has(paymentMethod)) {
         return NextResponse.json({ error: "paymentMethod is invalid" }, { status: 400 })
+      }
+      // As the form: M-Pesa is offered to a Kenyan lender only (lib/mobile-money/label.ts).
+      if (paymentMethod === MOBILE_MONEY_METHOD && !mobileMoneyCaptureOffered(activeJurisdiction())) {
+        return NextResponse.json({ error: "M-Pesa is not a payment method for this lender" }, { status: 400 })
       }
       if (data.reference != null && typeof data.reference !== "string") {
         return NextResponse.json({ error: "reference must be text" }, { status: 400 })
