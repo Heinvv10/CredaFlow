@@ -5,8 +5,8 @@
  */
 
 import { randomUUID } from "node:crypto"
+import { normalisePhone } from "@/lib/contact/identity"
 import type { Jurisdiction } from "@/lib/jurisdiction/profiles"
-import { trunkZeroDialCode } from "@/lib/jurisdiction/phone-region"
 import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 
 export interface WaResult {
@@ -43,7 +43,7 @@ interface WaSendOptions {
   signal?: AbortSignal
 }
 
-/** The refusal for a recipient normalizePhone cannot place (a local number, no jurisdiction loaded). */
+/** The refusal for a recipient normalizePhone cannot place (unrecognised, or a local number with no jurisdiction loaded). */
 export const WA_UNPLACEABLE_RECIPIENT = "WhatsApp recipient is not a number this lender can place"
 
 // Exported for tests so the idempotent-JID contract has direct coverage.
@@ -53,18 +53,12 @@ export function normalizePhone(phone: string, jurisdiction?: Jurisdiction): stri
   // (`27821234567@s.whatsapp.net`). Without the suffix-strip, callers that
   // pass a JID get a double-suffixed JID after toJid() reapplies it →
   // `27821234567@s.whatsapp.net@s.whatsapp.net` → posts never deliver.
-  let p = phone.replace(/@s\.whatsapp\.net$/i, "")
-  // Strip spaces, dashes, +
-  p = p.replace(/[\s\-+]/g, "")
-  // Local trunk 0 → the lender's country code: 0821234567 → 27821234567 (ZA, and LS as
-  // always); 0712345678 → 254712345678 (KE). lib/jurisdiction/phone-region.ts. With no
-  // jurisdiction named or loaded the country is unknown: "" (the senders refuse it).
-  if (p.startsWith("0") && p.length === 10) {
-    const dialCode = trunkZeroDialCode(jurisdiction)
-    if (!dialCode) return ""
-    p = dialCode + p.slice(1)
-  }
-  return p
+  // Then the contact-identity normaliser (lib/contact/identity.ts): a local "0…"
+  // number takes the lender's country code, and the result must be a number this
+  // system recognises (SA, a Lesotho or Kenyan mobile), or "" and the senders
+  // refuse it. Under a Kenyan lender a legacy "0821234567" would otherwise go
+  // out as the malformed 254821234567.
+  return normalisePhone(phone.replace(/@s\.whatsapp\.net$/i, ""), jurisdiction)
 }
 
 function toJid(phone: string): string {

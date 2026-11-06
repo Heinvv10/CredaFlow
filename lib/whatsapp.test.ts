@@ -70,6 +70,33 @@ describe("normalizePhone (idempotent over raw phone OR fully-qualified JID)", ()
   })
 })
 
+describe("normalizePhone validates as the contact identities do (lib/contact/identity.ts)", () => {
+  it("a KE lender's legacy South African local number is not sent as a malformed 254 number", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(normalizePhone("0821234567")).toBe("")
+    expect(normalizePhone("0212345678")).toBe("")
+    expect(normalizePhone("27821234567")).toBe("27821234567")
+  })
+
+  it("refuses a number no lender here can place, and junk", () => {
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    expect(normalizePhone("+14155550100")).toBe("")
+    expect(normalizePhone("082 abc 4567")).toBe("")
+    expect(normalizePhone("")).toBe("")
+  })
+
+  it("a KE send to such a number is refused before any request", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("WA_ENABLED", "true")
+    vi.stubEnv("WA_SENDER_URL", "http://wa-sender.test:8083")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    await expect(sendWhatsAppMessage({ to: "0821234567", message: "x" })).resolves.toMatchObject({ ok: false, providerOutcome: "DEFINITELY_REJECTED" })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
 describe("sendWhatsAppMessage to a recipient it cannot place", () => {
   it("refuses before any request when a local number arrives with no jurisdiction loaded", async () => {
     vi.stubEnv("NODE_ENV", "production")
