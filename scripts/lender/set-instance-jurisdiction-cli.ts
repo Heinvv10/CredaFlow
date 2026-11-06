@@ -18,7 +18,7 @@ async function main(): Promise<number> {
     strict: true,
   })
   if (!values.jurisdiction || !values.currency || !values.reason) {
-    process.stderr.write('usage: lender:set-jurisdiction --jurisdiction ZA|LS --currency ZAR|LSL --reason "<why>"\n')
+    process.stderr.write('usage: lender:set-jurisdiction --jurisdiction ZA|LS|KE --currency ZAR|LSL|KES --reason "<why>"\n')
     return 1
   }
   if (!process.env.DATABASE_URL) {

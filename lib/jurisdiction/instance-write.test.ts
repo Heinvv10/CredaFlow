@@ -80,4 +80,11 @@ describe("setInstanceJurisdiction", () => {
     expect(await setInstanceJurisdiction(db, ask({ reason: "  " }))).toMatchObject({ ok: false })
     expect(await setInstanceJurisdiction(db, ask({ actor: " " }))).toMatchObject({ ok: false })
   })
+
+  it("ties KE to the shilling: KE/KES is taken, KE with rand and ZA with shillings are refused", async () => {
+    const { db } = fakeDb({ row: { jurisdiction: "ZA", currency: "ZAR" } })
+    expect(await setInstanceJurisdiction(db, ask({ jurisdiction: "KE", currency: "ZAR" }))).toEqual({ ok: false, error: "A KE instance is billed in KES only" })
+    expect(await setInstanceJurisdiction(db, ask({ jurisdiction: "ZA", currency: "KES" }))).toEqual({ ok: false, error: "A ZA instance is billed in ZAR only" })
+    expect(await setInstanceJurisdiction(db, ask({ jurisdiction: "KE", currency: "KES" }))).toEqual({ ok: true, changed: true, jurisdiction: "KE", currency: "KES" })
+  })
 })

@@ -16,6 +16,15 @@ describe("formatMoney", () => {
     expect(formatMoney(100000000, "LSL")).toBe("M 1,000,000.00")
   })
 
+  it("KES prints Kenyan shillings with the KSh symbol and the same grouping", () => {
+    expect(formatMoney(123456, "KES")).toBe("KSh 1,234.56")
+    expect(formatMoney(-5, "KES")).toBe("-KSh 0.05")
+    expect(formatMoneyWhole(1000000, "KES")).toBe("KSh 1,000,000")
+    expect(formatMoneyCompact(250_000_000, "KES")).toBe("KSh2.5m")
+    expect(formatMoneyCompact(12_300_000, "KES")).toBe("KSh123k")
+    expect(formatMoneyCompact(-99_900, "KES")).toBe("-KSh 999.00")
+  })
+
   it("whole amounts drop the cents", () => {
     expect(formatMoneyWhole(1000000, "ZAR")).toBe("R 1,000,000")
     expect(formatMoneyWhole(2500.4, "LSL")).toBe("M 2,500")

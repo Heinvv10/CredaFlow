@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { addBusinessDays, isBusinessDate, lesothoPublicHolidays } from "./business-days"
+import { addBusinessDays, holidaysFor, isBusinessDate, KENYA_EID_AL_FITR, kenyaPublicHolidays, lesothoPublicHolidays } from "./business-days"
 import { addSouthAfricanBusinessDays, isSouthAfricanBusinessDate } from "@/lib/compliance/sa-business-days"
 
 describe("Lesotho public holidays", () => {
@@ -90,4 +90,48 @@ describe("Sunday holidays and malformed input", () => {
       expect(add("LS")).toBe(add("ZA"))
     },
   )
+})
+
+describe("Kenyan public holidays", () => {
+  it("2026 fixed, Easter-based and Eid al-Fitr dates", () => {
+    const h = kenyaPublicHolidays(2026)
+    for (const d of ["2026-01-01", "2026-05-01", "2026-06-01", "2026-10-10", "2026-10-20", "2026-12-12", "2026-12-25", "2026-12-26"]) {
+      expect(h.has(d), d).toBe(true)
+    }
+    expect(h.has("2026-04-03")).toBe(true) // Good Friday
+    expect(h.has("2026-04-06")).toBe(true) // Easter Monday
+    expect(h.has(`2026-${KENYA_EID_AL_FITR[2026]}`)).toBe(true)
+  })
+
+  it("does not carry Lesotho or South African only days", () => {
+    const h = kenyaPublicHolidays(2026)
+    for (const d of ["2026-03-11", "2026-05-14", "2026-05-25", "2026-07-17", "2026-03-21", "2026-04-27", "2026-06-16", "2026-12-16"]) {
+      expect(h.has(d), d).toBe(false)
+    }
+  })
+
+  it("a holiday on a Sunday is observed on the Monday (Jamhuri Day 2027 is a Sunday)", () => {
+    expect(kenyaPublicHolidays(2027).has("2027-12-13")).toBe(true)
+    expect(isBusinessDate("2027-12-13", "KE")).toBe(false)
+  })
+
+  it("Madaraka, Mashujaa and Jamhuri Days are not business dates under KE", () => {
+    for (const d of ["2026-06-01", "2026-10-20", "2026-12-12"]) expect(isBusinessDate(d, "KE"), d).toBe(false)
+    expect(isBusinessDate("2026-03-11", "KE")).toBe(true) // Moshoeshoe's Day is Lesotho's
+    expect(isBusinessDate("2026-06-16", "KE")).toBe(true) // Youth Day is South Africa's
+  })
+
+  it("adds business days across its own holidays", () => {
+    // Fri 2026-05-29 + 1: Sat, Sun, Mon 1 Jun (Madaraka Day), then Tue 2 Jun.
+    expect(addBusinessDays("2026-05-29", 1, "KE")).toBe("2026-06-02")
+  })
+})
+
+describe("each jurisdiction keeps its own calendar", () => {
+  it("LS: 11 March is still a holiday and 1 June is a business day", () => {
+    expect(isBusinessDate("2026-03-11", "LS")).toBe(false)
+    expect(isBusinessDate("2026-06-01", "LS")).toBe(true)
+    expect(holidaysFor("LS", 2026)).toEqual(lesothoPublicHolidays(2026))
+    expect(holidaysFor("KE", 2026)).toEqual(kenyaPublicHolidays(2026))
+  })
 })

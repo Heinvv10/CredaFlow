@@ -42,3 +42,20 @@ describe("ZA is billed in rand only", () => {
     expect(isJurisdictionLoaded()).toBe(false)
   })
 })
+
+describe("KE is billed in shillings only", () => {
+  it("turns the NCA gate off and the shilling on", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(activeJurisdiction()).toBe("KE")
+    expect(activeCurrency()).toBe("KES")
+    expect(isNcaJurisdiction()).toBe(false)
+  })
+
+  it("refuses KE with rand or loti, and ZA or LS with shillings", () => {
+    expect(() => setActiveJurisdiction({ jurisdiction: "KE", currency: "ZAR" })).toThrow(/KE lender is billed in KES only, not ZAR/)
+    expect(() => setActiveJurisdiction({ jurisdiction: "KE", currency: "LSL" })).toThrow(/KES only/)
+    expect(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "KES" })).toThrow("A ZA lender is billed in ZAR only, not KES")
+    expect(() => setActiveJurisdiction({ jurisdiction: "LS", currency: "KES" })).toThrow(/LS lender is billed in LSL or ZAR only/)
+    expect(isJurisdictionLoaded()).toBe(false)
+  })
+})

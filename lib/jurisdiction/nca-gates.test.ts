@@ -53,14 +53,17 @@ describe("ZA keeps every NCA gate", () => {
   })
 })
 
-describe("LS skips the NCA-only steps", () => {
+describe.each([
+  { jurisdiction: "LS", currency: "LSL" },
+  { jurisdiction: "KE", currency: "KES" },
+] as const)("$jurisdiction skips the NCA-only steps", (outside) => {
   it("expenses below the (South African) Regulation 23A minimum do not block", () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    setActiveJurisdiction(outside)
     expect(affordabilityExpenseEvidenceNeedsMleJustification(belowMle)).toBe(false)
   })
 
   it("never offers a Section 129 notice, however far in arrears", () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    setActiveJurisdiction(outside)
     const verdict = evaluateCollectionsEligibility(loan, "SECTION_129")
     expect(verdict.eligible).toBe(false)
     expect(verdict.temporary).toBe(false)
@@ -68,28 +71,28 @@ describe("LS skips the NCA-only steps", () => {
   })
 
   it("ordinary dunning is unaffected", () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    setActiveJurisdiction(outside)
     expect(evaluateCollectionsEligibility(loan, "DUNNING")).toMatchObject({ eligible: true })
   })
 
   it("approval is not held to the NCA rate cap and reads nothing", async () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    setActiveJurisdiction(outside)
     await expect(approvalInterestCapCheck(noDb, "t1", application)).resolves.toEqual({ ok: true })
   })
 
   it("the payout re-check of the repeat short-term rule passes and reads nothing", async () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    setActiveJurisdiction(outside)
     await expect(checkRepeatShortTermFor(noDb, "t1", application, new Date())).resolves.toEqual({ ok: true })
   })
 
   it("a product priced above the NCA cap is accepted on create and on repricing", async () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    setActiveJurisdiction(outside)
     expect(await loanProductCreateCapRefusal("t1", product)).toBeNull()
     expect(await loanProductUpdateCapRefusal("t1", { ...product, active: true, interestRatePm: 0.01 }, product)).toBeNull()
   })
 
   it("the product form does not warn about an NCA cap", () => {
-    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    setActiveJurisdiction(outside)
     expect(interestGuidance(preview)).toMatchObject({ warning: false, classification: null })
   })
 })

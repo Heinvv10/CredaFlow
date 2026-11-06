@@ -1,4 +1,4 @@
-import { parseCurrency, parseJurisdiction, profileFor, type Currency, type Jurisdiction } from "./profiles"
+import { currencyAllowed, parseCurrency, parseJurisdiction, profileFor, type Currency, type Jurisdiction } from "./profiles"
 
 /**
  * The jurisdiction and currency this deployment runs as. One instance serves
@@ -34,13 +34,15 @@ function store(): ActiveState {
 /**
  * Makes `next` the active value. A South African lender is billed in rand only
  * (the NCA documents print the currency); an LS lender may use loti or rand
- * (the rand is legal tender in Lesotho). Anything else throws.
+ * (the rand is legal tender in Lesotho); a KE lender shillings only
+ * (`allowedCurrencies` in ./profiles.ts). Anything else throws.
  */
 export function setActiveJurisdiction(next: { jurisdiction: Jurisdiction; currency: Currency }): void {
   const jurisdiction = parseJurisdiction(next.jurisdiction)
   const currency = parseCurrency(next.currency)
-  if (jurisdiction === "ZA" && currency !== "ZAR") {
-    throw new Error(`A ZA lender is billed in ZAR only, not ${currency}`)
+  if (!currencyAllowed(jurisdiction, currency)) {
+    const allowed = profileFor(jurisdiction).allowedCurrencies.join(" or ")
+    throw new Error(`A ${jurisdiction} lender is billed in ${allowed} only, not ${currency}`)
   }
   ;(globalThis as Record<symbol, ActiveState>)[KEY] = { jurisdiction, currency, loaded: true }
 }

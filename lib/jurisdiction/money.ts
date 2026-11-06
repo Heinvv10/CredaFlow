@@ -8,11 +8,11 @@ import type { Currency } from "./profiles"
  * leads with the sign ("-R 0.05"). The NCA PDFs keep their original negative form
  * (formatZarPdf in lib/pdf/helpers.ts), which is pinned and legally signed off.
  */
-const SYMBOL: Record<Currency, string> = { ZAR: "R", LSL: "M" }
+const SYMBOL: Record<Currency, string> = { ZAR: "R", LSL: "M", KES: "KSh" }
 
 const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 
-/** The symbol of `currency` ("R", "M"), for the few formatters with a shape of their own. */
+/** The symbol of `currency` ("R", "M", "KSh"), for the few formatters with a shape of their own. */
 export function currencySymbol(currency: Currency): string {
   return SYMBOL[currency]
 }

@@ -149,6 +149,11 @@ const lsPhone = z.string().max(20).refine(
   (v) => /^\+266\d{8}$/.test(v.replace(/ /g, "")),
   "must be +266 followed by 8 digits",
 )
+// +254 followed by 9 digits, spaces allowed ("+254 700 000 000").
+const kePhone = z.string().max(20).refine(
+  (v) => /^\+254\d{9}$/.test(v.replace(/ /g, "")),
+  "must be +254 followed by 9 digits",
+)
 const email = z.string().max(254).pipe(z.email())
 
 /** A `Date` as Prisma returns a DATE column (UTC midnight) → `YYYY-MM-DD`; anything else unchanged. */
@@ -215,7 +220,15 @@ const lsIdentityColumnsSchema = z.object({
   collectionsPhoneSecondary: optional(lsPhone),
 })
 
-const IDENTITY_SCHEMAS = { ZA: zaIdentityColumnsSchema, LS: lsIdentityColumnsSchema } as const
+// Kenya: as Lesotho (no NCR number, free-form registration), +254 phones.
+const keIdentityColumnsSchema = lsIdentityColumnsSchema.extend({
+  publicPhone: required(kePhone),
+  publicWhatsapp: optional(kePhone),
+  collectionsPhone: required(kePhone),
+  collectionsPhoneSecondary: optional(kePhone),
+})
+
+const IDENTITY_SCHEMAS = { ZA: zaIdentityColumnsSchema, LS: lsIdentityColumnsSchema, KE: keIdentityColumnsSchema } as const
 
 /** The identity schema of a jurisdiction (default: the deployment's). */
 export function identityColumnsSchemaFor(jurisdiction: Jurisdiction = activeJurisdiction()) {

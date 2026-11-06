@@ -25,3 +25,30 @@ export function canonicalLesothoNationalId(raw: string): string {
 export function isValidLesothoNationalId(raw: string): boolean {
   return LESOTHO_ID_SHAPE.test(canonicalLesothoNationalId(raw))
 }
+
+/**
+ * Kenyan national identity number.
+ *
+ * UNVERIFIED: the shape below is taken from public descriptions, not from a
+ * specification the lender's counsel or the National Registration Bureau has
+ * confirmed. Validation is SHAPE ONLY: 8 digits (the second-generation ID
+ * card) or 9 digits (the Maisha Namba). Older cards may carry fewer digits and
+ * are refused until someone confirms they are still in circulation. No
+ * checksum is claimed and nothing (date of birth, gender) is derived from the
+ * number; a typo is NOT caught here.
+ *
+ * To tighten: confirm the layout, then change KENYA_ID_SHAPE and flip
+ * KENYA_ID_SHAPE_ONLY.
+ */
+export const KENYA_ID_SHAPE_ONLY = true
+
+const KENYA_ID_SHAPE = /^\d{8,9}$/
+
+/** The one stored and compared form of a Kenyan ID: trimmed, spaces removed. */
+export function canonicalKenyaNationalId(raw: string): string {
+  return raw.trim().replace(/ /g, "")
+}
+
+export function isValidKenyaNationalId(raw: string): boolean {
+  return KENYA_ID_SHAPE.test(canonicalKenyaNationalId(raw))
+}

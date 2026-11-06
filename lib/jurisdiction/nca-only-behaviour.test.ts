@@ -1,5 +1,5 @@
 /**
- * Every registered NCA-only API route, actually called under a Lesotho lender:
+ * Every registered NCA-only API route, actually called under a Lesotho and a Kenyan lender:
  * it must answer 404 (a cron, 200 "skipped") before it reads a database, resolves
  * a tenant or does any work. The structural census (nca-only-census.test.ts)
  * says where the gate is; this proves it holds.
@@ -8,8 +8,13 @@ import { NextRequest } from "next/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { NcaOnlySurfaces } from "./nca-only-registry"
 import { resetActiveJurisdiction, setActiveJurisdiction } from "./active"
+import { resetEnsuredJurisdiction } from "./load.server"
 
-const reached = vi.hoisted(() => ({ what: [] as string[], tenantAllowed: false }))
+const reached = vi.hoisted(() => ({
+  what: [] as string[],
+  tenantAllowed: false,
+  instance: { jurisdiction: "LS", currency: "LSL" } as { jurisdiction: "LS" | "KE"; currency: "LSL" | "KES" },
+}))
 const touch = (what: string) => () => { reached.what.push(what); throw new Error(`reached ${what}`) }
 
 // The jurisdiction gate itself reads the instance row, and checks no lender differs from it (ncaOnlyRefusal
@@ -17,7 +22,7 @@ const touch = (what: string) => () => { reached.what.push(what); throw new Error
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
     get: (_t, name) => {
-      if (name === "instanceJurisdiction") return { findUnique: async () => ({ id: 1, jurisdiction: "LS", currency: "LSL" }) }
+      if (name === "instanceJurisdiction") return { findUnique: async () => ({ id: 1, ...reached.instance }) }
       if (name === "tenantConfig") return { findFirst: async () => null }
       return touch(`prisma.${String(name)}`)()
     },
@@ -56,12 +61,8 @@ const request = (method: string, url: string) =>
 const apiRoutes = entries.filter(([surface, gate]) => surface.startsWith("app/api/") && gate.gate === "direct")
 const exportRoute = entries.find(([surface]) => surface === "app/api/reports/export/route.ts")
 
-beforeEach(() => {
-  reached.what.length = 0
-  reached.tenantAllowed = false
-  setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
-})
-afterEach(() => resetActiveJurisdiction())
+// Each lender runs as a fresh process would: the loader's cached value belongs to the previous one.
+afterEach(() => { resetActiveJurisdiction(); resetEnsuredJurisdiction() })
 
 async function load(surface: string): Promise<Record<string, unknown>> {
   const loader = routes[`../../${surface}`]
@@ -69,7 +70,17 @@ async function load(surface: string): Promise<Record<string, unknown>> {
   return loader()
 }
 
-describe("NCA-only API routes under a Lesotho lender", () => {
+describe.each([
+  { jurisdiction: "LS", currency: "LSL" },
+  { jurisdiction: "KE", currency: "KES" },
+] as const)("NCA-only API routes under a $jurisdiction lender", (instance) => {
+  beforeEach(() => {
+    reached.what.length = 0
+    reached.tenantAllowed = false
+    reached.instance = instance
+    setActiveJurisdiction(instance)
+  })
+
   it("the registry holds a useful number of API routes", () => {
     expect(apiRoutes.length).toBeGreaterThan(20)
   })
