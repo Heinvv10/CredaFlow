@@ -28,6 +28,9 @@ describe("changeRefusal", () => {
     ["a daily-accrual loan", { interestModel: "DAILY_ACCRUAL" }, /single payment/],
     ["credit life", { creditLifePremiums: 100 }, /credit life/],
     ["a debit order", { repaymentMethod: "DEBIT_ORDER" }, /debit order/],
+    // No method recorded (a loan the demo seed booked on a DRAFT application): still refused, but not called a debit order.
+    ["no recorded repayment method", { repaymentMethod: null }, /^This loan's application records no repayment method/],
+    ["no recorded repayment method and a live mandate", { repaymentMethod: null, mandates: 1 }, /debit order/],
     ["a live mandate", { mandates: 1 }, /debit order/],
     ["collection instructions", { collectionInstructions: 1 }, /debit order/],
     ["debt review", { debtReview: true }, /debt review/],
