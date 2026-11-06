@@ -8,10 +8,13 @@
  * tokens) and a marked gap where the legal text goes. Every document of a demo
  * lender also opens with the SAMPLE banner (lib/non-nca-documents/render.ts).
  * Synthetic, for a demo database; a real lender's legal team writes and approves
- * its own versions under Settings, Documents.
+ * its own versions under Settings, Documents. The bodies below are Lesotho's; a
+ * Kenyan lender gets ./kenya-templates.ts (DRAFT, not reviewed by Kenyan counsel).
  */
 import type { PrismaClient } from "@prisma/client"
+import type { Jurisdiction } from "../../lib/jurisdiction/profiles"
 import { ARREARS_LETTER_TEMPLATE_KEY, LOAN_DOCUMENT_TEMPLATE_KEYS } from "../../lib/non-nca-documents/keys"
+import { KENYA_TEMPLATE_BODIES, KENYA_TEMPLATE_NOTES } from "./kenya-templates"
 
 const GAP = "<p><em>[SAMPLE &mdash; the bank&rsquo;s legal team supplies wording. No legal text is provided here.]</em></p>"
 
@@ -49,11 +52,28 @@ const BODIES = {
   LOAN_AGREEMENT: `<h1>Loan agreement</h1>\n${PARTIES}\n<h2>Approved terms</h2>\n${FIGURES}\n<h2>Terms and conditions</h2>\n${GAP}\n<p>Prepared {{today}}.</p>`,
 } as const
 
+const NOTES = "Synthetic demo version: structure and approved figures only. The bank's legal team supplies the wording."
+
+/** A South African lender has none: its documents are the NCA ones (lib/pdf). */
+const TEMPLATE_SETS: Record<Jurisdiction, { bodies: Record<keyof typeof BODIES, string>; notes: string } | null> = {
+  ZA: null,
+  LS: { bodies: BODIES, notes: NOTES },
+  KE: { bodies: KENYA_TEMPLATE_BODIES, notes: KENYA_TEMPLATE_NOTES },
+}
+
+/** The bodies and version notes of a key-facts demo lender's four templates, by jurisdiction. */
+export function nonNcaTemplateSet(jurisdiction: Jurisdiction): { bodies: Record<keyof typeof BODIES, string>; notes: string } {
+  const set = TEMPLATE_SETS[jurisdiction]
+  if (!set) throw new Error(`Seed: a ${jurisdiction} lender has no key-facts templates; its documents are the NCA ones`)
+  return set
+}
+
 const NAMES = { OFFER_LETTER: "Offer letter", KEY_FACTS_STATEMENT: "Key facts statement", LOAN_AGREEMENT: "Loan agreement", ARREARS_LETTER: "Arrears letter" } as const
 const KEYS = { ...LOAN_DOCUMENT_TEMPLATE_KEYS, ARREARS_LETTER: ARREARS_LETTER_TEMPLATE_KEY }
 
 /** Idempotent: a template that already has a current version is left alone. Authored by one admin, approved by another (the database requires it). */
-export async function seedNonNcaTemplates(db: PrismaClient, tenantId: string, creatorId: string, approverId: string): Promise<void> {
+export async function seedNonNcaTemplates(db: PrismaClient, tenantId: string, creatorId: string, approverId: string, jurisdiction: Jurisdiction): Promise<void> {
+  const { bodies, notes } = nonNcaTemplateSet(jurisdiction)
   for (const kind of ["OFFER_LETTER", "KEY_FACTS_STATEMENT", "LOAN_AGREEMENT", "ARREARS_LETTER"] as const) {
     const key = KEYS[kind]
     const template = await db.documentTemplate.upsert({
@@ -65,8 +85,8 @@ export async function seedNonNcaTemplates(db: PrismaClient, tenantId: string, cr
     const { extractTokens } = await import("../../lib/documents/tokens")
     const version = await db.documentTemplateVersion.create({
       data: {
-        templateId: template.id, version: 1, bodyHtml: BODIES[kind], tokensUsed: extractTokens(BODIES[kind]), status: "ACTIVE",
-        notes: "Synthetic demo version: structure and approved figures only. The bank's legal team supplies the wording.",
+        templateId: template.id, version: 1, bodyHtml: bodies[kind], tokensUsed: extractTokens(bodies[kind]), status: "ACTIVE",
+        notes,
         createdById: creatorId, activatedById: creatorId, activatedAt: new Date(), approvedById: approverId, approvedAt: new Date(),
       },
     })

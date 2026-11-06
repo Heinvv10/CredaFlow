@@ -29,6 +29,10 @@ import { demoLender, lenderJurisdiction } from "./demo-lender"
 import { catalogueHash } from "../lib/i18n/catalogue-hash"
 import { seedEnvPassword } from "./seed/env-password"
 import { CLIENTS_LS } from "./seed/lesotho-clients"
+import { CLIENTS_KE } from "./seed/kenya-clients"
+import { PRODUCTS_KE } from "./seed/kenya-products"
+import type { Jurisdiction } from "../lib/jurisdiction/profiles"
+import type { Locale } from "../lib/i18n/locales"
 
 // Demo data with known passwords must never reach a production database.
 // Checked before any client exists; ./seed-document-templates is imported
@@ -117,6 +121,22 @@ const PRODUCTS = [
   { code: "POFUND", name: "Purchase Order Funding", productType: "PO_FUNDING", minAmount: 1_000_000, maxAmount: 50_000_000, minTermDays: 30, maxTermDays: 120, interestRatePm: 0.0225, interestModel: "DAILY_ACCRUAL", initiationFeePct: 0.02, initiationFeeMax: 0, monthlyServiceFee: 0 },
 ] as const
 
+/**
+ * What the seed writes for each jurisdiction, one explicit entry each (the compiler refuses a new
+ * jurisdiction until it has one), so no lender falls through to another's borrowers or staff.
+ * A key-facts lender (outside the NCA) gets simulated screening, a super admin and a payout
+ * confirmer, its own documents (lib/non-nca-documents), the walk and a loan in arrears.
+ */
+const SEEDS = {
+  ZA: { keyFacts: false, assetFinance: true, clients: CLIENTS, products: PRODUCTS, shortTermProduct: "MICRO30", languages: ["en", "af", "zu", "xh"] },
+  LS: { keyFacts: true, assetFinance: false, clients: CLIENTS_LS, products: PRODUCTS, shortTermProduct: "MICRO30", languages: ["en", "af", "zu", "xh"] },
+  // English only: no reviewed Swahili exists.
+  KE: { keyFacts: true, assetFinance: false, clients: CLIENTS_KE, products: PRODUCTS_KE, shortTermProduct: "MPESA30", languages: ["en"] },
+} as const satisfies Record<Jurisdiction, {
+  keyFacts: boolean; assetFinance: boolean; clients: readonly unknown[]; products: readonly unknown[]; shortTermProduct: string; languages: readonly Locale[]
+}>
+const SEED = SEEDS[JURISDICTION]
+
 async function main() {
   console.log(`Seeding ${BRAND} demo data...`)
 
@@ -147,26 +167,26 @@ async function main() {
     featurePortal: true,
     featureReports: true,
     // Asset finance is an NCA product (regimes, s127, recovery): South African lenders only.
-    featureAssetFinance: JURISDICTION === "ZA",
+    featureAssetFinance: SEED.assetFinance,
     jurisdiction: JURISDICTION,
     currency: CURRENCY,
     requireSegregationOfDuties: LENDER.requireSegregationOfDuties,
     // A key-facts loan has no bureau, so screening is its identity-risk check and decide refuses without a provider.
     // A demo's is the simulated one; a real lender configures a real one (docs/non-nca-go-live.md).
-    ...(JURISDICTION === "ZA" ? {} : { screeningProvider: "simulated" }),
+    ...(SEED.keyFacts ? { screeningProvider: "simulated" } : {}),
     // This seed only ever creates a synthetic demo lender. The marker lets a
     // DEMO_MODE stack simulate a Section 129 email to its undeliverable
     // mailboxes (lib/collections/section129-email.ts); provisioning refuses it.
     isDemoLender: true,
-    // The demo shows every borrower language. A real lender starts on English
+    // The demo shows every borrower language it has. A real lender starts on English
     // only (the column default) until its translations are reviewed.
-    enabledLanguages: ["en", "af", "zu", "xh"],
+    enabledLanguages: [...SEED.languages],
     // A language is served only with a review record of its current text
     // (lib/i18n/language-reviews.ts). DEMO ONLY: these records say plainly
     // that nobody reviewed the drafts. Never copy them to, or seed them for, a
     // real lender: there a named native speaker reviews each language and a
     // Super Admin acknowledges it under Settings -> Borrower languages.
-    languageReviews: Object.fromEntries((["af", "zu", "xh"] as const).map((locale) => [locale, {
+    languageReviews: Object.fromEntries(SEED.languages.filter((locale) => locale !== "en").map((locale) => [locale, {
       reviewer: "Not reviewed: synthetic demo tenant showing machine drafts",
       acknowledgedAt: "2026-10-14T00:00:00.000Z",
       acknowledgedById: null,
@@ -190,17 +210,17 @@ async function main() {
   const loanAdminOne = await upsertStaff(tenant.id, `loan.admin.one@${STAFF_DOMAIN}`, "Demo Loan Admin One", "LOAN_ADMIN", "SEED_LOAN_ADMIN_ONE_PASSWORD")
   const loanAdminTwo = await upsertStaff(tenant.id, `loan.admin.two@${STAFF_DOMAIN}`, "Demo Loan Admin Two", "LOAN_ADMIN", "SEED_LOAN_ADMIN_TWO_PASSWORD")
   // The checker of a change to the approval matrix (lib/maker-checker). Only a key-facts demo seeds a matrix.
-  const superAdmin = JURISDICTION === "ZA" ? null : await upsertStaff(tenant.id, `super.admin@${STAFF_DOMAIN}`, "Demo Super Admin", "SUPER_ADMIN", "SEED_SUPER_ADMIN_PASSWORD")
+  const superAdmin = !SEED.keyFacts ? null : await upsertStaff(tenant.id, `super.admin@${STAFF_DOMAIN}`, "Demo Super Admin", "SUPER_ADMIN", "SEED_SUPER_ADMIN_PASSWORD")
   // A key-facts payout account is confirmed by a second person with no other part in the application.
-  const confirmer = JURISDICTION === "ZA" ? null : await upsertStaff(tenant.id, `payout.confirmer@${STAFF_DOMAIN}`, "Demo Payout Confirmer", "CREDIT_OFFICER", "SEED_PAYOUT_CONFIRMER_PASSWORD")
+  const confirmer = !SEED.keyFacts ? null : await upsertStaff(tenant.id, `payout.confirmer@${STAFF_DOMAIN}`, "Demo Payout Confirmer", "CREDIT_OFFICER", "SEED_PAYOUT_CONFIRMER_PASSWORD")
   // A lender outside the NCA uses its own offer letter, key facts statement, loan agreement and arrears letter (lib/non-nca-documents).
-  if (JURISDICTION !== "ZA") {
+  if (SEED.keyFacts) {
     const { seedNonNcaTemplates } = await import("./seed/non-nca-templates")
-    await seedNonNcaTemplates(prisma, tenant.id, loanAdminOne.user.id, loanAdminTwo.user.id)
+    await seedNonNcaTemplates(prisma, tenant.id, loanAdminOne.user.id, loanAdminTwo.user.id, JURISDICTION)
   }
 
   const products: Record<string, { id: string }> = {}
-  for (const p of PRODUCTS) {
+  for (const p of SEED.products) {
     products[p.code] = await prisma.loanProduct.upsert({
       where: { tenantId_code: { tenantId: tenant.id, code: p.code } },
       update: {},
@@ -216,7 +236,7 @@ async function main() {
   const portalHash = await bcrypt.hash(portalPassword, 12)
   let portalPasswordUsed = false
   const clients: { id: string; income: number; expenses: number }[] = []
-  for (const [i, c] of (JURISDICTION === "LS" ? CLIENTS_LS : CLIENTS).entries()) {
+  for (const [i, c] of SEED.clients.entries()) {
     const email = `${c.firstName}.${c.lastName}@${LENDER.clientDomain}`.toLowerCase()
     const row = await prisma.client.upsert({
       // idNumber is the stable identifier across seed revisions. It is unique
@@ -254,7 +274,7 @@ async function main() {
   // Applications in the states the guards allow without evidence. One per
   // client and product: an open application is unique per (client, product).
   const apps = [
-    { ref: "APP-SEED-0001", client: 0, product: "MICRO30", amount: 150_000, term: 30, purpose: "Emergency medical expenses", status: "SUBMITTED", dca: 1 },
+    { ref: "APP-SEED-0001", client: 0, product: SEED.shortTermProduct, amount: 150_000, term: 30, purpose: "Emergency medical expenses", status: "SUBMITTED", dca: 1 },
     { ref: "APP-SEED-0002", client: 1, product: "PERSONAL", amount: 2_500_000, term: 365, purpose: "Home improvements", status: "UNDER_REVIEW", dca: 4 },
     { ref: "APP-SEED-0003", client: 2, product: "PERSONAL", amount: 9_000_000, term: 1_800, purpose: "Property purchase", status: "DECLINED", dca: 9, reason: "Debt-to-income ratio exceeds the 40% threshold" },
   ] as const
@@ -274,22 +294,22 @@ async function main() {
   }
 
   // A key-facts demo's loan is in arrears, so its arrears letter can be walked.
-  await seedLoan(tenant.id, clients[3].id, products.PERSONAL.id, JURISDICTION === "ZA" ? 10 : 45)
+  await seedLoan(tenant.id, clients[3].id, products.PERSONAL.id, SEED.keyFacts ? 45 : 10)
 
-  if (JURISDICTION === "ZA") {
+  if (SEED.assetFinance) {
     // Imported here, not at the top: it imports lib/prisma (see seed-document-templates above).
     const { seedAssetFinance } = await import("./seed/asset-finance")
     const actor = (s: { user: { id: string; email: string } }) => ({ id: s.user.id, email: s.user.email })
     await seedAssetFinance(tenant.id, { officer: actor(officer), adminOne: actor(loanAdminOne), adminTwo: actor(loanAdminTwo) })
   }
 
-  // Lesotho: an approval matrix for ungraded applications, borrowers with verified evidence and an approved application.
-  if (JURISDICTION !== "ZA") {
+  // Key facts: an approval matrix for ungraded applications, borrowers with verified evidence and an approved application.
+  if (SEED.keyFacts) {
     const { seedKeyFactsWalk } = await import("./seed/key-facts-walk")
     const actor = (s: { user: { id: string; email: string; role: string } }) => ({ id: s.user.id, email: s.user.email, role: s.user.role })
     await seedKeyFactsWalk(tenant.id, {
       maker: actor(admin), checker: actor(superAdmin!), approver: actor(loanAdminOne), officer: actor(officer),
-      borrowers: { approved: clients[2].id, apply: clients[4].id }, productId: products.MICRO30.id,
+      borrowers: { approved: clients[2].id, apply: clients[4].id }, productId: products[SEED.shortTermProduct].id,
     })
   }
 

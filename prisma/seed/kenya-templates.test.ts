@@ -1,0 +1,43 @@
+import { createHash } from "node:crypto"
+import { describe, expect, it } from "vitest"
+import { extractTokens, TOKEN_REGISTRY } from "../../lib/documents/tokens"
+import { nonNcaTemplateSet } from "./non-nca-templates"
+
+const KINDS = ["OFFER_LETTER", "KEY_FACTS_STATEMENT", "LOAN_AGREEMENT", "ARREARS_LETTER"]
+const KNOWN = new Set(TOKEN_REGISTRY.map((t) => t.token))
+
+describe("the key-facts demo templates, by jurisdiction", () => {
+  it("leaves the Lesotho bodies byte for byte as they were", () => {
+    const ls = nonNcaTemplateSet("LS")
+    expect(createHash("sha256").update(JSON.stringify(ls.bodies)).digest("hex")).toBe("2f771227fc107288aadf1a70581a2911ba06b1fb8c7722ea2e766d14919d614d")
+    expect(ls.notes).toBe("Synthetic demo version: structure and approved figures only. The bank's legal team supplies the wording.")
+  })
+
+  it("gives Kenya its own bodies for the same four documents, marked DRAFT in the version notes", () => {
+    const ke = nonNcaTemplateSet("KE")
+    expect(Object.keys(ke.bodies).sort()).toEqual([...KINDS].sort())
+    expect(ke.bodies).not.toEqual(nonNcaTemplateSet("LS").bodies)
+    expect(ke.notes).toMatch(/^DRAFT — not reviewed by Kenyan counsel\./)
+  })
+
+  it("keeps the SAMPLE gap where the lender's legal wording goes, in every Kenyan document", () => {
+    for (const body of Object.values(nonNcaTemplateSet("KE").bodies)) expect(body).toContain("[SAMPLE &mdash;")
+  })
+
+  it("states the regulator and the M-Pesa Paybill route in the Kenyan key facts statement", () => {
+    const kfs = nonNcaTemplateSet("KE").bodies.KEY_FACTS_STATEMENT
+    expect(kfs).toContain("Regulated by the Central Bank of Kenya")
+    expect(kfs).toMatch(/M-Pesa/)
+    expect(kfs).toMatch(/Paybill/)
+  })
+
+  it.each(["LS", "KE"] as const)("%s uses only tokens the renderer knows (an unknown one blocks the document)", (j) => {
+    for (const body of Object.values(nonNcaTemplateSet(j).bodies)) {
+      expect(extractTokens(body).filter((t) => !KNOWN.has(t))).toEqual([])
+    }
+  })
+
+  it("has none for a South African lender, whose documents are the NCA ones", () => {
+    expect(() => nonNcaTemplateSet("ZA")).toThrow(/ZA/)
+  })
+})
