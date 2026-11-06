@@ -6,9 +6,10 @@ import { Smartphone } from "lucide-react"
 import { formatZAR } from "@/lib/utils"
 import type { LoanOption } from "@/components/portal/StitchPaymentForm"
 
-// English only, like the Kenyan portal it serves: the catalogue (lib/i18n) is
-// not touched, so no reviewed af/zu/xh translation goes stale for a panel only
-// a lender with an M-Pesa paybill shows. Swahili is out of scope (KE plan).
+// English only, like the Kenyan portal it serves (the exception is recorded in
+// lib/i18n/.claude.md): the catalogue is not touched, so no reviewed af/zu/xh
+// translation goes stale for a panel only a lender with an M-Pesa paybill
+// shows. Swahili is out of scope (KE plan).
 const STATUS_TEXT: Record<string, string> = {
   BOOKED: "Payment received. Your loan balance has been updated.",
   DUPLICATE: "This payment was already received.",
@@ -67,7 +68,7 @@ export function MpesaPaymentPanel({ paybill, loans, stkPush, phone: phoneOnFile 
       const json = (await res.json()) as { status?: string; error?: string; maxAmountCents?: number }
       if (res.status === 422 && typeof json.maxAmountCents === "number") {
         setMessage({ text: `The amount exceeds today’s settlement amount of ${formatZAR(json.maxAmountCents)}.`, error: true })
-      } else if (res.status === 400 && json.error) {
+      } else if ([400, 409, 429].includes(res.status) && json.error) {
         setMessage({ text: json.error, error: true })
       } else if (!res.ok || !json.status) {
         setMessage({ text: "M-Pesa payment is temporarily unavailable. Please use the paybill details above.", error: true })
@@ -85,7 +86,7 @@ export function MpesaPaymentPanel({ paybill, loans, stkPush, phone: phoneOnFile 
   return (
     <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-6 mb-5">
       <div className="flex items-center gap-2 mb-4">
-        <Smartphone className="h-4 w-4" style={{ color: "#4F46E5" }} />
+        <Smartphone className="h-4 w-4 text-[var(--cf-brand)]" />
         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Pay with M-Pesa</p>
       </div>
       <div className="space-y-3 text-sm">

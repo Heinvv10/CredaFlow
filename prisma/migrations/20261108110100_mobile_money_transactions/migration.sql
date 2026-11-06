@@ -11,7 +11,7 @@
 --   COMMIT;
 
 -- CreateEnum
-CREATE TYPE "MobileMoneyTransactionStatus" AS ENUM ('PENDING', 'CANCELLED', 'BOOKED', 'HELD', 'UNMATCHED', 'NEEDS_REVIEW');
+CREATE TYPE "MobileMoneyTransactionStatus" AS ENUM ('PENDING', 'CANCELLED', 'BOOKED', 'HELD', 'UNMATCHED', 'NEEDS_REVIEW', 'REJECTED');
 
 -- CreateTable
 CREATE TABLE "MobileMoneyTransaction" (
@@ -28,6 +28,9 @@ CREATE TABLE "MobileMoneyTransaction" (
     "loanId" TEXT,
     "paymentId" TEXT,
     "reviewReason" TEXT,
+    "resolvedById" TEXT,
+    "resolvedAt" TIMESTAMP(3),
+    "rejectReason" TEXT,
     "simulated" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -42,10 +45,10 @@ CREATE INDEX "MobileMoneyTransaction_tenantId_status_idx" ON "MobileMoneyTransac
 CREATE INDEX "MobileMoneyTransaction_loanId_idx" ON "MobileMoneyTransaction"("loanId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "MobileMoneyTransaction_provider_transId_key" ON "MobileMoneyTransaction"("provider", "transId");
+CREATE UNIQUE INDEX "MobileMoneyTransaction_tenantId_provider_transId_key" ON "MobileMoneyTransaction"("tenantId", "provider", "transId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "MobileMoneyTransaction_provider_checkoutRequestId_key" ON "MobileMoneyTransaction"("provider", "checkoutRequestId");
+CREATE UNIQUE INDEX "MobileMoneyTransaction_tenantId_provider_checkoutRequestId_key" ON "MobileMoneyTransaction"("tenantId", "provider", "checkoutRequestId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "MobileMoneyTransaction_tenantId_id_key" ON "MobileMoneyTransaction"("tenantId", "id");
@@ -65,18 +68,21 @@ ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_tena
 
 -- Hand-written. The amount is a positive number of cents. Only the last four
 -- digits of the payer's phone are ever stored. The status says what happened,
--- and the columns must agree: a PENDING push has no transaction yet; a booked
+-- and the columns must agree: a PENDING push has no transaction yet (and no
+-- checkout id until the provider answers: the push is claimed first); a booked
 -- or held one names its loan and receipt; an unmatched one names neither; one
--- waiting for a person says why.
+-- waiting for a person says why; a rejected one says who rejected it and why.
+-- The unique keys are per lender: another lender's transaction never makes
+-- this lender's look like a replay.
 ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_amount_positive" CHECK ("amount" > 0);
 ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_msisdn_last4" CHECK ("msisdnLast4" IS NULL OR "msisdnLast4" ~ '^[0-9]{4}$');
 ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_status_consistent" CHECK (
   (
     "status" = 'PENDING'::"MobileMoneyTransactionStatus"
-    AND "checkoutRequestId" IS NOT NULL AND "transId" IS NULL AND "loanId" IS NOT NULL AND "paymentId" IS NULL
+    AND "transId" IS NULL AND "loanId" IS NOT NULL AND "paymentId" IS NULL
   ) OR (
     "status" = 'CANCELLED'::"MobileMoneyTransactionStatus"
-    AND "checkoutRequestId" IS NOT NULL AND "transId" IS NULL AND "paymentId" IS NULL
+    AND "transId" IS NULL AND "paymentId" IS NULL
   ) OR (
     "status" IN ('BOOKED'::"MobileMoneyTransactionStatus", 'HELD'::"MobileMoneyTransactionStatus")
     AND "transId" IS NOT NULL AND "loanId" IS NOT NULL AND "paymentId" IS NOT NULL
@@ -87,6 +93,11 @@ ALTER TABLE "MobileMoneyTransaction" ADD CONSTRAINT "MobileMoneyTransaction_stat
     "status" = 'NEEDS_REVIEW'::"MobileMoneyTransactionStatus"
     AND "transId" IS NOT NULL AND "paymentId" IS NULL
     AND "reviewReason" IS NOT NULL AND LENGTH(BTRIM("reviewReason")) > 0
+  ) OR (
+    "status" = 'REJECTED'::"MobileMoneyTransactionStatus"
+    AND "transId" IS NOT NULL AND "paymentId" IS NULL
+    AND "resolvedById" IS NOT NULL AND "resolvedAt" IS NOT NULL
+    AND "rejectReason" IS NOT NULL AND LENGTH(BTRIM("rejectReason")) > 0
   )
 );
 

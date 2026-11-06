@@ -11,8 +11,9 @@
  * delivers in-process through parseCallback (lib/mobile-money/stk-push.ts).
  *
  * Callbacks are HMAC-SHA256 signed with SIMULATED_MPESA_WEBHOOK_SECRET in the
- * `x-simulated-signature` header (hex), over `<timestamp>.<raw body>`, where
- * `x-simulated-timestamp` is unix seconds. Bodies:
+ * `x-simulated-signature` header (hex), over `<timestamp>.<tenantId>.<raw body>`,
+ * where `x-simulated-timestamp` is unix seconds and tenantId is the lender the
+ * callback is for: one signed for another lender does not verify. Bodies:
  *   { type: "C2B", transId, billRef, amount: "1500.00", msisdn, transTime? }
  *   { type: "STK", checkoutRequestId, result: "PAID", transId, amount, msisdn, transTime? }
  *   { type: "STK", checkoutRequestId, result: "CANCELLED", reason }
@@ -28,15 +29,17 @@ export const CALLBACK_TOLERANCE_SECONDS = 300
 const SECRET_ENV = "SIMULATED_MPESA_WEBHOOK_SECRET"
 const ID = /^[A-Za-z0-9_-]{1,64}$/
 
-export function signSimulatedCallback(rawBody: string, secret: string, timestamp: number): string {
-  return createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex")
+export function signSimulatedCallback(rawBody: string, secret: string, timestamp: number, tenantId: string): string {
+  return createHmac("sha256", secret).update(`${timestamp}.${tenantId}.${rawBody}`).digest("hex")
 }
 
 function secret(): string | null {
   return process.env[SECRET_ENV]?.trim() || null
 }
 
-function sign(body: Record<string, unknown>, key: string, now: Date): SignedCallback {
+const SIGNATURE_HEADER = "x-simulated-signature"
+
+function sign(body: Record<string, unknown>, key: string, tenantId: string, now: Date): SignedCallback {
   const rawBody = JSON.stringify(body)
   const timestamp = Math.floor(now.getTime() / 1000)
   return {
@@ -44,7 +47,7 @@ function sign(body: Record<string, unknown>, key: string, now: Date): SignedCall
     headers: new Headers({
       "content-type": "application/json",
       "x-simulated-timestamp": String(timestamp),
-      "x-simulated-signature": signSimulatedCallback(rawBody, key, timestamp),
+      [SIGNATURE_HEADER]: signSimulatedCallback(rawBody, key, timestamp, tenantId),
     }),
   }
 }
@@ -55,24 +58,29 @@ function simulatedTransId(): string {
 }
 
 /** A signed paybill payment, as the demo or a test sends one to the webhook. Needs the secret. */
-export function simulatedC2BPayment(args: { billRef: string; amountCents: number; msisdn: string; transId?: string; now?: Date }): SignedCallback {
+export function simulatedC2BPayment(args: { tenantId: string; billRef: string; amountCents: number; msisdn: string; transId?: string; now?: Date }): SignedCallback {
   const key = secret()
   if (!key) throw new Error(`${SECRET_ENV} is not set`)
   const now = args.now ?? new Date()
   return sign({
     type: "C2B", transId: args.transId ?? simulatedTransId(), billRef: args.billRef,
     amount: (args.amountCents / 100).toFixed(2), msisdn: args.msisdn, transTime: now.toISOString(),
-  }, key, now)
+  }, key, args.tenantId, now)
 }
 
-function verified(rawBody: string, headers: Headers, now: Date): Record<string, unknown> | null {
+/** Whether simulated callbacks can be signed here (the secret is set). */
+export function simulatedSecretConfigured(): boolean {
+  return secret() !== null
+}
+
+function verified(rawBody: string, headers: Headers, tenantId: string, now: Date): Record<string, unknown> | null {
   const key = secret()
   if (!key || !isSimulationPermitted("simulated-mpesa")) return null
   const timestamp = Number(headers.get("x-simulated-timestamp"))
   const nowSeconds = Math.floor(now.getTime() / 1000)
   if (!Number.isSafeInteger(timestamp) || Math.abs(nowSeconds - timestamp) > CALLBACK_TOLERANCE_SECONDS) return null
-  const given = headers.get("x-simulated-signature") ?? ""
-  const expected = signSimulatedCallback(rawBody, key, timestamp)
+  const given = headers.get(SIGNATURE_HEADER) ?? ""
+  const expected = signSimulatedCallback(rawBody, key, timestamp, tenantId)
   if (given.length !== expected.length || !timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return null
   try {
     const body: unknown = JSON.parse(rawBody)
@@ -111,6 +119,7 @@ export const simulatedMpesa: MobileMoneyProvider = {
   id: "simulated",
   displayName: "Simulated M-Pesa (no money moves)",
   simulation: () => "simulated-mpesa",
+  signatureHeader: SIGNATURE_HEADER,
 
   async requestStkPush(request) {
     assertSimulationAllowed("simulated-mpesa", true)
@@ -124,11 +133,11 @@ export const simulatedMpesa: MobileMoneyProvider = {
           type: "STK", checkoutRequestId, result: "PAID", transId: simulatedTransId(),
           amount: (request.amountCents / 100).toFixed(2), msisdn: msisdnLast4(request.msisdn), transTime: now.toISOString(),
         }
-    return { kind: "accepted", checkoutRequestId, simulated: true, callback: sign(body, key, now) }
+    return { kind: "accepted", checkoutRequestId, callback: sign(body, key, request.tenantId, now) }
   },
 
-  parseCallback({ rawBody, headers, now }) {
-    const body = verified(rawBody, headers, now ?? new Date())
+  parseCallback({ rawBody, headers, tenantId, now }) {
+    const body = verified(rawBody, headers, tenantId, now ?? new Date())
     return body ? parse(body) : null
   },
 }

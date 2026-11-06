@@ -3,8 +3,8 @@ import { contrast, resolve } from "@/lib/theme/contrast"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, it, expect, vi } from "vitest"
 
-const { loanFindMany, formProps, stitchConfigured } = vi.hoisted(() => ({
-  loanFindMany: vi.fn(), formProps: vi.fn(), stitchConfigured: vi.fn(async () => true),
+const { loanFindMany, formProps, stitchConfigured, mpesaProps } = vi.hoisted(() => ({
+  loanFindMany: vi.fn(), formProps: vi.fn(), stitchConfigured: vi.fn(async () => true), mpesaProps: vi.fn(),
 }))
 vi.mock("@/lib/stitch", () => ({ stitchConfigured }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "t@example.test" } })) }))
@@ -30,11 +30,25 @@ vi.mock("@/components/portal/StitchPaymentForm", () => ({
   StitchPaymentForm: (props: unknown) => { formProps(props); return null },
 }))
 vi.mock("@/components/portal/ManualPaymentForm", () => ({ ManualPaymentForm: () => null }))
+vi.mock("@/components/portal/MpesaPaymentPanel", () => ({
+  MpesaPaymentPanel: (props: unknown) => { mpesaProps(props); return null },
+}))
 
 import PaymentPage from "./page"
 import { formatZAR } from "@/lib/utils"
 
 describe("portal Make Payment", () => {
+  it("shows the M-Pesa panel only where the lender's paybill is configured (ZA/LS unchanged)", async () => {
+    loanFindMany.mockResolvedValue([])
+    mpesaProps.mockClear()
+    renderToStaticMarkup(await PaymentPage())
+    expect(mpesaProps).not.toHaveBeenCalled()
+    vi.stubEnv("MPESA_PAYBILL_SHORTCODE", "600100")
+    renderToStaticMarkup(await PaymentPage())
+    vi.unstubAllEnvs()
+    expect(mpesaProps).toHaveBeenCalledWith(expect.objectContaining({ paybill: "600100", stkPush: true }))
+  })
+
   it("offers the loans a client can still pay, a loan in default included", async () => {
     loanFindMany.mockResolvedValue([])
     renderToStaticMarkup(await PaymentPage())

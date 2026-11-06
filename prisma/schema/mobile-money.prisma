@@ -2,7 +2,7 @@
 // One row per M-Pesa transaction a provider reported, or per STK push the
 // borrower started. Money is booked only through applyManualReceipt (the
 // receipt it became is paymentId); this row is the provider's record of it,
-// so a replayed callback (same provider + transId) books nothing. The payer's
+// so a replayed callback (same lender, provider and transId) books nothing. The payer's
 // phone is kept as its last four digits only. The state CHECK, the amount
 // CHECK and the masking CHECK are hand-written in migration
 // 20261108110100_mobile_money_transactions.
@@ -12,7 +12,7 @@ enum MobileMoneyTransactionStatus {
   PENDING
   // The borrower declined or ignored the STK push. No money moved.
   CANCELLED
-  // Booked as a receipt on the loan.
+  // Booked as a receipt on the loan (by the ingest, or by staff allocating it).
   BOOKED
   // Money in, held UNAPPLIED for reconciliation (the charges replay refused it).
   HELD
@@ -20,6 +20,8 @@ enum MobileMoneyTransactionStatus {
   UNMATCHED
   // Not booked: a person decides (reviewReason says why).
   NEEDS_REVIEW
+  // Staff found it is not this lender's money to book (rejectReason says why).
+  REJECTED
 }
 
 model MobileMoneyTransaction {
@@ -30,7 +32,7 @@ model MobileMoneyTransaction {
   provider          String
   /// The provider's transaction id (M-Pesa TransID / MpesaReceiptNumber). Null while an STK push is PENDING or CANCELLED.
   transId           String?
-  /// The STK push request id; null for a paybill (C2B) payment.
+  /// The STK push request id; null for a paybill (C2B) payment, and while a claimed push waits for the provider.
   checkoutRequestId String?
   /// The payer's phone, last four digits only.
   msisdnLast4       String?
@@ -47,12 +49,16 @@ model MobileMoneyTransaction {
   paymentId         String?
   payment           Payment?                     @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   reviewReason      String?
+  /// Staff who allocated or rejected it, when, and why it was rejected.
+  resolvedById      String?
+  resolvedAt        DateTime?
+  rejectReason      String?
   simulated         Boolean                      @default(false)
   createdAt         DateTime                     @default(now())
   updatedAt         DateTime                     @updatedAt
 
-  @@unique([provider, transId])
-  @@unique([provider, checkoutRequestId])
+  @@unique([tenantId, provider, transId])
+  @@unique([tenantId, provider, checkoutRequestId])
   @@unique([tenantId, id])
   @@unique([tenantId, paymentId])
   @@index([tenantId, status])

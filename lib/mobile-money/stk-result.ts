@@ -5,13 +5,15 @@
  * finds nothing to claim and rolls back.
  *
  * A paid result for a push this lender never recorded is money that moved: it
- * is kept UNMATCHED for staff, never dropped. An unknown cancellation moved
- * nothing and is ignored.
+ * is kept UNMATCHED for staff, never dropped. One for a push already settled
+ * (cancelled, or booked under another transaction) is kept NEEDS_REVIEW on
+ * that push's loan. Only a transaction this lender already stored is a replay.
+ * An unknown cancellation moved nothing and is ignored.
  */
 import { formatZAR } from "@/lib/utils"
 import {
   auditSettled, bookReceipt, DuplicateDelivery, settleWithoutReceipt, valueDate,
-  type IngestOutcome, type MobileMoneyDb, type Settle,
+  type IngestOutcome, type MobileMoneyDb, type Settle, type Settled,
 } from "./book"
 import type { MobileMoneyCallback } from "./types"
 
@@ -30,14 +32,22 @@ export async function ingestStkResult(db: MobileMoneyDb, ctx: IngestContext, cb:
   const { tenantId, providerId } = ctx
   const push = await db.mobileMoneyTransaction.findFirst({
     where: { tenantId, provider: providerId, checkoutRequestId: cb.checkoutRequestId },
-    select: { id: true, status: true, loanId: true, amount: true },
+    select: { id: true, status: true, loanId: true, amount: true, transId: true },
   })
   if (!push) {
     if (cb.kind === "STK_CANCELLED") return { outcome: "UNKNOWN_REQUEST" }
-    return keepUnknownPayment(db, ctx, cb)
+    return keepPayment(db, ctx, cb, { status: "UNMATCHED" }, { loanId: null, checkoutRequestId: cb.checkoutRequestId })
   }
-  if (push.status !== "PENDING" || !push.loanId) return { outcome: "DUPLICATE" }
+  if (push.status !== "PENDING") {
+    if (cb.kind === "STK_CANCELLED" || push.transId === cb.transId) return { outcome: "DUPLICATE" }
+    // A create: if this lender already stored the transaction, the unique key makes it DUPLICATE.
+    return keepPayment(db, ctx, cb, {
+      status: "NEEDS_REVIEW",
+      reviewReason: `Paid after STK push ${push.id} was already recorded ${push.status}: not booked. Confirm it with the provider and allocate it.`,
+    }, { loanId: push.loanId, checkoutRequestId: null })
+  }
   const loanId = push.loanId
+  if (!loanId) return { outcome: "DUPLICATE" }
 
   const settle: Settle = async (tx, settled) => {
     const claimed = await tx.mobileMoneyTransaction.updateMany({
@@ -71,21 +81,27 @@ export async function ingestStkResult(db: MobileMoneyDb, ctx: IngestContext, cb:
   }, settle)
 }
 
-async function keepUnknownPayment(db: MobileMoneyDb, ctx: IngestContext, cb: Extract<StkCallback, { kind: "STK_PAID" }>): Promise<IngestOutcome> {
-  const settle: Settle = async (tx, settled) => {
+/** Money an STK result reports that no PENDING push can take: stored for staff, booking nothing. */
+async function keepPayment(
+  db: MobileMoneyDb, ctx: IngestContext, cb: Extract<StkCallback, { kind: "STK_PAID" }>,
+  settled: Extract<Settled, { status: "UNMATCHED" | "NEEDS_REVIEW" }>,
+  link: { loanId: string | null; checkoutRequestId: string | null },
+): Promise<IngestOutcome> {
+  const settle: Settle = async (tx, final) => {
     const row = await tx.mobileMoneyTransaction.create({
       data: {
-        tenantId: ctx.tenantId, provider: ctx.providerId, transId: cb.transId, checkoutRequestId: cb.checkoutRequestId,
+        tenantId: ctx.tenantId, provider: ctx.providerId, transId: cb.transId, checkoutRequestId: link.checkoutRequestId,
         msisdnLast4: cb.msisdnLast4, billRef: "", amount: cb.amountCents, transactedAt: cb.transactedAt,
-        simulated: ctx.simulated, status: settled.status,
+        simulated: ctx.simulated, status: final.status, loanId: link.loanId,
+        reviewReason: "reviewReason" in final ? final.reviewReason : null,
       },
       select: { id: true },
     })
     await auditSettled(tx, {
       tenantId: ctx.tenantId, transactionId: row.id, provider: ctx.providerId, transId: cb.transId,
-      amount: cb.amountCents, loanId: null, simulated: ctx.simulated, settled,
+      amount: cb.amountCents, loanId: link.loanId, simulated: ctx.simulated, settled: final,
     })
     return row.id
   }
-  return settleWithoutReceipt(db, settle, { status: "UNMATCHED" })
+  return settleWithoutReceipt(db, settle, settled)
 }

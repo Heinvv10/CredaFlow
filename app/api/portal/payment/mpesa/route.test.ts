@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { auth, findFirstClient, findFirstLoan, startStkPush, projectReceiptWithReplay } = vi.hoisted(() => ({
+const { auth, findFirstClient, findFirstLoan, startStkPush, projectReceiptWithReplay, checkRateLimit } = vi.hoisted(() => ({
+  checkRateLimit: vi.fn(async (_key: string, _opts: unknown) => ({ allowed: true, remaining: 4, retryAfterSeconds: 0 })),
   auth: vi.fn(),
   findFirstClient: vi.fn(),
   findFirstLoan: vi.fn(),
@@ -8,6 +9,7 @@ const { auth, findFirstClient, findFirstLoan, startStkPush, projectReceiptWithRe
   projectReceiptWithReplay: vi.fn(),
 }))
 vi.mock("@/lib/auth", () => ({ auth }))
+vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "203.0.113.7", checkRateLimit }))
 vi.mock("@/lib/prisma", () => ({ prisma: { client: { findFirst: findFirstClient }, loan: { findFirst: findFirstLoan } } }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "t1" }),
@@ -41,6 +43,31 @@ describe("POST /api/portal/payment/mpesa", () => {
   it("returns 401 when not signed in", async () => {
     auth.mockResolvedValue(null)
     expect((await POST(req(body))).status).toBe(401)
+  })
+
+  it("looks the borrower up in the host's lender only", async () => {
+    await POST(req(body))
+    expect(findFirstClient.mock.calls[0][0].where).toEqual({ email: "borrower@test.invalid", tenantId: "t1" })
+  })
+
+  it("answers 400 to a body that is not JSON", async () => {
+    const bad = new Request("http://localhost/api/portal/payment/mpesa", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{not json" })
+    expect((await POST(bad)).status).toBe(400)
+    expect(startStkPush).not.toHaveBeenCalled()
+  })
+
+  it("rate-limits pushes per borrower and address", async () => {
+    checkRateLimit.mockResolvedValueOnce({ allowed: false, remaining: 0, retryAfterSeconds: 60 })
+    const res = await POST(req(body))
+    expect(res.status).toBe(429)
+    expect(res.headers.get("Retry-After")).toBe("60")
+    expect(checkRateLimit.mock.calls[0][0]).toBe("portal:mpesa-stk:borrower@test.invalid:203.0.113.7")
+    expect(startStkPush).not.toHaveBeenCalled()
+  })
+
+  it("answers 409 while a push for the loan is still waiting on the phone", async () => {
+    startStkPush.mockResolvedValueOnce({ ok: false, reason: "PUSH_PENDING", message: "already waiting" })
+    expect((await POST(req(body))).status).toBe(409)
   })
 
   it("returns 404 while the lender has no paybill configured", async () => {

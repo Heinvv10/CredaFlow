@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { withTenantContext } from "@/lib/tenant"
+import { callerIp, checkRateLimit } from "@/lib/rate-limit"
 import { SettlementOverpaymentError } from "@/lib/loan/settlement"
 import { CHARGES_FLAG_INCLUDE } from "@/lib/loan/charges-replay"
 import { loadReceiptReplay, projectReceiptWithReplay } from "@/lib/loan/charge-aware-receipt"
@@ -14,12 +15,22 @@ import { MobileMoneyProviderError } from "@/lib/mobile-money/types"
 // phone is sent to the provider only; the push is recorded with its last four
 // digits (lib/mobile-money/stk-push.ts) and booked when its result arrives.
 
+/** Each push prompts a phone: a handful per borrower and address in ten minutes. */
+const STK_RATE_LIMIT = { limit: 5, windowMs: 10 * 60 * 1000 } as const
+
 export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   const email = session.user.email
+  const gate = await checkRateLimit(`portal:mpesa-stk:${email}:${callerIp(req)}`, STK_RATE_LIMIT)
+  if (!gate.allowed) {
+    return NextResponse.json(
+      { error: "Too many M-Pesa requests. Please wait a few minutes and try again." },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+    )
+  }
 
   return withTenantContext(req, async (tenant) => {
     const tenantId = tenant.id
@@ -28,7 +39,9 @@ export async function POST(req: Request) {
     const client = await prisma.client.findFirst({ where: { email, tenantId }, select: { id: true } })
     if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 })
 
-    const { loanId, amount, phone } = (await req.json()) as { loanId?: unknown; amount?: unknown; phone?: unknown }
+    const parsed = (await req.json().catch(() => null)) as { loanId?: unknown; amount?: unknown; phone?: unknown } | null
+    if (!parsed || typeof parsed !== "object") return NextResponse.json({ error: "A JSON body is required" }, { status: 400 })
+    const { loanId, amount, phone } = parsed
     // M-Pesa takes whole shillings only.
     if (typeof loanId !== "string" || !loanId || typeof phone !== "string"
       || typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0) {
@@ -68,7 +81,8 @@ export async function POST(req: Request) {
         amountCents, phone, actorEmail: email,
       })
       if (!out.ok) {
-        return NextResponse.json({ error: out.message }, { status: out.reason === "INVALID_PHONE" ? 400 : 502 })
+        const status = out.reason === "INVALID_PHONE" ? 400 : out.reason === "PUSH_PENDING" ? 409 : 502
+        return NextResponse.json({ error: out.message }, { status })
       }
       return NextResponse.json({ transactionId: out.transactionId, status: out.status })
     } catch (error) {

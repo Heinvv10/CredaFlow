@@ -17,12 +17,13 @@
 import { Prisma } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { applyManualReceiptInTx, PaymentApplicationError, type PaymentTx } from "@/lib/loan/apply-payment"
+import { applyManualReceiptInTx, PaymentApplicationError, type ManualReceiptInput, type PaymentTx } from "@/lib/loan/apply-payment"
 import { ChargesError } from "@/lib/loan/charges-error"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { recordHeldReceipt } from "@/lib/payments/held-receipt"
+import { notifyReceiptBooked } from "./notify"
 
-export type MobileMoneyDb = Pick<typeof prisma, "$transaction" | "mobileMoneyTransaction" | "loan">
+export type MobileMoneyDb = Pick<typeof prisma, "$transaction" | "$queryRaw" | "mobileMoneyTransaction">
 
 /** The machine actor on ingested receipts. AuditLog.userId is a User FK, so it stays null. */
 export const MOBILE_MONEY_ACTOR = { userEmail: "system@mobile-money", capturedBy: "mobile-money" } as const
@@ -105,29 +106,47 @@ export async function settleWithoutReceipt(db: MobileMoneyDb, settle: Settle, se
   }
 }
 
-export async function bookReceipt(db: MobileMoneyDb, payment: {
+export interface MobileMoneyPayment {
   tenantId: string; loanId: string; amountCents: number; transId: string; receivedAt: Date; simulated: boolean
-}, settle: Settle): Promise<IngestOutcome> {
-  const notes = payment.simulated ? "SIMULATED M-Pesa payment: no money moved" : "M-Pesa payment"
+}
+
+const receiptNotes = (simulated: boolean) => simulated ? "SIMULATED M-Pesa payment: no money moved" : "M-Pesa payment"
+
+/**
+ * The receipt an M-Pesa transaction books, whoever books it (the ingest, or
+ * staff allocating one that waited): one idempotency key per transaction.
+ */
+export function mobileMoneyReceipt(
+  payment: MobileMoneyPayment,
+  actor: { capturedById: string; capturedByEmail: string | null; auditUserId: string | null } = {
+    capturedById: MOBILE_MONEY_ACTOR.capturedBy, capturedByEmail: MOBILE_MONEY_ACTOR.userEmail, auditUserId: null,
+  },
+): ManualReceiptInput {
+  return {
+    loanId: payment.loanId,
+    tenantId: payment.tenantId,
+    amount: payment.amountCents,
+    paymentMethod: "MOBILE_MONEY",
+    reference: payment.transId,
+    notes: receiptNotes(payment.simulated),
+    ...actor,
+    idempotencyKey: `mpesa-c2b:${payment.transId}`,
+    receivedAt: payment.receivedAt,
+    valueDateSource: "SYSTEM_OBSERVED",
+  }
+}
+
+export async function bookReceipt(db: MobileMoneyDb, payment: MobileMoneyPayment, settle: Settle): Promise<IngestOutcome> {
+  const notes = receiptNotes(payment.simulated)
   try {
-    return await db.$transaction(async (tx) => {
-      const receipt = await applyManualReceiptInTx(tx, {
-        loanId: payment.loanId,
-        tenantId: payment.tenantId,
-        amount: payment.amountCents,
-        paymentMethod: "MOBILE_MONEY",
-        reference: payment.transId,
-        notes,
-        capturedById: MOBILE_MONEY_ACTOR.capturedBy,
-        capturedByEmail: MOBILE_MONEY_ACTOR.userEmail,
-        auditUserId: null,
-        idempotencyKey: `mpesa-c2b:${payment.transId}`,
-        receivedAt: payment.receivedAt,
-        valueDateSource: "SYSTEM_OBSERVED",
-      })
+    const booked = await db.$transaction(async (tx) => {
+      const receipt = await applyManualReceiptInTx(tx, mobileMoneyReceipt(payment))
       const transactionId = await settle(tx, { status: "BOOKED", paymentId: receipt.payment.id })
-      return { outcome: "BOOKED" as const, transactionId, paymentId: receipt.payment.id }
+      return { transactionId, payment: receipt.payment }
     })
+    // After the commit: a rolled-back receipt must never be announced.
+    notifyReceiptBooked({ tenantId: payment.tenantId, loanId: payment.loanId, payment: booked.payment })
+    return { outcome: "BOOKED", transactionId: booked.transactionId, paymentId: booked.payment.id }
   } catch (error) {
     if (isDuplicate(error)) return { outcome: "DUPLICATE" }
     if (error instanceof PaymentApplicationError) {

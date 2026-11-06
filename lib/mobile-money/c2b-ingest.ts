@@ -12,12 +12,28 @@
  * A callback from a simulating provider, where this deployment does not permit
  * that simulation, books nothing: it waits for a person (NEEDS_REVIEW).
  */
+import { Prisma } from "@prisma/client"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { auditSettled, bookReceipt, settleWithoutReceipt, valueDate, type IngestOutcome, type MobileMoneyDb, type Settle } from "./book"
 import { ingestStkResult, type IngestContext } from "./stk-result"
 import type { MobileMoneyCallback, MobileMoneyProvider } from "./types"
 
 export type { IngestOutcome, MobileMoneyDb } from "./book"
+
+/**
+ * The lender's one loan whose reference is `reference`, compared exactly after
+ * case-folding, or null (none, or more than one). Never LIKE: Prisma's
+ * case-insensitive `equals` is ILIKE, where a `_` or `%` the payer typed would
+ * match another borrower's loan.
+ */
+export async function matchLoanByReference(db: Pick<MobileMoneyDb, "$queryRaw">, tenantId: string, reference: string): Promise<string | null> {
+  const wanted = reference.trim()
+  if (!wanted) return null
+  const loans = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT "id" FROM "Loan" WHERE "tenantId" = ${tenantId} AND lower("reference") = lower(${wanted}) LIMIT 2
+  `)
+  return loans.length === 1 ? loans[0].id : null
+}
 
 export async function ingestMobileMoneyCallback(db: MobileMoneyDb, args: {
   tenantId: string
@@ -46,10 +62,7 @@ async function ingestPaybill(db: MobileMoneyDb, ctx: IngestContext, cb: Extract<
   if (seen) return { outcome: "DUPLICATE" }
 
   const billRef = cb.billRef.trim()
-  const loans = billRef
-    ? await db.loan.findMany({ where: { tenantId, reference: { equals: billRef, mode: "insensitive" } }, select: { id: true }, take: 2 })
-    : []
-  const loanId = loans.length === 1 ? loans[0].id : null
+  const loanId = await matchLoanByReference(db, tenantId, billRef)
 
   const settle: Settle = async (tx, settled) => {
     const row = await tx.mobileMoneyTransaction.create({
