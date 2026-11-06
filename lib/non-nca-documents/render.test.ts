@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { approvedAffordabilityResult } from "./approval.integration-fixture"
 
 const m = vi.hoisted(() => ({
@@ -17,6 +17,7 @@ vi.mock("@/lib/documents/html-to-pdf", () => ({ htmlToPdf: async (html: string) 
 import { MissingTokenError, TemplateUnavailableError } from "@/lib/documents/render"
 import { renderLoanDocument } from "./render"
 import { SAMPLE_BANNER_TEXT } from "./keys"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const args = { tenantId: "t1", applicationId: "a1", kind: "KEY_FACTS_STATEMENT" as const, staffUserId: null }
 const goodTemplate = { id: "tpl1", name: "Key facts statement", kind: "CUSTOM", isActive: true, currentVersionId: "v1", requiresApproval: true }
@@ -73,5 +74,33 @@ describe("renderLoanDocument", () => {
     expect(error).toBeInstanceOf(MissingTokenError)
     expect((error as MissingTokenError).missing).toEqual(["tenant.ncrNumber", "client.physicalAddress"])
     expect(m.pdf).not.toHaveBeenCalled()
+  })
+
+  describe("a Kenyan key facts statement", () => {
+    afterEach(() => resetActiveJurisdiction())
+    const kfs = "<p>{{product.regulatorApprovalRef}} | {{quote.exciseDuty}} | {{quote.totalCostOfCredit}}</p>"
+    // Approved under KE: the frozen approval is checked against the calculation of the lender it was approved for.
+    beforeEach(() => {
+      setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+      m.version.mockResolvedValue(goodVersion(kfs))
+      m.application.mockResolvedValue({
+        id: "a1", reference: "APP-1", status: "APPROVED", repaymentMethod: "EFT", client: { firstName: "Wanjiru", lastName: "Synthetic" }, product: { name: "Personal Loan", regulatorApprovalRef: null },
+        affordabilityResult: approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900 }),
+      })
+    })
+
+    it("prints the product's CBK approval reference and the excise inside the fees", async () => {
+      const application = await m.application()
+      m.application.mockResolvedValue({ ...application, product: { name: "Personal Loan", regulatorApprovalRef: "CBK/DEMO/0001" } })
+      const text = (await renderLoanDocument(args)).pdf.toString()
+      // Fees KSh 957.00 (initiation 750.00, service 3 x 69.00): KSh 159.50 of it is excise. Interest 231.75 + fees = 1,188.75.
+      expect(text).toBe("<p>CBK/DEMO/0001 | KSh 159.50 | KSh 1,188.75</p>")
+    })
+
+    it("refuses rather than print a blank where the product has no approval reference", async () => {
+      const error = await renderLoanDocument(args).catch((e: unknown) => e)
+      expect((error as MissingTokenError).missing).toEqual(["product.regulatorApprovalRef"])
+      expect(m.pdf).not.toHaveBeenCalled()
+    })
   })
 })

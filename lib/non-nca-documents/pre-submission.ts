@@ -78,7 +78,7 @@ async function renderAndStore(args: {
   tenantId: string
   clientId: string
   actor: Actor
-  product: Pick<LoanProduct, "id" | "name">
+  product: Pick<LoanProduct, "id" | "name" | "regulatorApprovalRef">
   productCode: string
   amountCents: number
   termDays: number
@@ -99,7 +99,7 @@ async function renderAndStore(args: {
 
   const key = LOAN_DOCUMENT_TEMPLATE_KEYS.KEY_FACTS_STATEMENT
   const { template, version } = await currentApprovedTemplate(tenantId, key)
-  const application = { reference: REFERENCE_BEFORE_APPLYING, appliedAmount: amountCents, product: { name: product.name } } as unknown as NonNullable<Parameters<typeof renderedPdf>[1]["application"]>
+  const application = { reference: REFERENCE_BEFORE_APPLYING, appliedAmount: amountCents, product: { name: product.name, regulatorApprovalRef: product.regulatorApprovalRef } } as unknown as NonNullable<Parameters<typeof renderedPdf>[1]["application"]>
   const pdf = await renderedPdf(version.bodyHtml, { tenant, lender, client, application, quote }, config?.isDemoLender === true, INDICATIVE_NOTICE)
   const sha256 = createHash("sha256").update(pdf).digest("hex")
   const file = await saveFile(pdf, "application/pdf")

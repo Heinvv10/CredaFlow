@@ -40,6 +40,15 @@ const FIGURES = `<table>
 <tr><td>Repayment method</td><td>M-Pesa Paybill (see steps below)</td></tr>
 </table>`
 
+// The key facts statement's Kenyan disclosures (KE-3, UNVERIFIED: lib/jurisdiction/kenya-rules.ts). The demo product's
+// reference is the seed's placeholder (prisma/seed/kenya-products.ts), not a CBK approval. The excise is the part of the
+// fees above that is excise duty: disclosed, not added. The total cost of credit is the interest and those fees.
+const KFS_DISCLOSURES = `<table>
+<tr><td>CBK product approval reference</td><td>{{product.regulatorApprovalRef}}</td></tr>
+<tr><td>Excise duty (included in the fees above, not charged on top)</td><td>{{quote.exciseDuty}}</td></tr>
+<tr><td>Total cost of credit (interest and fees)</td><td>{{quote.totalCostOfCredit}}</td></tr>
+</table>`
+
 const PARTIES = `<p>Lender: {{tenant.legalName}}</p>
 <p>Borrower: {{client.fullName}}, national ID number {{client.idNumber}}</p>
 <p>Application: {{application.reference}} &mdash; {{application.product}}</p>`
@@ -66,6 +75,6 @@ const ARREARS = `<table>
 export const KENYA_TEMPLATE_BODIES = {
   OFFER_LETTER: `<h1>Offer letter</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n${GAP}\n<p>Prepared {{today}}.</p>`,
   ARREARS_LETTER: `<h1>Arrears letter</h1>\n${REGULATOR}\n<p>Lender: {{tenant.legalName}}</p>\n<p>Borrower: {{client.fullName}}</p>\n${ARREARS}\n${MPESA_FOR_LOAN}\n${GAP}`,
-  KEY_FACTS_STATEMENT: `<h1>Key facts statement</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n${GAP}\n<p>Prepared {{today}}.</p>`,
+  KEY_FACTS_STATEMENT: `<h1>Key facts statement</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${KFS_DISCLOSURES}\n${MPESA_BEFORE_PAYOUT}\n${GAP}\n<p>Prepared {{today}}.</p>`,
   LOAN_AGREEMENT: `<h1>Loan agreement</h1>\n${REGULATOR}\n${PARTIES}\n<h2>Approved terms</h2>\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n<h2>Terms and conditions</h2>\n${GAP}\n<p>Prepared {{today}}.</p>`,
 } as const
