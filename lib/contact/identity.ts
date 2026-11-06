@@ -9,6 +9,8 @@
 // and S2 outbound send.ts all read through here so the (tenantId, channel,
 // value) ContactIdentity unique-index lookups stay consistent across writers.
 
+import { trunkZeroDialCode } from "@/lib/jurisdiction/phone-region"
+
 /**
  * Email: trim then lowercase. Empty string returns "" — callers should
  * `if (norm.length === 0) return null` before insert.
@@ -18,8 +20,8 @@ export function normaliseEmail(email: string): string {
 }
 
 /**
- * SA phone → E.164 digits without "+", per spec §WABA mapping.
- *   "0821234567"     → "27821234567"
+ * Phone → E.164 digits without "+", per spec §WABA mapping.
+ *   "0821234567"     → "27821234567" (a Kenyan lender: "0712345678" → "254712345678")
  *   "+27821234567"   → "27821234567"
  *   "0027821234567"  → "27821234567"
  *   " 082 123 4567 " → "27821234567"
@@ -40,14 +42,15 @@ export function normalisePhone(phone: string): string {
   // can't sneak past as "123").
   if (!/^[\s\-+()\d]+$/.test(phone)) return ""
 
-  const stripped = phone.replace(/[\s\-+()]/g, "")
-  if (stripped.length === 0) return ""
-  if (!/^\d+$/.test(stripped)) return ""
+  const raw = phone.replace(/[\s\-+()]/g, "")
+  if (raw.length === 0) return ""
+  if (!/^\d+$/.test(raw)) return ""
 
-  // SA local 0-prefixed: must be exactly 10 digits, leading "0" + 0-9.
-  if (/^0\d{9}$/.test(stripped)) {
-    return "27" + stripped.slice(1)
-  }
+  // Local 0-prefixed: exactly 10 digits, leading "0" + 0-9. The 0 becomes the
+  // lender's country code (lib/jurisdiction/phone-region.ts): 27 under ZA and,
+  // as always, LS, so every one passes the SA check below; 254 under KE, which
+  // must then pass the Kenyan mobile check.
+  const stripped = /^0\d{9}$/.test(raw) ? trunkZeroDialCode() + raw.slice(1) : raw
   // International SA with country code 27: 11 digits starting "27".
   if (/^27\d{9}$/.test(stripped)) {
     return stripped
@@ -60,6 +63,10 @@ export function normalisePhone(phone: string): string {
   // (lib/jurisdiction/phone-region.ts). Without it a Lesotho borrower has no phone
   // or WhatsApp identity, so no message can reach them on those channels.
   if (/^266[56]\d{7}$/.test(stripped)) {
+    return stripped
+  }
+  // Kenyan mobile: 254 + nine digits starting 7 or 1 (lib/jurisdiction/phone-region.ts).
+  if (/^254[17]\d{8}$/.test(stripped)) {
     return stripped
   }
   // Anything else → reject. Better an empty identity row than a colliding

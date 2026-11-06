@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from "node:crypto"
+import { trunkZeroDialCode } from "@/lib/jurisdiction/phone-region"
 import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 
 export interface WaResult {
@@ -51,8 +52,9 @@ export function normalizePhone(phone: string): string {
   let p = phone.replace(/@s\.whatsapp\.net$/i, "")
   // Strip spaces, dashes, +
   p = p.replace(/[\s\-+]/g, "")
-  // SA: 0821234567 → 27821234567
-  if (p.startsWith("0") && p.length === 10) p = "27" + p.slice(1)
+  // Local trunk 0 → the lender's country code: 0821234567 → 27821234567 (ZA, and LS as
+  // always); 0712345678 → 254712345678 (KE). lib/jurisdiction/phone-region.ts.
+  if (p.startsWith("0") && p.length === 10) p = trunkZeroDialCode() + p.slice(1)
   return p
 }
 

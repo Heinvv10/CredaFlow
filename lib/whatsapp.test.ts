@@ -1,9 +1,11 @@
 import { afterEach, describe, it, expect, vi } from "vitest"
 import { normalizePhone, sendWhatsAppMessage, waHttpFailureOutcome, WA_TEMPLATES } from "./whatsapp"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
+  resetActiveJurisdiction()
 })
 
 describe("WhatsApp provider outcome certainty", () => {
@@ -45,6 +47,16 @@ describe("normalizePhone (idempotent over raw phone OR fully-qualified JID)", ()
 
   it("case-insensitive on the JID suffix", () => {
     expect(normalizePhone("27821234567@s.WhatsApp.NET")).toBe("27821234567")
+  })
+
+  it("a local 0 number takes a Kenyan lender's country code; ZA and LS are unchanged", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(normalizePhone("0712345678")).toBe("254712345678")
+    expect(normalizePhone("+254 712 345 678")).toBe("254712345678")
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(normalizePhone("0821234567")).toBe("27821234567")
+    resetActiveJurisdiction()
+    expect(normalizePhone("0712345678")).toBe("27712345678")
   })
 })
 
