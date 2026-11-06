@@ -20,9 +20,25 @@ import { LENDER_IDENTITY_SELECT, parseLenderIdentity } from "@/lib/config/identi
 import { DEFAULT_MESSAGE_TEMPLATES } from "@/lib/messaging/default-templates"
 import { productCreditType } from "@/lib/loan/nca-interest-cap"
 import { checkNcaInterestRateFor } from "@/lib/loan/nca-interest-cap.server"
+import { changeRefusal } from "@/lib/loan-changes/eligibility"
+import { factsOf, loadChangeLoan } from "@/lib/loan-changes/compute"
 
 const RUN = process.env.RUN_SEED_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
+
+/**
+ * The demo loan of a key-facts lender has no debit order: no mandate, no collection instruction, and a loan change
+ * never says it is "collected by debit order" (lib/loan-changes/eligibility.ts). Its application is a DRAFT, which the
+ * database lets carry no repayment method (LoanApplication_repayment_method_lifecycle), so none is recorded.
+ */
+async function expectSeedLoanWithoutDebitOrder(prisma: PrismaClient) {
+  const loan = await prisma.loan.findUniqueOrThrow({ where: { reference: "LN-SEED-0001" }, include: { application: true } })
+  expect(loan.application.repaymentMethod).toBeNull()
+  expect(await prisma.debitMandate.count({ where: { loanId: loan.id } })).toBe(0)
+  expect(await prisma.collectionInstruction.count({ where: { loanId: loan.id } })).toBe(0)
+  const change = await loadChangeLoan(prisma as unknown as Parameters<typeof loadChangeLoan>[0], loan.tenantId, loan.id)
+  expect(changeRefusal(factsOf(change!), "IN_PLACE") ?? "").not.toMatch(/debit order/)
+}
 const LOAN_REF = "LN-SEED-0001"
 const ADMIN_EMAIL = "admin@acme-lending.example"
 // CLIENTS[0].idNumber in prisma/seed.ts.
@@ -251,6 +267,10 @@ suite("base demo seed on a fresh migrated database", () => {
     expect(rows.every((r) => r.status === "PENDING" && r.totalPaid === 0 && r.paidAt === null)).toBe(true)
     expect(loan.nextPaymentDate?.getTime()).toBe(rows[0].dueDate.getTime())
     expect(loan.maturityDate.getTime()).toBe(rows.at(-1)!.dueDate.getTime())
+    // The South African seed is unchanged: no recorded repayment method, the (Pty) Ltd employer
+    // (asset-finance parties carry none).
+    expect((await prisma.loanApplication.findUniqueOrThrow({ where: { id: loan.applicationId } })).repaymentMethod).toBeNull()
+    expect(new Set((await prisma.client.findMany({ where: { reference: { startsWith: "CLI-SEED-" }, employerName: { not: null } }, select: { employerName: true } })).map((c) => c.employerName))).toEqual(new Set(["Example Employer (Pty) Ltd"]))
   })
 
   it("reruns idempotently and keeps each staff user's TOTP secret and every password", async () => {
@@ -603,6 +623,12 @@ suite("Lesotho demo seed (DEMO_LENDER=basotho) on a fresh migrated database", ()
     expect(whatsapp).toHaveLength(5)
   })
 
+  it("books the demo loan with no debit order; the employer keeps its (Pty) Ltd", async () => {
+    await expectSeedLoanWithoutDebitOrder(fresh!.prisma)
+    const employers = await fresh!.prisma.client.findMany({ where: { tenant: { slug: "basotho" } }, select: { employerName: true } })
+    expect(new Set(employers.map((c) => c.employerName))).toEqual(new Set(["Example Employer (Pty) Ltd"]))
+  })
+
   it("refuses to seed a South African lender into the same database (one jurisdiction per instance)", () => {
     expect(failedRunStderr(() => runSeed(fresh!.url, { DEMO_LENDER: "acme" }))).toMatch(/One instance serves one jurisdiction/)
   })
@@ -690,6 +716,12 @@ suite("Kenyan demo seed (DEMO_LENDER=nairobi) on a fresh migrated database", () 
     const loan = await db().loan.findUniqueOrThrow({ where: { reference: "LN-SEED-0001" } })
     expect(loan.status).toBe("ACTIVE")
     expect(loan.daysInArrears).toBeGreaterThan(0)
+  })
+
+  it("books the demo loan with no debit order; employers carry no South African company form", async () => {
+    await expectSeedLoanWithoutDebitOrder(db())
+    const employers = await db().client.findMany({ where: { tenant: { slug: "nairobi" } }, select: { employerName: true } })
+    expect(new Set(employers.map((c) => c.employerName))).toEqual(new Set(["Example Employer Ltd"]))
   })
 
   it("refuses to seed a Lesotho lender into the same database (one jurisdiction per instance)", () => {

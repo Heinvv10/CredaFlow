@@ -128,12 +128,12 @@ const PRODUCTS = [
  * confirmer, its own documents (lib/non-nca-documents), the walk and a loan in arrears.
  */
 const SEEDS = {
-  ZA: { keyFacts: false, assetFinance: true, clients: CLIENTS, products: PRODUCTS, shortTermProduct: "MICRO30", languages: ["en", "af", "zu", "xh"] },
-  LS: { keyFacts: true, assetFinance: false, clients: CLIENTS_LS, products: PRODUCTS, shortTermProduct: "MICRO30", languages: ["en", "af", "zu", "xh"] },
-  // English only: no reviewed Swahili exists.
-  KE: { keyFacts: true, assetFinance: false, clients: CLIENTS_KE, products: PRODUCTS_KE, shortTermProduct: "MPESA30", languages: ["en"] },
+  ZA: { keyFacts: false, assetFinance: true, clients: CLIENTS, products: PRODUCTS, shortTermProduct: "MICRO30", languages: ["en", "af", "zu", "xh"], employer: "Example Employer (Pty) Ltd" },
+  LS: { keyFacts: true, assetFinance: false, clients: CLIENTS_LS, products: PRODUCTS, shortTermProduct: "MICRO30", languages: ["en", "af", "zu", "xh"], employer: "Example Employer (Pty) Ltd" },
+  // English only: no reviewed Swahili exists. A Kenyan company is "Ltd": "(Pty)" is the South African and Lesotho form.
+  KE: { keyFacts: true, assetFinance: false, clients: CLIENTS_KE, products: PRODUCTS_KE, shortTermProduct: "MPESA30", languages: ["en"], employer: "Example Employer Ltd" },
 } as const satisfies Record<Jurisdiction, {
-  keyFacts: boolean; assetFinance: boolean; clients: readonly unknown[]; products: readonly unknown[]; shortTermProduct: string; languages: readonly Locale[]
+  keyFacts: boolean; assetFinance: boolean; clients: readonly unknown[]; products: readonly unknown[]; shortTermProduct: string; languages: readonly Locale[]; employer: string
 }>
 const SEED = SEEDS[JURISDICTION]
 
@@ -250,7 +250,7 @@ async function main() {
         dateOfBirth: new Date(c.dob), gender: c.gender,
         email, phone: c.phone, whatsapp: c.phone,
         addressLine1: `${10 + i} Main Road`, city: c.city, province: c.prov, postalCode: c.postal,
-        employmentStatus: "EMPLOYED", employerName: "Example Employer (Pty) Ltd",
+        employmentStatus: "EMPLOYED", employerName: SEED.employer,
         monthlyIncome: c.income, monthlyExpenses: c.expenses,
         bankName: c.bank, bankAccountNumber: c.acc, bankBranchCode: c.branch, accountType: "SAVINGS",
         kycStatus: "PENDING",
