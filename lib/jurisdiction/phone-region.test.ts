@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "./active"
 import { isValidKenyaMobile, isValidLesothoMobile, trunkZeroDialCode } from "./phone-region"
 import { LESOTHO_DISTRICTS } from "./profiles"
 
@@ -39,9 +40,26 @@ describe("Kenyan mobile", () => {
 })
 
 describe("the country code of a local number written with a trunk 0", () => {
+  afterEach(() => resetActiveJurisdiction())
+
   it("is the lender's own; Lesotho has no trunk prefix, so there it stays South African", () => {
     expect(trunkZeroDialCode("ZA")).toBe("27")
     expect(trunkZeroDialCode("KE")).toBe("254")
     expect(trunkZeroDialCode("LS")).toBe("27")
+  })
+
+  it("follows the loaded jurisdiction", () => {
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
+    expect(trunkZeroDialCode()).toBe("27")
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(trunkZeroDialCode()).toBe("254")
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    expect(trunkZeroDialCode()).toBe("27")
+  })
+
+  it("is unknown (null) while nothing is loaded, unless the caller names the jurisdiction: a guess could send a Kenyan borrower's message to a South African number", () => {
+    expect(trunkZeroDialCode()).toBeNull()
+    expect(trunkZeroDialCode("KE")).toBe("254")
+    expect(trunkZeroDialCode("ZA")).toBe("27")
   })
 })

@@ -23,7 +23,8 @@ process, or a lender's config differs from it, it refuses to serve.
   ZAR, KE KES only), held again by two DB CHECKs (`migration.test.ts` compares).
 - **Entry points await `ensureActiveJurisdiction()`** (crons, `withTenantContext`,
   `getStaffTenantId`, root layout; re-reads the row every 60 s): add to a choke
-  point, not per file.
+  point, not per file. Unloaded, a local "0…" phone normalises to "" (27 or
+  254? `trunkZeroDialCode`): a script must load first or name the jurisdiction.
 - **No request can write the instance row.** Only `instance-write.ts`
   (`npm run lender:set-jurisdiction`, the demo seed): audited, refused once any
   application or loan has ever existed (`frozenAt`). Provision/activate paths

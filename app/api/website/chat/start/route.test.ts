@@ -22,6 +22,12 @@ vi.mock("@/lib/website-chat/store", () => ({ startChat: mocks.startChat }))
 import { POST } from "./route"
 import { verifyChatToken } from "@/lib/website-chat/token"
 import type { NextRequest } from "next/server"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const VALID = { name: "Thandi Mokoena", phone: "0712345678", email: "thandi@example.test", consent: true, turnstileToken: "tok" }
 

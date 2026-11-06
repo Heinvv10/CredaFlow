@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest"
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest"
 
 const h = vi.hoisted(() => ({
   loanFindFirst: vi.fn(),
@@ -29,6 +29,12 @@ vi.mock("@/lib/config/identity", async (orig) => {
 
 import { notifyEntityBorrower } from "./entity-notifications"
 import { SendBlockedError } from "@/lib/messaging/send"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const ENTITY_LOAN = {
   id: "l_af", reference: "LN-AF-3", outstandingPrincipal: 9_000_000, entityId: "ent_1",

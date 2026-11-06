@@ -21,6 +21,7 @@ describe("a Kenyan mobile number", () => {
   })
 
   it("leaves South African and Lesotho lenders exactly as they were", () => {
+    setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" })
     expect(normalisePhone("0821234567")).toBe("27821234567")
     expect(normalisePhone("0712345678")).toBe("27712345678")
     expect(normalisePhone("0027821234567")).toBe("27821234567")

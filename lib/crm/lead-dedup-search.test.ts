@@ -1,10 +1,16 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import {
   findLeadDuplicates,
   DEDUP_SCAN_LIMIT,
   type LeadFinder,
   type DedupCandidateLead,
 } from "@/lib/crm/lead-dedup-search"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 // These tests exist for the two halves of the query that fail SILENTLY:
 //

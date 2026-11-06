@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from "node:crypto"
+import type { Jurisdiction } from "@/lib/jurisdiction/profiles"
 import { trunkZeroDialCode } from "@/lib/jurisdiction/phone-region"
 import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 
@@ -42,9 +43,12 @@ interface WaSendOptions {
   signal?: AbortSignal
 }
 
+/** The refusal for a recipient normalizePhone cannot place (a local number, no jurisdiction loaded). */
+export const WA_UNPLACEABLE_RECIPIENT = "WhatsApp recipient is not a number this lender can place"
+
 // Exported for tests so the idempotent-JID contract has direct coverage.
 // Callers go through sendWhatsAppMessage which uses it internally.
-export function normalizePhone(phone: string): string {
+export function normalizePhone(phone: string, jurisdiction?: Jurisdiction): string {
   // Idempotent: accept either a raw phone OR a fully-qualified WA JID
   // (`27821234567@s.whatsapp.net`). Without the suffix-strip, callers that
   // pass a JID get a double-suffixed JID after toJid() reapplies it →
@@ -53,8 +57,13 @@ export function normalizePhone(phone: string): string {
   // Strip spaces, dashes, +
   p = p.replace(/[\s\-+]/g, "")
   // Local trunk 0 → the lender's country code: 0821234567 → 27821234567 (ZA, and LS as
-  // always); 0712345678 → 254712345678 (KE). lib/jurisdiction/phone-region.ts.
-  if (p.startsWith("0") && p.length === 10) p = trunkZeroDialCode() + p.slice(1)
+  // always); 0712345678 → 254712345678 (KE). lib/jurisdiction/phone-region.ts. With no
+  // jurisdiction named or loaded the country is unknown: "" (the senders refuse it).
+  if (p.startsWith("0") && p.length === 10) {
+    const dialCode = trunkZeroDialCode(jurisdiction)
+    if (!dialCode) return ""
+    p = dialCode + p.slice(1)
+  }
   return p
 }
 
@@ -93,6 +102,9 @@ export async function sendWhatsAppMessage(opts: WaSendOptions): Promise<WaResult
     }
   }
 
+  if (!normalizePhone(opts.to)) {
+    return { ok: false, error: WA_UNPLACEABLE_RECIPIENT, providerOutcome: "DEFINITELY_REJECTED" }
+  }
   const jid = toJid(opts.to)
   const url = `${senderUrl}/send-message`
 

@@ -1,6 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { it, expect, vi, beforeEach } from "vitest"
+import { it, expect, vi, beforeEach, afterEach } from "vitest"
 import { routeInbound } from "./routing"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 function makeTx() {
   return {

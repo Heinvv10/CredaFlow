@@ -4,6 +4,12 @@ const { commsSettingsFindUnique } = vi.hoisted(() => ({ commsSettingsFindUnique:
 vi.mock("@/lib/prisma", () => ({ prisma: { commsSettings: { findUnique: commsSettingsFindUnique } } }))
 
 import { availableOtpChannels, isWhatsAppCloudConfigured } from "./deliver"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const cloud = { whatsappEnabled: true, waProvider: "WA_CLOUD", wabaPhoneNumberId: "pn-1", wabaAccessToken: "sealed" }
 const recipient = { firstName: "Thandi", lastName: "Test", email: "thandi@example.test", whatsapp: "0820000001" }

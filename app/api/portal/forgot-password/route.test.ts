@@ -56,6 +56,12 @@ vi.mock("@/lib/portal/portal-otp-whatsapp", async (importOriginal) => ({
 }))
 
 import { POST } from "./route"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 function buildReq(body: object): NextRequest {
   return new NextRequest("https://portal.lender.example/api/portal/forgot-password", {

@@ -1,10 +1,16 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { Prisma } from "@prisma/client"
 import {
   notifyPriorLeadDuplicates,
   notifyPriorLeadDuplicatesBestEffort,
   type NotifyDeps,
 } from "@/lib/crm/lead-duplicate-notify"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 // These fakes prove ORDERING and ERROR HANDLING, which is all a fake can prove.
 // That the throttle's unique constraint actually serialises concurrent claims

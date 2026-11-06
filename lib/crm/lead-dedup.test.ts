@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import {
   leadDedupKeys,
   duplicateReasons,
@@ -7,6 +7,12 @@ import {
   applyCandidateCap,
   countDuplicatesByPhone,
 } from "@/lib/crm/lead-dedup"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 // Expected keys are written as LITERALS throughout. Deriving them from
 // normalisePhone/normaliseEmail — the same functions the code under test calls

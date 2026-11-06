@@ -9,6 +9,7 @@
 // and S2 outbound send.ts all read through here so the (tenantId, channel,
 // value) ContactIdentity unique-index lookups stay consistent across writers.
 
+import type { Jurisdiction } from "@/lib/jurisdiction/profiles"
 import { trunkZeroDialCode } from "@/lib/jurisdiction/phone-region"
 
 /**
@@ -37,7 +38,7 @@ export function normaliseEmail(email: string): string {
  * 1-8 (covers mobile 06/07/08 and geographic 01–05). 09 is not yet
  * assigned at the time of writing but reserved by ICASA, so we accept it.
  */
-export function normalisePhone(phone: string): string {
+export function normalisePhone(phone: string, jurisdiction?: Jurisdiction): string {
   // Reject anything with non-phone characters before stripping (so "abc123"
   // can't sneak past as "123").
   if (!/^[\s\-+()\d]+$/.test(phone)) return ""
@@ -49,8 +50,14 @@ export function normalisePhone(phone: string): string {
   // Local 0-prefixed: exactly 10 digits, leading "0" + 0-9. The 0 becomes the
   // lender's country code (lib/jurisdiction/phone-region.ts): 27 under ZA and,
   // as always, LS, so every one passes the SA check below; 254 under KE, which
-  // must then pass the Kenyan mobile check.
-  const stripped = /^0\d{9}$/.test(raw) ? trunkZeroDialCode() + raw.slice(1) : raw
+  // must then pass the Kenyan mobile check. With no jurisdiction named or
+  // loaded the country is unknown: no identity rather than a guess.
+  let stripped = raw
+  if (/^0\d{9}$/.test(raw)) {
+    const dialCode = trunkZeroDialCode(jurisdiction)
+    if (!dialCode) return ""
+    stripped = dialCode + raw.slice(1)
+  }
   // International SA with country code 27: 11 digits starting "27".
   if (/^27\d{9}$/.test(stripped)) {
     return stripped
@@ -80,8 +87,8 @@ export function normalisePhone(phone: string): string {
  * strict validation in `normalisePhone` — returns "" for unparseable input
  * (e.g. "WhatsApp: 082..." leaves alpha residue after strip → rejected).
  */
-export function toWaJid(phone: string): string {
-  const digits = normalisePhone(phone)
+export function toWaJid(phone: string, jurisdiction?: Jurisdiction): string {
+  const digits = normalisePhone(phone, jurisdiction)
   if (digits.length === 0) return ""
   return `${digits}@s.whatsapp.net`
 }

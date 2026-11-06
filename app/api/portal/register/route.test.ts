@@ -13,6 +13,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { POST } from "./route"
 import { NextRequest } from "next/server"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const {
   findFirstClient,
