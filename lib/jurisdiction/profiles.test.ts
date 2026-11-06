@@ -57,9 +57,9 @@ describe("Kenya", () => {
     expect(new Set(KENYA_COUNTIES.map((c) => c.label)).size).toBe(47)
   })
 
-  it("each jurisdiction has its own dial code, and only Lesotho writes local numbers without a trunk 0", () => {
+  it("each jurisdiction has its own dial code; a local 0 number takes it, except in Lesotho (no trunk prefix), where it is South African", () => {
     expect(JURISDICTIONS.map((j) => profileFor(j).capture.dialCode)).toEqual(["27", "266", "254"])
-    expect(JURISDICTIONS.map((j) => profileFor(j).capture.localTrunkZero)).toEqual([true, false, true])
+    expect(JURISDICTIONS.map((j) => profileFor(j).capture.localZeroDialCode)).toEqual(["27", "27", "254"])
   })
 
   // KNOWN GAP (docs: plan trap 5). The date code is pinned to SAST (UTC+2); Nairobi is UTC+3 all year,

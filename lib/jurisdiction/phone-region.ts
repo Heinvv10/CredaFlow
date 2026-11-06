@@ -31,8 +31,8 @@ export function isValidKenyaMobile(raw: string): boolean {
 
 /**
  * The country code a ten-digit local number written with the trunk 0
- * ("0821234567", "0712345678") takes: the lender's own. Lesotho has no trunk
- * prefix, so there such a number is South African, as it always was.
+ * ("0821234567", "0712345678") takes: the profile's localZeroDialCode (the
+ * lender's own; South African in Lesotho, which has no trunk prefix).
  *
  * Fail-closed: with no `jurisdiction` named and none loaded, null. The ZA
  * default would turn a Kenyan "0712345678" into the South African
@@ -41,6 +41,5 @@ export function isValidKenyaMobile(raw: string): boolean {
  */
 export function trunkZeroDialCode(jurisdiction?: Jurisdiction): string | null {
   if (!jurisdiction && !isJurisdictionLoaded()) return null
-  const capture = profileFor(jurisdiction ?? activeJurisdiction()).capture
-  return capture.localTrunkZero ? capture.dialCode : profileFor("ZA").capture.dialCode
+  return profileFor(jurisdiction ?? activeJurisdiction()).capture.localZeroDialCode
 }

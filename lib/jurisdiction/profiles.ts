@@ -33,10 +33,12 @@ export interface CaptureProfile {
   /** Country calling code, digits only ("27"). */
   dialCode: string
   /**
-   * Local numbers are written with a trunk 0 ("082…", "0712…"), which E.164
-   * replaces with dialCode. Lesotho has no trunk prefix (eight-digit numbers).
+   * The country code that replaces the trunk 0 of a ten-digit local number
+   * ("082…", "0712…"): the lender's own dialCode where numbers are written that
+   * way. Lesotho has no trunk prefix (eight-digit numbers), so there such a
+   * number is South African ("27").
    */
-  localTrunkZero: boolean
+  localZeroDialCode: string
   mobileMessage: string
   /** "a South African mobile number (e.g. …)" in an API error. */
   mobileExamples: string
@@ -161,7 +163,7 @@ const PROFILES: Record<Jurisdiction, JurisdictionProfile> = {
       idRefusal: "A valid 13-digit SA ID number is required",
       idApplyRefusal: "Please enter a valid 13-digit South African ID number.",
       mobilePatterns: [/^\+27[6-8]\d{8}$/, /^0[6-8]\d{8}$/],
-      mobileAllowSpaces: false, dialCode: "27", localTrunkZero: true,
+      mobileAllowSpaces: false, dialCode: "27", localZeroDialCode: "27",
       mobileMessage: "Use +27… or 0… mobile format",
       mobileExamples: "a South African mobile number (e.g. 0821234567 or +27821234567)",
       regionLabel: "Province", regions: SA_PROVINCES,
@@ -182,7 +184,7 @@ const PROFILES: Record<Jurisdiction, JurisdictionProfile> = {
       idApplyRefusal: "Please enter a valid Lesotho national ID number.",
       // Vodacom Lesotho 5x, Econet 6x (lib/jurisdiction/phone-region.ts).
       mobilePatterns: [/^\+266[56]\d{7}$/, /^[56]\d{7}$/],
-      mobileAllowSpaces: true, dialCode: "266", localTrunkZero: false,
+      mobileAllowSpaces: true, dialCode: "266", localZeroDialCode: "27",
       mobileMessage: "Use +266… or 8-digit mobile format",
       mobileExamples: "a Lesotho mobile number (e.g. 58123456 or +26658123456)",
       regionLabel: "District", regions: LESOTHO_DISTRICTS,
@@ -205,7 +207,7 @@ const PROFILES: Record<Jurisdiction, JurisdictionProfile> = {
       idApplyRefusal: "Please enter a valid Kenyan national ID number.",
       // Mobiles 07xx and 010x/011x; landlines (020 Nairobi and others) are refused (lib/jurisdiction/phone-region.ts).
       mobilePatterns: [/^\+254(7\d{8}|1[01]\d{7})$/, /^0(7\d{8}|1[01]\d{7})$/],
-      mobileAllowSpaces: true, dialCode: "254", localTrunkZero: true,
+      mobileAllowSpaces: true, dialCode: "254", localZeroDialCode: "254",
       mobileMessage: "Use +254… or 07…/01… mobile format",
       mobileExamples: "a Kenyan mobile number (e.g. 0712345678 or +254712345678)",
       regionLabel: "County", regions: KENYA_COUNTIES,

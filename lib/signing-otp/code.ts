@@ -9,6 +9,7 @@
  * another challenge.
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
+import { JURISDICTIONS, profileFor } from "@/lib/jurisdiction/profiles"
 
 export const SIGNING_OTP_TTL_MS = 5 * 60 * 1000
 export const SIGNING_OTP_MAX_ATTEMPTS = 5
@@ -58,9 +59,16 @@ export function maskEmail(email: string): string {
   return `${localMasked}@${host[0]}***${tld}`
 }
 
-/** "27821234567" or "27821234567@s.whatsapp.net" → "+27 *** *** 4567" */
+// Longest first, so a three-digit code is never read as a two-digit one.
+const DIAL_CODES = JURISDICTIONS.map((j) => profileFor(j).capture.dialCode).sort((a, b) => b.length - a.length)
+
+/**
+ * "27821234567" or "27821234567@s.whatsapp.net" → "+27 *** *** 4567";
+ * "254712345678" → "+254 *** *** 5678". A code no profile knows shows its first two digits.
+ */
 export function maskPhone(value: string): string {
   const digits = value.split("@")[0].replace(/\D/g, "")
   if (digits.length < 6) return "***"
-  return `+${digits.slice(0, 2)} *** *** ${digits.slice(-4)}`
+  const code = DIAL_CODES.find((c) => digits.startsWith(c)) ?? digits.slice(0, 2)
+  return `+${code} *** *** ${digits.slice(-4)}`
 }

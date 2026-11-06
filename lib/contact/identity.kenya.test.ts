@@ -30,6 +30,12 @@ describe("a Kenyan mobile number", () => {
     expect(normalisePhone("+26658000001")).toBe("26658000001")
   })
 
+  it("takes the 00 international prefix, and still only for a mobile", () => {
+    expect(normalisePhone("00254712345678")).toBe("254712345678")
+    expect(normalisePhone("00254 110 123 456")).toBe("254110123456")
+    expect(normalisePhone("00254201234567")).toBe("")
+  })
+
   it("does not widen anything else: a Kenyan landline and the wrong length stay out", () => {
     expect(normalisePhone("+254201234567")).toBe("")
     expect(normalisePhone("+25471234567")).toBe("")

@@ -43,6 +43,9 @@ describe("evidence masking", () => {
   it("keeps the country code and last four digits of a number", () => {
     expect(maskPhone("27821234567")).toBe("+27 *** *** 4567")
     expect(maskPhone("27821234567@s.whatsapp.net")).toBe("+27 *** *** 4567")
+    // The whole country code, not its first two digits.
+    expect(maskPhone("254712345678")).toBe("+254 *** *** 5678")
+    expect(maskPhone("26658000001@s.whatsapp.net")).toBe("+266 *** *** 0001")
   })
 
   it("request references are random and unguessable", () => {

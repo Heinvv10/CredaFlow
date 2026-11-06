@@ -72,9 +72,10 @@ export function normalisePhone(phone: string, jurisdiction?: Jurisdiction): stri
   if (/^266[56]\d{7}$/.test(stripped)) {
     return stripped
   }
-  // Kenyan mobile: 254 + nine digits starting 7 or 1 (lib/jurisdiction/phone-region.ts).
-  if (/^254[17]\d{8}$/.test(stripped)) {
-    return stripped
+  // Kenyan mobile: 254 + nine digits starting 7 or 1 (lib/jurisdiction/phone-region.ts),
+  // also with the 00 international prefix.
+  if (/^(00)?254[17]\d{8}$/.test(stripped)) {
+    return stripped.replace(/^00/, "")
   }
   // Anything else → reject. Better an empty identity row than a colliding
   // misclassification.
