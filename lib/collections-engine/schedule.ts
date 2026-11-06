@@ -2,8 +2,10 @@
  * Builds collection instructions from a loan's instalment schedule. Pure: the
  * caller loads the rows and what has already been presented, and writes the
  * drafts. Dates are SAST calendar dates (YYYY-MM-DD); a Lesotho lender's CAT
- * calendar has the same offset. Business days follow the lender's jurisdiction
- * (lib/jurisdiction/business-days.ts).
+ * calendar has the same offset. A Kenyan lender's EAT is UTC+3, so between
+ * 00:00 and 01:00 EAT the date here is still the previous day (a known gap,
+ * lib/jurisdiction/profiles.ts). Business days follow the lender's
+ * jurisdiction (lib/jurisdiction/business-days.ts).
  *
  * An instalment is never collected before it is due, never before the
  * mandate's first collection date, and never sooner than the provider's
