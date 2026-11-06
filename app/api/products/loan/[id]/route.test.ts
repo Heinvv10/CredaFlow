@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const { requireApiRole, findUnique, count, versionCount, propose } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
@@ -336,6 +337,33 @@ describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
   it("refuses a negative fee 422 before any write", async () => {
     expect((await edit({ nonNcaCollectionFeeCents: -1 })).status).toBe(422)
     expect(propose).not.toHaveBeenCalled()
+  })
+})
+
+describe("PUT /api/products/loan/[id] regulator approval reference (Kenya: the CBK product approval)", () => {
+  const mpesa = { ...before, code: "MPESA30", name: "M-Pesa 30-Day Loan", interestRatePm: 0.04, monthlyServiceFee: 0, regulatorApprovalRef: null }
+  const edit = (change: Record<string, unknown>) => PUT(request({ code: mpesa.code, name: mpesa.name, interestRatePm: 4, monthlyServiceFee: 0, ...change }), context)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    findUnique.mockResolvedValue(mpesa)
+    count.mockResolvedValue(0)
+    versionCount.mockResolvedValue(0)
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+  })
+  afterEach(() => resetActiveJurisdiction())
+
+  it("proposes the reference and names it as the change, for the approver", async () => {
+    expect((await edit({ regulatorApprovalRef: "CBK/DEMO/0001" })).status).toBe(202)
+    expect(proposed().product).toEqual(expect.objectContaining({ regulatorApprovalRef: "CBK/DEMO/0001" }))
+    expect(propose.mock.calls.at(-1)![2]).toBe("Change MPESA30: regulatorApprovalRef")
+  })
+
+  it("is kept on a product with versions: no version carries it", async () => {
+    versionCount.mockResolvedValue(1)
+    expect((await edit({ regulatorApprovalRef: "CBK/DEMO/0002" })).status).toBe(202)
+    expect(proposed().product).toEqual(expect.objectContaining({ regulatorApprovalRef: "CBK/DEMO/0002" }))
   })
 })
 

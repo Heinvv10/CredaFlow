@@ -39,6 +39,7 @@ export default async function EditLoanProductPage({ params }: { params: Promise<
     initiationFeeMax: product.initiationFeeMax / 100,
     monthlyServiceFee: product.monthlyServiceFee / 100,
     active: product.active,
+    regulatorApprovalRef: product.regulatorApprovalRef,
   }
 
   const day = sastCalendarDate(new Date())

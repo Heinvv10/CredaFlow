@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const { requireApiRole, propose, repo } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
@@ -186,6 +187,35 @@ describe("POST /api/products/loan NON_NCA arrears terms", () => {
     const response = await POST(request({ nonNcaDefaultInterestMargin: "2", nonNcaCollectionFeeCents: 250.5 }))
     expect(response.status).toBe(422)
     expect((await response.json()).invalidFields).toEqual(["nonNcaDefaultInterestMargin", "nonNcaCollectionFeeCents"])
+    expect(propose).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/products/loan regulator approval reference (Kenya: the CBK product approval)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+  })
+  afterEach(() => resetActiveJurisdiction())
+
+  it("proposes a Kenyan lender's reference, trimmed", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    const response = await POST(request({ regulatorApprovalRef: " CBK/DEMO/0001 " }))
+    expect(response.status).toBe(202)
+    expect(proposed()).toEqual(expect.objectContaining({ regulatorApprovalRef: "CBK/DEMO/0001" }))
+  })
+
+  it("leaves it out when not sent, so a South African proposal is as it was", async () => {
+    await POST(request())
+    expect("regulatorApprovalRef" in proposed()).toBe(false)
+  })
+
+  it("refuses one on a South African (NCA) lender's product, and markup anywhere, 422 without writing", async () => {
+    const za = await POST(request({ regulatorApprovalRef: "CBK/DEMO/0001" }))
+    expect(za.status).toBe(422)
+    expect((await za.json()).invalidFields).toEqual(["regulatorApprovalRef"])
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect((await POST(request({ regulatorApprovalRef: "<b>x</b>" }))).status).toBe(422)
     expect(propose).not.toHaveBeenCalled()
   })
 })
