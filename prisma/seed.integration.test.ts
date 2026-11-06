@@ -673,7 +673,7 @@ suite("Kenyan demo seed (DEMO_LENDER=nairobi) on a fresh migrated database", () 
       expect(t.versions[0].approvedById).not.toBe(t.versions[0].createdById)
       expect(t.versions[0].notes).toMatch(/^DRAFT — not reviewed by Kenyan counsel/)
     }
-    expect(templates.find((t) => t.key === "non_nca_key_facts")!.versions[0].bodyHtml).toContain("Regulated by the Central Bank of Kenya")
+    expect(templates.find((t) => t.key === "non_nca_key_facts")!.versions[0].bodyHtml).toContain("[SAMPLE &mdash; the lender&rsquo;s Central Bank of Kenya licence number goes here. This demo lender holds no licence.]")
     const apps = await db().loanApplication.findMany({ select: { reference: true, disclosureRegime: true } })
     expect(apps.length).toBeGreaterThanOrEqual(5)
     expect(apps.filter((a) => a.disclosureRegime !== "KEY_FACTS")).toEqual([])

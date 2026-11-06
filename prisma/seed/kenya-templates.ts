@@ -6,7 +6,7 @@
  * DRAFT — not reviewed by Kenyan counsel. Every word here is a placeholder for a demo: nothing in
  * it is approved wording, and the version notes the seed writes say so. The lender's legal wording
  * is the lender's to supply; as for Lesotho these are STRUCTURE only (the parties, the approved
- * figures, the regulator and the M-Pesa repayment route) with the same marked gap where the legal
+ * figures, a gap for the CBK licence and the M-Pesa repayment route) with the same marked gap where the legal
  * text goes, and every document of a demo lender opens with the SAMPLE banner
  * (lib/non-nca-documents/render.ts). Not NCA wording: lib/pdf is not involved.
  *
@@ -18,7 +18,9 @@ export const KENYA_TEMPLATE_NOTES = "DRAFT — not reviewed by Kenyan counsel. S
 
 const GAP = "<p><em>[SAMPLE &mdash; the bank&rsquo;s legal team supplies wording. No legal text is provided here.]</em></p>"
 
-const REGULATOR = "<p>Regulated by the Central Bank of Kenya.</p>"
+// The demo lender holds no Central Bank of Kenya licence, and the lender identity has no field for one, so the
+// documents assert none: a marked gap where a licensed lender's counsel puts its licence statement and number.
+const REGULATOR = "<p><em>[SAMPLE &mdash; the lender&rsquo;s Central Bank of Kenya licence number goes here. This demo lender holds no licence.]</em></p>"
 
 const FIGURES = `<table>
 <tr><td>Loan amount</td><td>{{quote.principal}}</td></tr>
@@ -60,7 +62,7 @@ const ARREARS = `<table>
 
 export const KENYA_TEMPLATE_BODIES = {
   OFFER_LETTER: `<h1>Offer letter</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${GAP}\n<p>Prepared {{today}}.</p>`,
-  ARREARS_LETTER: `<h1>Arrears letter</h1>\n<p>Lender: {{tenant.legalName}}</p>\n<p>Borrower: {{client.fullName}}</p>\n${ARREARS}\n${MPESA_FOR_LOAN}\n${GAP}`,
+  ARREARS_LETTER: `<h1>Arrears letter</h1>\n${REGULATOR}\n<p>Lender: {{tenant.legalName}}</p>\n<p>Borrower: {{client.fullName}}</p>\n${ARREARS}\n${MPESA_FOR_LOAN}\n${GAP}`,
   KEY_FACTS_STATEMENT: `<h1>Key facts statement</h1>\n${REGULATOR}\n${PARTIES}\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n${GAP}\n<p>Prepared {{today}}.</p>`,
   LOAN_AGREEMENT: `<h1>Loan agreement</h1>\n${REGULATOR}\n${PARTIES}\n<h2>Approved terms</h2>\n${FIGURES}\n${MPESA_BEFORE_PAYOUT}\n<h2>Terms and conditions</h2>\n${GAP}\n<p>Prepared {{today}}.</p>`,
 } as const

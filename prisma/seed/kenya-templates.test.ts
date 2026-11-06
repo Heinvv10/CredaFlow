@@ -5,6 +5,7 @@ import { nonNcaTemplateSet } from "./non-nca-templates"
 
 const KINDS = ["OFFER_LETTER", "KEY_FACTS_STATEMENT", "LOAN_AGREEMENT", "ARREARS_LETTER"]
 const KNOWN = new Set(TOKEN_REGISTRY.map((t) => t.token))
+const CBK_GAP = "[SAMPLE &mdash; the lender&rsquo;s Central Bank of Kenya licence number goes here. This demo lender holds no licence.]"
 
 describe("the key-facts demo templates, by jurisdiction", () => {
   it("leaves the Lesotho bodies byte for byte as they were", () => {
@@ -24,9 +25,15 @@ describe("the key-facts demo templates, by jurisdiction", () => {
     for (const body of Object.values(nonNcaTemplateSet("KE").bodies)) expect(body).toContain("[SAMPLE &mdash;")
   })
 
-  it("states the regulator and the M-Pesa Paybill route in the Kenyan key facts statement", () => {
+  it("asserts no licence the demo lender lacks: the CBK licence is a SAMPLE gap in every Kenyan document", () => {
+    for (const body of Object.values(nonNcaTemplateSet("KE").bodies)) {
+      expect(body).not.toMatch(/Regulated by|licensed by/i)
+      expect(body).toContain(CBK_GAP)
+    }
+  })
+
+  it("gives the M-Pesa Paybill route in the Kenyan key facts statement", () => {
     const kfs = nonNcaTemplateSet("KE").bodies.KEY_FACTS_STATEMENT
-    expect(kfs).toContain("Regulated by the Central Bank of Kenya")
     expect(kfs).toMatch(/M-Pesa/)
     expect(kfs).toMatch(/Paybill/)
   })
