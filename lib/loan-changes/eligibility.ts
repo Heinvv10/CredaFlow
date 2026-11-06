@@ -37,7 +37,10 @@ export function changeRefusal(loan: LoanChangeFacts, scope: ChangeScope): string
   if (loan.deceased) return "This borrower is recorded as deceased: their estate is dealt with outside loan changes."
   if (loan.interestModel === "DAILY_ACCRUAL") return "A daily-accrual loan is a single payment: settle it instead."
   if (loan.creditLifePremiums > 0) return "This loan carries credit life, which is billed on the schedule the change would replace."
-  if (loan.repaymentMethod !== "EFT" || loan.mandates > 0 || loan.collectionInstructions > 0) return "This loan is collected by debit order. Its mandate states the instalment and date a change would replace: cancel it first."
+  if (loan.repaymentMethod === "DEBIT_ORDER" || loan.mandates > 0 || loan.collectionInstructions > 0) return "This loan is collected by debit order. Its mandate states the instalment and date a change would replace: cancel it first."
+  // Fail closed on a loan whose application never recorded how it is repaid (the demo seed books one on a DRAFT
+  // application), but do not call it a debit order: it has none.
+  if (loan.repaymentMethod !== "EFT") return "This loan's application records no repayment method, so what collects it is unknown: a change cannot be checked against it."
   if (loan.debtReview) return "This loan is under debt review: its repayments are set by that process."
   if (loan.collectionsStage === "ATTORNEY_REFERRED") return "This loan is with an attorney: recall it first."
   if (loan.arrangementActive || loan.paymentPlanActive) return "This loan has a live payment arrangement or plan: end it first."

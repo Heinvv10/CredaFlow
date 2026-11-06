@@ -14,6 +14,7 @@ import { formatDate, formatZAR } from "@/lib/utils"
 import { formatStatusLabel, getStatusTone } from "@/lib/status-style"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
+import { ncaOnlyPage } from "@/lib/jurisdiction/nca-only"
 
 export default async function PortalPolicyDetailPage({
   params,
@@ -24,6 +25,8 @@ export default async function PortalPolicyDetailPage({
 
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
+  // South African insurance (lib/registry/nca-only/070-portal-insurance.ts): not found for a lender outside the NCA.
+  await ncaOnlyPage()
 
   const tenantId = await getPortalTenantId()
   const { tradingName, fspNumber } = await getLenderIdentity(tenantId)

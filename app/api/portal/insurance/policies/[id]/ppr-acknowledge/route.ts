@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
 import { clientViewableDisclosureDocumentId } from "@/lib/insurance/disclosure-access"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -28,6 +29,9 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+  // South African insurance (lib/registry/nca-only/070-portal-insurance.ts).
+  const refused = await ncaOnlyRefusal("Insurance")
+  if (refused) return refused
 
   return withTenantContext(req, async (tenant) => {
     const client = await prisma.client.findFirst({
