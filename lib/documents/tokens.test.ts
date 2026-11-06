@@ -203,8 +203,18 @@ describe("the Kenyan key facts disclosures", () => {
     expect(renderTokens("{{quote.exciseDuty}}", withQuote).missing).toEqual(["quote.exciseDuty"])
   })
 
-  it("totals the cost of credit as the interest and every fee, the excise inside them", () => {
-    expect(resolveToken("quote.totalCostOfCredit", withQuote)).toBe("R 2,364.00")
+  it("prints KSh 0.00 of excise on a quote with no fees, and a large fee's excise exactly", () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    expect(resolveToken("quote.exciseDuty", { ...baseCtx, quote: { ...SAMPLE_QUOTE, initiationFeeCents: 0, serviceFeesCents: 0 } } as TokenContext)).toBe("KSh 0.00")
+    expect(resolveToken("quote.exciseDuty", { ...baseCtx, quote: { ...SAMPLE_QUOTE, initiationFeeCents: 1_500_000_000, serviceFeesCents: 600_000_000 } } as TokenContext)).toBe("KSh 3,500,000.00")
+  })
+
+  it.each([["ZA", "ZAR"], ["LS", "LSL"]] as const)("has no total cost of credit to disclose under %s", (jurisdiction, currency) => {
+    setActiveJurisdiction({ jurisdiction, currency })
+    expect(resolveToken("quote.totalCostOfCredit", withQuote)).toBeNull()
+  })
+
+  it("totals the cost of credit as the interest and every fee under KE, the excise inside them", () => {
     setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
     expect(resolveToken("quote.totalCostOfCredit", withQuote)).toBe("KSh 2,364.00")
     expect(resolveToken("quote.totalCostOfCredit", baseCtx)).toBeNull()

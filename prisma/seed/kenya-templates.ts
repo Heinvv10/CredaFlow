@@ -41,11 +41,12 @@ const FIGURES = `<table>
 </table>`
 
 // The key facts statement's Kenyan disclosures (KE-3, UNVERIFIED: lib/jurisdiction/kenya-rules.ts). The demo product's
-// reference is the seed's placeholder (prisma/seed/kenya-products.ts), not a CBK approval. The excise is the part of the
-// fees above that is excise duty: disclosed, not added. The total cost of credit is the interest and those fees.
+// reference is the seed's placeholder (prisma/seed/kenya-products.ts), not a CBK approval. The excise figure is the part of
+// the fees above that would be excise duty if it is included in them; whether it is, or is charged on top, is a SAMPLE gap
+// for the lender's finance team. The total cost of credit is the interest and those fees.
 const KFS_DISCLOSURES = `<table>
 <tr><td>CBK product approval reference</td><td>{{product.regulatorApprovalRef}}</td></tr>
-<tr><td>Excise duty (included in the fees above, not charged on top)</td><td>{{quote.exciseDuty}}</td></tr>
+<tr><td>Excise duty included in the fees above [SAMPLE &mdash; the lender&rsquo;s finance team confirms whether excise is included or charged on top]</td><td>{{quote.exciseDuty}}</td></tr>
 <tr><td>Total cost of credit (interest and fees)</td><td>{{quote.totalCostOfCredit}}</td></tr>
 </table>`
 

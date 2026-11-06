@@ -17,14 +17,14 @@ describe("the quote.* tokens", () => {
 
   afterEach(() => resetActiveJurisdiction())
 
-  it.each([["LS", "LSL"], ["KE", "KES"]] as const)("resolve every figure from the approved terms (%s; the excise only where there is one)", (jurisdiction, currency) => {
+  it.each([["LS", "LSL"], ["KE", "KES"]] as const)("resolve every figure from the approved terms (%s; the Kenyan disclosures only in Kenya)", (jurisdiction, currency) => {
     setActiveJurisdiction({ jurisdiction, currency })
     const quote = quoteFor({
       affordabilityResult: approvedAffordabilityResult({ principalCents: 500_000, termDays: 90, productId: "p", interestRatePm: 0.023, interestModel: "REDUCING_BALANCE", monthlyServiceFeeCents: 6_900 }),
       repaymentMethod: "EFT",
     })
     for (const t of quoteTokens) {
-      if (t.token === "quote.exciseDuty" && jurisdiction !== "KE") expect(t.resolve({ ...base, quote }), t.token).toBeNull()
+      if ((t.token === "quote.exciseDuty" || t.token === "quote.totalCostOfCredit") && jurisdiction !== "KE") expect(t.resolve({ ...base, quote }), t.token).toBeNull()
       else expect(t.resolve({ ...base, quote }), t.token).toBeTruthy()
     }
     expect(renderTokens("{{quote.interestRate}} / {{quote.repaymentMethod}}", { ...base, quote }).html).toBe("2.30% per month / EFT")

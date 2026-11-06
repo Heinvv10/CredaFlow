@@ -6,7 +6,7 @@ import type { Jurisdiction } from "./profiles"
  * Duty Act, not confirmed by the lender's Kenyan counsel or its finance team. Pure data: nothing here
  * talks to the database or reads the active jurisdiction.
  *
- * WIRED: only `feeExciseRate`, and only as a disclosure. The key facts statement prints the excise
+ * WIRED: only `feeExciseRate` and `disclosesTotalCostOfCredit`, and only as disclosures. The key facts statement prints the excise
  * duty already included in the fees ({{quote.exciseDuty}}, lib/documents/tokens.ts); nothing is
  * charged on top and the loan calculator is unchanged. Whether the lender charges it on top instead
  * is for finance and counsel to confirm: that would change the calculator, the schedule and the
@@ -41,6 +41,13 @@ const FEE_EXCISE_RATE: Record<Jurisdiction, number> = { ZA: 0, LS: 0, KE: KENYA_
 
 export function feeExciseRate(jurisdiction: Jurisdiction): number {
   return FEE_EXCISE_RATE[jurisdiction]
+}
+
+/** Whether the key facts statement discloses the total cost of credit ({{quote.totalCostOfCredit}}). Kenya only (UNVERIFIED). */
+const DISCLOSES_TOTAL_COST_OF_CREDIT: Record<Jurisdiction, boolean> = { ZA: false, LS: false, KE: true }
+
+export function disclosesTotalCostOfCredit(jurisdiction: Jurisdiction): boolean {
+  return DISCLOSES_TOTAL_COST_OF_CREDIT[jurisdiction]
 }
 
 /** The excise inside fees that already include it, in whole cents: round(fees x rate / (1 + rate)). Disclosed, not added. */

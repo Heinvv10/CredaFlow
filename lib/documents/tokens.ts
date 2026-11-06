@@ -2,7 +2,7 @@ import type { Client, Loan, LoanApplication, LoanProduct, Tenant, User } from "@
 import { differenceInCalendarDays } from "date-fns"
 import { formatDate, formatTermDays, formatZAR } from "@/lib/utils"
 import { activeJurisdiction } from "@/lib/jurisdiction/active"
-import { exciseIncludedInFees, feeExciseRate } from "@/lib/jurisdiction/kenya-rules"
+import { disclosesTotalCostOfCredit, exciseIncludedInFees, feeExciseRate } from "@/lib/jurisdiction/kenya-rules"
 import type { LenderIdentity } from "@/lib/config/identity"
 import type { QuoteFigures } from "@/lib/non-nca-documents/quote"
 
@@ -227,6 +227,8 @@ export const TOKEN_REGISTRY: TokenDef[] = [
   },
   // Kenya (UNVERIFIED, lib/jurisdiction/kenya-rules.ts): the excise duty already inside the fees, disclosed, not charged on
   // top. Nothing where the lender's jurisdiction has no excise on fees, so a ZA or LS document cannot print it.
+  // The rate is one per jurisdiction, applied to the initiation and service fees together: not per product or fee type.
+  // A fee component that is exempt from excise would be over-disclosed (excise printed on a fee that carries none).
   {
     token: "quote.exciseDuty",
     label: "Excise duty included in the fees",
@@ -240,7 +242,8 @@ export const TOKEN_REGISTRY: TokenDef[] = [
     token: "quote.totalCostOfCredit",
     label: "Total cost of credit (interest and fees)",
     group: "Approved terms",
-    resolve: (ctx) => (ctx.quote ? formatZAR(ctx.quote.totalInterestCents + ctx.quote.initiationFeeCents + ctx.quote.serviceFeesCents) : null),
+    // Kenya only (UNVERIFIED, kenya-rules.ts), like the excise: a ZA or LS document cannot print it.
+    resolve: (ctx) => (ctx.quote && disclosesTotalCostOfCredit(activeJurisdiction()) ? formatZAR(ctx.quote.totalInterestCents + ctx.quote.initiationFeeCents + ctx.quote.serviceFeesCents) : null),
   },
   {
     token: "quote.repaymentMethod",
