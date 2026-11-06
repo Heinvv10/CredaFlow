@@ -1,6 +1,8 @@
 import type { Prisma } from "@prisma/client"
 import type { WaProvider } from "@/lib/messaging/wa-provider"
 import { normalisePhone } from "@/lib/contact/identity"
+import { activeJurisdiction } from "@/lib/jurisdiction/active"
+import { profileFor } from "@/lib/jurisdiction/profiles"
 import { touchContactInbound } from "./contact-recency"
 import { resolveOpenThreadForContact } from "./resolve-thread"
 
@@ -27,10 +29,13 @@ export type RouteInboundResult = {
   contactId?: string
 }
 
-// SA MSISDN in E.164-without-plus is "27" + 9 digits = 11 chars.
-function isPlausibleSaNumber(phone: string): boolean {
+// A first message from an unknown sender is taken from a South African number
+// ("27" + 9 digits, as always) or one of the lender's own country, which
+// normalisePhone has already checked for shape (a Lesotho or Kenyan mobile).
+function isPlausibleSenderNumber(phone: string): boolean {
   const n = normalisePhone(phone)
-  return n.startsWith("27") && n.length === 11
+  if (n.startsWith("27") && n.length === 11) return true
+  return n.length > 0 && n.startsWith(profileFor(activeJurisdiction()).capture.dialCode)
 }
 
 export async function routeInbound(
@@ -42,7 +47,7 @@ export async function routeInbound(
   // POPIA data-minimisation: an unknown sender whose first message is a STOP
   // keyword has no relationship to opt out of — don't provision a Contact / store PII.
   if (ctx.isStop) return { handled: false, persisted: false }
-  if (!isPlausibleSaNumber(ctx.fromPhone)) return { handled: false, persisted: false }
+  if (!isPlausibleSenderNumber(ctx.fromPhone)) return { handled: false, persisted: false }
 
   // Provision an UNKNOWN contact + WhatsApp identity for the first-time sender.
   const contact = await tx.contact.create({
