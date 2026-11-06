@@ -333,6 +333,7 @@ export async function GET(req: NextRequest) {
         ? "In-quarter"
         : asFiled ? "Position as filed" : ncr.positionSource === "SNAPSHOT" ? "Position at quarter end" : "Position at export",
       Count: l.count ?? "",
+      // The NCR return is ZA-only (refused off-NCA by ncaOnlyRefusal), so rand is correct here.
       "Value (R)": l.value === null ? "" : l.value / 100,
       "% of book": l.percentOfBook === undefined ? "" : Number(l.percentOfBook.toFixed(1)),
       // Without the note an auditor reads an arrears value and a percentage

@@ -130,3 +130,19 @@ describe("staff form labels carry the active currency symbol", () => {
     it(`${name}: (R) for ZA, (M) for LS, never both`, () => expectSymbol(render))
   }
 })
+
+const WITH_FEE = {
+  code: "P1", name: "Personal", productType: "PERSONAL" as const, minAmount: 1000, maxAmount: 50000, minTermDays: 30, maxTermDays: 365,
+  interestRatePm: 3, interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "FLAT_PCT" as const,
+  initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 69, active: true,
+}
+
+describe("LoanProductForm service-fee preview", () => {
+  it("prints the monthly fee with the active symbol: R69/mo for ZA, M69/mo for LS", () => {
+    expect(renderToStaticMarkup(<LoanProductForm initial={WITH_FEE} />)).toMatch(/R69\/mo \u00d7/)
+    setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+    const ls = renderToStaticMarkup(<LoanProductForm initial={WITH_FEE} />)
+    expect(ls).toMatch(/M69\/mo \u00d7/)
+    expect(ls).not.toMatch(/R69\/mo \u00d7/)
+  })
+})

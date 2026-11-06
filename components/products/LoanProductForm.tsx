@@ -438,7 +438,7 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Service Fees</p>
                       <p className="text-sm font-semibold text-gray-700">{formatR(preview.totalServiceFees)}</p>
-                      <p className="text-[11px] text-gray-400">R{form.monthlyServiceFee}/mo × {preview.billedMonths} month{preview.billedMonths !== 1 ? "s" : ""}</p>
+                      <p className="text-[11px] text-gray-400">{activeCurrencySymbol()}{form.monthlyServiceFee}/mo × {preview.billedMonths} month{preview.billedMonths !== 1 ? "s" : ""}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Total Cost to Client</p>
