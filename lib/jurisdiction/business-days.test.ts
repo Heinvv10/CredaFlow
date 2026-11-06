@@ -115,6 +115,32 @@ describe("Kenyan public holidays", () => {
     expect(isBusinessDate("2027-12-13", "KE")).toBe(false)
   })
 
+  it("a Sunday holiday whose Monday is itself a holiday is observed on the Tuesday (Christmas 2033 is a Sunday)", () => {
+    const h = kenyaPublicHolidays(2033)
+    expect(h.has("2033-12-25")).toBe(true)
+    expect(h.has("2033-12-26")).toBe(true) // Boxing Day, a holiday of its own
+    expect(h.has("2033-12-27")).toBe(true) // Christmas observed
+    expect(isBusinessDate("2033-12-27", "KE")).toBe(false)
+    expect(isBusinessDate("2033-12-28", "KE")).toBe(true)
+    expect(addBusinessDays("2033-12-23", 1, "KE")).toBe("2033-12-28")
+  })
+
+  it("Eid al-Fitr falls on the expected (UNVERIFIED) dates, a Sunday one observed on the Monday", () => {
+    expect(isBusinessDate("2026-03-20", "KE")).toBe(false) // Friday
+    expect(isBusinessDate("2027-03-10", "KE")).toBe(false) // Wednesday
+    expect(kenyaPublicHolidays(2028).has("2028-02-27")).toBe(true) // Sunday
+    expect(isBusinessDate("2028-02-28", "KE")).toBe(false) // observed Monday
+    expect(isBusinessDate("2026-03-19", "KE")).toBe(true)
+  })
+
+  it("a year missing from the Eid table has no Eid holiday at all (the documented gap): 2029 is exactly the fixed and Easter days", () => {
+    expect(KENYA_EID_AL_FITR[2029]).toBeUndefined()
+    expect([...kenyaPublicHolidays(2029)].sort()).toEqual([
+      "2029-01-01", "2029-03-30", "2029-04-02", "2029-05-01", "2029-06-01",
+      "2029-10-10", "2029-10-20", "2029-12-12", "2029-12-25", "2029-12-26",
+    ])
+  })
+
   it("Madaraka, Mashujaa and Jamhuri Days are not business dates under KE", () => {
     for (const d of ["2026-06-01", "2026-10-20", "2026-12-12"]) expect(isBusinessDate(d, "KE"), d).toBe(false)
     expect(isBusinessDate("2026-03-11", "KE")).toBe(true) // Moshoeshoe's Day is Lesotho's
