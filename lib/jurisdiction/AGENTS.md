@@ -4,12 +4,12 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: jurisdiction
-<!-- summary: ZA vs LS: currency, ID, holidays, and the one gate for NCA-only steps -->
+<!-- summary: ZA, LS, KE: currency, ID, holidays, and the one gate for NCA-only steps -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
-Lets one lender run outside South Africa. `TenantConfig.jurisdiction` (ZA|LS)
-and `currency` (ZAR|LSL) choose a profile (`profiles.ts`); `active.ts` holds the
+Lets one lender run outside South Africa. `TenantConfig.jurisdiction` (ZA|LS|KE)
+and `currency` (ZAR|LSL|KES) choose a profile (`profiles.ts`); `active.ts` holds the
 one this deployment runs as. **One jurisdiction per instance, held in one row**
 (`InstanceJurisdiction`, read by the app); a new `TenantConfig` takes its
 values and triggers refuse a lender that would differ, so a ZA lender cannot be
@@ -19,7 +19,8 @@ process, or a lender's config differs from it, it refuses to serve.
 ## Critical Rules
 - **ZA must behave exactly as before.** The default (nothing loaded, or a read
   that failed) is ZA / ZAR with the NCA gates ON: failure can only be stricter.
-  ZA is ZAR only (`setActiveJurisdiction` and a DB CHECK).
+  Currencies per jurisdiction are `allowedCurrencies` (ZA ZAR only, LS LSL or
+  ZAR, KE KES only), held again by two DB CHECKs (`migration.test.ts` compares).
 - **Entry points await `ensureActiveJurisdiction()`** (crons, `withTenantContext`,
   `getStaffTenantId`, root layout; re-reads the row every 60 s): add to a choke
   point, not per file.
@@ -46,14 +47,17 @@ process, or a lender's config differs from it, it refuses to serve.
   negative form ("R -0.05"): the NCA PDFs are pinned.
 - **Statutory deadlines stay South African** (`lib/compliance/sa-business-days.ts`
   is NCA law); debit/due-date logic uses `business-days.ts`, which follows the lender.
-- **Lesotho ID is shape-only** (`national-id.ts`): the layout is unconfirmed.
-  Do not derive date of birth or gender from it until it is.
+- **Lesotho and Kenyan IDs are shape-only** (`national-id.ts`): the layouts are
+  unconfirmed (KE: 8 or 9 digits, UNVERIFIED). Derive nothing from them.
+- **KE facts are DRAFT** (UNVERIFIED comments: ID, holidays, Eid dates). Known
+  gap: Nairobi is UTC+3, the date code SAST, so 00:00-01:00 EAT is yesterday.
 - `active.ts` is on `globalThis` (Next bundles entry points separately); the
   browser is primed by `components/JurisdictionProvider`. A change needs a restart.
 - Lesotho documents are the bank's own wording: a key facts statement and a loan
   agreement from lender-owned templates (`lib/non-nca-documents`); the NCA ones
   refuse to render without an NCR number.
-- Store and compare IDs through `canonicalIdNumber` (LS: trimmed, upper case).
+- Store and compare IDs through `canonicalIdNumber` (LS: trimmed, upper case;
+  KE: spaces removed).
 
 ## Key Files
 | File | Purpose |

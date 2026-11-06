@@ -189,8 +189,8 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
 ## Jurisdiction
 
 One instance and one database serve one jurisdiction. The `InstanceJurisdiction`
-table holds it: a single row (id = 1, CHECK) with jurisdiction (ZA or LS) and
-currency. It is the one source of truth.
+table holds it: a single row (id = 1, CHECK) with jurisdiction (ZA, LS or KE)
+and currency. It is the one source of truth.
 
 - **Written once, then by an operator only.** The migration backfills it (ZA /
   ZAR on every existing database). After that only
