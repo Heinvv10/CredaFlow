@@ -12,9 +12,15 @@
  *     npx vitest run lib/crm/lead-duplicate-notify.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, beforeEach, afterEach } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { notifyPriorLeadDuplicates, type NotifyDeps } from "@/lib/crm/lead-duplicate-notify"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const token = randomUUID().replaceAll("-", "")
 const tenantId = `tenant_dupnotice_${token}`

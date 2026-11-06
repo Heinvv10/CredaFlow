@@ -6,10 +6,16 @@
  *     npx vitest run lib/messaging/staff-task-reminder.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, beforeEach, afterEach } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant, withoutTenantScope } from "@/lib/tenant-scope"
 import { sendStaffTaskReminder } from "./staff-task-reminder"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
+
+// A ZA lender's local "0…" numbers: the app has loaded the jurisdiction before this code runs
+// (lib/jurisdiction/phone-region.ts refuses them while nothing is loaded).
+beforeEach(() => setActiveJurisdiction({ jurisdiction: "ZA", currency: "ZAR" }))
+afterEach(() => resetActiveJurisdiction())
 
 const RUN = process.env.RUN_STAFF_TASK_REMINDER_IT === "1"
 const suite = RUN ? describe : describe.skip
