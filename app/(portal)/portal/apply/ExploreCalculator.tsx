@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { formatZAR } from "@/lib/utils"
+import { activeCurrencySymbol, formatZAR } from "@/lib/utils"
 import { computeQualification, type QualificationBounds } from "@/lib/qualify"
 import { useT } from "@/lib/i18n/client"
 
@@ -34,6 +34,7 @@ export function ExploreCalculator({ client, bounds }: { client: ExploreClient | 
 
   const inputClass = "w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
   const t = useT("portalApply")
+  const symbol = activeCurrencySymbol()
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
@@ -43,9 +44,9 @@ export function ExploreCalculator({ client, bounds }: { client: ExploreClient | 
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {([
-          { label: t("incomeR"), value: income, setter: setIncome },
-          { label: t("expensesR"), value: expenses, setter: setExpenses },
-          { label: t("debtR"), value: debt, setter: setDebt },
+          { label: t("incomeR", { symbol }), value: income, setter: setIncome },
+          { label: t("expensesR", { symbol }), value: expenses, setter: setExpenses },
+          { label: t("debtR", { symbol }), value: debt, setter: setDebt },
         ] as const).map(({ label, value, setter }) => (
           <div key={label}>
             <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</label>

@@ -271,12 +271,12 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Loan Parameters</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={lbl}>Min Amount (R)</label>
+              <label className={lbl}>Min Amount ({activeCurrencySymbol()})</label>
               <input type="text" inputMode="decimal" className={inp} value={form.minAmount}
                 onChange={e => { const n = parseFloat(e.target.value.replace(",", ".")); if (!isNaN(n)) { set("minAmount", n); setPreviewAmount(n) } }} />
             </div>
             <div>
-              <label className={lbl}>Max Amount (R)</label>
+              <label className={lbl}>Max Amount ({activeCurrencySymbol()})</label>
               <input type="text" inputMode="decimal" className={inp} value={form.maxAmount}
                 onChange={e => { const n = parseFloat(e.target.value.replace(",", ".")); if (!isNaN(n)) set("maxAmount", n) }} />
             </div>
@@ -388,7 +388,7 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Live Repayment Preview</p>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Example Loan Amount (R)</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Example Loan Amount ({activeCurrencySymbol()})</label>
                 <input type="text" inputMode="decimal" className={`${inp} text-sm`} value={previewAmount}
                   onChange={e => { const n = parseFloat(e.target.value.replace(",", ".")); if (!isNaN(n)) setPreviewAmount(n) }} />
               </div>
@@ -438,7 +438,7 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Service Fees</p>
                       <p className="text-sm font-semibold text-gray-700">{formatR(preview.totalServiceFees)}</p>
-                      <p className="text-[11px] text-gray-400">R{form.monthlyServiceFee}/mo × {preview.billedMonths} month{preview.billedMonths !== 1 ? "s" : ""}</p>
+                      <p className="text-[11px] text-gray-400">{activeCurrencySymbol()}{form.monthlyServiceFee}/mo × {preview.billedMonths} month{preview.billedMonths !== 1 ? "s" : ""}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Total Cost to Client</p>
@@ -483,13 +483,13 @@ export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { ini
               </p>
             </div>
             <div>
-              <label className={lbl}>Initiation Fee Max (R)</label>
+              <label className={lbl}>Initiation Fee Max ({activeCurrencySymbol()})</label>
               <input type="text" inputMode="decimal" className={inp} value={form.initiationFeeMax}
                 onChange={e => { const n = parseFloat(e.target.value.replace(",", ".")); if (!isNaN(n)) set("initiationFeeMax", n) }} />
               <p className="text-[11px] text-gray-400 mt-1">NCA abs max: R1,207.50</p>
             </div>
             <div>
-              <label className={lbl}>Monthly Service Fee (R)</label>
+              <label className={lbl}>Monthly Service Fee ({activeCurrencySymbol()})</label>
               <input type="text" inputMode="decimal"
                 className={`${inp} ${serviceFeeOverCap ? "border-red-300 focus:border-red-400 focus:ring-red-200" : ""}`}
                 value={form.monthlyServiceFee}

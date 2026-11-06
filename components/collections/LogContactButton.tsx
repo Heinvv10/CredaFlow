@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "@/lib/toast"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 interface Props {
   loanId: string
@@ -126,7 +127,7 @@ export function LogContactButton({ loanId, clientName }: Props) {
               {isPtp && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-[#1b1d24] mb-1">Promise Amount (R)</label>
+                    <label className="block text-sm font-medium text-[#1b1d24] mb-1">Promise Amount ({activeCurrencySymbol()})</label>
                     <input
                       type="number"
                       min={0}

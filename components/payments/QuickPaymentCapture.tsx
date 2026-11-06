@@ -9,7 +9,7 @@ import {
   PAYMENT_IDEMPOTENCY_HEADER,
   type PaymentAttempt,
 } from "@/lib/payments/idempotency"
-import { formatZAR } from "@/lib/utils"
+import { activeCurrencySymbol, formatZAR } from "@/lib/utils"
 
 interface Props {
   loanId: string
@@ -115,7 +115,7 @@ export function QuickPaymentCapture({ loanId, loanRef, outstanding }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-semibold text-gray-500 block mb-1">
-                Amount (R) * <span className="text-gray-400 font-normal">Outstanding: {formatZAR(outstanding)}</span>
+                Amount ({activeCurrencySymbol()}) * <span className="text-gray-400 font-normal">Outstanding: {formatZAR(outstanding)}</span>
               </label>
               <input
                 type="number"

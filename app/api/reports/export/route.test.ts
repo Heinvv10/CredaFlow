@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 import ExcelJS from "exceljs"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const requireApiRoleMock = vi.fn()
 const getTenantFromRequestMock = vi.fn()
@@ -569,6 +570,18 @@ describe("GET reports export — default charges owing beside instalment arrears
       expect(cell("Default Charges Owing (R)")).toBe(123.45)
       expect(cell(arrearsColumn)).toBe(2169)
       expect(tenantConfigFindUniqueMock).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1" } }))
+    })
+
+    it(`${type}: names the lender's currency in the money headers (M for a Lesotho lender)`, async () => {
+      tenantConfigFindUniqueMock.mockResolvedValue(LIVE)
+      setActiveJurisdiction({ jurisdiction: "LS", currency: "LSL" })
+      try {
+        const cell = await cells(type, sheetName)
+        expect(cell("Default Charges Owing (M)")).toBe(123.45)
+        expect(cell(arrearsColumn.replace("(R)", "(M)"))).toBe(2169)
+      } finally {
+        resetActiveJurisdiction()
+      }
     })
 
     it(`${type}: keeps the column at 0 while charges are not live, whatever the stored figure`, async () => {

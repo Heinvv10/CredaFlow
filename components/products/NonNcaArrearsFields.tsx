@@ -1,6 +1,7 @@
 "use client"
 
 import type { NonNcaArrearsValues } from "@/lib/product-config/non-nca-arrears-form"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 /**
  * The arrears terms an asset-finance (NON_NCA) agreement booked on this product
@@ -27,7 +28,7 @@ export function NonNcaArrearsFields({ values, onChange }: { values: NonNcaArrear
           <p className="mt-1 text-[11px] text-[var(--cf-text-muted)]">Charged on overdue amounts on top of the contract rate.</p>
         </div>
         <div>
-          <label htmlFor="nonNcaFee" className={label}>Collection fee per missed instalment (R)</label>
+          <label htmlFor="nonNcaFee" className={label}>Collection fee per missed instalment ({activeCurrencySymbol()})</label>
           <input id="nonNcaFee" type="text" inputMode="decimal" className={input} placeholder="250.00" value={values.feeRand}
             onChange={(e) => onChange({ ...values, feeRand: e.target.value })} />
         </div>

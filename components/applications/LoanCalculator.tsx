@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { calculateLoan, type LoanCalcInput, type LoanCalcResult } from "@/lib/loan-calculator"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { activeCurrencySymbol, formatDate, formatZAR } from "@/lib/utils"
 
 interface LoanProduct {
   id: string
@@ -113,7 +113,7 @@ export function LoanCalculator({
           </div>
           <div>
             <Label htmlFor="amount">
-              Loan Amount (R){" "}
+              Loan Amount ({activeCurrencySymbol()}){" "}
               {selectedProduct && (
                 <span className="text-xs text-[var(--cf-text-muted)]">
                   ({formatZAR(selectedProduct.minAmount)} - {formatZAR(selectedProduct.maxAmount)})

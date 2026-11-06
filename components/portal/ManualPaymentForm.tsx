@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CheckCircle, Loader2 } from "lucide-react"
 import { useT } from "@/lib/i18n/client"
+import { activeCurrencySymbol } from "@/lib/utils"
 
 export interface LoanOption {
   id: string
@@ -160,7 +161,7 @@ export function ManualPaymentForm({ loans }: Props) {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">{t("amountPaid")}</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t("amountPaid", { symbol: activeCurrencySymbol() })}</label>
             <input
               type="number"
               value={amountStr}

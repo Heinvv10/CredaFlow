@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { FileText } from "lucide-react"
-import { formatDate, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
+import { activeCurrencySymbol, formatDate, formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { toast } from "@/lib/toast"
 
 export interface ClientNotifiedPayment {
@@ -127,7 +127,7 @@ export function ClientNotifiedPayments({ items, canAct }: { items: ClientNotifie
                     <div className="space-y-2 text-left">
                       {mode.kind === "allocate" ? (
                         <>
-                          <label className="block text-xs text-gray-600">Amount received (R)
+                          <label className="block text-xs text-gray-600">Amount received ({activeCurrencySymbol()})
                             <input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
                               className="mt-1 block w-32 rounded border border-gray-200 px-2 py-1 text-sm" />
                           </label>

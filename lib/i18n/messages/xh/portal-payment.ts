@@ -53,7 +53,7 @@ export const portalPayment: Catalog["portalPayment"] = {
   notifyTitle: "Sazise ngentlawulo",
   notifyBody: "Sele uyenzile i-EFT okanye idiphozithi yemali? Sazise ukuze siyabele kwi-akhawunti yakho.",
   loan: "Imali-mboleko",
-  amountPaid: "Isixa esihlawuliweyo (R)",
+  amountPaid: "Isixa esihlawuliweyo ({symbol})",
   paymentDate: "Umhla wentlawulo",
   bankReference: "Isalathiso sebhanki / Isalathiso sobungqina bentlawulo",
   bankReferencePlaceholder: "umz. NC-2024-001 okanye i-ID yentengiselwano yebhanki",
