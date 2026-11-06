@@ -23,6 +23,7 @@ import {
   DollarSign, Users, BarChart3, ArrowRight
 } from "lucide-react"
 import { sastHour } from "@/lib/date/sast"
+import { isNcaJurisdiction } from "@/lib/jurisdiction/active"
 
 type StatusTone = "neutral" | "success" | "warning" | "danger" | "info" | "bronze"
 
@@ -46,7 +47,8 @@ async function getDashboardData(tenantId: string) {
 
   // Book, arrears and PAR come from the helper the collections page, the
   // sidebar badge and the NCR return also read (lib/reports/book-arrears.ts).
-  // The NCR panel uses the NCA scope, so it states the return's own figures.
+  // The NCR panel uses the NCA scope, so it states the return's own figures. A lender
+  // outside the NCA has no NCR return: no panel, and the NCA scope is not read.
   const chargesLive = await chargesLiveForTenant(prisma, tenantId)
   const [
     book,
@@ -60,7 +62,7 @@ async function getDashboardData(tenantId: string) {
     recentPayments,
   ] = await Promise.all([
     getBookArrears(tenantId, "ALL"),
-    getBookArrears(tenantId, "NCA"),
+    isNcaJurisdiction() ? getBookArrears(tenantId, "NCA") : Promise.resolve(null),
     prisma.loanApplication.findMany({
       where: { tenantId, status: { in: ["SUBMITTED","UNDER_REVIEW"] } },
       take: 6,
@@ -415,7 +417,7 @@ export default async function DashboardPage() {
             </div>
           </DataPanel>
 
-          <DataPanel title="NCR compliance" description="Snapshot for regulatory monitoring." variant="default">
+          {d.ncaBook && <DataPanel title="NCR compliance" description="Snapshot for regulatory monitoring." variant="default">
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[var(--cf-text-muted)]">Collectible book (NCA)</span>
@@ -438,7 +440,7 @@ export default async function DashboardPage() {
                 <Link href="/compliance/ncr-return">NCR return</Link>
               </Button>
             </div>
-          </DataPanel>
+          </DataPanel>}
         </div>
       </div>
     </div>

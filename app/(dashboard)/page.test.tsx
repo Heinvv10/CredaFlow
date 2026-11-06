@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Every Prisma read answers empty: book, arrears and PAR must come from the
 // shared helper, all scope for the operational panels, NCA for the NCR panel.
@@ -28,7 +28,8 @@ vi.mock("@/lib/reports/book-arrears", async (importOriginal) => ({
 }))
 
 import DashboardPage from "./page"
-import { BOOK_DEFINITIONS } from "@/lib/reports/book-arrears"
+import { BOOK_DEFINITIONS, getBookArrears } from "@/lib/reports/book-arrears"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
 
@@ -49,5 +50,26 @@ describe("Executive dashboard book figures", () => {
     expect(html).toContain("PAR 30+ 84.2% · 11 accounts")
     expect(html).toContain("NPL (PAR 90+) 69.4% · 8 accounts")
     expect(html).toContain(BOOK_DEFINITIONS.scopeNca)
+  })
+})
+
+describe.each([
+  { jurisdiction: "LS", currency: "LSL" },
+  { jurisdiction: "KE", currency: "KES" },
+] as const)("Executive dashboard for a $jurisdiction lender (outside the NCA)", (instance) => {
+  beforeEach(() => { vi.mocked(getBookArrears).mockClear() })
+  afterEach(() => { resetActiveJurisdiction() })
+
+  it("has no NCR panel, no NCR return link and reads no NCA-scope book", async () => {
+    setActiveJurisdiction(instance)
+    const markup = renderToStaticMarkup(await DashboardPage())
+    const html = text(markup)
+    expect(html).not.toContain("NCR compliance")
+    expect(html).not.toContain("Collectible book (NCA)")
+    expect(markup).not.toContain("/compliance/ncr-return")
+    expect(vi.mocked(getBookArrears).mock.calls.map(([, scope]) => scope)).toEqual(["ALL"])
+    // The operational panels stay.
+    expect(html).toContain("Book value")
+    expect(html).toContain(BOOK_DEFINITIONS.scopeAll)
   })
 })
