@@ -5,6 +5,7 @@ import { JsonLd } from "@/components/seo/JsonLd"
 import { breadcrumbLd, contactPageLd, faqLd } from "@/lib/seo/jsonld"
 import { getWebsiteIdentity } from "@/lib/website/identity"
 import { getT } from "@/lib/i18n/server"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 import { contactFaqs } from "./faqs"
 
 // The contact page itself is a client component ("use client"), so metadata
@@ -33,7 +34,7 @@ export default async function ContactLayout({ children }: { children: ReactNode 
       path: "/site/contact",
       email: identity.publicEmail,
     }),
-    faqLd(contactFaqs(identity, await getT("websiteContact"))),
+    faqLd(contactFaqs(identity, await getT("websiteContact"), await getSiteJurisdiction())),
   ]
   return (
     <>

@@ -4,6 +4,7 @@ import { useState, useMemo } from "react"
 import { formatZAR } from "@/lib/loan-calculator"
 import { computeQualification } from "@/lib/qualify"
 import { useT } from "@/lib/i18n/client"
+import { useWebsiteJurisdiction } from "@/components/website/WebsiteIdentity"
 
 export default function AffordabilityTab() {
   // Seeded with sensible defaults so the tab opens with a live
@@ -12,6 +13,7 @@ export default function AffordabilityTab() {
   const [expenses, setExpenses] = useState("6000")
   const [debt, setDebt] = useState("2000")
   const t = useT("websiteCalculators")
+  const site = useWebsiteJurisdiction()
 
   const result = useMemo(() => {
     const incomeCents = Math.round(Number(income) * 100)
@@ -74,15 +76,17 @@ export default function AffordabilityTab() {
         </div>
       )}
 
-      <div
-        className="border border-[#a5b4fc]/30 bg-[#a5b4fc]/10 p-4 text-sm leading-relaxed text-white/62"
-        style={{ borderLeft: "4px solid #4F46E5" }}
-      >
-        <p className="mb-1 font-semibold text-white">{t("ncaRuleTitle")}</p>
-        <p>
-          {t("ncaRuleBody")}
-        </p>
-      </div>
+      {site.nca && (
+        <div
+          className="border border-[#a5b4fc]/30 bg-[#a5b4fc]/10 p-4 text-sm leading-relaxed text-white/62"
+          style={{ borderLeft: "4px solid #4F46E5" }}
+        >
+          <p className="mb-1 font-semibold text-white">{t("ncaRuleTitle")}</p>
+          <p>
+            {t("ncaRuleBody")}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

@@ -26,6 +26,9 @@ const PAGES: Array<[string, () => Promise<{ default: (props: never) => Promise<u
   ["compliance/fic", () => import("@/app/(dashboard)/compliance/fic/page")],
   ["portal/insurance", () => import("@/app/(portal)/portal/insurance/page")],
   ["portal/insurance/[id]", () => import("@/app/(portal)/portal/insurance/[id]/page")],
+  ["site/products/insurance", () => import("@/app/(website)/site/products/insurance/page")],
+  ["site/products/insurance/quotes", () => import("@/app/(website)/site/products/insurance/quotes/page")],
+  ["site/regulatory-information", () => import("@/app/(website)/site/regulatory-information/page")],
 ]
 const props = { searchParams: Promise.resolve({}), params: Promise.resolve({ id: "x" }) } as never
 

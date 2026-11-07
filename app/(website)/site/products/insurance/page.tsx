@@ -17,13 +17,16 @@ import {
   resolveQuickQuoteEmbedOrigin,
 } from "@/lib/insurance/quickquote-config"
 import { toCrumbs } from "@/lib/nav/breadcrumbs"
+import { ncaOnlyPage } from "@/lib/jurisdiction/nca-only"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 import { insuranceFaqs } from "./faqs"
 
 /** The comparison surface now has its own page — see that file for why. */
 const QUOTES_PATH = "/site/products/insurance/quotes"
 
 export async function generateMetadata(): Promise<Metadata> {
-  const identity = await getWebsiteIdentity()
+  const [identity, site] = await Promise.all([getWebsiteIdentity(), getSiteJurisdiction()])
+  if (!site.nca) return {}
   return buildPageMetadata({
     identity,
     title: "Credit-Life & Funeral Insurance Enquiries",
@@ -119,6 +122,8 @@ function coverContent(identity: LenderIdentity): ProductPageProps {
 export const dynamic = "force-dynamic"
 
 export default async function CoverProductPage() {
+  // South African insurance (lib/registry/nca-only/080-website-insurance.ts): not found for a lender outside the NCA.
+  await ncaOnlyPage()
   const identity = await getWebsiteIdentity()
   if (!identity) return null
   // The page is a FAIS intermediary's offer: a lender with no FSP number has none.

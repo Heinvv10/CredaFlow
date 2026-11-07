@@ -5,6 +5,7 @@ import { expectNoOtherLender } from "@/lib/website/__fixtures__/other-lender"
 
 const { identityMock } = vi.hoisted(() => ({ identityMock: vi.fn() }))
 vi.mock("@/lib/website/identity", () => ({ getWebsiteIdentity: () => identityMock() }))
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 
 import PrivacyPage from "./privacy/page"
 import TermsPage from "./terms/page"

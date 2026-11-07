@@ -1,5 +1,6 @@
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import { siteUrl } from "@/lib/seo/metadata"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 
 // Every value about the lender comes from its own LenderIdentity
 // (lib/config/identity.ts); there is no constant fallback. Ids are relative to
@@ -7,8 +8,12 @@ import { siteUrl } from "@/lib/seo/metadata"
 const orgId = () => `${siteUrl()}/#organization`
 const websiteId = () => `${siteUrl()}/#website`
 
-/** Build the Schema.org Organization (FinancialService) node. Emit once site-wide. */
-export function organizationLd(identity: LenderIdentity) {
+/**
+ * Build the Schema.org Organization (FinancialService) node. Emit once site-wide.
+ * Outside the NCA it names the lender's own country and carries no NCR or FSP registration.
+ */
+export function organizationLd(identity: LenderIdentity, site: SiteJurisdiction = ZA_SITE) {
+  const language = site.nca ? "en-ZA" : "en"
   return {
     "@context": "https://schema.org",
     "@type": "FinancialService",
@@ -18,12 +23,13 @@ export function organizationLd(identity: LenderIdentity) {
     // crawlers resolve the brand to the NCR and FSCA register entries.
     legalName: identity.legalName,
     ...(siteUrl() ? { url: siteUrl() } : {}),
-    description:
-      `${identity.legalName} is a South African credit provider. ` +
-      (identity.ncrNumber ? `Registered with the National Credit Regulator under ${identity.ncrNumber}` : "Credit provider") +
-      (identity.fspNumber
-        ? ` and authorised by the Financial Sector Conduct Authority as a financial services provider under FSP number ${identity.fspNumber}.`
-        : "."),
+    description: site.nca
+      ? `${identity.legalName} is a South African credit provider. ` +
+        (identity.ncrNumber ? `Registered with the National Credit Regulator under ${identity.ncrNumber}` : "Credit provider") +
+        (identity.fspNumber
+          ? ` and authorised by the Financial Sector Conduct Authority as a financial services provider under FSP number ${identity.fspNumber}.`
+          : ".")
+      : `${identity.legalName} is a credit provider in ${site.countryName}.`,
     // Schema.org telephone + Google's structured-data guidance prefer E.164
     // format (no spaces, leading +). Visible copy uses the spaced form.
     telephone: identity.publicPhoneE164,
@@ -31,13 +37,13 @@ export function organizationLd(identity: LenderIdentity) {
     address: {
       "@type": "PostalAddress" as const,
       streetAddress: identity.registeredOfficeLines.join(", "),
-      addressCountry: "ZA",
+      addressCountry: site.code,
     },
-    areaServed: { "@type": "Country", name: "South Africa" },
+    areaServed: { "@type": "Country", name: site.countryName },
     identifier: [
-      ...(identity.ncrNumber ? [{ "@type": "PropertyValue", propertyID: "NCR Registration", value: identity.ncrNumber }] : []),
-      ...(identity.fspNumber ? [{ "@type": "PropertyValue", propertyID: "FSP Licence", value: identity.fspNumber }] : []),
-      { "@type": "PropertyValue", propertyID: "CIPC Registration", value: identity.companyRegNumber },
+      ...(site.nca && identity.ncrNumber ? [{ "@type": "PropertyValue", propertyID: "NCR Registration", value: identity.ncrNumber }] : []),
+      ...(site.nca && identity.fspNumber ? [{ "@type": "PropertyValue", propertyID: "FSP Licence", value: identity.fspNumber }] : []),
+      { "@type": "PropertyValue", propertyID: site.nca ? "CIPC Registration" : "Company Registration", value: identity.companyRegNumber },
     ],
     contactPoint: [
       {
@@ -45,16 +51,16 @@ export function organizationLd(identity: LenderIdentity) {
         contactType: "customer support",
         telephone: identity.publicPhoneE164,
         email: identity.publicEmail,
-        areaServed: "ZA",
-        availableLanguage: ["en-ZA"],
+        areaServed: site.code,
+        availableLanguage: [language],
       },
       ...(identity.publicWhatsappE164
         ? [{
             "@type": "ContactPoint" as const,
             contactType: "WhatsApp support",
             telephone: identity.publicWhatsappE164,
-            areaServed: "ZA",
-            availableLanguage: ["en-ZA"],
+            areaServed: site.code,
+            availableLanguage: [language],
           }]
         : []),
     ],
@@ -62,7 +68,7 @@ export function organizationLd(identity: LenderIdentity) {
 }
 
 /** Build the Schema.org WebSite node. Emit once site-wide. */
-export function webSiteLd(identity: LenderIdentity) {
+export function webSiteLd(identity: LenderIdentity, site: SiteJurisdiction = ZA_SITE) {
   return {
     "@context": "https://schema.org",
     "@type": "WebSite",
@@ -70,7 +76,7 @@ export function webSiteLd(identity: LenderIdentity) {
     name: identity.tradingName,
     ...(siteUrl() ? { url: siteUrl() } : {}),
     publisher: { "@id": orgId() },
-    inLanguage: "en-ZA",
+    inLanguage: site.nca ? "en-ZA" : "en",
   } as const
 }
 
@@ -147,6 +153,8 @@ export interface WebApplicationLdInput {
   path: string
   /** Free-form category (e.g. "FinanceApplication"). */
   applicationCategory?: string
+  /** BCP 47 tag; en-ZA unless the lender is outside South Africa. */
+  inLanguage?: string
 }
 
 /** Build a WebApplication node for interactive tools (calculators, qualify checks). */
@@ -158,7 +166,7 @@ export function webApplicationLd(input: WebApplicationLdInput) {
     description: input.description,
     url: `${siteUrl()}${input.path}`,
     publisher: { "@id": orgId() },
-    inLanguage: "en-ZA",
+    inLanguage: input.inLanguage ?? "en-ZA",
     isAccessibleForFree: true,
     ...(input.applicationCategory
       ? { applicationCategory: input.applicationCategory }

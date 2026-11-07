@@ -6,12 +6,16 @@
  *
  * Kept short and high-level: site-wide entity-identification questions,
  * answered from the tenant's own identity and the products it offers.
+ *
+ * Every answer in the catalogue speaks of the NCA, FAIS, POPIA or South Africa,
+ * so a lender outside the NCA has no home FAQ until it has catalogue text of its own.
  */
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import type { PublicLoanProduct } from "@/lib/public-loan-products"
 import { localizeProduct } from "@/lib/i18n/products"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator } from "@/lib/i18n/translate"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 
 export interface HomeFaq {
   question: string
@@ -24,7 +28,9 @@ export function homeFaqs(
   identity: HomeFaqIdentity,
   products: readonly PublicLoanProduct[],
   locale: Locale = DEFAULT_LOCALE,
+  site: SiteJurisdiction = ZA_SITE,
 ): HomeFaq[] {
+  if (!site.nca) return []
   const t = createTranslator(locale, "websiteHome")
   const tp = createTranslator(locale, "websiteProducts")
   const brand = identity.tradingName

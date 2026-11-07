@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 import { expectNoOtherLender } from "@/lib/website/__fixtures__/other-lender"
 
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 vi.mock("@/lib/website/identity", () => ({ getWebsiteIdentity: vi.fn(async () => ACME_LENDER) }))
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),

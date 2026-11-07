@@ -4,12 +4,12 @@ import { CURRENCIES, currencyAllowed, JURISDICTIONS, KENYA_COUNTIES, parseCurren
 describe("jurisdiction profiles", () => {
   it("ZA keeps the NCA regime, the rand and SAST", () => {
     const za = profileFor("ZA")
-    expect(za).toMatchObject({ code: "ZA", ncaRegulated: true, defaultCurrency: "ZAR", timeZone: "Africa/Johannesburg" })
+    expect(za).toMatchObject({ code: "ZA", countryName: "South Africa", ncaRegulated: true, defaultCurrency: "ZAR", timeZone: "Africa/Johannesburg" })
   })
 
   it("LS is outside the NCA, in loti and on Maseru time", () => {
     const ls = profileFor("LS")
-    expect(ls).toMatchObject({ code: "LS", ncaRegulated: false, defaultCurrency: "LSL", timeZone: "Africa/Maseru" })
+    expect(ls).toMatchObject({ code: "LS", countryName: "Lesotho", ncaRegulated: false, defaultCurrency: "LSL", timeZone: "Africa/Maseru" })
   })
 
   it("Maseru and Johannesburg share one UTC offset all year, so CAT is SAST for every date calculation", () => {
@@ -36,7 +36,7 @@ describe("jurisdiction profiles", () => {
 describe("Kenya", () => {
   it("is outside the NCA, in shillings and on Nairobi time", () => {
     expect(profileFor("KE")).toMatchObject({
-      code: "KE", ncaRegulated: false, defaultCurrency: "KES", timeZone: "Africa/Nairobi", timeZoneLabel: "EAT",
+      code: "KE", countryName: "Kenya", ncaRegulated: false, defaultCurrency: "KES", timeZone: "Africa/Nairobi", timeZoneLabel: "EAT",
     })
   })
 

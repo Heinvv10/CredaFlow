@@ -1,18 +1,21 @@
 import type { MetadataRoute } from "next"
 import { siteUrl } from "@/lib/seo/metadata"
-import { PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
+import { NCA_ONLY_SITE_ROUTES, PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
 import { getWebsiteIdentity } from "@/lib/website/identity"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
 // The kept public pages on this deployment's own site URL
 // (NEXT_PUBLIC_WEBSITE_URL). Unset, there is no site to map: an empty sitemap
 // rather than one naming another host.
-// The insurance page 404s for a lender with no FSP number, so it is not mapped.
+// The insurance page 404s for a lender with no FSP number, and it and the regulatory page 404s
+// outside the NCA, so they are not mapped.
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = siteUrl()
   if (!base) return []
   const holdsFsp = !!(await getWebsiteIdentity())?.fspNumber
+  const { nca } = await getSiteJurisdiction()
   const now = new Date()
-  return PUBLIC_SITE_ROUTES.filter((route) => holdsFsp || route !== "/site/products/insurance").map((route) => ({
+  return PUBLIC_SITE_ROUTES.filter((route) => (nca || !NCA_ONLY_SITE_ROUTES.includes(route)) && (holdsFsp || route !== "/site/products/insurance")).map((route) => ({
     url: `${base}${route === "/" ? "" : route}`,
     lastModified: now,
     changeFrequency: route === "/" ? "weekly" : "monthly",

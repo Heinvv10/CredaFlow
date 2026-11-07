@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 import { expectNoOtherLender } from "@/lib/website/__fixtures__/other-lender"
 
@@ -10,8 +10,10 @@ vi.mock("@/lib/tenant", () => ({
   getTenantConfig: async (id: string) => (id === "tenant_acme" ? { primaryColor: "#123456", secondaryColor: "#234567", darkColor: "#010203" } : null),
 }))
 vi.mock("@/lib/config/lender-logo", () => ({ publicLenderLogoSrc: async () => null }))
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }))
 
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import { WebsiteShell } from "./WebsiteShell"
 
 const render = async () => renderToStaticMarkup(await WebsiteShell({ children: <p>page body</p>, jsonLdId: "site", regulatoryBand: true }))
@@ -46,5 +48,24 @@ describe("WebsiteShell", () => {
     expect(html).not.toContain("page body")
     expect(html).not.toContain("ld+json")
     expectNoOtherLender(html)
+  })
+})
+
+describe("WebsiteShell for a lender outside the NCA", () => {
+  afterEach(() => resetActiveJurisdiction())
+
+  it("has no regulatory band, insurance link, regulatory link, South African structured data or NCR and FSP line", async () => {
+    identityMock.mockResolvedValue(ACME_LENDER)
+    const za = await render()
+    expect(za).toContain("Regulatory registrations")
+    expect(za).toContain("/site/products/insurance")
+    expect(za).toContain("/site/regulatory-information")
+
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    const html = await render()
+    expect(html).toContain("page body")
+    expect(html).toContain("Acme Lending (Pty) Ltd")
+    expect(html).not.toMatch(/Regulatory registrations|NCR|FSP|FAIS|South Africa|"ZA"|en-ZA|CIPC|\/site\/products\/insurance|\/site\/regulatory-information/)
+    expect(html).toContain("Kenya")
   })
 })

@@ -13,7 +13,16 @@ vi.mock("@/lib/website/identity", async () => {
   return { getWebsiteIdentity: async () => ({ ...ACME_LENDER, fspNumber: website.fspNumber }) }
 })
 
-import { DELETED_SITE_ROUTES, PUBLIC_SITE_ROUTES } from "./routes"
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
+vi.mock("@/lib/public-loan-products-server", () => ({ getTenantPublicProductsServer: async () => [] }))
+vi.mock("@/lib/tenant", () => ({ getResolvedTenantId: async () => "t1" }))
+vi.mock("@/lib/config/identity", async () => {
+  const { ACME_LENDER } = await import("@/lib/config/__fixtures__/lender-identity")
+  return { findLenderIdentity: async () => ({ ...ACME_LENDER, fspNumber: "12345" }) }
+})
+
+import { DELETED_SITE_ROUTES, NCA_ONLY_SITE_ROUTES, PUBLIC_SITE_ROUTES } from "./routes"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 import sitemap from "@/app/sitemap"
 import robots from "@/app/robots"
 import proxy from "@/proxy"
@@ -85,6 +94,18 @@ describe("public site route set", () => {
     }
   })
 
+  it("leaves the insurance and regulatory pages out of the sitemap for a Kenyan lender, which has neither", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    try {
+      const urls = (await sitemap()).map((entry) => entry.url)
+      for (const route of NCA_ONLY_SITE_ROUTES) expect(urls).not.toContain(`https://www.acme-lending.example${route}`)
+      expect(urls).toContain("https://www.acme-lending.example/site/apply")
+      expect(urls).toContain("https://www.acme-lending.example/site/terms")
+    } finally {
+      resetActiveJurisdiction()
+    }
+  })
+
   it("the sitemap is empty, and robots names no host, when the site URL is not configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_WEBSITE_URL", "")
     expect(await sitemap()).toEqual([])
@@ -115,6 +136,46 @@ describe("public site route set", () => {
     for (const route of PUBLIC_SITE_ROUTES) {
       const res = await visit(route)
       expect(res.headers.get("location"), route).toBeNull()
+    }
+  })
+})
+
+describe("home page metadata", () => {
+  it("is titled for the lender's own country and sells no insurance outside the NCA", async () => {
+    const za = await homePage.generateMetadata()
+    expect(za.title).toBe("Credit and insurance — South Africa | Acme Lending")
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    try {
+      const ke = await homePage.generateMetadata()
+      expect(ke.title).toBe("Credit — Kenya | Acme Lending")
+      expect(JSON.stringify(ke)).not.toMatch(/South Africa|insurance|POPIA|NCR/i)
+    } finally {
+      resetActiveJurisdiction()
+    }
+  })
+})
+
+describe("llms.txt", () => {
+  const body = async () => (await llms.GET()).text()
+
+  it("describes a South African lender as before", async () => {
+    const text = await body()
+    expect(text).toContain("/site/products/insurance")
+    expect(text).toContain("- Privacy and POPIA:")
+    expect(text).toContain("- Regulatory information:")
+    expect(text).toContain("- NCR registration: NCRCP99999")
+    expect(text).toContain("- Country: South Africa")
+  })
+
+  it("names Kenya, and no South African page or registration, for a Kenyan lender", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    try {
+      const text = await body()
+      expect(text).toContain("- Country: Kenya")
+      expect(text).not.toMatch(/South Africa|POPIA|NCR|FSP|\/site\/products\/insurance|regulatory-information/)
+      expect(text).toContain("/site/privacy")
+    } finally {
+      resetActiveJurisdiction()
     }
   })
 })

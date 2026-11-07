@@ -9,6 +9,8 @@
  */
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import type { Translator } from "@/lib/i18n/translate"
+import { NON_NCA_SITE_COPY } from "@/lib/website/non-nca-copy"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 
 export type QualifyFaqGroup = "how" | "result"
 
@@ -24,13 +26,13 @@ export const QUALIFY_FAQ_GROUPS: readonly { group: QualifyFaqGroup; heading: "gr
   { group: "result", heading: "groupResult" },
 ] as const
 
-export function qualifyFaqs(identity: Pick<LenderIdentity, "tradingName">, t: Translator<"websiteQualify">): readonly QualifyFaq[] {
+export function qualifyFaqs(identity: Pick<LenderIdentity, "tradingName">, t: Translator<"websiteQualify">, site: SiteJurisdiction = ZA_SITE): readonly QualifyFaq[] {
   return [
     { group: "how", question: t("faqCreditCheckQ"), answer: t("faqCreditCheckA") },
     { group: "how", question: t("faqScoreQ"), answer: t("faqScoreA") },
     { group: "how", question: t("faqInfoQ"), answer: t("faqInfoA") },
-    { group: "result", question: t("faqGuaranteeQ"), answer: t("faqGuaranteeA") },
-    { group: "result", question: t("faqWhoQ", { brand: identity.tradingName }), answer: t("faqWhoA") },
-    { group: "result", question: t("faqAfterQ"), answer: t("faqAfterA") },
+    { group: "result", question: t("faqGuaranteeQ"), answer: site.nca ? t("faqGuaranteeA") : NON_NCA_SITE_COPY.qualifyGuaranteeAnswer },
+    { group: "result", question: t("faqWhoQ", { brand: identity.tradingName }), answer: site.nca ? t("faqWhoA") : NON_NCA_SITE_COPY.qualifyWhoAnswer },
+    { group: "result", question: t("faqAfterQ"), answer: site.nca ? t("faqAfterA") : NON_NCA_SITE_COPY.qualifyAfterAnswer },
   ]
 }

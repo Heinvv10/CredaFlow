@@ -13,7 +13,8 @@ import {
   UserCheck,
 } from "lucide-react"
 import { TurnstileWidget } from "@/components/turnstile-widget"
-import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { useWebsiteIdentity, useWebsiteJurisdiction } from "@/components/website/WebsiteIdentity"
+import { profileFor } from "@/lib/jurisdiction/profiles"
 import { FaqAccordion } from "@/components/website/FaqAccordion"
 import { applyLivePricing, applyProductLimitsRands, applyProductTermDays, effectiveApplyTermRange, planApplyTerm, productForAmount, serverTermRangeFromResponse, type ServerTermRange } from "@/lib/public-loan-products"
 import { useLivePricing } from "@/lib/use-live-pricing"
@@ -30,6 +31,7 @@ import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useT } from "@/lib/i18n/client"
 import { richText } from "@/lib/i18n/rich"
 import { applyFaqs } from "./faqs"
+import { applyIdError } from "./id-check"
 import { buildApplyMaterialPayload } from "./payload"
 import { activeCurrencySymbol } from "@/lib/utils"
 
@@ -102,20 +104,6 @@ function formatRandRange(min: number, max: number): string {
 const blankStep1: Step1 = { firstName: "", lastName: "", idNumber: "", phone: "", email: "" }
 const blankStep2: Step2 = { employmentStatus: "", employerName: "", monthlyIncome: "", monthlyExpenses: "" }
 const blankStep3: Step3 = { productType: "", amount: "", termDays: "", purpose: "" }
-
-function validateSAId(id: string): boolean {
-  if (!/^\d{13}$/.test(id)) return false
-  let sum = 0
-  for (let i = 0; i < 12; i++) {
-    const digit = parseInt(id[i])
-    if (i % 2 === 0) sum += digit
-    else {
-      const doubled = digit * 2
-      sum += doubled > 9 ? doubled - 9 : doubled
-    }
-  }
-  return (10 - (sum % 10)) % 10 === parseInt(id[12])
-}
 
 // Amount→product routing via the SHARED tiering helper (Phase 2), so the apply
 // form and the qualify wizard can never disagree. Uses the static catalogue here
@@ -291,6 +279,8 @@ function readInitialApplyState() {
 
 export default function ApplyPage() {
   const identity = useWebsiteIdentity()
+  const site = useWebsiteJurisdiction()
+  const idRules = profileFor(site.code).capture
   const t = useT("websiteApply")
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -380,7 +370,8 @@ export default function ApplyPage() {
     const e: Record<string, string> = {}
     if (!step1.firstName.trim()) e.firstName = t("errFirstName")
     if (!step1.lastName.trim()) e.lastName = t("errLastName")
-    if (!validateSAId(step1.idNumber)) e.idNumber = t("errIdNumber")
+    const idError = applyIdError(site, step1.idNumber, t("errIdNumber"))
+    if (idError) e.idNumber = idError
     if (!/^\+?[\d\s-]{10,}$/.test(step1.phone)) e.phone = t("errPhone")
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(step1.email)) e.email = t("errEmail")
     setErrors(e)
@@ -601,7 +592,11 @@ export default function ApplyPage() {
                     : t("registerHeading")}
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-white/58">
-                {canLogin ? t("loginBody") : t("registerBody")}
+                {canLogin
+                  ? t("loginBody")
+                  : site.nca
+                    ? t("registerBody")
+                    : `Create your portal password with the same email and ${idRules.idLabel.toLowerCase()} used in this application, then upload your ID, bank statements and proof of income.`}
               </p>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {canRegister && portalRegisterHref && (
@@ -670,7 +665,11 @@ export default function ApplyPage() {
             ))}
           </div>
           <div className="mt-6 border border-white/8 bg-black/18 p-4 text-xs leading-relaxed text-white/46">
-            POPIA consent, affordability assessment and credit checks are required before final approval. {identity.legalName} is a registered credit provider{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null}.
+            {site.nca ? (
+              <>POPIA consent, affordability assessment and credit checks are required before final approval. {identity.legalName} is a registered credit provider{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null}.</>
+            ) : (
+              <>Consent, affordability assessment and credit checks are required before final approval. {identity.legalName}.</>
+            )}
           </div>
         </aside>
 
@@ -692,8 +691,8 @@ export default function ApplyPage() {
                   <input className={inputClass} value={step1.lastName} onChange={(e) => setStep1({ ...step1, lastName: e.target.value })} placeholder={t("lastNamePlaceholder")} />
                 </Field>
               </div>
-              <Field label={t("idNumber")} error={errors.idNumber}>
-                <input className={inputClass} value={step1.idNumber} onChange={(e) => setStep1({ ...step1, idNumber: e.target.value })} placeholder={t("idPlaceholder")} maxLength={13} />
+              <Field label={site.nca ? t("idNumber") : `${idRules.idLabel} *`} error={errors.idNumber}>
+                <input className={inputClass} value={step1.idNumber} onChange={(e) => setStep1({ ...step1, idNumber: e.target.value })} placeholder={site.nca ? t("idPlaceholder") : idRules.idLabel} maxLength={site.nca ? 13 : idRules.idMaxLength} />
               </Field>
               <Field label={t("phone")} error={errors.phone}>
                 <input className={inputClass} type="tel" value={step1.phone} onChange={(e) => setStep1({ ...step1, phone: e.target.value })} placeholder={t("phonePlaceholder")} />
@@ -826,7 +825,11 @@ export default function ApplyPage() {
                   className="mt-0.5 h-4 w-4 shrink-0 accent-[#a5b4fc]"
                 />
                 <span className="text-xs leading-relaxed text-white/62">
-                  I consent to {identity.legalName}{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null} processing my personal information in terms of POPIA and conducting a credit bureau enquiry to assess this application.
+                  {site.nca ? (
+                    <>I consent to {identity.legalName}{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null} processing my personal information in terms of POPIA and conducting a credit bureau enquiry to assess this application.</>
+                  ) : (
+                    <>I consent to {identity.legalName} processing my personal information under the data-protection law that applies in {site.countryName} and conducting a credit bureau enquiry to assess this application.</>
+                  )}
                 </span>
               </label>
               {errors.consent && <p className="-mt-1 text-xs text-red-300">{errors.consent}</p>}
@@ -855,15 +858,17 @@ export default function ApplyPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-4xl px-4 pb-20 pt-4">
-        <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">{t("faqEyebrow")}</p>
-        <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
-          {t("faqHeading")}
-        </h2>
-        <div className="mt-8">
-          <FaqAccordion items={applyFaqs(t)} />
-        </div>
-      </section>
+      {site.nca && (
+        <section className="mx-auto max-w-4xl px-4 pb-20 pt-4">
+          <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">{t("faqEyebrow")}</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
+            {t("faqHeading")}
+          </h2>
+          <div className="mt-8">
+            <FaqAccordion items={applyFaqs(t)} />
+          </div>
+        </section>
+      )}
     </main>
   )
 }

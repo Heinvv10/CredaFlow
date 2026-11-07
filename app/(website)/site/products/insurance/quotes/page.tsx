@@ -17,6 +17,8 @@ import { JsonLd } from "@/components/seo/JsonLd"
 import { breadcrumbLd } from "@/lib/seo/jsonld"
 import { buildPageMetadata } from "@/lib/seo/metadata"
 import { getWebsiteIdentity } from "@/lib/website/identity"
+import { ncaOnlyPage } from "@/lib/jurisdiction/nca-only"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
 /**
  * The comparison surface, on its own page.
@@ -72,6 +74,7 @@ function offering() {
 
 export async function generateMetadata(): Promise<Metadata> {
   const { noun, heading } = offering()
+  if (!(await getSiteJurisdiction()).nca) return {}
   return buildPageMetadata({
     identity: await getWebsiteIdentity(),
     title: heading,
@@ -120,6 +123,8 @@ export default async function InsuranceQuotesPage({
      refuse the array rather than index into it. */
   searchParams: Promise<{ view?: string | string[] }>
 }) {
+  // South African insurance (lib/registry/nca-only/080-website-insurance.ts): not found for a lender outside the NCA.
+  await ncaOnlyPage()
   const identity = await getWebsiteIdentity()
   if (!identity) return null
   // Quotes come through an authorised intermediary: no FSP number, no page.
