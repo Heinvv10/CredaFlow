@@ -5,18 +5,26 @@ import type { ImageView, WebsiteImageryView } from "@/lib/config/website-imagery
 // markup it had before there were any.
 
 /**
- * Behind the hero's text, under a dark wash so the white copy stays readable on
- * any photo: 80% of the page background where the text sits (all of it on a
- * phone, the left 70% from `lg`), 30% at the right edge. White body text on the
- * lightest possible photo under 80% of #11141b is above 6:1, past WCAG AA's 4.5:1.
+ * The wash behind the hero's text. It darkens only where the copy sits so the photo
+ * shows at full strength on the right. Below `xl` the text column spans most of the
+ * width, so the whole photo takes the `text` alpha. From `xl` the column (660px in a
+ * 1280px container with 32px padding) ends at no more than 54.1% of the viewport, so
+ * the wash holds `text` to `textUntil`% and is clear from `clearAt`%.
+ * HomeImagery.test.tsx checks the body copy against a pure-white photo at the column's
+ * right edge across desktop widths.
  */
+export const HERO_WASH = { edge: 0.92, text: 0.75, textUntil: 56, clearAt: 88 } as const
+const WASH = "17, 20, 27" // #11141b, the page background
+
+const sideWash = `linear-gradient(to right, rgba(${WASH}, ${HERO_WASH.edge}) 0%, rgba(${WASH}, ${HERO_WASH.text}) ${HERO_WASH.textUntil}%, rgba(${WASH}, 0) ${HERO_WASH.clearAt}%)`
+
 export function HeroImage({ image }: { image: ImageView }) {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset */}
-      <img src={image.src} srcSet={image.srcSet} sizes="100vw" alt={image.alt} width={image.width} height={image.height} fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
-      <div className="absolute inset-0 bg-[#11141b]/80 lg:hidden" />
-      <div className="absolute inset-0 hidden bg-linear-to-r from-[#11141b] via-[#11141b]/80 via-70% to-[#11141b]/30 lg:block" />
+      <img src={image.src} srcSet={image.srcSet} sizes="100vw" alt={image.alt} width={image.width} height={image.height} fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover object-[72%_50%] xl:object-center" />
+      <div className="absolute inset-0 bg-[#11141b]/75 xl:hidden" />
+      <div className="absolute inset-0 hidden xl:block" style={{ backgroundImage: sideWash }} />
     </>
   )
 }

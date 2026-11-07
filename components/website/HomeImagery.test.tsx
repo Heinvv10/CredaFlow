@@ -4,6 +4,7 @@ import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 import { applyLivePricing } from "@/lib/public-loan-products"
 import type { WebsiteImageryView } from "@/lib/config/website-imagery"
 import { HomePage } from "./HomePage"
+import { HERO_WASH } from "./HomeImagery"
 
 const LIVE = (min: number) => ({
   interestRatePm: 3, interestModel: "REDUCING_BALANCE" as const, initiationFeePct: 0.15, initiationFeeMax: 605000,
@@ -43,7 +44,8 @@ describe("home page imagery", () => {
     expect(hero).toContain('height="900"')
     expect(hero).toContain('fetchPriority="high"')
     expect(hero).not.toContain('loading="lazy"')
-    expect(render(IMAGERY)).toContain("bg-[#11141b]/80 lg:hidden")
+    expect(render(IMAGERY)).toContain("bg-[#11141b]/75 xl:hidden")
+    expect(render(IMAGERY)).toContain(`rgba(17, 20, 27, ${HERO_WASH.text}) ${HERO_WASH.textUntil}%`)
   })
 
   it("keeps the hero inside its section so a phone does not scroll sideways", () => {
@@ -79,5 +81,40 @@ describe("home page imagery", () => {
     const { community: _community, ...without } = IMAGERY
     expect(render(without)).not.toContain("Part of the community")
     expect(imgs(render(without))).toHaveLength(2)
+  })
+})
+
+
+// WCAG relative luminance and contrast for an sRGB channel triple (0-255).
+const lum = (rgb: number[]) => {
+  const [r, g, b] = rgb.map((c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+const contrast = (a: number[], b: number[]) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05) }
+const over = (top: number[], alpha: number, under: number[]) => top.map((c, i) => c * alpha + under[i] * (1 - alpha))
+const PAGE = [17, 20, 27]
+const WHITE = [255, 255, 255]
+
+// The wash's alpha at a point across the viewport, as the CSS gradient interpolates it.
+const washAt = (pct: number) => {
+  const { edge, text, textUntil, clearAt } = HERO_WASH
+  if (pct <= textUntil) return edge + (text - edge) * (pct / textUntil)
+  if (pct >= clearAt) return 0
+  return text * (1 - (pct - textUntil) / (clearAt - textUntil))
+}
+
+describe("the hero wash keeps the body copy readable on the brightest photo", () => {
+  // HomePage: a 660px text column in a max-w-7xl (1280px) container with lg:px-8.
+  const columnEdgePct = (vw: number) => ((Math.max(0, (vw - 1280) / 2) + 32 + 660) / vw) * 100
+
+  it.each([1280, 1366, 1440, 1536, 1920, 2560])("at the end of a line on a %ipx screen", (vw) => {
+    const bg = over(PAGE, washAt(columnEdgePct(vw)), WHITE)
+    const copy = over(WHITE, 0.78, bg) // text-white/78
+    expect(contrast(copy, bg)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it("on a phone or tablet, where the flat 75% wash sits under all of it", () => {
+    const bg = over(PAGE, 0.75, WHITE)
+    expect(contrast(over(WHITE, 0.78, bg), bg)).toBeGreaterThanOrEqual(4.5)
   })
 })

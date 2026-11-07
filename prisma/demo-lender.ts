@@ -147,7 +147,7 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
       publicPhone: "+254 700 000 000",
       collectionsEmail: "collections@nairobi-credit.example",
       collectionsPhone: "+254 700 000 001",
-      brandTagline: "Demo lender: Kenya jurisdiction",
+      brandTagline: "Fair loans for Nairobi's makers and traders. Pay by M-Pesa.",
       headOfficeCity: "Nairobi",
     },
     colours: { primaryColor: "#1F4E79", secondaryColor: "#245E92", darkColor: "#0F1115" },
