@@ -79,6 +79,13 @@ describe.each(CASES)("the amount inputs of a %s lender billed in %s", (code, cur
       if (symbol !== "R") expect(h).not.toContain(">R</span>")
     }
     for (const h of html) expect(h).toContain(symbol.length > 1 ? "pl-12" : "pl-8")
+    for (const h of html.slice(0, 2)) {
+      if (currency === "ZAR") expect(h).toContain("(Rands)")
+      else {
+        expect(h).not.toContain("Rands")
+        expect(h).toContain(`Monthly Gross Income (${symbol})`)
+      }
+    }
   })
 })
 
