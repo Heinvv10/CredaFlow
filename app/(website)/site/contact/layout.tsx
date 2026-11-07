@@ -11,11 +11,13 @@ import { contactFaqs } from "./faqs"
 // The contact page itself is a client component ("use client"), so metadata
 // and JSON-LD are emitted from this server-component layout.
 export async function generateMetadata(): Promise<Metadata> {
+  const site = await getSiteJurisdiction()
   return buildPageMetadata({
     identity: await getWebsiteIdentity(),
     title: "Contact Us & Complaints",
-    description:
-      "Contact us for product enquiries or to lodge a complaint. Office details, email, complaints process and regulatory escalation routes.",
+    description: site.nca
+      ? "Contact us for product enquiries or to lodge a complaint. Office details, email, complaints process and regulatory escalation routes."
+      : "Contact us for product enquiries or to lodge a complaint. Office details, email and complaints process.",
     path: "/site/contact",
   })
 }

@@ -28,6 +28,7 @@ import { htmlToPlainText } from "@/lib/email/html-to-text"
 import { creditBlock } from "@/lib/clients/status"
 import { loadOwnLenderArrears, OWN_LENDER_ARREARS_REASON } from "@/lib/affordability/own-lender-arrears-gate"
 import { sendMessage } from "@/lib/messaging/send"
+import { ensureActiveJurisdiction } from "@/lib/jurisdiction/load.server"
 import { getOrCreateAgentMessageTemplate } from "@/lib/messaging/agent-message-template"
 import { Prisma, type Contact } from "@prisma/client"
 import {
@@ -96,6 +97,9 @@ function safeMoneyCents(value: unknown): number {
 
 export async function POST(req: NextRequest) {
   try {
+    // The ID check below is the lender's jurisdiction's; a cold process has not loaded it yet and would judge a
+    // Kenyan or Lesotho ID by the South African rule.
+    await ensureActiveJurisdiction()
     const ip = callerIp(req)
     const gate = await checkRateLimit(`website:apply:${limiterAddress(ip)}`, FORM_RATE_LIMIT)
     if (!gate.allowed) {

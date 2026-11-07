@@ -17,6 +17,7 @@ vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }))
 vi.mock("@/lib/website-chat/settings", () => ({ chatBotsEnabled: mocks.chatBotsEnabled }))
 vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: <T>(_id: string, fn: () => T) => fn() }))
 vi.mock("@/lib/config/identity", () => ({ findLenderIdentity: async () => (await import("@/lib/config/__fixtures__/lender-identity")).ACME_LENDER }))
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 vi.mock("@/lib/website-chat/store", () => ({ startChat: mocks.startChat }))
 
 import { POST } from "./route"
@@ -56,6 +57,18 @@ describe("website chat start", () => {
       if (value === undefined) delete process.env[name]
       else process.env[name] = value
     }
+  })
+
+  it("asks a Kenyan lender's visitor for a Kenyan mobile number, not a South African cell number", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    const res = await call({ ...VALID, phone: "0821234567" })
+    expect(res.status).toBe(400)
+    expect((await res.json()).errors.phone).toBe("Please enter a Kenyan mobile number (e.g. 0712345678 or +254712345678).")
+  })
+
+  it("keeps the South African cell number message for a South African lender", async () => {
+    const res = await call({ ...VALID, phone: "12" })
+    expect((await res.json()).errors.phone).toBe("Please enter a valid South African cell number.")
   })
 
   it("starts a chat, issues a verifiable token and audits the start", async () => {

@@ -2,6 +2,8 @@
 
 import { useEffect } from "react"
 import { useT } from "@/lib/i18n/client"
+import { useWebsiteJurisdiction } from "@/components/website/WebsiteIdentity"
+import { activeCurrencySymbol } from "@/lib/utils"
 import { interestText, localizeProduct, termUnitText } from "@/lib/i18n/products"
 import {
   getPublicLoanProduct,
@@ -46,6 +48,11 @@ function clamp(value: number, min: number, max: number): number {
 export default function QualifyStepTwo({ data, onChange, onNext, onBack, products }: StepTwoProps) {
   const t = useT("websiteQualify")
   const tp = useT("websiteProducts")
+  const symbol = activeCurrencySymbol()
+  // South African digit grouping is the house style for a South African lender; elsewhere plain commas.
+  const { nca } = useWebsiteJurisdiction()
+  const locale = nca ? "en-ZA" : "en"
+  const whole = (n: number) => n.toLocaleString(locale)
   // Amount bounds (rands) + micro/personal classification, both derived from the
   // LIVE products (fail-open to static). isMicro uses the SHARED productForAmount
   // tiering rule, so the wizard and the apply form can never disagree (Phase 2).
@@ -96,11 +103,11 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
         <div className="flex justify-between items-center mb-1.5">
           <label className="text-sm font-semibold text-white/78">{t("loanAmount")}</label>
           <span className="text-sm font-bold text-[#a5b4fc]">
-            R {safeAmount.toLocaleString("en-ZA")}
+            {symbol} {whole(safeAmount)}
           </span>
         </div>
         <div className="relative mb-3">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">R</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{symbol}</span>
           <input
             type="number"
             min={amountBounds.min}
@@ -109,7 +116,7 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
             value={safeAmount}
             onChange={(e) => handleAmountChange(Number(e.target.value))}
             onFocus={(e) => e.currentTarget.select()}
-            className="w-full border border-white/12 bg-black/20 py-2.5 pl-8 pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15"
+            className={`w-full border border-white/12 bg-black/20 py-2.5 ${symbol.length > 1 ? "pl-12" : "pl-8"} pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15`}
             inputMode="numeric"
           />
         </div>
@@ -123,8 +130,8 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
           className="w-full accent-amber-600"
         />
         <div className="mt-1 flex justify-between text-[11px] text-white/40">
-          <span>R {amountBounds.min.toLocaleString("en-ZA")}</span>
-          <span>R {amountBounds.max.toLocaleString("en-ZA")}</span>
+          <span>{symbol} {whole(amountBounds.min)}</span>
+          <span>{symbol} {whole(amountBounds.max)}</span>
         </div>
         {/* Tier indicator (display-only): the amount picks the product via the shared
             productForAmount rule; this makes that auto-selection visible — including
@@ -135,13 +142,13 @@ export default function QualifyStepTwo({ data, onChange, onNext, onBack, product
             {
               product: microProduct,
               active: isMicro,
-              range: t("upTo", { amount: boundaryRands.toLocaleString("en-ZA") }),
+              range: nca ? t("upTo", { amount: whole(boundaryRands) }) : `Up to ${symbol} ${whole(boundaryRands)}`,
               termWindow: qualifyTermWindow(true),
             },
             {
               product: personalProduct,
               active: !isMicro,
-              range: t("over", { amount: boundaryRands.toLocaleString("en-ZA") }),
+              range: nca ? t("over", { amount: whole(boundaryRands) }) : `Over ${symbol} ${whole(boundaryRands)}`,
               termWindow: qualifyTermWindow(false),
             },
           ].map(({ product, active, range, termWindow }) => (

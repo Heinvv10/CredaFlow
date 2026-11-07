@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next"
 import { isDemoMode } from "@/lib/config/demo-mode"
 import { siteUrl } from "@/lib/seo/metadata"
-import { PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
+import { NCA_ONLY_SITE_ROUTES, PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
 // DEMO_MODE is runtime env and one image runs with and without it: rendered
 // per request, or the build's value would be baked into a static robots.txt.
@@ -12,14 +13,16 @@ export const dynamic = "force-dynamic"
 // friendlier to crawlers and AI agents (no default-deny on the marketing tree).
 // Genuine non-public pages under /site/ must be added to the disallow list
 // explicitly.
-export default function robots(): MetadataRoute.Robots {
+// The insurance and regulatory pages 404 outside the NCA, so they are not allowed there.
+export default async function robots(): Promise<MetadataRoute.Robots> {
   if (isDemoMode()) return { rules: [{ userAgent: "*", disallow: "/" }] }
+  const { nca } = await getSiteJurisdiction()
   const base = siteUrl()
   return {
     rules: [
       {
         userAgent: "*",
-        allow: [...PUBLIC_SITE_ROUTES],
+        allow: PUBLIC_SITE_ROUTES.filter((route) => nca || !NCA_ONLY_SITE_ROUTES.includes(route)),
         disallow: [
           "/dashboard/",
           "/applications/",

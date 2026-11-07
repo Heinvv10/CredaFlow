@@ -4,6 +4,10 @@ import { NCA_ONLY_SITE_ROUTES, PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
 import { getWebsiteIdentity } from "@/lib/website/identity"
 import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
+// Rendered per request: the lender's jurisdiction is read from the database, which a build-time
+// prerender cannot reach (it would bake the fail-closed ZA sitemap into every deployment).
+export const dynamic = "force-dynamic"
+
 // The kept public pages on this deployment's own site URL
 // (NEXT_PUBLIC_WEBSITE_URL). Unset, there is no site to map: an empty sitemap
 // rather than one naming another host.

@@ -20,7 +20,11 @@ export const PUBLIC_SITE_ROUTES = [
 ] as const
 
 /** The pages only a lender under the NCA has (lib/registry/nca-only/): the others 404 for it. */
-export const NCA_ONLY_SITE_ROUTES: readonly string[] = ["/site/products/insurance", "/site/regulatory-information"]
+export const NCA_ONLY_SITE_ROUTES: readonly string[] = [
+  "/site/products/insurance",
+  "/site/products/insurance/quotes",
+  "/site/regulatory-information",
+]
 
 /** Pages the inherited site had and this one deleted; nothing may serve or advertise them. */
 export const DELETED_SITE_ROUTES = [

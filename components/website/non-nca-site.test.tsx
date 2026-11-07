@@ -4,7 +4,7 @@ import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 import { I18nProvider } from "@/lib/i18n/client"
 import { applyLivePricing } from "@/lib/public-loan-products"
 import { homeFaqs } from "@/app/(website)/site/home-faqs"
-import { siteJurisdictionFor, ZA_SITE } from "@/lib/website/site-jurisdiction"
+import { siteJurisdictionFor } from "@/lib/website/site-jurisdiction"
 import Footer from "./Footer"
 import { HomePage } from "./HomePage"
 import NavBar from "./NavBar"
@@ -16,7 +16,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
-const KE = siteJurisdictionFor("KE")
 const LENDER = { ...ACME_LENDER, fspNumber: "12345" }
 const SOUTH_AFRICAN = /South Africa|POPIA|National Credit|\bNCA\b|\bNCR\b|FAIS|FSCA|FSP|Regulatory Information|regulatory-information/
 const PRODUCTS = applyLivePricing({
@@ -26,67 +25,37 @@ const PRODUCTS = applyLivePricing({
   },
 }).filter((p) => p.code === "personal")
 
-describe("Footer", () => {
-  it("for a South African lender links insurance, privacy and POPIA, the regulatory page and the NCR line", () => {
-    const html = renderToStaticMarkup(<Footer identity={LENDER} site={ZA_SITE} />)
-    expect(html).toContain('href="/site/products/insurance"')
-    expect(html).toContain('href="/site/regulatory-information"')
-    expect(html).toContain("Privacy &amp; POPIA")
-    expect(html).toContain("Registered Credit Provider — NCR Reg: NCRCP99999 · FSP: 12345")
-  })
+// A South African lender's frame and home page are pinned in app/(website)/site/za-pinned.test.tsx.
+describe.each([["KE"], ["LS"]] as const)("the frame and home page of a %s lender", (code) => {
+  const site = siteJurisdictionFor(code)
 
-  it("defaults to the South African footer when it is given no jurisdiction", () => {
-    expect(renderToStaticMarkup(<Footer identity={LENDER} />)).toContain("NCR Reg: NCRCP99999")
-  })
-
-  it("for a Kenyan lender has no insurance link, regulatory page, POPIA label or NCR and FSP line", () => {
-    const html = renderToStaticMarkup(<Footer identity={LENDER} site={KE} />)
+  it("footer: no insurance link, regulatory page, POPIA label or NCR and FSP line", () => {
+    const html = renderToStaticMarkup(<Footer identity={LENDER} site={site} />)
     expect(html).not.toMatch(SOUTH_AFRICAN)
     expect(html).not.toContain("/site/products/insurance")
     expect(html).toContain('href="/site/privacy"')
-    expect(html).toContain("Credit Provider")
     expect(html).toContain('href="/site/terms"')
-  })
-})
-
-describe("NavBar insurance link", () => {
-  const render = (site = ZA_SITE) => renderToString(
-    <I18nProvider locale="en" messages={{}}>
-      <WebsiteIdentityProvider identity={LENDER} jurisdiction={site}><NavBar /></WebsiteIdentityProvider>
-    </I18nProvider>,
-  )
-
-  it("is there for a South African lender with an FSP number and absent for a Kenyan one that has one", () => {
-    expect(render()).toContain('href="/site/products/insurance"')
-    expect(render(KE)).not.toContain('href="/site/products/insurance"')
-  })
-})
-
-describe("home page", () => {
-  const home = (site = ZA_SITE) => renderToStaticMarkup(<HomePage identity={LENDER} products={PRODUCTS} site={site} />)
-
-  it("for a South African lender keeps the NCR badge, the trust badges, the insurance card and the protections", () => {
-    const html = home()
-    expect(html).toContain("NCR-registered credit provider · NCRCP99999")
-    expect(html).toContain("POPIA aligned")
-    expect(html).toContain("FAIS authorised")
-    expect(html).toContain('href="/site/products/insurance"')
-    expect(html).toContain("How you&#x27;re protected")
-    expect(html).toContain("Frequently asked questions")
+    expect(html).toContain("Credit Provider")
   })
 
-  it("for a Kenyan lender shows none of them", () => {
-    const html = home(KE)
+  it("navigation: no insurance link even for a lender that holds an FSP number", () => {
+    const html = renderToString(
+      <I18nProvider locale="en" messages={{}}>
+        <WebsiteIdentityProvider identity={LENDER} jurisdiction={site}><NavBar /></WebsiteIdentityProvider>
+      </I18nProvider>,
+    )
+    expect(html).not.toContain('href="/site/products/insurance"')
+    expect(html).toContain('href="/site/calculators"')
+  })
+
+  it("home page: no NCR badge, trust badges, insurance card, protections or FAQ, and the loan products stay", () => {
+    const html = renderToStaticMarkup(<HomePage identity={LENDER} products={PRODUCTS} site={site} />)
     expect(html).not.toMatch(/South Africa|POPIA|National Credit|\bNCA\b|NCR|FAIS|FSCA|FSP|insurance/i)
     expect(html).not.toContain('href="/site/products/insurance"')
     expect(html).not.toContain("How you&#x27;re protected")
     expect(html).not.toContain("Frequently asked questions")
     expect(html).toContain("Secure portal")
     expect(html).toContain("Personal loan")
-  })
-
-  it("has a FAQ for a South African lender and none for a Kenyan one", () => {
-    expect(homeFaqs(LENDER, PRODUCTS).length).toBeGreaterThan(0)
-    expect(homeFaqs(LENDER, PRODUCTS, "en", KE)).toEqual([])
+    expect(homeFaqs(LENDER, PRODUCTS, "en", site)).toEqual([])
   })
 })

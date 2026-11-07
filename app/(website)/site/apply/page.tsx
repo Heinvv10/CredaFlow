@@ -395,7 +395,9 @@ export default function ApplyPage() {
       const [min, max] = liveProductLimits[step3.productType] ?? [0, 0]
       const amount = Number(step3.amount)
       if (amount < min || amount > max) {
-        e.amount = t("errAmountRange", { min: min.toLocaleString(), max: max.toLocaleString() })
+        e.amount = site.nca
+          ? t("errAmountRange", { min: min.toLocaleString(), max: max.toLocaleString() })
+          : `Amount must be between ${activeCurrencySymbol()}${min.toLocaleString()} and ${activeCurrencySymbol()}${max.toLocaleString()}`
       }
     }
     const termError = termPlan(step3.productType, step3.termDays).error
@@ -756,7 +758,7 @@ export default function ApplyPage() {
               {step3.productType && (
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-white/78">
-                    {t("loanAmount", { amount: Number(step3.amount || 0).toLocaleString() })}
+                    {site.nca ? t("loanAmount", { amount: Number(step3.amount || 0).toLocaleString() }) : `Loan Amount (${activeCurrencySymbol()} ${Number(step3.amount || 0).toLocaleString()})`}
                   </label>
                   <input
                     className={`${inputClass} mb-3`}

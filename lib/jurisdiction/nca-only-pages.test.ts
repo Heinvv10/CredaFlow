@@ -46,7 +46,33 @@ describe.each(PAGES)("%s page", (_name, load) => {
   })
 })
 
+// A layout wraps its page, so a page gated alone still lets the layout print its own markup and schema around the 404.
+const LAYOUTS: Array<[string, () => Promise<{ default: (props: { children: null }) => Promise<unknown> }>]> = [
+  ["site/regulatory-information", () => import("@/app/(website)/site/regulatory-information/layout")],
+]
+
+describe.each(LAYOUTS)("%s layout", (_name, load) => {
+  it.each([["LS", "LSL"], ["KE", "KES"]] as const)("is not found for a %s lender", async (jurisdiction, currency) => {
+    setActiveJurisdiction({ jurisdiction, currency })
+    const { default: Layout } = await load()
+    await expect(Layout({ children: null })).rejects.toBeInstanceOf(NotFound)
+  })
+
+  it("is served to a ZA lender (it gets past the guard)", async () => {
+    const { default: Layout } = await load()
+    const outcome = await Layout({ children: null }).then(() => null, (e: unknown) => e)
+    expect(outcome).not.toBeInstanceOf(NotFound)
+  })
+})
+
 describe("page coverage", () => {
+  it("every layout in the NCA-only registry is exercised above", () => {
+    const registry = import.meta.glob<{ default: NcaOnlySurfaces }>("../registry/nca-only/*.ts", { eager: true })
+    const registered = Object.values(registry).flatMap((m) => Object.keys(m.default)).filter((s) => s.endsWith("layout.tsx"))
+    const missing = registered.filter((layout) => !LAYOUTS.some(([name]) => layout.includes(`/${name}/layout.tsx`)))
+    expect(missing).toEqual([])
+  })
+
   it("every page in the NCA-only registry is exercised above", () => {
     const registry = import.meta.glob<{ default: NcaOnlySurfaces }>("../registry/nca-only/*.ts", { eager: true })
     const registered = Object.values(registry).flatMap((m) => Object.keys(m.default)).filter((s) => s.endsWith("page.tsx"))

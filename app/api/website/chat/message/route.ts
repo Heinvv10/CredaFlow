@@ -11,6 +11,7 @@ import { knowledgeFor } from "@/lib/website-chat/knowledge"
 import type { ChatMode } from "@/lib/website-chat/mode"
 import { askAssistant, type AssistantResult, type HandoffReason } from "@/lib/website-chat/model"
 import { buildSystemPrompt } from "@/lib/website-chat/prompt"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 import { chatBotsEnabled } from "@/lib/website-chat/settings"
 import { loadChat, recordAssistantReply, recordVisitorMessage, recordVisitorMessageToStaff } from "@/lib/website-chat/store"
 import { isChatConfigured, verifyChatToken } from "@/lib/website-chat/token"
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
       }
 
       const result: AssistantResult = await askAssistant(
-        buildSystemPrompt(await knowledgeFor(tenant.id, identity), identity.tradingName),
+        buildSystemPrompt(await knowledgeFor(tenant.id, identity), identity.tradingName, await getSiteJurisdiction()),
         [...chat.turns, { role: "visitor", text }],
       )
       const sent = await sendBotReply({ ...bot, reply: result.reply, needsHuman: result.needsHuman, reason: result.reason })

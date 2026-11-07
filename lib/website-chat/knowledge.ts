@@ -4,6 +4,7 @@ import {
   applyLivePricing, formatInterestLabel, formatProductRange, formatProductTermRange, type PublicLoanProduct,
 } from "@/lib/public-loan-products"
 import { getLivePricingServer } from "@/lib/public-loan-products-server"
+import { NCA_ONLY_SITE_ROUTES } from "@/lib/website/routes"
 import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
@@ -28,9 +29,6 @@ const INSURANCE_TYPE_LABEL: Record<string, string> = {
 
 export type InsuranceFact = { name: string; type: string }
 
-// The pages that exist only under the NCA (lib/registry/nca-only/): the regulatory information page.
-const NCA_ONLY_PAGES: ReadonlySet<string> = new Set(["/site/regulatory-information"])
-
 export function buildKnowledge(a: { identity: LenderIdentity; products: PublicLoanProduct[]; insurance: InsuranceFact[]; site?: SiteJurisdiction }): string {
   const { identity: id, products, insurance, site = ZA_SITE } = a
   // Outside the NCA the lender holds no NCR or FSP registration to state and sells no insurance.
@@ -52,7 +50,7 @@ export function buildKnowledge(a: { identity: LenderIdentity; products: PublicLo
   // insurance page (which 404s) is not linked.
   const offered = site.nca && id.fspNumber ? insurance : []
   const insuranceLines = offered.map((i) => `- ${i.name} (${INSURANCE_TYPE_LABEL[i.type] ?? "insurance"})`)
-  const ownPages = site.nca ? PAGES : PAGES.filter(([, path]) => !NCA_ONLY_PAGES.has(path))
+  const ownPages = site.nca ? PAGES : PAGES.filter(([, path]) => !NCA_ONLY_SITE_ROUTES.includes(path))
   const pages = offered.length ? [...ownPages, ["Insurance", "/site/products/insurance"] as const] : ownPages
 
   return [

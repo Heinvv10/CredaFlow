@@ -10,6 +10,7 @@ import { isChatConfigured, issueChatToken } from "@/lib/website-chat/token"
 import { readJsonObject, safeErrorInfo } from "@/lib/website-chat/http"
 import { chatBotsEnabled } from "@/lib/website-chat/settings"
 import { validateChatStart } from "@/lib/website-chat/validate"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 import { limiterAddress } from "@/lib/limiter-address"
 
 const PHONE_LIMIT = { limit: 3, windowMs: 15 * 60 * 1000 } as const
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
     const turnstile = await verifyTurnstile(typeof body.turnstileToken === "string" ? body.turnstileToken : null, ip)
     if (!turnstile.ok) return NextResponse.json({ error: "Verification failed. Please refresh the page and try again." }, { status: 400 })
 
-    const v = validateChatStart(body)
+    const v = validateChatStart(body, await getSiteJurisdiction())
     if (!v.ok) return NextResponse.json({ error: "Please check the highlighted fields.", errors: v.errors }, { status: 400 })
 
     // Limits are charged only after Turnstile and validation pass, so junk POSTs cannot burn a bucket.
