@@ -43,7 +43,9 @@ describe("home page imagery", () => {
     expect(hero).toContain('height="900"')
     expect(hero).toContain('fetchPriority="high"')
     expect(hero).not.toContain('loading="lazy"')
-    expect(render(IMAGERY)).toContain("bg-[#11141b]/80 lg:hidden")
+    expect(render(IMAGERY)).toContain("bg-[#11141b]/75 lg:hidden")
+    // From lg the wash must still be at least 75% where the text column ends (45%), and clear further right.
+    expect(render(IMAGERY)).toContain("from-[#11141b]/92 via-[#11141b]/75 via-45% to-transparent to-75%")
   })
 
   it("keeps the hero inside its section so a phone does not scroll sideways", () => {

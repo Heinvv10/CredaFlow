@@ -5,18 +5,21 @@ import type { ImageView, WebsiteImageryView } from "@/lib/config/website-imagery
 // markup it had before there were any.
 
 /**
- * Behind the hero's text, under a dark wash so the white copy stays readable on
- * any photo: 80% of the page background where the text sits (all of it on a
- * phone, the left 70% from `lg`), 30% at the right edge. White body text on the
- * lightest possible photo under 80% of #11141b is above 6:1, past WCAG AA's 4.5:1.
+ * Behind the hero's text. The wash darkens only where the copy sits so the photo
+ * shows at full strength on the right: on a phone (text over the whole image) 75%
+ * of the page background everywhere; from `lg` 92% at the left edge, 75% at 45%
+ * (past the right edge of the text column) and clear from 75%. White body text on
+ * the lightest possible photo under 75% of #11141b is about 5.6:1, past WCAG AA's
+ * 4.5:1. A short fade at the bottom blends the photo into the next section.
  */
 export function HeroImage({ image }: { image: ImageView }) {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset */}
-      <img src={image.src} srcSet={image.srcSet} sizes="100vw" alt={image.alt} width={image.width} height={image.height} fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
-      <div className="absolute inset-0 bg-[#11141b]/80 lg:hidden" />
-      <div className="absolute inset-0 hidden bg-linear-to-r from-[#11141b] via-[#11141b]/80 via-70% to-[#11141b]/30 lg:block" />
+      <img src={image.src} srcSet={image.srcSet} sizes="100vw" alt={image.alt} width={image.width} height={image.height} fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover object-[72%_50%] lg:object-center" />
+      <div className="absolute inset-0 bg-[#11141b]/75 lg:hidden" />
+      <div className="absolute inset-0 hidden bg-linear-to-r from-[#11141b]/92 via-[#11141b]/75 via-45% to-transparent to-75% lg:block" />
+      <div className="absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-[#11141b] to-transparent" />
     </>
   )
 }
