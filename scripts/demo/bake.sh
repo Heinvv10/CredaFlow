@@ -12,6 +12,9 @@
 #   DEMO_LENDER       the lender the snapshot is branded as (prisma/demo-lender.ts;
 #                     default acme). .env.demo-sim must use its slug.
 #   DEMO_LENDER_LOGO  optional PNG uploaded as the lender's logo during setup.
+#   DEMO_LENDER_IMAGES  optional directory of website photos (hero.jpg,
+#                     product-<slug>.jpg, community.jpg + manifest.json; format in
+#                     scripts/demo/website-images.ts), loaded right after the seed.
 #
 # Steps: rebuild the sim image on --image → fresh-stack.sh (DESTROYS the sim
 # volumes) → sim env preflight → simulate.ts to today → check-dates → ledger invariant →
@@ -50,6 +53,12 @@ docker image inspect "$image" >/dev/null 2>&1 || die "image $image not found"
 slug="$(demo_slug)"   # refuses an unknown DEMO_LENDER before anything starts
 [ -z "${DEMO_LENDER_LOGO:-}" ] || [ -r "$DEMO_LENDER_LOGO" ] || die "DEMO_LENDER_LOGO=$DEMO_LENDER_LOGO is not readable"
 
+if [ -n "${DEMO_LENDER_IMAGES:-}" ]; then
+  [ -d "$DEMO_LENDER_IMAGES" ] || die "DEMO_LENDER_IMAGES=$DEMO_LENDER_IMAGES is not a directory"
+  DEMO_LENDER_IMAGES="$(cd "$DEMO_LENDER_IMAGES" && pwd)"
+  npx tsx scripts/demo/set-website-images.ts --check "$DEMO_LENDER_IMAGES" || die "DEMO_LENDER_IMAGES=$DEMO_LENDER_IMAGES is not a valid image directory"
+fi
+
 mkdir -p "$SNAP_DIR"
 exec 9>"$BAKE_LOCK"
 flock -n 9 || die "another bake is running"
@@ -87,6 +96,11 @@ scripts/demo/sim/fresh-stack.sh "${start}T07:30:00+02:00"
 
 note "sim env preflight"
 sim_env_preflight
+
+if [ -n "${DEMO_LENDER_IMAGES:-}" ]; then
+  note "website images from $DEMO_LENDER_IMAGES"
+  SEED_FAKED_RO_DIR="$DEMO_LENDER_IMAGES" scripts/demo/sim/seed-faked.sh scripts/demo/set-website-images.ts "$slug" "$DEMO_LENDER_IMAGES" >&2
+fi
 
 note "simulate $start → today (report: $work/simulate-report.txt)"
 npx tsx scripts/demo/simulate.ts --start "$start" > "$work/simulate-report.txt" \

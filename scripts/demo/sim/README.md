@@ -244,6 +244,7 @@ public origins), its own `DEMO_DATA_DIR`, and that lender's live stack:
 export DEMO_LENDER=fairscore DEMO_DATA_DIR=~/credaflow-fairscore-data \
   LIVE_DIR=~/Workspace/CredaFlow-fairscore DEMO_LIVE_PROJECT=credaflow-fairscore
 export DEMO_LENDER_LOGO=$DEMO_DATA_DIR/branding/fairscore-logo.png   # optional PNG
+export DEMO_LENDER_IMAGES=$DEMO_DATA_DIR/branding/website-images      # optional: hero.jpg, product-<slug>.jpg, community.jpg, manifest.json
 scripts/demo/build-image.sh && scripts/demo/bake.sh && scripts/demo/restore.sh
 ```
 

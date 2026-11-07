@@ -273,6 +273,8 @@ model TenantConfig {
   logoUrl        String?
   faviconUrl     String?
   brandName      String?
+  // Public-website photos the lender uploaded (lib/config/website-imagery-schema.ts): hero, per-product, community band. Null = none.
+  websiteImagery Json?
 
   featureLms                        Boolean @default(true)
   featureCrm                        Boolean @default(false)

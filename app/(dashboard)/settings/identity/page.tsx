@@ -1,6 +1,7 @@
 import { requireMinRole } from "@/lib/auth-guards"
 import { LenderIdentityForm } from "@/components/settings/LenderIdentityForm"
 import { LenderLogoUpload } from "@/components/settings/LenderLogoUpload"
+import { WebsiteImageryManager } from "@/components/settings/WebsiteImageryManager"
 import { Header } from "@/components/layout/Header"
 
 export const metadata = {
@@ -23,6 +24,7 @@ export default async function LenderIdentitySettingsPage() {
       <div className="p-4 lg:p-8 max-w-4xl space-y-6">
         <LenderIdentityForm />
         <LenderLogoUpload />
+        <WebsiteImageryManager />
       </div>
     </>
   )

@@ -14,6 +14,10 @@
 #
 #   scripts/demo/sim/seed-faked.sh > scripts/demo/.sim-credentials.txt
 #
+# SEED_FAKED_RO_DIR (an absolute directory) is mounted read-only at the same
+# path, for a script that reads files from outside the worktree
+# (set-website-images.ts reads DEMO_LENDER_IMAGES).
+#
 # DEMO_LENDER (prisma/demo-lender.ts) is passed through, so the seed brands
 # the tenant as the lender the bake is for.
 #
@@ -44,6 +48,13 @@ if [ -f "$SEED_PASSWORDS" ]; then
     exit 1
   fi
   seed_env=(--env-file "$SEED_PASSWORDS")
+fi
+
+ro_dir=()
+if [ -n "${SEED_FAKED_RO_DIR:-}" ]; then
+  case "$SEED_FAKED_RO_DIR" in /*) ;; *) echo "seed-faked: SEED_FAKED_RO_DIR must be an absolute path" >&2; exit 1 ;; esac
+  [ -d "$SEED_FAKED_RO_DIR" ] || { echo "seed-faked: SEED_FAKED_RO_DIR=$SEED_FAKED_RO_DIR is not a directory" >&2; exit 1; }
+  ro_dir=(-v "$SEED_FAKED_RO_DIR:$SEED_FAKED_RO_DIR:ro")
 fi
 
 docker build -q -t "$IMAGE" - >&2 <<'EOF'
@@ -100,6 +111,7 @@ docker run --rm \
   -v "${SIM_PROJECT}_uploads":/w/uploads \
   -v "$PATCH_DIR/library.js":"/w/$RUNTIME":ro \
   -v "$ROOT/scripts/demo/.sim-clock":/sim-clock:ro \
+  ${ro_dir[@]+"${ro_dir[@]}"} \
   -w /w \
   "$IMAGE" \
   node_modules/.bin/tsx "$SCRIPT" "$@"
