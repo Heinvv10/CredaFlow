@@ -3,6 +3,7 @@ import {
   ALL_SLOTS,
   getSlotImage,
   isEmptyImagery,
+  isUnreadableImagery,
   parseSlot,
   parseWebsiteImagery,
   slotTextSchema,
@@ -20,6 +21,13 @@ describe("websiteImagerySchema", () => {
     expect(websiteImagerySchema.parse(doc)).toEqual(doc)
   })
 
+  it("accepts a product image with no alt text, or empty alt text (decorative), but not a hero", () => {
+    const { alt: _alt, ...bare } = image()
+    expect(websiteImagerySchema.safeParse({ products: { personal: bare } }).success).toBe(true)
+    expect(websiteImagerySchema.safeParse({ products: { personal: { ...bare, alt: "" } } }).success).toBe(true)
+    expect(websiteImagerySchema.safeParse({ hero: bare }).success).toBe(false)
+  })
+
   it("accepts an empty document", () => {
     expect(websiteImagerySchema.parse({})).toEqual({})
   })
@@ -30,7 +38,7 @@ describe("websiteImagerySchema", () => {
     ["an unknown field on an image", { hero: { ...image(), href: "https://evil.example" } }],
     ["a hero with no alt text", { hero: { ...image(), alt: undefined } }],
     ["a hero with blank alt text", { hero: { ...image(), alt: "   " } }],
-    ["a product image with no alt text", { products: { personal: { ...image(), alt: "" } } }],
+    ["a product image with alt text over 200 characters", { products: { personal: image("x".repeat(201)) } }],
     ["alt text over 200 characters", { hero: image("x".repeat(201)) }],
     ["a community band with no heading", { community: { ...community, heading: undefined } }],
     ["a community band with no sentence", { community: { ...community, body: "" } }],
@@ -72,10 +80,22 @@ describe("slots", () => {
 })
 
 describe("slotTextSchema", () => {
-  it("requires alt text and refuses other fields", () => {
-    expect(slotTextSchema.safeParse({}).success).toBe(false)
-    expect(slotTextSchema.safeParse({ alt: "  " }).success).toBe(false)
-    expect(slotTextSchema.safeParse({ alt: "ok", tenantId: "t2" }).success).toBe(false)
+  it("trims alt text, defaults it to empty (each slot decides whether that is allowed), and refuses other fields", () => {
+    expect(slotTextSchema.parse({})).toEqual({ alt: "" })
     expect(slotTextSchema.parse({ alt: "  ok  " })).toEqual({ alt: "ok" })
+    expect(slotTextSchema.safeParse({ alt: "ok", tenantId: "t2" }).success).toBe(false)
+    expect(slotTextSchema.safeParse({ alt: "x".repeat(201) }).success).toBe(false)
+  })
+})
+
+describe("isUnreadableImagery", () => {
+  it("is true only for a column that holds something that is not a document", () => {
+    expect(isUnreadableImagery(null)).toBe(false)
+    expect(isUnreadableImagery(undefined)).toBe(false)
+    expect(isUnreadableImagery({})).toBe(false)
+    expect(isUnreadableImagery({ hero: image() })).toBe(false)
+    expect(isUnreadableImagery({ banner: image() })).toBe(true)
+    expect(isUnreadableImagery("hero")).toBe(true)
+    expect(isUnreadableImagery([])).toBe(true)
   })
 })

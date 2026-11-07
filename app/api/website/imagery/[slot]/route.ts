@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { readWebsiteImage } from "@/lib/config/website-imagery"
+import { LARGEST_VARIANT, isVariantWidth } from "@/lib/config/website-imagery-variants"
 import { parseSlot } from "@/lib/config/website-imagery-schema"
 
 export const dynamic = "force-dynamic"
@@ -8,22 +9,26 @@ export const dynamic = "force-dynamic"
 type Ctx = { params: Promise<{ slot: string }> }
 
 /**
- * One of the lender's website photos (hero, community, product-<code>): public,
- * like the site that shows it, under the /api/website/* prefix proxy.ts serves
- * to anonymous visitors. Tenant from the request host, never from the caller.
- * The page asks for `?v=<first 12 hex of the file's sha256>`; a request that
- * names the current version may be cached for good, any other for five minutes.
+ * One of the lender's website photos (hero, community, product-<code>), as a
+ * WebP copy 800 or 1920 px wide (`?w=`, default 1920): public, like the site
+ * that shows it, under the /api/website/* prefix proxy.ts serves to anonymous
+ * visitors. Tenant from the request host, never from the caller. Never the
+ * uploaded file itself, which keeps its metadata. Cached for a day, so a photo
+ * the lender removes is gone from browsers and CDNs by tomorrow (`?v=` only
+ * busts the cache for a new upload).
  */
 export async function GET(req: NextRequest, ctx: Ctx) {
   const slot = parseSlot((await ctx.params).slot)
-  const tenant = slot ? await getTenantFromRequest(req) : null
-  const image = slot && tenant ? await readWebsiteImage(tenant.id, slot) : undefined
+  const asked = req.nextUrl.searchParams.get("w")
+  const width = asked === null ? LARGEST_VARIANT : Number(asked)
+  if (!slot || !isVariantWidth(width)) return NextResponse.json({ error: "No image is set." }, { status: 404 })
+  const tenant = await getTenantFromRequest(req)
+  const image = tenant ? await readWebsiteImage(tenant.id, slot, { width }) : undefined
   if (!image) return NextResponse.json({ error: "No image is set." }, { status: 404 })
-  const current = req.nextUrl.searchParams.get("v") === image.sha256.slice(0, 12)
   return new Response(Buffer.from(image.bytes), {
     headers: {
       "content-type": image.mime,
-      "cache-control": current ? "public, max-age=31536000, immutable" : "public, max-age=300",
+      "cache-control": "public, max-age=86400",
       "x-content-type-options": "nosniff",
       "content-security-policy": "default-src 'none'; sandbox",
     },

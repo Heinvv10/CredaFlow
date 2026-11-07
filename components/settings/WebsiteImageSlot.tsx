@@ -19,6 +19,7 @@ export function WebsiteImageSlot({ slot, title, hint, image, onChanged }: {
   onChanged: () => Promise<void>
 }) {
   const community = slot === "community"
+  const decorativeOk = slot.startsWith("product-")
   const saved = image as Partial<CommunityImage> | undefined
   const [file, setFile] = useState<File | null>(null)
   const [alt, setAlt] = useState(saved?.alt ?? "")
@@ -59,7 +60,7 @@ export function WebsiteImageSlot({ slot, title, hint, image, onChanged }: {
     }
   }
 
-  const canSave = !busy && alt.trim() !== "" && (file !== null || image !== undefined) && (!community || (heading.trim() !== "" && body.trim() !== ""))
+  const canSave = !busy && (decorativeOk || alt.trim() !== "") && (file !== null || image !== undefined) && (!community || (heading.trim() !== "" && body.trim() !== ""))
 
   return (
     <div className="space-y-3 border-t pt-4 first:border-t-0 first:pt-0">
@@ -69,7 +70,7 @@ export function WebsiteImageSlot({ slot, title, hint, image, onChanged }: {
       </div>
       {image ? (
         // eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset
-        <img src={`/api/website/imagery/${slot}?v=${image.sha256.slice(0, 12)}`} alt={image.alt} className="h-24 w-auto max-w-xs rounded border border-input object-cover" />
+        <img src={`/api/website/imagery/${slot}?v=${image.sha256.slice(0, 12)}&w=800`} alt={image.alt ?? ""} className="h-24 w-auto max-w-xs rounded border border-input object-cover" />
       ) : (
         <p className="text-sm text-muted-foreground">No image set.</p>
       )}
@@ -79,7 +80,7 @@ export function WebsiteImageSlot({ slot, title, hint, image, onChanged }: {
           <input id={`${id}-file`} type="file" accept="image/jpeg,image/png,image/webp" className="block w-full text-sm" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </div>
         <div className="space-y-1">
-          <Label htmlFor={`${id}-alt`}>Alt text (describe the photo for screen readers)</Label>
+          <Label htmlFor={`${id}-alt`}>{decorativeOk ? "Alt text (optional; leave empty if the card's title says it all)" : "Alt text (describe the photo for screen readers)"}</Label>
           <input id={`${id}-alt`} value={alt} maxLength={ALT_MAX} onChange={(e) => setAlt(e.target.value)} className="block w-full rounded border border-input bg-background px-2 py-1 text-sm" />
         </div>
         {community && (

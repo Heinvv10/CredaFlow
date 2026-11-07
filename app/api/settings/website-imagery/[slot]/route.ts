@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { callerIp } from "@/lib/rate-limit"
-import { removeWebsiteImage, setWebsiteImage, updateWebsiteImageText } from "@/lib/config/website-imagery"
+import { logger } from "@/lib/observability/logger"
+import { StoredImageryUnreadable, removeWebsiteImage, setWebsiteImage, updateWebsiteImageText } from "@/lib/config/website-imagery"
 import { IMAGERY_MAX_BYTES, parseSlot, type ImagerySlot } from "@/lib/config/website-imagery-schema"
 
 // Public-website photos carry the same guard as the letterhead logo (see
@@ -11,6 +12,9 @@ import { IMAGERY_MAX_BYTES, parseSlot, type ImagerySlot } from "@/lib/config/web
 const WRITE_ROLE = "ADMIN"
 // The multipart envelope (field names, alt text, community sentence) on top of the file.
 const ENVELOPE_BYTES = 64 * 1024
+// A text edit is a few hundred bytes of JSON.
+const TEXT_BODY_BYTES = 16 * 1024
+const UNREADABLE = "The stored website images could not be read, so nothing was changed. Ask the platform operator to look at them."
 const TOO_BIG = `The image must be at most ${IMAGERY_MAX_BYTES / (1024 * 1024)} MB.`
 
 type Ctx = { params: Promise<{ slot: string }> }
@@ -36,6 +40,13 @@ async function readBodyCapped(req: NextRequest, cap: number): Promise<Uint8Array
 
 function refusal(error: string, status: number) {
   return NextResponse.json({ error }, { status })
+}
+
+/** The one failure with its own answer: a stored document that is not in the expected shape is never written over. */
+function failed(e: unknown, what: string) {
+  if (e instanceof StoredImageryUnreadable) return refusal(UNREADABLE, 409)
+  logger.error(`[website-imagery] ${what}`, { reason: e instanceof Error ? e.message : String(e) })
+  return refusal(`Failed to ${what}`, 500)
 }
 
 function totpRequired() {
@@ -91,8 +102,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
       })
       return result.ok ? NextResponse.json(result) : refusal(result.error, 400)
     } catch (e) {
-      console.error("Failed to store the website image:", e)
-      return refusal("Failed to store the image", 500)
+      return failed(e, "store the image")
     }
   })
 }
@@ -103,10 +113,17 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   if ("error" in auth) return auth.error
   const slot = await slotOf(ctx)
   if (!slot) return refusal("Unknown image slot.", 404)
-  const text: unknown = await req.json().catch(() => null)
-  if (text === null || typeof text !== "object") return refusal("Send the text as JSON.", 400)
 
   return withTenantContext(req, async (tenant) => {
+    const body = await readBodyCapped(req, TEXT_BODY_BYTES)
+    if (!body) return refusal("That text is too long.", 413)
+    let text: unknown = null
+    try {
+      text = JSON.parse(Buffer.from(body).toString("utf8"))
+    } catch {
+      return refusal("Send the text as JSON.", 400)
+    }
+    if (text === null || typeof text !== "object") return refusal("Send the text as JSON.", 400)
     try {
       const result = await updateWebsiteImageText(prisma, {
         tenantId: tenant.id,
@@ -117,8 +134,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       })
       return result.ok ? NextResponse.json(result) : refusal(result.error, 400)
     } catch (e) {
-      console.error("Failed to update the website image text:", e)
-      return refusal("Failed to save the text", 500)
+      return failed(e, "save the text")
     }
   })
 }
@@ -138,8 +154,7 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
         ipAddress: callerIp(req),
       }))
     } catch (e) {
-      console.error("Failed to remove the website image:", e)
-      return refusal("Failed to remove the image", 500)
+      return failed(e, "remove the image")
     }
   })
 }

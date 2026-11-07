@@ -13,12 +13,15 @@ vi.mock("@/lib/tenant", () => ({
 }))
 vi.mock("@/lib/prisma", () => ({ prisma: { marker: "prisma" } }))
 vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "127.0.0.1" }))
+vi.mock("@/lib/observability/logger", () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock("@/lib/config/website-imagery", () => ({
+  StoredImageryUnreadable: class StoredImageryUnreadable extends Error {},
   setWebsiteImage: (...args: unknown[]) => setMock(...args),
   updateWebsiteImageText: (...args: unknown[]) => updateTextMock(...args),
   removeWebsiteImage: (...args: unknown[]) => removeMock(...args),
 }))
 
+import { StoredImageryUnreadable } from "@/lib/config/website-imagery"
 import { DELETE, PATCH, PUT } from "./route"
 
 const url = (slot: string) => `https://app.example.test/api/settings/website-imagery/${slot}`
@@ -132,11 +135,14 @@ describe("/api/settings/website-imagery/[slot]", () => {
     expect(setMock).not.toHaveBeenCalled()
   })
 
-  it("404s a slot it does not know, before authorising a write to it", async () => {
+  it("authorises first and only then 404s a slot it does not know, so a stranger learns nothing about slots", async () => {
     expect((await PUT(put("banner", { file: jpegBlob(), alt: "x" }), ctx("banner"))).status).toBe(404)
     expect((await PUT(put("../hero", { file: jpegBlob(), alt: "x" }), ctx("../hero"))).status).toBe(404)
     expect((await PATCH(patch("product-mortgage", { alt: "x" }), ctx("product-mortgage"))).status).toBe(404)
     expect((await DELETE(del("banner"), ctx("banner"))).status).toBe(404)
+    expect(requireApiRoleMock).toHaveBeenCalledTimes(4)
+    requireApiRoleMock.mockResolvedValue({ error: new Response("{}", { status: 403 }) })
+    expect((await PUT(put("banner", { file: jpegBlob(), alt: "x" }), ctx("banner"))).status).toBe(403)
     expect(setMock).not.toHaveBeenCalled()
     expect(removeMock).not.toHaveBeenCalled()
   })
@@ -147,8 +153,25 @@ describe("/api/settings/website-imagery/[slot]", () => {
     expect((await PATCH(new NextRequest(url("hero"), { method: "PATCH", body: "{" }), ctx("hero"))).status).toBe(400)
   })
 
+  it("answers 409, and says why, when the stored document cannot be read (nothing is written over it)", async () => {
+    const unreadable = new StoredImageryUnreadable("tenant-1")
+    setMock.mockRejectedValue(unreadable)
+    updateTextMock.mockRejectedValue(unreadable)
+    removeMock.mockRejectedValue(unreadable)
+    const put409 = await PUT(put("hero", { file: jpegBlob(), alt: "x" }), ctx("hero"))
+    expect(put409.status).toBe(409)
+    expect((await put409.json()).error).toMatch(/could not be read, so nothing was changed/)
+    expect((await PATCH(patch("hero", { alt: "x" }), ctx("hero"))).status).toBe(409)
+    expect((await DELETE(del("hero"), ctx("hero"))).status).toBe(409)
+  })
+
+  it("caps a text edit like an upload: an oversize body is a 413 and is never parsed", async () => {
+    const res = await PATCH(patch("hero", { alt: "x".repeat(20 * 1024) }), ctx("hero"))
+    expect(res.status).toBe(413)
+    expect(updateTextMock).not.toHaveBeenCalled()
+  })
+
   it("answers 500, not the error, when storing fails", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined)
     setMock.mockRejectedValue(new Error("EACCES: /app/uploads"))
     const res = await PUT(put("hero", { file: jpegBlob(), alt: "x" }), ctx("hero"))
     expect(res.status).toBe(500)

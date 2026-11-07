@@ -1,0 +1,38 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: lib/config
+<!-- summary: lender identity, logo and website images: where each is stored and how an uploaded image is erased -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Website images (`website-imagery*.ts`)
+The lender's home-page photos live in `TenantConfig.websiteImagery` (strict
+zod shape in `website-imagery-schema.ts`) and on disk under
+`uploads/website-imagery/<tenantId>/`, written only through
+`setWebsiteImage` / `updateWebsiteImageText` / `removeWebsiteImage`, which
+audit every change (`WEBSITE_IMAGE_UPDATED` / `_REMOVED`, hash and alt text,
+never bytes).
+
+- Per upload there are three kinds of file, all named by the upload's sha256:
+  the original (`<sha>.jpg|png|webp`, kept so the audit hash names a file, never
+  served) and the two served WebP copies with no metadata (`<sha>.w800.webp`,
+  `<sha>.w1920.webp`).
+- **Removing or replacing an image does not delete its files.** The public
+  route stops serving it at once (a browser or CDN may keep it for 24 h,
+  `cache-control: public, max-age=86400`), but the files stay on disk. A photo
+  of a person is personal information: to erase one for a DSAR or a
+  withdrawn consent, find its hash in the audit trail (`AuditLog` rows with
+  action `WEBSITE_IMAGE_UPDATED` whose `oldValue`/`newValue` `image.sha256` is
+  the one) and delete `uploads/website-imagery/<tenantId>/<sha256>*` on the
+  uploads volume (the app user owns it). Record the erasure in the DSAR file;
+  the audit rows keep only the hash and alt text and stay.
+- A stored document that no longer matches the schema is never written over
+  (`StoredImageryUnreadable`, a 409): reads log it and show no images, writes
+  refuse until someone repairs the column.
+- The demo loader (`scripts/demo/set-website-images.ts`) refuses unless
+  `DEMO_MODE=true` and the tenant is `isDemoLender`.
+
+## Logo (`lender-logo.ts`)
+One PNG per tenant, content-addressed the same way; see the file's header.

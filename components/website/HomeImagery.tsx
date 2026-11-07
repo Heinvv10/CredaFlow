@@ -14,19 +14,23 @@ export function HeroImage({ image }: { image: ImageView }) {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset */}
-      <img src={image.src} alt={image.alt} width={image.width} height={image.height} fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+      <img src={image.src} srcSet={image.srcSet} sizes="100vw" alt={image.alt} width={image.width} height={image.height} fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 bg-[#11141b]/80 lg:hidden" />
       <div className="absolute inset-0 hidden bg-linear-to-r from-[#11141b] via-[#11141b]/80 via-70% to-[#11141b]/30 lg:block" />
     </>
   )
 }
 
-/** The top of a product card, running out to the card's border (the card has p-5). */
+/**
+ * The top of a product card, running out to the card's border (the card has p-5).
+ * Decorative when the lender wrote no alt text: the image sits inside the card's
+ * link beside its title, so a screen reader needs nothing more than the title.
+ */
 export function ProductCardImage({ image }: { image: ImageView }) {
   return (
     <div className="-mx-5 -mt-5 mb-4 aspect-[16/9] overflow-hidden">
       {/* eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset */}
-      <img src={image.src} alt={image.alt} width={image.width} height={image.height} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+      <img src={image.src} srcSet={image.srcSet} sizes="(min-width: 1024px) 416px, (min-width: 768px) 50vw, 100vw" alt={image.alt} width={image.width} height={image.height} loading="lazy" decoding="async" className="h-full w-full object-cover" />
     </div>
   )
 }
@@ -37,7 +41,7 @@ export function CommunityBand({ community }: { community: NonNullable<WebsiteIma
       <div className="mx-auto grid max-w-7xl items-center gap-8 lg:grid-cols-2 lg:gap-12">
         <div className="aspect-[3/2] overflow-hidden border border-white/12">
           {/* eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset */}
-          <img src={community.src} alt={community.alt} width={community.width} height={community.height} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+          <img src={community.src} srcSet={community.srcSet} sizes="(min-width: 1024px) 614px, 100vw" alt={community.alt} width={community.width} height={community.height} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         </div>
         <div>
           <h2 className="text-balance text-3xl font-semibold leading-tight tracking-normal text-white sm:text-4xl">{community.heading}</h2>

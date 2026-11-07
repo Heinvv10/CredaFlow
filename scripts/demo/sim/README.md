@@ -248,6 +248,30 @@ export DEMO_LENDER_IMAGES=$DEMO_DATA_DIR/branding/website-images      # optional
 scripts/demo/build-image.sh && scripts/demo/bake.sh && scripts/demo/restore.sh
 ```
 
+### Website photos on a running demo stack
+
+`DEMO_LENDER_IMAGES` (above) loads photos during a bake. To put them on a stack
+that is already running (no bake, no sim), use the loader against its compose
+project; a directory holds `hero.jpg`, `product-<code>.jpg` (codes: `short-term`,
+`personal`, `purchase-order`, `invoice-discounting`), `community.jpg` and a
+`manifest.json` (format: `scripts/demo/website-images.ts`):
+
+```bash
+scripts/demo/load-website-images.sh credaflow-nairobi nairobi ~/credaflow-nairobi-data/branding/website-images
+```
+
+It runs `set-website-images.ts` in a throwaway node container from this
+worktree (needs `npm ci --legacy-peer-deps` here), on the stack's network,
+against the stack's `DATABASE_URL`, **as the app container's own uid:gid** with
+the stack's uploads volume mounted, so every file and directory it creates is
+owned by the app user (a root- or host-owned one would make the staff UI's own
+uploads fail). It refuses a stack whose app container is not `DEMO_MODE=true`
+and a tenant that is not `isDemoLender`, and is safe to repeat (unchanged images
+write nothing). The stack must already run an image that has the
+`websiteImagery` migration. The bake path (`seed-faked.sh`) runs as the host
+user under the sim clock instead; it opens the volume to the host group for the
+step and hands every file back to the app user afterwards.
+
 The sim stack (`credaflow-demo-sim`) is one per host, so `bake.sh` also takes
 one lock shared by every lender (`~/.credaflow-demo-sim.lock`, per user, or `DEMO_SIM_LOCK`): a second
 bake for any lender refuses while one runs (a cron bake waits up to 3 h for it).
