@@ -1,5 +1,6 @@
 "use client"
 
+import { moneyLabel } from "@/lib/website/money-labels"
 import { activeCurrencySymbol } from "@/lib/utils"
 import { useState, useMemo } from "react"
 import { formatZAR } from "@/lib/loan-calculator"
@@ -38,17 +39,17 @@ export default function AffordabilityTab() {
     <div className="space-y-6">
       <div className="space-y-5 border border-white/12 bg-[#11141b]/70 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl md:p-7">
         <InputField
-          label={t("incomeLabel")}
+          label={moneyLabel("incomeLabel", t("incomeLabel"))}
           value={income}
           onChange={setIncome}
         />
         <InputField
-          label={t("expensesLabel")}
+          label={moneyLabel("expensesLabel", t("expensesLabel"))}
           value={expenses}
           onChange={setExpenses}
         />
         <InputField
-          label={t("debtLabel")}
+          label={moneyLabel("debtLabel", t("debtLabel"))}
           value={debt}
           onChange={setDebt}
         />

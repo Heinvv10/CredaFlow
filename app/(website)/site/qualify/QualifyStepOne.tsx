@@ -1,5 +1,6 @@
 "use client"
 
+import { moneyLabel } from "@/lib/website/money-labels"
 import { activeCurrencySymbol } from "@/lib/utils"
 import { useT } from "@/lib/i18n/client"
 
@@ -55,7 +56,7 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
 
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-white/78">
-          {t("incomeLabel")}
+          {moneyLabel("incomeLabel", t("incomeLabel"))}
         </label>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{activeCurrencySymbol()}</span>
@@ -72,7 +73,7 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
 
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-white/78">
-          {t("expensesLabel")}
+          {moneyLabel("expensesLabel", t("expensesLabel"))}
         </label>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{activeCurrencySymbol()}</span>
