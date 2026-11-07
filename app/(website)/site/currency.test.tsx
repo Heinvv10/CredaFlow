@@ -78,8 +78,7 @@ describe.each(CASES)("the amount inputs of a %s lender billed in %s", (code, cur
       expect(h).toContain(`>${symbol}</span>`)
       if (symbol !== "R") expect(h).not.toContain(">R</span>")
     }
-    const padded = html.slice(0, 3).join("")
-    expect(padded).toContain(symbol.length > 1 ? "pl-12" : "pl-8")
+    for (const h of html) expect(h).toContain(symbol.length > 1 ? "pl-12" : "pl-8")
   })
 })
 
