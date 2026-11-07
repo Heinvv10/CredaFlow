@@ -1,5 +1,6 @@
 "use client"
 
+import { activeCurrencySymbol } from "@/lib/utils"
 import { useState, useMemo } from "react"
 import { formatZAR } from "@/lib/loan-calculator"
 import { computeQualification } from "@/lib/qualify"
@@ -104,14 +105,14 @@ function InputField({
     <div>
       <label className="block text-sm font-semibold text-white/78 mb-1.5">{label}</label>
       <div className="relative">
-        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">R</span>
+        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{activeCurrencySymbol()}</span>
         <input
           type="number"
           min={0}
           placeholder="0.00"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full border border-white/12 bg-black/20 py-3 pl-8 pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15"
+          className={`w-full border border-white/12 bg-black/20 py-3 ${activeCurrencySymbol().length > 1 ? "pl-12" : "pl-8"} pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15`}
         />
       </div>
     </div>

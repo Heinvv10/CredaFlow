@@ -1,5 +1,6 @@
 "use client"
 
+import { activeCurrencySymbol } from "@/lib/utils"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { ArrowRight } from "lucide-react"
@@ -150,7 +151,7 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
                   {product.amountLabel}
                 </label>
                 <div className="mt-1 flex items-center border border-white/12 bg-black/20 focus-within:border-[#a5b4fc]">
-                  <span className="pl-3 text-sm font-semibold text-white/42">R</span>
+                  <span className="pl-3 text-sm font-semibold text-white/42">{activeCurrencySymbol()}</span>
                   <input
                     id={`${variant}-product-amount`}
                     type="number"

@@ -316,14 +316,14 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
 function MoneyInput({ value, onChange, placeholder, className, disabled = false }: { value: number; onChange: (value: number) => void; placeholder: string; className?: string; disabled?: boolean }) {
   return (
     <div className={`relative ${className ?? ""}`}>
-      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-[var(--cf-text-muted)]">R</span>
+      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-[var(--cf-text-muted)]">{activeCurrencySymbol()}</span>
       <input
         type="number"
         disabled={disabled}
         value={value ? value / 100 : ""}
         onChange={e => onChange(Math.round((parseFloat(e.target.value) || 0) * 100))}
         placeholder={placeholder}
-        className="w-full rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] py-1.5 pl-6 pr-2 text-xs text-[var(--cf-text)] outline-none focus:ring-1 focus:ring-[var(--cf-brand)] disabled:cursor-not-allowed disabled:opacity-70"
+        className={`w-full rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] py-1.5 ${activeCurrencySymbol().length > 1 ? "pl-10" : "pl-6"} pr-2 text-xs text-[var(--cf-text)] outline-none focus:ring-1 focus:ring-[var(--cf-brand)] disabled:cursor-not-allowed disabled:opacity-70`}
       />
     </div>
   )

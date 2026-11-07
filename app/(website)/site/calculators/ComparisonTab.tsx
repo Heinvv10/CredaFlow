@@ -1,5 +1,6 @@
 "use client"
 
+import { activeCurrencySymbol } from "@/lib/utils"
 import { useState } from "react"
 import { calculateLoan, formatZAR } from "@/lib/loan-calculator"
 import type { LoanCalcResult } from "@/lib/loan-calculator"
@@ -125,7 +126,7 @@ export default function ComparisonTab() {
             </span>
           </div>
           <div className="relative mb-3">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">R</span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{activeCurrencySymbol()}</span>
             <input
               type="number"
               min={Math.round(amtMin / 100)}
@@ -134,7 +135,7 @@ export default function ComparisonTab() {
               value={safeAmount / 100}
               onChange={(e) => handleAmountChange(Number(e.target.value))}
               onFocus={(e) => e.currentTarget.select()}
-              className="w-full border border-white/12 bg-black/20 py-2.5 pl-8 pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15"
+              className={`w-full border border-white/12 bg-black/20 py-2.5 ${activeCurrencySymbol().length > 1 ? "pl-12" : "pl-8"} pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15`}
               inputMode="numeric"
             />
           </div>
