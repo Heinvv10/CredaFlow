@@ -4,8 +4,9 @@ import { demoLenderNote } from "@/lib/config/demo-mode"
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator, type MessageKey } from "@/lib/i18n/translate"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 
-type FooterLink = { label: MessageKey<"websiteShell">; href: string }
+type FooterLink = { label: MessageKey<"websiteShell">; href: string; /** English text replacing the catalogue label (the catalogue names POPIA). */ text?: string }
 
 const contactLinks: FooterLink[] = [
   { label: "footerContactUs", href: "/site/contact" },
@@ -30,6 +31,11 @@ const legalLinks: FooterLink[] = [
   { label: "footerComplaints", href: "/site/contact#complaints" },
 ]
 
+// Outside the NCA there is no regulatory-information page, and the privacy notice is not a POPIA one.
+const nonNcaLegalLinks: FooterLink[] = legalLinks
+  .filter((link) => link.label !== "footerRegulatory")
+  .map((link) => (link.label === "footerPrivacy" ? { ...link, text: "Privacy" } : link))
+
 function FooterColumn({ id, title, links, locale }: { id: string; title: string; links: FooterLink[]; locale: Locale }) {
   const t = createTranslator(locale, "websiteShell")
   // Footer column titles are nav-group labels, not document-outline headings.
@@ -48,7 +54,7 @@ function FooterColumn({ id, title, links, locale }: { id: string; title: string;
         {links.map((link) => (
           <li key={link.href}>
             <Link href={link.href} className="text-sm text-white/54 transition-colors hover:text-white">
-              {t(link.label)}
+              {link.text ?? t(link.label)}
             </Link>
           </li>
         ))}
@@ -57,7 +63,7 @@ function FooterColumn({ id, title, links, locale }: { id: string; title: string;
   )
 }
 
-export default function Footer({ identity, locale = DEFAULT_LOCALE }: { identity: LenderIdentity; locale?: Locale }) {
+export default function Footer({ identity, locale = DEFAULT_LOCALE, site = ZA_SITE }: { identity: LenderIdentity; locale?: Locale; site?: SiteJurisdiction }) {
   const t = createTranslator(locale, "websiteShell")
   const demoNote = demoLenderNote()
   return (
@@ -92,14 +98,18 @@ export default function Footer({ identity, locale = DEFAULT_LOCALE }: { identity
           </div>
 
           <FooterColumn id="contact" title={t("footerContact")} links={contactLinks} locale={locale} />
-          <FooterColumn id="products" title={t("footerProducts")} links={identity.fspNumber ? productLinksCol : productLinksCol.filter((l) => l.label !== "footerInsurance")} locale={locale} />
+          <FooterColumn id="products" title={t("footerProducts")} links={site.nca && identity.fspNumber ? productLinksCol : productLinksCol.filter((l) => l.label !== "footerInsurance")} locale={locale} />
           <FooterColumn id="resources" title={t("footerResources")} links={resourceLinks} locale={locale} />
-          <FooterColumn id="legal" title={t("footerLegal")} links={legalLinks} locale={locale} />
+          <FooterColumn id="legal" title={t("footerLegal")} links={site.nca ? legalLinks : nonNcaLegalLinks} locale={locale} />
         </div>
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-white/64 sm:flex-row">
           <p>&copy; {sastParts(new Date()).year} {identity.legalName} · Co. Reg: {identity.companyRegNumber}. All rights reserved.</p>
-          <p>{identity.ncrNumber ? <>Registered Credit Provider — NCR Reg: {identity.ncrNumber}</> : "Credit Provider"}{identity.fspNumber && <> · FSP: {identity.fspNumber}</>}{demoNote && <> · {demoNote}</>}</p>
+          {site.nca ? (
+            <p>{identity.ncrNumber ? <>Registered Credit Provider — NCR Reg: {identity.ncrNumber}</> : "Credit Provider"}{identity.fspNumber && <> · FSP: {identity.fspNumber}</>}{demoNote && <> · {demoNote}</>}</p>
+          ) : (
+            <p>Credit Provider{demoNote && <> · {demoNote}</>}</p>
+          )}
         </div>
       </div>
     </footer>

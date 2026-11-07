@@ -10,6 +10,8 @@
  */
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import type { Translator } from "@/lib/i18n/translate"
+import { NON_NCA_SITE_COPY } from "@/lib/website/non-nca-copy"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 
 export interface ContactFaq {
   question: string
@@ -19,6 +21,7 @@ export interface ContactFaq {
 export function contactFaqs(
   identity: Pick<LenderIdentity, "tradingName" | "registeredOfficeLines" | "publicWhatsapp">,
   t: Translator<"websiteContact">,
+  site: SiteJurisdiction = ZA_SITE,
 ): readonly ContactFaq[] {
   const brand = identity.tradingName
   return [
@@ -27,8 +30,8 @@ export function contactFaqs(
     // Keep in sync with the visible hours block in ./page.tsx.
     { question: t("faqHoursQ"), answer: t("faqHoursA") },
     { question: t("faqMethodQ"), answer: identity.publicWhatsapp ? t("faqMethodAWhatsapp") : t("faqMethodAPhone") },
-    { question: t("faqComplaintQ"), answer: t("faqComplaintA") },
-    { question: t("faqApplyQ"), answer: t("faqApplyA") },
+    { question: t("faqComplaintQ"), answer: site.nca ? t("faqComplaintA") : NON_NCA_SITE_COPY.contactComplaintAnswer(site.countryName) },
+    { question: t("faqApplyQ"), answer: site.nca ? t("faqApplyA") : NON_NCA_SITE_COPY.contactApplyAnswer },
     { question: t("faqWhereQ", { brand }), answer: t("faqWhereA", { address: identity.registeredOfficeLines.join(", ") }) },
   ]
 }

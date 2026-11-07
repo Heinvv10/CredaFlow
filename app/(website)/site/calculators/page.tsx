@@ -8,14 +8,17 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { toCrumbs } from "@/lib/nav/breadcrumbs"
 import type { Metadata } from "next"
 import { getT } from "@/lib/i18n/server"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 import { calculatorsFaqs } from "./faqs"
 
 export async function generateMetadata(): Promise<Metadata> {
+  const site = await getSiteJurisdiction()
   return buildPageMetadata({
     identity: await getWebsiteIdentity(),
     title: "Loan Calculators",
-    description:
-      "Assessment guidance for estimated repayments, affordability and product comparisons. Indicative only — subject to NCA affordability assessment.",
+    description: site.nca
+      ? "Assessment guidance for estimated repayments, affordability and product comparisons. Indicative only — subject to NCA affordability assessment."
+      : "Assessment guidance for estimated repayments, affordability and product comparisons. Indicative only — subject to affordability assessment.",
     path: "/site/calculators",
   })
 }
@@ -28,8 +31,9 @@ const calculatorsTrail = [
 export default async function CalculatorsPage() {
   const identity = await getWebsiteIdentity()
   if (!identity) return null
+  const site = await getSiteJurisdiction()
   const t = await getT("websiteCalculators")
-  const faqs = calculatorsFaqs(t)
+  const faqs = calculatorsFaqs(t, site)
   const calculatorsSchema = [
     breadcrumbLd(calculatorsTrail),
     webApplicationLd({
@@ -38,6 +42,7 @@ export default async function CalculatorsPage() {
         "Interactive loan calculators for estimating instalments, checking affordability and comparing products. Results are indicative only.",
       path: "/site/calculators",
       applicationCategory: "FinanceApplication",
+      ...(site.nca ? {} : { inLanguage: "en" }),
     }),
     faqLd(faqs),
   ]
@@ -101,8 +106,13 @@ export default async function CalculatorsPage() {
           <p className="mb-1 font-semibold text-white">Important Disclosure</p>
           <p>
             All calculations are estimates for illustration purposes only. Final loan terms, interest rates, fees, and
-            monthly instalments are subject to a full credit and affordability assessment. {identity.legalName} is a
-            registered credit provider{identity.ncrNumber ? <> in terms of the National Credit Act (NCR Reg: {identity.ncrNumber})</> : null}.
+            monthly instalments are subject to a full credit and affordability assessment.
+            {site.nca && (
+              <>
+                {" "}{identity.legalName} is a
+                registered credit provider{identity.ncrNumber ? <> in terms of the National Credit Act (NCR Reg: {identity.ncrNumber})</> : null}.
+              </>
+            )}
           </p>
         </div>
       </section>

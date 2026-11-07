@@ -53,6 +53,8 @@ export interface CaptureProfile {
 
 export interface JurisdictionProfile {
   code: Jurisdiction
+  /** The country as the public website names it ("South Africa"). */
+  countryName: string
   /** Credit is regulated by the South African National Credit Act (rate cap, s129, NCR returns). */
   ncaRegulated: boolean
   defaultCurrency: Currency
@@ -153,7 +155,7 @@ export const KENYA_COUNTIES = [
 
 const PROFILES: Record<Jurisdiction, JurisdictionProfile> = {
   ZA: {
-    code: "ZA", ncaRegulated: true, defaultCurrency: "ZAR", allowedCurrencies: ["ZAR"],
+    code: "ZA", countryName: "South Africa", ncaRegulated: true, defaultCurrency: "ZAR", allowedCurrencies: ["ZAR"],
     timeZone: "Africa/Johannesburg", timeZoneLabel: "SAST",
     capture: {
       idScheme: "SA_ID", idEncodesDob: true, idAlphanumeric: false, idMaxLength: 13,
@@ -173,7 +175,7 @@ const PROFILES: Record<Jurisdiction, JurisdictionProfile> = {
   },
   LS: {
     // The rand is legal tender in Lesotho.
-    code: "LS", ncaRegulated: false, defaultCurrency: "LSL", allowedCurrencies: ["LSL", "ZAR"],
+    code: "LS", countryName: "Lesotho", ncaRegulated: false, defaultCurrency: "LSL", allowedCurrencies: ["LSL", "ZAR"],
     timeZone: "Africa/Maseru", timeZoneLabel: "CAT",
     capture: {
       idScheme: "LS_ID", idEncodesDob: false, idAlphanumeric: true, idMaxLength: 15,
@@ -195,7 +197,7 @@ const PROFILES: Record<Jurisdiction, JurisdictionProfile> = {
   },
   // DRAFT: every Kenyan fact here is UNVERIFIED until the lender's Kenyan counsel confirms it.
   KE: {
-    code: "KE", ncaRegulated: false, defaultCurrency: "KES", allowedCurrencies: ["KES"],
+    code: "KE", countryName: "Kenya", ncaRegulated: false, defaultCurrency: "KES", allowedCurrencies: ["KES"],
     timeZone: "Africa/Nairobi", timeZoneLabel: "EAT",
     capture: {
       // UNVERIFIED: shape only, 8-digit national ID or 9-digit Maisha Namba (lib/jurisdiction/national-id.ts).

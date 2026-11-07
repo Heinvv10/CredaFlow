@@ -9,7 +9,7 @@ import { FaqAccordion } from "@/components/website/FaqAccordion"
 import { applyLivePricing } from "@/lib/public-loan-products"
 import { useLivePricing } from "@/lib/use-live-pricing"
 import { QUALIFY_DRAFT_KEY } from "@/lib/draft-keys"
-import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { useWebsiteIdentity, useWebsiteJurisdiction } from "@/components/website/WebsiteIdentity"
 import { useT } from "@/lib/i18n/client"
 import { qualifyFaqs, QUALIFY_FAQ_GROUPS } from "./faqs"
 
@@ -64,6 +64,7 @@ function readQualifyDraft(): { stepOne: StepOne; stepTwo: StepTwo } {
 
 export default function QualifyPage() {
   const identity = useWebsiteIdentity()
+  const site = useWebsiteJurisdiction()
   const t = useT("websiteQualify")
   const [step, setStep] = useState(0)
   const [stepOne, setStepOne] = useState(DEFAULT_STEP_ONE)
@@ -208,7 +209,7 @@ export default function QualifyPage() {
           <FaqAccordion
             groups={QUALIFY_FAQ_GROUPS.map(({ group, heading }) => ({
               heading: t(heading),
-              items: qualifyFaqs(identity, t).filter((faq) => faq.group === group),
+              items: qualifyFaqs(identity, t, site).filter((faq) => faq.group === group),
             }))}
           />
         </div>

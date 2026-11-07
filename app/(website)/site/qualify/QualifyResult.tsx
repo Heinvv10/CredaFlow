@@ -5,7 +5,7 @@ import { useEffect, type ReactNode } from "react"
 import { ArrowRight, CheckCircle, RotateCcw, ShieldAlert } from "lucide-react"
 import { calculateLoan, formatZAR } from "@/lib/loan-calculator"
 import type { LoanCalcInput } from "@/lib/loan-calculator"
-import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { useWebsiteIdentity, useWebsiteJurisdiction } from "@/components/website/WebsiteIdentity"
 import { trackQualifyResult } from "@/lib/analytics/events"
 import { useT } from "@/lib/i18n/client"
 import { termText } from "@/lib/i18n/products"
@@ -94,6 +94,7 @@ export default function QualifyResult({
   onRestart,
 }: ResultProps) {
   const identity = useWebsiteIdentity()
+  const site = useWebsiteJurisdiction()
   const t = useT("websiteQualify")
   const tp = useT("websiteProducts")
   // Micro/personal via the SHARED productForAmount rule (so the pre-qual prices the
@@ -214,9 +215,18 @@ export default function QualifyResult({
       </div>
 
       <p className="text-center text-[11px] leading-relaxed text-white/42">
-        This is a pre-qualification estimate only. Final approval is subject to a full credit and
-        affordability assessment as required by the National Credit Act (NCA) No. 34 of 2005.
-        {identity.legalName} — Registered Credit Provider{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null}.
+        {site.nca ? (
+          <>
+            This is a pre-qualification estimate only. Final approval is subject to a full credit and
+            affordability assessment as required by the National Credit Act (NCA) No. 34 of 2005.
+            {identity.legalName} — Registered Credit Provider{identity.ncrNumber ? <> (NCR Reg: {identity.ncrNumber})</> : null}.
+          </>
+        ) : (
+          <>
+            This is a pre-qualification estimate only. Final approval is subject to a full credit and
+            affordability assessment. {identity.legalName}.
+          </>
+        )}
       </p>
 
     </div>

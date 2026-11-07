@@ -6,6 +6,7 @@ import { FaqAccordion } from "@/components/website/FaqAccordion"
 import { toCrumbs } from "@/lib/nav/breadcrumbs"
 import { formatIdentityDate, type LenderIdentity } from "@/lib/config/identity-schema"
 import { getWebsiteIdentity } from "@/lib/website/identity"
+import { ncaOnlyPage } from "@/lib/jurisdiction/nca-only"
 import { regulatoryFaqs } from "./faqs"
 import { REGULATORY_BREADCRUMB } from "./breadcrumb"
 
@@ -32,6 +33,8 @@ function companyDetails(identity: LenderIdentity): ReadonlyArray<readonly [strin
 }
 
 export default async function RegulatoryInformationPage() {
+  // NCR and FSCA registrations (lib/registry/nca-only/090-website-regulatory.ts): not found for a lender outside the NCA.
+  await ncaOnlyPage()
   const identity = await getWebsiteIdentity()
   if (!identity) return null
   return (

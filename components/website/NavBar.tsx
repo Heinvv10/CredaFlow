@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useSyncExternalStore } from "react"
 import Link from "next/link"
 import { Menu, X, ChevronDown } from "lucide-react"
 import { APPLY_DRAFT_KEY, QUALIFY_DRAFT_KEY } from "@/lib/draft-keys"
-import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { useWebsiteIdentity, useWebsiteJurisdiction } from "@/components/website/WebsiteIdentity"
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher"
 import { useT } from "@/lib/i18n/client"
 import type { Locale } from "@/lib/i18n/locales"
@@ -48,8 +48,9 @@ export default function NavBar({ enabledLocales = [], logoSrc = null }: {
   logoSrc?: string | null
 }) {
   const identity = useWebsiteIdentity()
-  // Insurance is a FAIS intermediary's offer: no FSP number, no link to it.
-  const links = navLinks.filter((link) => link.label !== "navInsurance" || identity.fspNumber)
+  const site = useWebsiteJurisdiction()
+  // Insurance is a FAIS intermediary's offer, South African only: no FSP number or no NCA, no link to it.
+  const links = navLinks.filter((link) => link.label !== "navInsurance" || (site.nca && identity.fspNumber))
   const t = useT("websiteShell")
   const [open, setOpen] = useState(false)
   const [dropdown, setDropdown] = useState<string | null>(null)

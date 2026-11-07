@@ -1,4 +1,6 @@
 import { normaliseEmail, normalisePhone } from "@/lib/contact/identity"
+import { profileFor } from "@/lib/jurisdiction/profiles"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 
 export type ChatStartFields = { firstName: string; lastName: string; phone: string; email: string }
 export type ChatStartValidation =
@@ -27,7 +29,7 @@ function isValidName(name: string, firstName: string): boolean {
     && (name.match(/\p{L}/gu)?.length ?? 0) >= 2 && firstName.length <= MAX_FIRST_NAME_CHARS
 }
 
-export function validateChatStart(input: Record<string, unknown>): ChatStartValidation {
+export function validateChatStart(input: Record<string, unknown>, site: SiteJurisdiction = ZA_SITE): ChatStartValidation {
   const errors: Record<string, string> = {}
   // NUL and half surrogate pairs first, as for a message: Postgres refuses a NUL in text.
   const text = (v: unknown) => (typeof v === "string" ? cleanChatText(v) : "")
@@ -38,7 +40,7 @@ export function validateChatStart(input: Record<string, unknown>): ChatStartVali
 
   if (!isValidName(name, firstName)) errors.name = "Please enter your name."
   const phone = normalisePhone(rawPhone)
-  if (!phone) errors.phone = "Please enter a valid South African cell number."
+  if (!phone) errors.phone = site.nca ? "Please enter a valid South African cell number." : `Please enter ${profileFor(site.code).capture.mobileExamples}.`
   if (!EMAIL_RE.test(rawEmail) || rawEmail.length > 254) errors.email = "Please enter a valid email address."
   if (input.consent !== true) errors.consent = "Please tick the box to continue."
   if (Object.keys(errors).length > 0) return { ok: false, errors }

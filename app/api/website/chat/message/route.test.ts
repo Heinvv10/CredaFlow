@@ -28,11 +28,13 @@ vi.mock("@/lib/website-chat/store", () => ({
   recordAssistantReply: mocks.recordAssistantReply,
 }))
 vi.mock("@/lib/website-chat/handoff", () => ({ notifyStaffOfHandoff: mocks.notifyStaffOfHandoff }))
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 vi.mock("@/lib/website-chat/model", () => ({ askAssistant: mocks.askAssistant }))
 
 import { POST } from "./route"
 import { issueChatToken } from "@/lib/website-chat/token"
 import type { NextRequest } from "next/server"
+import { resetActiveJurisdiction, setActiveJurisdiction } from "@/lib/jurisdiction/active"
 
 function call(body: unknown) {
   return POST({ json: async () => body, headers: new Headers() } as unknown as NextRequest)
@@ -94,6 +96,24 @@ describe("website chat message", () => {
     const system = mocks.askAssistant.mock.calls[0][0] as string
     expect(system).toContain("Acme Lending")
     expect(system).toContain("KNOWLEDGE")
+  })
+
+  it("tells the model a South African lender is a registered credit provider in South Africa", async () => {
+    await call({ token, text: "hi" })
+    expect(mocks.askAssistant.mock.calls[0][0]).toContain("a registered credit provider and financial services provider in South Africa")
+  })
+
+  it("makes no South African claim to the model for a Kenyan lender", async () => {
+    setActiveJurisdiction({ jurisdiction: "KE", currency: "KES" })
+    try {
+      await call({ token, text: "hi" })
+      const system = mocks.askAssistant.mock.calls[0][0] as string
+      expect(system).toContain("Acme Lending, a lender in Kenya.")
+      expect(system).toContain("in plain, friendly English.")
+      expect(system).not.toMatch(/South Africa|registered credit provider|financial services provider/)
+    } finally {
+      resetActiveJurisdiction()
+    }
   })
 
   it("passes the tenant to every store call", async () => {

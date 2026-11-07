@@ -25,6 +25,7 @@ vi.mock("@/lib/website-chat/store", () => ({
   recordAssistantReply: mocks.recordAssistantReply,
 }))
 vi.mock("@/lib/website-chat/handoff", () => ({ notifyStaffOfHandoff: mocks.notifyStaffOfHandoff }))
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 vi.mock("@/lib/website-chat/model", () => ({ askAssistant: mocks.askAssistant }))
 
 import { POST } from "./route"

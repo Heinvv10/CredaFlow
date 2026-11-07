@@ -32,6 +32,7 @@ vi.mock("@/lib/prisma", () => ({
     client: { create: mocks.clientCreate, findFirst: mocks.clientFindFirst },
   },
 }))
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 vi.mock("@/lib/tenant", () => ({ getTenantFromRequest: mocks.getTenantFromRequest }))
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,

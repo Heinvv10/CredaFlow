@@ -7,19 +7,19 @@ import { getWebsiteIdentity } from "@/lib/website/identity"
 import { getTenantPublicProductsServer } from "@/lib/public-loan-products-server"
 import { homeFaqs } from "./(website)/site/home-faqs"
 import { getLocale } from "@/lib/i18n/server"
+import { homeDescription, homeTitle } from "@/lib/website/home-metadata"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
 // Rendered per request: the page prints the request tenant's own identity,
 // which a build-time prerender has no tenant to read.
 export const dynamic = "force-dynamic"
 
 export async function generateMetadata(): Promise<Metadata> {
-  const identity = await getWebsiteIdentity()
+  const [identity, site] = await Promise.all([getWebsiteIdentity(), getSiteJurisdiction()])
   return buildPageMetadata({
     identity,
-    title: "Credit and insurance — South Africa",
-    description: identity
-      ? `${identity.tradingName} offers responsible credit and insurance enquiries for South Africans. ${identity.ncrNumber ? `NCR-registered (${identity.ncrNumber}) ` : ""}with POPIA-aware processes.`
-      : "",
+    title: homeTitle(site),
+    description: identity ? homeDescription(identity, site) : "",
     path: "/",
   })
 }
@@ -34,9 +34,11 @@ export default async function Home() {
   const identity = await getWebsiteIdentity()
   const products = identity ? await getTenantPublicProductsServer() : []
   const locale = await getLocale()
+  const site = await getSiteJurisdiction()
+  const faqs = identity ? homeFaqs(identity, products, locale, site) : []
   return (
-    <WebsiteShell jsonLdId="home-organization" jsonLd={identity ? [faqLd(homeFaqs(identity, products, locale))] : []} regulatoryBand>
-      {identity && <HomePage identity={identity} products={products} locale={locale} />}
+    <WebsiteShell jsonLdId="home-organization" jsonLd={faqs.length > 0 ? [faqLd(faqs)] : []} regulatoryBand>
+      {identity && <HomePage identity={identity} products={products} locale={locale} site={site} />}
     </WebsiteShell>
   )
 }

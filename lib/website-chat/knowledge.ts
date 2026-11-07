@@ -4,6 +4,9 @@ import {
   applyLivePricing, formatInterestLabel, formatProductRange, formatProductTermRange, type PublicLoanProduct,
 } from "@/lib/public-loan-products"
 import { getLivePricingServer } from "@/lib/public-loan-products-server"
+import { NCA_ONLY_SITE_ROUTES } from "@/lib/website/routes"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
 // Only what the tenant has published: its own identity, the loan and insurance products it
 // has switched on, and the website pages that exist. Adding a source here is a content
@@ -26,27 +29,33 @@ const INSURANCE_TYPE_LABEL: Record<string, string> = {
 
 export type InsuranceFact = { name: string; type: string }
 
-export function buildKnowledge(a: { identity: LenderIdentity; products: PublicLoanProduct[]; insurance: InsuranceFact[] }): string {
-  const { identity: id, products, insurance } = a
-  const company = [
+export function buildKnowledge(a: { identity: LenderIdentity; products: PublicLoanProduct[]; insurance: InsuranceFact[]; site?: SiteJurisdiction }): string {
+  const { identity: id, products, insurance, site = ZA_SITE } = a
+  // Outside the NCA the lender holds no NCR or FSP registration to state and sells no insurance.
+  const company = site.nca ? [
     `${id.legalName}.${id.ncrNumber ? ` NCR registration ${id.ncrNumber}.` : ""}${id.fspNumber ? ` FSP licence ${id.fspNumber}.` : ""} Company registration ${id.companyRegNumber}.`,
     id.ncrStatus && `NCR status: ${id.ncrStatus}.`,
     id.ncrRegistrationDate && `Registered with the NCR on ${formatIdentityDate(id.ncrRegistrationDate)}.`,
     id.fspNumber && id.fscaAuthorisationDate && `Authorised as an FSP on ${formatIdentityDate(id.fscaAuthorisationDate)}.`,
     id.headOfficeCity && `Head office: ${id.headOfficeCity}.`,
-  ].filter((l): l is string => Boolean(l))
+  ] : [
+    `${id.legalName}. Company registration ${id.companyRegNumber}.`,
+    id.headOfficeCity && `Head office: ${id.headOfficeCity}.`,
+  ]
+  const companyLines = company.filter((l): l is string => Boolean(l))
   const contact = `Phone ${id.publicPhone}.${id.publicWhatsapp ? ` WhatsApp ${id.publicWhatsapp}.` : ""} Email ${id.publicEmail}.`
   const productLines = products.map((p) =>
     `- ${p.label}: ${p.description} Amounts ${formatProductRange(p)}; terms ${formatProductTermRange(p)}; ${formatInterestLabel(p)}.`)
   // A lender with no FSP number offers no insurance: none is named, and its
   // insurance page (which 404s) is not linked.
-  const offered = id.fspNumber ? insurance : []
+  const offered = site.nca && id.fspNumber ? insurance : []
   const insuranceLines = offered.map((i) => `- ${i.name} (${INSURANCE_TYPE_LABEL[i.type] ?? "insurance"})`)
-  const pages = offered.length ? [...PAGES, ["Insurance", "/site/products/insurance"] as const] : PAGES
+  const ownPages = site.nca ? PAGES : PAGES.filter(([, path]) => !NCA_ONLY_SITE_ROUTES.includes(path))
+  const pages = offered.length ? [...ownPages, ["Insurance", "/site/products/insurance"] as const] : ownPages
 
   return [
     "## Company",
-    ...company,
+    ...companyLines,
     contact,
     "",
     "## Loan products (as published on the website)",
@@ -65,7 +74,7 @@ export async function knowledgeFor(tenantId: string, identity: LenderIdentity): 
   const insurance = await prisma.insuranceProduct.findMany({
     where: { tenantId, active: true }, select: { name: true, type: true }, orderBy: [{ type: "asc" }, { name: "asc" }],
   })
-  return buildKnowledge({ identity, products, insurance })
+  return buildKnowledge({ identity, products, insurance, site: await getSiteJurisdiction() })
 }
 
 /**

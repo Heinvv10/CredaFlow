@@ -5,6 +5,7 @@ import { expectNoOtherLender } from "@/lib/website/__fixtures__/other-lender"
 import { WebsiteIdentityProvider } from "@/components/website/WebsiteIdentity"
 
 vi.mock("@/lib/website/identity", () => ({ getWebsiteIdentity: vi.fn(async () => ACME_LENDER) }))
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),

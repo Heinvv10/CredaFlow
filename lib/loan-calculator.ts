@@ -1,5 +1,6 @@
 import { capInitiationFee, ncaInitiationFeeCap } from "./loan/nca-fee-cap"
-import { isNcaJurisdiction } from "./jurisdiction/active"
+import { activeCurrency, isNcaJurisdiction } from "./jurisdiction/active"
+import { currencySymbol } from "./jurisdiction/money"
 import { monthlyEquivalentInstalment } from "./product-engine/instalment"
 import { generateSchedule } from "./product-engine/schedule"
 import type { RepaymentTerms } from "./product-engine/types"
@@ -261,11 +262,12 @@ export function calculateLoan(
   }
 }
 
-// Display-only rand formatter (every importer is a React/UI component). The
-// gap between "R" and the amount is a NON-BREAKING space (U+00A0) so the symbol
+// Display-only money formatter in the lender's currency (every importer is a React/UI component;
+// the name is historical: "R" for a South African lender, "M" or "KSh" for the others). The
+// gap between the symbol and the amount is a NON-BREAKING space (U+00A0) so the symbol
 // never wraps onto its own line in narrow cards/flex rows. Do NOT reuse this for
 // SMS (GSM-7 has no U+00A0 → forces costlier UCS-2) or NCA docs — lib/utils.ts
 // keeps the plain-space formatZAR for those channels.
 export function formatZAR(cents: number): string {
-  return `R\u00A0${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
+  return `${currencySymbol(activeCurrency())}\u00A0${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 }

@@ -3,7 +3,8 @@ import { CheckCircle, Clock, Loader2, Mail, MapPin, MessageCircle, Phone, type L
 import { useState } from "react"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { FaqAccordion } from "@/components/website/FaqAccordion"
-import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { useWebsiteIdentity, useWebsiteJurisdiction } from "@/components/website/WebsiteIdentity"
+import { NON_NCA_SITE_COPY } from "@/lib/website/non-nca-copy"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useT } from "@/lib/i18n/client"
 import type { MessageKey } from "@/lib/i18n/translate"
@@ -19,6 +20,7 @@ const ENQUIRY_PREFILL: Record<string, MessageKey<"websiteContact">> = {
 
 export default function ContactPage() {
   const identity = useWebsiteIdentity()
+  const site = useWebsiteJurisdiction()
   const t = useT("websiteContact")
   const [form, setForm] = useState({ name: "", phone: "", email: "", message: "" })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -82,7 +84,7 @@ export default function ContactPage() {
         <div className="relative mx-auto max-w-6xl">
           <p className="mb-3 text-xs font-bold uppercase tracking-[0.28em] text-[#a5b4fc]">{t("eyebrow", { brand: identity.tradingName })}</p>
           <h1 className="max-w-3xl text-balance text-4xl font-semibold tracking-tight md:text-6xl">{t("heading")}</h1>
-          <p className="mt-5 max-w-2xl text-sm leading-relaxed text-white/64 md:text-base">{t("intro")}</p>
+          <p className="mt-5 max-w-2xl text-sm leading-relaxed text-white/64 md:text-base">{site.nca ? t("intro") : NON_NCA_SITE_COPY.contactIntro}</p>
           <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/64 md:text-base">
             {identity.publicWhatsapp
               ? t("reachPhoneWhatsapp", { phone: identity.publicPhone, whatsapp: identity.publicWhatsapp, email: identity.publicEmail })
@@ -141,7 +143,7 @@ export default function ContactPage() {
           {t("faqHeading")}
         </h2>
         <div className="mt-8">
-          <FaqAccordion items={contactFaqs(identity, t)} />
+          <FaqAccordion items={contactFaqs(identity, t, site)} />
         </div>
       </section>
     </main>

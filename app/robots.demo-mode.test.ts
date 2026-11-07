@@ -1,16 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: async () => ({}) }))
+
 import robots from "./robots"
 
 afterEach(() => vi.unstubAllEnvs())
 
 describe("robots.txt", () => {
-  it("disallows everything in demo mode", () => {
+  it("disallows everything in demo mode", async () => {
     vi.stubEnv("DEMO_MODE", "true")
-    expect(robots()).toEqual({ rules: [{ userAgent: "*", disallow: "/" }] })
+    expect(await robots()).toEqual({ rules: [{ userAgent: "*", disallow: "/" }] })
   })
-  it("keeps the normal allow-list when DEMO_MODE is unset", () => {
+  it("keeps the normal allow-list when DEMO_MODE is unset", async () => {
     vi.stubEnv("DEMO_MODE", "")
-    const rules = robots().rules
+    const rules = (await robots()).rules
     const first = Array.isArray(rules) ? rules[0] : rules
     expect(first.allow).toBeDefined()
     expect(first.disallow).not.toBe("/")

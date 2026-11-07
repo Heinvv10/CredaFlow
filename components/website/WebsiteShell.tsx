@@ -8,6 +8,7 @@ import { WebsiteAnalytics } from "@/components/analytics/WebsiteAnalytics"
 import { WebsiteSupport } from "@/components/support/WebsiteSupport"
 import { organizationLd, webSiteLd } from "@/lib/seo/jsonld"
 import { getWebsiteIdentity } from "@/lib/website/identity"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 import { TenantThemeProvider } from "@/components/TenantThemeProvider"
 import { getResolvedTenantId, getTenantConfig } from "@/lib/tenant"
 import { publicLenderLogoSrc } from "@/lib/config/lender-logo"
@@ -36,7 +37,8 @@ export async function WebsiteShell({
   const identity = await getWebsiteIdentity()
   if (!identity) return <WebsiteNotConfigured />
   const tenantId = await getResolvedTenantId()
-  const [theme, locale, enabledLocales, logoSrc] = await Promise.all([
+  const [site, theme, locale, enabledLocales, logoSrc] = await Promise.all([
+    getSiteJurisdiction(),
     getTenantConfig(tenantId),
     getLocale(),
     getTenantEnabledLocales(tenantId),
@@ -45,15 +47,15 @@ export async function WebsiteShell({
 
   return (
     <TenantThemeProvider config={theme}>
-      <WebsiteIdentityProvider identity={identity}>
+      <WebsiteIdentityProvider identity={identity} jurisdiction={site}>
         <I18nProvider locale={locale} messages={clientMessages(locale, WEBSITE_CLIENT_NAMESPACES)}>
           <div lang={locale} className="flex min-h-screen flex-col bg-[#11141b] text-white">
             <WebsiteAnalytics />
-            <JsonLd id={jsonLdId} data={[organizationLd(identity), webSiteLd(identity), ...jsonLd]} />
+            <JsonLd id={jsonLdId} data={[organizationLd(identity, site), webSiteLd(identity, site), ...jsonLd]} />
             <NavBar enabledLocales={enabledLocales} logoSrc={logoSrc} />
-            {regulatoryBand && <RegulatoryBand identity={identity} />}
+            {regulatoryBand && site.nca && <RegulatoryBand identity={identity} />}
             <main className="flex-1">{children}</main>
-            <Footer identity={identity} locale={locale} />
+            <Footer identity={identity} locale={locale} site={site} />
             <WebsiteSupport whatsappE164={identity.publicWhatsappE164} />
           </div>
         </I18nProvider>

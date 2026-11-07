@@ -7,6 +7,7 @@ import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { AuditAction } from "@/lib/audit"
 import { limiterAddress } from "@/lib/limiter-address"
+import { ncaOnlyRefusal } from "@/lib/jurisdiction/nca-only"
 
 const FORM_RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 } as const
 
@@ -37,6 +38,9 @@ const COVER_LABELS: Record<CoverType, string> = {
 }
 
 export async function POST(req: NextRequest) {
+  // South African insurance (lib/registry/nca-only/080-website-insurance.ts): refused before any work for a lender outside the NCA.
+  const refused = await ncaOnlyRefusal("Insurance enquiries")
+  if (refused) return refused
   try {
     const ip = callerIp(req)
     const gate = await checkRateLimit(`website:insurance-enquiry:${limiterAddress(ip)}`, FORM_RATE_LIMIT)

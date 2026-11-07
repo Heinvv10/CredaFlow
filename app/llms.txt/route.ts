@@ -2,6 +2,7 @@ import { findLenderIdentity } from "@/lib/config/identity"
 import { getResolvedTenantId } from "@/lib/tenant"
 import { getTenantPublicProductsServer } from "@/lib/public-loan-products-server"
 import { siteUrl } from "@/lib/seo/metadata"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
 
 // Rendered per request: the page prints the request tenant's own identity,
 // which a build-time prerender has no tenant to read.
@@ -16,27 +17,27 @@ export async function GET() {
   }
   const products = await getTenantPublicProductsServer()
   const base = siteUrl()
+  const site = await getSiteJurisdiction()
 
   const body = `# ${identity.tradingName}
 
-> ${identity.brandTagline ?? `${identity.legalName}, a South African credit provider.`}
+> ${identity.brandTagline ?? `${identity.legalName}, a ${site.nca ? "South African" : site.countryName} credit provider.`}
 
 ## Public pages
 
 - Home: ${base}/
-${identity.fspNumber ? `- Insurance: ${base}/site/products/insurance\n` : ""}- Loan calculators: ${base}/site/calculators
+${site.nca && identity.fspNumber ? `- Insurance: ${base}/site/products/insurance\n` : ""}- Loan calculators: ${base}/site/calculators
 - Eligibility check: ${base}/site/qualify
 - Apply online: ${base}/site/apply
 - Contact and complaints: ${base}/site/contact
-- Privacy and POPIA: ${base}/site/privacy
+- ${site.nca ? "Privacy and POPIA" : "Privacy"}: ${base}/site/privacy
 - Terms and conditions: ${base}/site/terms
-- Regulatory information: ${base}/site/regulatory-information
-
+${site.nca ? `- Regulatory information: ${base}/site/regulatory-information\n` : ""}
 ## Entity facts
 
 - Brand: ${identity.tradingName}
 - Legal name: ${identity.legalName}
-${identity.ncrNumber ? `- NCR registration: ${identity.ncrNumber}\n` : ""}${identity.fspNumber ? `- FSP number: ${identity.fspNumber}\n` : ""}- Country: South Africa
+${site.nca && identity.ncrNumber ? `- NCR registration: ${identity.ncrNumber}\n` : ""}${site.nca && identity.fspNumber ? `- FSP number: ${identity.fspNumber}\n` : ""}- Country: ${site.countryName}
 ${identity.headOfficeCity ? `- Head office: ${identity.headOfficeCity}\n` : ""}${products.length > 0 ? `- Credit products: ${products.map((p) => p.label).join(", ")}\n` : ""}- Contact: ${identity.publicEmail}
 `
 

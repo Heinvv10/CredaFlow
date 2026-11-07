@@ -3,6 +3,7 @@ import { ArrowRight, BadgeCheck, CheckCircle2, FilePlus2, HelpCircle, ShieldChec
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import type { PublicLoanProduct } from "@/lib/public-loan-products"
 import { portalDocumentsUrl, portalLoginUrl as portalLoginHref, portalUrlOrNull } from "@/lib/portal-urls"
+import { HomeProtections } from "@/components/website/HomeProtections"
 import { HomeFaqSection } from "@/app/(website)/site/HomeFaqSection"
 import { HomeLoanCalculatorCard } from "@/app/(website)/site/HomeLoanCalculatorCard"
 import { homeFaqs } from "@/app/(website)/site/home-faqs"
@@ -10,6 +11,8 @@ import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
 import { localizeProduct } from "@/lib/i18n/products"
 import { activeCurrencySymbol } from "@/lib/utils"
+import { NON_NCA_HOME_COPY } from "@/components/website/non-nca-home-copy"
+import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
 
 // Client-facing portal URLs (lib/portal-urls.ts), null when the deployment has
 // no portal URL configured: the portal links are then left out rather than
@@ -20,6 +23,8 @@ const portalDocumentsCtaUrl = portalUrlOrNull(() => portalDocumentsUrl())
 type HomeKey = MessageKey<"websiteHome">
 
 const trustItems: HomeKey[] = ["trustNcr", "trustPopia", "trustFais", "trustPortal"]
+// The NCR, POPIA and FAIS badges are South African; outside the NCA only the portal one holds.
+const nonNcaTrustItems: HomeKey[] = ["trustPortal"]
 
 const quickSteps: { step: string; title: HomeKey; body: HomeKey }[] = [
   { step: "1", title: "step1Title", body: "step1Body" },
@@ -32,8 +37,6 @@ const returnShortcuts: { label: HomeKey; href: string; icon: typeof FilePlus2 }[
   ...(portalDocumentsCtaUrl ? [{ label: "uploadDocuments" as const, href: portalDocumentsCtaUrl, icon: Upload }] : []),
   ...(portalLoginCtaUrl ? [{ label: "clientPortal" as const, href: portalLoginCtaUrl, icon: Smartphone }] : []),
 ]
-
-const protections: HomeKey[] = ["protection1", "protection2", "protection3", "protection4"]
 
 const rands = (cents: number) => `${activeCurrencySymbol()}${Math.round(cents / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 
@@ -50,10 +53,11 @@ function productRange(product: PublicLoanProduct, t: Translator<"websiteHome">):
  * The public home page. Everything about the lender comes from its identity,
  * and the product cards only from the loan products it has configured.
  */
-export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCALE }: { identity: LenderIdentity; products: PublicLoanProduct[]; locale?: Locale }) {
+export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCALE, site = ZA_SITE }: { identity: LenderIdentity; products: PublicLoanProduct[]; locale?: Locale; site?: SiteJurisdiction }) {
   const t = createTranslator(locale, "websiteHome")
   const tp = createTranslator(locale, "websiteProducts")
   const products = catalogue.map((product) => localizeProduct(product, tp))
+  const faqs = homeFaqs(identity, catalogue, locale, site)
   return (
     <div className="bg-[#11141b] text-white">
       <section className="relative min-h-[560px] overflow-hidden bg-[#11141b]">
@@ -62,7 +66,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
 
         <div className="relative mx-auto flex min-h-[560px] max-w-7xl flex-col justify-end px-4 py-12 sm:px-6 lg:px-8">
           <div className="max-w-3xl py-16 lg:max-w-[660px]">
-            {identity.ncrNumber && (
+            {site.nca && identity.ncrNumber && (
               <div className="mb-6 inline-flex items-center gap-2 border border-white/18 bg-white/10 px-4 py-2 text-xs font-semibold text-white/84 backdrop-blur">
                 <BadgeCheck className="h-4 w-4 text-[#a5b4fc]" />
                 {t("ncrBadge", { ncr: identity.ncrNumber })}
@@ -72,7 +76,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
               {identity.tradingName}
             </h1>
             <p className="mt-7 max-w-2xl text-lg leading-8 text-white/78">
-              {identity.brandTagline ?? t("defaultTagline")}
+              {identity.brandTagline ?? (site.nca ? t("defaultTagline") : NON_NCA_HOME_COPY.defaultTagline)}
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -111,7 +115,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
               <h2 className="mt-2 text-2xl font-semibold text-white">{t("whatDoYouNeed")}</h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-white/58">
-              {t("chooseService")}
+              {site.nca ? t("chooseService") : NON_NCA_HOME_COPY.chooseService}
             </p>
           </div>
 
@@ -130,7 +134,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
                 <p className="mt-2 text-xs leading-5 text-white/48">{productRange(product, t)}</p>
               </Link>
             ))}
-            {identity.fspNumber && (
+            {site.nca && identity.fspNumber && (
               <Link
                 href="/site/products/insurance"
                 className="group flex h-full min-h-[132px] flex-col border border-white/12 bg-white/[0.04] p-5 transition hover:border-[#a5b4fc] hover:bg-white/[0.08]"
@@ -195,7 +199,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
           </div>
 
           <div className="grid grid-cols-2 gap-3 border-t border-white/10 pt-6 sm:grid-cols-4">
-            {trustItems.filter((item) => item !== "trustFais" || identity.fspNumber).map((item) => (
+            {(site.nca ? trustItems : nonNcaTrustItems).filter((item) => item !== "trustFais" || identity.fspNumber).map((item) => (
               <div key={item} className="flex items-center gap-2 text-sm font-medium text-white/72">
                 <CheckCircle2 className="h-4 w-4 text-[#a5b4fc]" />
                 {t(item)}
@@ -241,37 +245,13 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
         </section>
       )}
 
-      <section className="hidden border-t border-white/10 bg-[#11141b] px-4 py-20 sm:px-6 md:block lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.9fr_1.1fr]">
-          <div>
-            <div className="flex h-11 w-11 items-center justify-center border border-[#a5b4fc]/35 bg-[#a5b4fc]/12 text-[#a5b4fc]">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-[#a5b4fc]">{t("howProtected")}</p>
-            <h2 className="mt-4 text-balance text-4xl font-semibold tracking-normal text-white">
-              {t("protectedHeading")}
-            </h2>
-            {/* The sentence claims FSP authorisation; it is not translated without it. */}
-            {identity.fspNumber && identity.ncrNumber && (
-              <p className="mt-5 text-lg leading-8 text-white/66">
-                {t("protectedBody", { legalName: identity.legalName, ncr: identity.ncrNumber, fsp: identity.fspNumber })}
-              </p>
-            )}
-          </div>
-          <div className="grid gap-3">
-            {protections.map((p) => (
-              <div key={p} className="flex items-start gap-3 border border-white/12 bg-white/[0.04] px-5 py-4">
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#a5b4fc]" />
-                <span className="text-sm leading-7 text-white/72">{t(p)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {site.nca && <HomeProtections identity={identity} t={t} />}
 
-      <div className="hidden md:block">
-        <HomeFaqSection brand={identity.tradingName} faqs={homeFaqs(identity, catalogue, locale)} locale={locale} />
-      </div>
+      {faqs.length > 0 && (
+        <div className="hidden md:block">
+          <HomeFaqSection brand={identity.tradingName} faqs={faqs} locale={locale} />
+        </div>
+      )}
 
       <section className="relative overflow-hidden bg-[#11141b] px-4 py-16 text-center text-white sm:px-6 lg:px-8">
         <div className="relative">
@@ -280,7 +260,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
             {t("readyHeading")}
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-white/72">
-            {t("readyBody", { brand: identity.tradingName })}
+            {site.nca ? t("readyBody", { brand: identity.tradingName }) : NON_NCA_HOME_COPY.readyBody(identity.tradingName)}
           </p>
           <div className="mt-8 flex justify-center">
             <Link

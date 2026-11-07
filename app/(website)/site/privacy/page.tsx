@@ -18,19 +18,19 @@ import { breadcrumbLd } from "@/lib/seo/jsonld"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { toCrumbs } from "@/lib/nav/breadcrumbs"
 import { getWebsiteIdentity } from "@/lib/website/identity"
+import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
+import { privacyCopy } from "./copy"
 
-// Legal copy: the wording is unchanged from the inherited
-// policy; only the lender's identity values are substituted from its own
-// LenderIdentity. Client legal must sign this page off before go-live.
+// Legal copy (./copy.ts): only the lender's identity values are substituted
+// from its own LenderIdentity.
 
 export async function generateMetadata(): Promise<Metadata> {
-  const identity = await getWebsiteIdentity()
+  const [identity, site] = await Promise.all([getWebsiteIdentity(), getSiteJurisdiction()])
+  const copy = privacyCopy(site)
   return buildPageMetadata({
     identity,
-    title: "Privacy Policy & POPIA Notice",
-    description: identity
-      ? `How ${identity.tradingName} collects, uses, stores and protects your personal information under POPIA. Includes your data subject rights and contact details.`
-      : "",
+    title: copy.title,
+    description: identity ? copy.description(identity.tradingName) : "",
     path: "/site/privacy",
   })
 }
@@ -42,10 +42,10 @@ const privacyTrail = [
 
 const privacyBreadcrumb = breadcrumbLd(privacyTrail)
 
-const collectedInfo = [
+const collectedInfo = (identityBody: string) => [
   {
     title: "Identity and contact",
-    body: "Name, South African ID number, date of birth, phone number, email address and address details.",
+    body: identityBody,
     icon: Fingerprint,
   },
   {
@@ -73,34 +73,10 @@ const dataJourney = [
   "Manage servicing, collections and regulatory records",
 ]
 
-const uses = [
-  "Assess loan, insurance and related financial-service requests",
-  "Verify identity, reduce fraud risk and meet FICA, NCA and POPIA duties",
-  "Calculate affordability, prepare disclosures and communicate application outcomes",
-  "Administer accounts, repayments, claims, renewals and client support",
-  "Report where required to regulators, credit bureaux and approved service partners",
-  "Send relevant product information where the client has consented or where law allows it",
-]
-
-const rights = (brand: string) => [
-  ["Access", `Ask what personal information ${brand} holds about you.`],
-  ["Correction", "Request correction of inaccurate or incomplete information."],
-  ["Objection", "Object to certain processing, including direct marketing."],
-  ["Withdrawal", "Withdraw consent where processing depends on consent."],
-  ["Deletion", "Request deletion where there is no lawful reason to retain the record."],
-  ["Complaint", `Complain to ${brand} or the Information Regulator of South Africa.`],
-]
-
-const safeguards = [
-  "Role-based access controls for staff and advisors",
-  "Secure application and document workflows",
-  "Audit trails for sensitive operational actions",
-  "Retention aligned to credit, FICA and regulatory record obligations",
-]
-
 export default async function PrivacyPage() {
   const identity = await getWebsiteIdentity()
   if (!identity) return null
+  const copy = privacyCopy(await getSiteJurisdiction())
   const brand = identity.tradingName
   return (
     <main className="min-h-screen bg-[#11141b] text-white">
@@ -113,14 +89,13 @@ export default async function PrivacyPage() {
           <div className="max-w-3xl">
             <div className="mb-5 inline-flex items-center gap-2 border border-[#a5b4fc]/35 bg-[#a5b4fc]/10 px-3 py-2 text-xs font-bold uppercase tracking-[0.22em] text-[#a5b4fc]">
               <ShieldCheck size={16} />
-              POPIA and client trust
+              {copy.eyebrow}
             </div>
             <h1 className="text-balance text-4xl font-semibold tracking-tight text-white md:text-6xl">
               Privacy, consent and responsible data use.
             </h1>
             <p className="mt-5 max-w-2xl text-sm leading-relaxed text-white/64 md:text-base">
-              {brand} collects and processes personal information to assess applications, meet regulatory
-              duties, protect clients and provide lending, insurance and related financial-service support.
+              {copy.intro(brand)}
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <Link
@@ -147,14 +122,12 @@ export default async function PrivacyPage() {
           <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">Policy snapshot</p>
           <h2 className="mt-3 text-2xl font-semibold text-white">What this policy covers</h2>
           <p className="mt-3 text-sm leading-relaxed text-white/58">
-            This page explains how client information moves through the website, eligibility, application, portal and
-            servicing workflows. It supports POPIA transparency, NCA affordability requirements and insurance
-            disclosure readiness.
+            {copy.snapshotBody}
           </p>
           <div className="mt-6 space-y-3 text-sm">
             {[
               ["Responsible party", identity.legalName],
-              ...(identity.ncrNumber ? [["NCR registration", identity.ncrNumber]] : []),
+              ...(copy.showNcrRegistration && identity.ncrNumber ? [["NCR registration", identity.ncrNumber]] : []),
               ["Last reviewed", "May 2026"],
               ["Primary contact", identity.publicEmail],
             ].map(([label, value]) => (
@@ -189,7 +162,7 @@ export default async function PrivacyPage() {
 
       <section className="mx-auto max-w-6xl px-4 py-8">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {collectedInfo.map(({ title, body, icon: Icon }) => (
+          {collectedInfo(copy.identityBody).map(({ title, body, icon: Icon }) => (
             <div key={title} className="border border-white/12 bg-white/[0.035] p-5">
               <Icon className="mb-5 text-[#a5b4fc]" size={26} />
               <h3 className="text-base font-semibold text-white">{title}</h3>
@@ -202,7 +175,7 @@ export default async function PrivacyPage() {
       <section className="mx-auto grid max-w-6xl gap-6 px-4 py-8 lg:grid-cols-2">
         <PolicyPanel eyebrow="Processing purposes" title={`Why ${brand} uses this information`} icon={<UserCheck />}>
           <ul className="space-y-3">
-            {uses.map((item) => (
+            {copy.uses.map((item) => (
               <li key={item} className="flex gap-3 text-sm leading-relaxed text-white/62">
                 <span className="mt-2 h-1.5 w-1.5 shrink-0 bg-[#a5b4fc]" />
                 {item}
@@ -213,12 +186,10 @@ export default async function PrivacyPage() {
 
         <PolicyPanel eyebrow="Sharing and safeguards" title="Who may receive information" icon={<LockKeyhole />}>
           <p className="text-sm leading-relaxed text-white/62">
-            {brand} does not sell personal information. Information may be shared with credit bureaux, payment and
-            banking partners, verification providers, insurers or underwriting partners, professional advisors,
-            regulators and law-enforcement bodies where there is a lawful basis.
+            {copy.sharing(brand)}
           </p>
           <div className="mt-5 grid gap-3">
-            {safeguards.map((item) => (
+            {copy.safeguards.map((item) => (
               <div key={item} className="border border-white/8 bg-black/18 px-3 py-3 text-sm text-white/62">
                 {item}
               </div>
@@ -231,21 +202,23 @@ export default async function PrivacyPage() {
         <div className="border border-white/12 bg-white/[0.035] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">Your POPIA rights</p>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#a5b4fc]">{copy.rightsEyebrow}</p>
               <h2 className="mt-3 text-2xl font-semibold text-white">Control, correction and complaints</h2>
             </div>
-            <a
-              href="https://inforegulator.org.za/"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 border border-white/14 px-4 py-2 text-sm font-semibold text-white/72 hover:bg-white/[0.05] hover:text-white"
-            >
-              Information Regulator
-              <ArrowRight size={15} />
-            </a>
+            {copy.regulatorLink && (
+              <a
+                href={copy.regulatorLink.href}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 border border-white/14 px-4 py-2 text-sm font-semibold text-white/72 hover:bg-white/[0.05] hover:text-white"
+              >
+                {copy.regulatorLink.label}
+                <ArrowRight size={15} />
+              </a>
+            )}
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {rights(brand).map(([right, body]) => (
+            {copy.rights(brand).map(([right, body]) => (
               <div key={right} className="border border-white/8 bg-black/18 p-4">
                 <p className="font-semibold text-white">{right}</p>
                 <p className="mt-2 text-sm leading-relaxed text-white/52">{body}</p>
@@ -259,9 +232,7 @@ export default async function PrivacyPage() {
         <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
           <PolicyPanel eyebrow="Retention" title="How long records are kept" icon={<Database />}>
             <p className="text-sm leading-relaxed text-white/62">
-              {brand} retains information for as long as needed to provide services, resolve disputes, meet credit and
-              insurance obligations and comply with applicable laws. Credit and FICA-related records are typically kept
-              for at least five years after the relationship ends, unless a longer period is required.
+              {copy.retention(brand)}
             </p>
           </PolicyPanel>
 
@@ -282,14 +253,16 @@ export default async function PrivacyPage() {
                 <span className="text-white/42">Phone:</span> {identity.publicPhone}
               </p>
               <p>
-                <span className="text-white/42">Complaint escalation:</span> Information Regulator of South Africa
+                <span className="text-white/42">Complaint escalation:</span> {copy.escalation}
               </p>
-              <p>
-                <span className="text-white/42">POPIA complaints:</span>{" "}
-                <a href="mailto:POPIAComplaints@inforegulator.org.za" className="font-semibold text-[#a5b4fc] hover:underline">
-                  POPIAComplaints@inforegulator.org.za
-                </a>
-              </p>
+              {copy.complaintsEmail && (
+                <p>
+                  <span className="text-white/42">{copy.complaintsEmail.label}</span>{" "}
+                  <a href={`mailto:${copy.complaintsEmail.address}`} className="font-semibold text-[#a5b4fc] hover:underline">
+                    {copy.complaintsEmail.address}
+                  </a>
+                </p>
+              )}
             </div>
           </div>
         </div>
