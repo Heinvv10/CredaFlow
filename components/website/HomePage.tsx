@@ -13,6 +13,8 @@ import { localizeProduct } from "@/lib/i18n/products"
 import { activeCurrencySymbol } from "@/lib/utils"
 import { NON_NCA_HOME_COPY } from "@/components/website/non-nca-home-copy"
 import { ZA_SITE, type SiteJurisdiction } from "@/lib/website/site-jurisdiction"
+import type { WebsiteImageryView } from "@/lib/config/website-imagery"
+import { CommunityBand, HeroImage, ProductCardImage } from "@/components/website/HomeImagery"
 
 // Client-facing portal URLs (lib/portal-urls.ts), null when the deployment has
 // no portal URL configured: the portal links are then left out rather than
@@ -53,7 +55,7 @@ function productRange(product: PublicLoanProduct, t: Translator<"websiteHome">):
  * The public home page. Everything about the lender comes from its identity,
  * and the product cards only from the loan products it has configured.
  */
-export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCALE, site = ZA_SITE }: { identity: LenderIdentity; products: PublicLoanProduct[]; locale?: Locale; site?: SiteJurisdiction }) {
+export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCALE, site = ZA_SITE, imagery = null }: { identity: LenderIdentity; products: PublicLoanProduct[]; locale?: Locale; site?: SiteJurisdiction; imagery?: WebsiteImageryView | null }) {
   const t = createTranslator(locale, "websiteHome")
   const tp = createTranslator(locale, "websiteProducts")
   const products = catalogue.map((product) => localizeProduct(product, tp))
@@ -61,7 +63,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
   return (
     <div className="bg-[#11141b] text-white">
       <section className="relative min-h-[560px] overflow-hidden bg-[#11141b]">
-        <div className="absolute inset-0 bg-linear-to-r from-[#11141b] via-[#11141b]/76 to-[#1b1d24]" />
+        {imagery?.hero ? <HeroImage image={imagery.hero} /> : <div className="absolute inset-0 bg-linear-to-r from-[#11141b] via-[#11141b]/76 to-[#1b1d24]" />}
         <div className="absolute inset-x-0 bottom-0 h-48 bg-linear-to-t from-[#11141b] to-transparent" />
 
         <div className="relative mx-auto flex min-h-[560px] max-w-7xl flex-col justify-end px-4 py-12 sm:px-6 lg:px-8">
@@ -126,6 +128,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
                 href={product.desktopHref}
                 className="group flex h-full min-h-[132px] flex-col border border-white/12 bg-white/[0.04] p-5 transition hover:border-[#a5b4fc] hover:bg-white/[0.08]"
               >
+                {imagery?.products[product.code] && <ProductCardImage image={imagery.products[product.code]!} />}
                 <div className="flex min-h-12 items-start justify-between gap-4">
                   <h3 className="text-base font-semibold text-white">{product.label}</h3>
                   <ArrowRight className="h-4 w-4 shrink-0 text-[#a5b4fc] transition group-hover:translate-x-1" />
@@ -208,6 +211,8 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
           </div>
         </div>
       </section>
+
+      {imagery?.community && <CommunityBand community={imagery.community} />}
 
       {products.length > 0 && (
         <section className="relative overflow-hidden border-t border-white/10 bg-[#11141b] px-4 py-12 sm:px-6 md:py-20 lg:px-8">

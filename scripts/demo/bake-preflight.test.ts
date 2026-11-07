@@ -63,7 +63,8 @@ beforeEach(() => {
   // The real fresh-stack.sh destroys the sim volumes; this one only drops a secret on request.
   stub('fresh-stack.sh', '#!/bin/sh\n[ -z "$STUB_DROP_SECRET" ] || sed -i "/^UNSUB_TOKEN_SECRET=/d" "$DEMO_DATA_DIR/secrets.env"\n', join(repo, 'scripts', 'demo', 'sim'))
   stub('npm', '#!/bin/sh\nexit 0\n')
-  stub('npx', '#!/bin/sh\necho "npx $*" >> "$STUB_LOG"\ncase "$*" in *demo-lender.ts*) echo acme; exit 0 ;; esac\nexit 7\n')
+  stub('npx', '#!/bin/sh\necho "npx $*" >> "$STUB_LOG"\ncase "$*" in *demo-lender.ts*) echo acme; exit 0 ;; *"set-website-images.ts --check"*) exit "${STUB_IMAGES_CHECK_EXIT:-0}" ;; esac\nexit 7\n')
+  stub('seed-faked.sh', '#!/bin/sh\necho "seed-faked RO=$SEED_FAKED_RO_DIR $*" >> "$STUB_LOG"\nexit 0\n', join(repo, 'scripts', 'demo', 'sim'))
   stub('docker-compose', '#!/bin/sh\necho "docker-compose $*" >> "$STUB_LOG"\nexit 0\n')
   stub('docker', String.raw`#!/bin/sh
 echo "docker $*" >> "$STUB_LOG"
@@ -123,6 +124,41 @@ describe('bake.sh sim env preflight', { timeout: 30_000 }, () => {
     expect(r.status).not.toBe(0)
     expect(r.out).toContain('credaflow-demo-sim-app not found')
     expect(simulated(r.calls)).toBe(false)
+  })
+
+  describe('DEMO_LENDER_IMAGES', () => {
+    const images = () => {
+      const dir = join(root, 'images')
+      mkdirSync(dir, { recursive: true })
+      return dir
+    }
+
+    it('loads the images through seed-faked.sh after the seed and before simulate.ts, with the directory mounted', () => {
+      const dir = images()
+      const r = bake({ DEMO_LENDER_IMAGES: dir })
+      const seed = r.calls.findIndex((l) => l.startsWith('seed-faked '))
+      expect(r.calls[seed]).toBe(`seed-faked RO=${dir} scripts/demo/set-website-images.ts acme ${dir}`)
+      expect(seed).toBeGreaterThan(-1)
+      expect(seed).toBeLessThan(r.calls.findIndex((l) => l.includes('scripts/demo/simulate.ts')))
+    })
+
+    it('does nothing about images when it is unset', () => {
+      const r = bake()
+      expect(r.calls.some((l) => l.startsWith('seed-faked ') || l.includes('set-website-images'))).toBe(false)
+    })
+
+    it('refuses a missing directory, and a directory the checker rejects, before any container work', () => {
+      const missing = bake({ DEMO_LENDER_IMAGES: join(root, 'nope') })
+      expect(missing.status).not.toBe(0)
+      expect(missing.out).toContain('is not a directory')
+      const invalid = bake({ DEMO_LENDER_IMAGES: images(), STUB_IMAGES_CHECK_EXIT: '2' })
+      expect(invalid.status).not.toBe(0)
+      expect(invalid.out).toContain('is not a valid image directory')
+      for (const r of [missing, invalid]) {
+        expect(simulated(r.calls)).toBe(false)
+        expect(r.calls.some((l) => l.startsWith('docker-compose'))).toBe(false)
+      }
+    })
   })
 
   it.each(<[string, Record<string, string>][]>[

@@ -9,6 +9,8 @@ import { homeFaqs } from "./(website)/site/home-faqs"
 import { getLocale } from "@/lib/i18n/server"
 import { homeDescription, homeTitle } from "@/lib/website/home-metadata"
 import { getSiteJurisdiction } from "@/lib/website/site-jurisdiction.server"
+import { getResolvedTenantId } from "@/lib/tenant"
+import { getWebsiteImageryView } from "@/lib/config/website-imagery"
 
 // Rendered per request: the page prints the request tenant's own identity,
 // which a build-time prerender has no tenant to read.
@@ -36,9 +38,10 @@ export default async function Home() {
   const locale = await getLocale()
   const site = await getSiteJurisdiction()
   const faqs = identity ? homeFaqs(identity, products, locale, site) : []
+  const imagery = identity ? await getWebsiteImageryView(await getResolvedTenantId()) : null
   return (
     <WebsiteShell jsonLdId="home-organization" jsonLd={faqs.length > 0 ? [faqLd(faqs)] : []} regulatoryBand>
-      {identity && <HomePage identity={identity} products={products} locale={locale} site={site} />}
+      {identity && <HomePage identity={identity} products={products} locale={locale} site={site} imagery={imagery} />}
     </WebsiteShell>
   )
 }
