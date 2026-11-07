@@ -1,5 +1,6 @@
 "use client"
 
+import { activeCurrencySymbol } from "@/lib/utils"
 import { useT } from "@/lib/i18n/client"
 
 interface StepOneData {
@@ -57,14 +58,14 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
           {t("incomeLabel")}
         </label>
         <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">R</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{activeCurrencySymbol()}</span>
           <input
             type="number"
             min={0}
             placeholder="0.00"
             value={data.monthlyIncome}
             onChange={(e) => onChange({ ...data, monthlyIncome: e.target.value })}
-            className="w-full border border-white/12 bg-black/20 py-2.5 pl-8 pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15"
+            className={`w-full border border-white/12 bg-black/20 py-2.5 ${activeCurrencySymbol().length > 1 ? "pl-12" : "pl-8"} pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15`}
           />
         </div>
       </div>
@@ -74,14 +75,14 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
           {t("expensesLabel")}
         </label>
         <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">R</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{activeCurrencySymbol()}</span>
           <input
             type="number"
             min={0}
             placeholder="0.00"
             value={data.monthlyExpenses}
             onChange={(e) => onChange({ ...data, monthlyExpenses: e.target.value })}
-            className="w-full border border-white/12 bg-black/20 py-2.5 pl-8 pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15"
+            className={`w-full border border-white/12 bg-black/20 py-2.5 ${activeCurrencySymbol().length > 1 ? "pl-12" : "pl-8"} pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15`}
           />
         </div>
       </div>

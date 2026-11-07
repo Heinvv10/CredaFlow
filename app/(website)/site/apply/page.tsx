@@ -789,8 +789,8 @@ export default function ApplyPage() {
                     className="w-full accent-[#a5b4fc]"
                   />
                   <div className="mt-1 flex justify-between text-xs text-white/40">
-                    <span>R{(liveProductLimits[step3.productType]?.[0] ?? 500).toLocaleString()}</span>
-                    <span>R{(liveProductLimits[step3.productType]?.[1] ?? 2000).toLocaleString()}</span>
+                    <span>{activeCurrencySymbol()}{(liveProductLimits[step3.productType]?.[0] ?? 500).toLocaleString()}</span>
+                    <span>{activeCurrencySymbol()}{(liveProductLimits[step3.productType]?.[1] ?? 2000).toLocaleString()}</span>
                   </div>
                   {errors.amount && <p className="mt-1 text-xs text-red-300">{errors.amount}</p>}
                 </div>

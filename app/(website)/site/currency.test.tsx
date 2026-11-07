@@ -16,6 +16,9 @@ vi.mock("@/lib/jurisdiction/load.server", () => ({ ensureActiveJurisdiction: asy
 import CalculatorsPage from "./calculators/page"
 import QualifyResult from "./qualify/QualifyResult"
 import QualifyStepTwo from "./qualify/QualifyStepTwo"
+import QualifyStepOne from "./qualify/QualifyStepOne"
+import AffordabilityTab from "./calculators/AffordabilityTab"
+import ComparisonTab from "./calculators/ComparisonTab"
 
 afterEach(() => resetActiveJurisdiction())
 
@@ -58,6 +61,24 @@ describe.each(CASES)("the qualify and calculator pages of a %s lender billed in 
       expect(html).toContain(`${symbol}${NBSP}`)
       if (symbol !== "R") expect(html).not.toContain(`R${NBSP}`)
     }
+  })
+})
+
+describe.each(CASES)("the amount inputs of a %s lender billed in %s", (code, currency, symbol) => {
+  it("prefix the lender's symbol and widen the padding for a long one", () => {
+    setActiveJurisdiction({ jurisdiction: code, currency })
+    const site = siteJurisdictionFor(code)
+    const step = { employmentStatus: "", monthlyIncome: "", monthlyExpenses: "" }
+    const html = [
+      <QualifyStepOne key="q" data={step} onChange={() => {}} onNext={() => {}} />,
+      <AffordabilityTab key="a" />,
+      <ComparisonTab key="c" />,
+    ].map((el) => renderToStaticMarkup(<WebsiteIdentityProvider identity={ACME_LENDER} jurisdiction={site}>{el}</WebsiteIdentityProvider>))
+    for (const h of html) {
+      expect(h).toContain(`>${symbol}</span>`)
+      if (symbol !== "R") expect(h).not.toContain(">R</span>")
+    }
+    for (const h of html) expect(h).toContain(symbol.length > 1 ? "pl-12" : "pl-8")
   })
 })
 
