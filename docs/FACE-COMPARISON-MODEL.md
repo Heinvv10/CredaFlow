@@ -20,14 +20,15 @@ int8 variants). They are Git LFS objects, so the download URL is the
 - URL: `https://media.githubusercontent.com/media/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_recognition_sface/face_recognition_sface_2021dec.onnx`
 
 Runtime: [onnxruntime-node](https://www.npmjs.com/package/onnxruntime-node)
-1.30, CPU execution provider only ([MIT](https://github.com/microsoft/onnxruntime/blob/f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7/LICENSE)).
+1.30, CPU execution provider only (MIT; text in `lib/kyc/face-model/LICENSE-onnxruntime`).
 
 The licence texts ship beside the models: the fetch script downloads
-`LICENSE-face_detection_yunet`, `LICENSE-face_recognition_sface` (from the
-same opencv_zoo commit) and `LICENSE-onnxruntime` (from the commit
-onnxruntime's v1.30.0 tag points to; the npm package ships none), each
-checksum-pinned in `lib/kyc/face-model/models.ts`, and copies
-`lib/kyc/face-model/NOTICE` beside them. Neither model directory carries a
+`LICENSE-face_detection_yunet` and `LICENSE-face_recognition_sface` (from the
+same opencv_zoo commit), and copies `LICENSE-onnxruntime` (kept in
+`lib/kyc/face-model/`: the npm package ships none, and microsoft/onnxruntime,
+where it was fetched from at the v1.30.0 commit, returns 404 since
+18 Nov 2026), each checksum-pinned in `lib/kyc/face-model/models.ts`, plus
+`lib/kyc/face-model/NOTICE`. Neither model directory carries a
 NOTICE of its own; the models are used unmodified.
 
 Training data: neither model card states terms for the training data. The
