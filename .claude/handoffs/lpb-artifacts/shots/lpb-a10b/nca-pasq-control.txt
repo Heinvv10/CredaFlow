@@ -1,0 +1,345 @@
+Demo Basotho Lending
+
+STAFF WORKSPACE
+
+Demo Admin
+
+ADMIN
+
+DA
+
+STAFF NAVIGATION
+
+OVERVIEW
+
+Executive Dashboard
+Reports
+Board Pack
+Academy
+
+COMMUNICATIONS
+
+Inbox
+
+ORIGINATION
+
+Applications
+2
+2 applications awaiting a decision
+Clients
+Disbursements
+
+SERVICING
+
+Active Loans
+Payments
+Bank Reconciliation
+Collections
+
+COMPLIANCE
+
+Compliance
+Complaints
+DSAR
+Screening
+
+ADMINISTRATION
+
+Settings
+Security & 2FA
+Security & KYC policy
+Support access
+Users
+Audit Trail
+Login Activity
+Sign out
+Applications
+Thabo Mokoena
+
+WORKSPACE
+
+Application APP-SEED-0001
+
+Thabo Mokoena
+
+CASE FILE
+
+Thabo Mokoena
+
+APP-SEED-0001 · 30-Day Micro Loan
+
+UNDER REVIEW
+
+AMOUNT
+
+M 1,500.00
+1 month
+
+TOTAL
+
+M 1,869.00
+Repayable
+
+ID: 990000001
+
+Email: thabo.mokoena@basotho-lending.invalid
+
+Phone: +26658000001
+
+Employment: EMPLOYED
+
+Review path
+
+Affordability review
+
+✓
+Intake and identity
+2
+Affordability
+3
+Compliance
+4
+Agreement
+5
+Disbursement
+
+CURRENT STAGE
+
+Affordability review
+
+Verify income, obligations, policy compliance, and repayment suitability before decisioning.
+
+6 BLOCKERS
+
+Submitted
+
+Application captured
+
+2
+
+KYC Verified
+
+Documents cleared
+
+3
+
+Affordability
+
+NDI assessed
+
+4
+
+Credit Decision
+
+Approved / Declined
+
+5
+
+Agreement
+
+Signed & accepted
+
+6
+
+Disbursed
+
+Funds released
+
+UNDER REVIEW
+
+KYC verification incomplete — approval blocked
+
+KYC must be completed and verified before this application can continue. Each document below needs a different action:
+
+• ID Copy — not uploaded yet
+• Proof of Address — not uploaded yet
+• Payslip — not uploaded yet
+• Bank Statement — not uploaded yet
+Complete KYC
+Selfie capture link
+
+No selfie link sent for this application yet.
+
+The link is only ever sent to the number or address already on file for this client. It is valid for 24 hours, can be used once, and sending again cancels the previous link.
+
+Send link by WhatsApp
+Send link by Email
+Client Information
+
+Name: Thabo Mokoena
+
+ID Number: 990000001
+
+Email: thabo.mokoena@basotho-lending.invalid
+
+Phone: +26658000001
+
+Employment: EMPLOYED
+
+Affordability Assessment
+Risk Grade
+Unavailable
+
+Stored debt evidence is invalid — affordability is not calculated.
+
+Re-enter every obligation below. Save an empty list only after confirming that the client has no existing debt.
+
+Existing Credit Obligations
+
+Add creditor
+No valid obligation rows can be recovered. Add every creditor, or save only after confirming an explicit no-debt declaration.
+Save Affordability Assessment
+Loan Details
+
+Product
+
+30-Day Micro Loan
+
+Principal
+
+M 1,500.00
+
+Term
+
+1 month
+
+Total Repayable
+
+M 1,869.00
+
+Interest Rate
+
+5.0% p.m.
+
+Interest this term
+
+5.0% over 30d
+
+Annual rate (nominal)
+
+60.8% p.a.
+
+Total Interest
+
+M 75.00
+
+Initiation Fee
+
+M 225.00
+
+Service Fees
+
+M 69.00
+
+Purpose
+
+Emergency medical expenses
+
+NCA Compliance Checks
+
+Reckless lending assessment completed
+
+Affordability has been assessed under NCA Sections 80-81. No reckless lending determination applies.
+
+Client affordability declaration captured
+
+The client declared income, expenses, and obligations truthfully and accepted the affordability assessment.
+
+Confirm Assessment Checks
+Credit checks
+1 open
+
+Clearing a check needs a session signed in with two-factor authentication.
+
+MANUAL REVIEW
+Open
+NO_STATEMENT
+
+No recent bank statement is on file for this application.
+
+Decision engine
+Run decision engine
+
+The engine has not run on this application.
+
+Statement insights
+From statement — estimate
+Export to Excel
+
+No statement that reconciles has been read yet.
+
+Credit Bureau Check
+
+No bureau check recorded. This may indicate the credit bureau is not configured or the check is still in progress.
+
+Initiation Fee Election
+
+Record the consumer's election before approval so affordability, the agreement, and disbursement use one pricing record.
+
+Initiation fee (R 225.00) — consumer election
+
+The initiation fee is interest-free either way (NCR Circular 15 of 2016).
+
+Add to the repayment schedule — full amount advanced to the consumer
+Consumer receives the full R 1,500.00.
+Deduct from the amount advanced
+Consumer receives R 1,275.00 — R 225.00 less than applied for.
+Save election before approval
+Projected Repayment Schedule
+#	DUE DATE	PRINCIPAL	INTEREST	FEES	TOTAL	BALANCE
+1	01 Dec 2026	M 1,500.00	M 75.00	M 294.00	M 1,869.00	M 0.00
+Decision rail
+
+Primary controls, blockers, and audit history.
+
+1 open check — clear it in Credit checks before approving.
+
+REPAYMENT METHOD
+EFT payment
+Client pays by electronic transfer. No debit mandate is required.
+Debit order
+Client must sign the debit mandate before payout.
+Approve
+Decline
+Retry Bureau Enquiry
+Amend loan amount
+Cancel Application
+Message
+View Client Record
+Review Documents
+
+BLOCKERS
+
+4 KYC documents outstanding
+
+KYC must be completed and verified before approval can proceed. Not uploaded: ID Copy, Proof of Address, Payslip, Bank Statement.
+
+Affordability pending
+
+Capture NDI and repayment suitability evidence.
+
+Debt evidence invalid
+
+Re-enter every credit obligation before reassessment. Approval and payout remain blocked.
+
+Credit-life election missing
+
+Return this application to draft and recapture the consumer election before generating the PASQ.
+
+NCA checks not confirmed
+
+Confirm the reckless-lending assessment and the client's affordability declaration under NCA checks.
+
+1 open credit check
+
+Clear or resolve them under Credit checks before approval.
+
+AUDIT TRAIL
+
+Created 31 Oct 2026
+
+APP-SEED-0001
+
+Assigned advisor
+
+Demo Credit Officer

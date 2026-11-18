@@ -1,0 +1,325 @@
+Demo Basotho Lending
+
+STAFF WORKSPACE
+
+Demo Admin
+
+ADMIN
+
+DA
+
+STAFF NAVIGATION
+
+OVERVIEW
+
+Executive Dashboard
+Reports
+Board Pack
+Academy
+
+COMMUNICATIONS
+
+Inbox
+
+ORIGINATION
+
+Applications
+2
+2 applications awaiting a decision
+Clients
+Disbursements
+
+SERVICING
+
+Active Loans
+Payments
+Bank Reconciliation
+Collections
+
+COMPLIANCE
+
+Compliance
+Complaints
+DSAR
+Screening
+
+ADMINISTRATION
+
+Settings
+Security & 2FA
+Security & KYC policy
+Support access
+Users
+Audit Trail
+Login Activity
+Sign out
+Applications
+Palesa Letsie
+
+WORKSPACE
+
+Application APP-SEED-0002
+
+Palesa Letsie
+
+CASE FILE
+
+Palesa Letsie
+
+APP-SEED-0002 · Personal Loan
+
+UNDER REVIEW
+
+AMOUNT
+
+M 25,000.00
+12 months
+
+TOTAL
+
+M 30,713.23
+Repayable
+
+ID: 990000002
+
+Email: palesa.letsie@basotho-lending.invalid
+
+Phone: +26662000002
+
+Employment: EMPLOYED
+
+Review path
+
+Affordability review
+
+✓
+Intake and identity
+2
+Affordability
+3
+Compliance
+4
+Agreement
+5
+Disbursement
+
+CURRENT STAGE
+
+Affordability review
+
+Verify income, obligations, policy compliance, and repayment suitability before decisioning.
+
+4 BLOCKERS
+
+Submitted
+
+Application captured
+
+2
+
+KYC Verified
+
+Documents cleared
+
+3
+
+Affordability
+
+NDI assessed
+
+4
+
+Credit Decision
+
+Approved / Declined
+
+5
+
+Agreement
+
+Signed & accepted
+
+6
+
+Disbursed
+
+Funds released
+
+UNDER REVIEW
+
+KYC verification incomplete — approval blocked
+
+KYC must be completed and verified before this application can continue. Each document below needs a different action:
+
+• ID Copy — not uploaded yet
+• Proof of Address — not uploaded yet
+• Payslip — not uploaded yet
+• Bank Statement — not uploaded yet
+Complete KYC
+Selfie capture link
+
+No selfie link sent for this application yet.
+
+The link is only ever sent to the number or address already on file for this client. It is valid for 24 hours, can be used once, and sending again cancels the previous link.
+
+Send link by WhatsApp
+Send link by Email
+Client Information
+
+Name: Palesa Letsie
+
+ID Number: 990000002
+
+Email: palesa.letsie@basotho-lending.invalid
+
+Phone: +26662000002
+
+Employment: EMPLOYED
+
+Affordability Assessment
+Risk Grade
+Unavailable
+
+Stored debt evidence is invalid — affordability is not calculated.
+
+Re-enter every obligation below. Save an empty list only after confirming that the client has no existing debt.
+
+Existing Credit Obligations
+
+Add creditor
+No valid obligation rows can be recovered. Add every creditor, or save only after confirming an explicit no-debt declaration.
+Save Affordability Assessment
+Loan Details
+
+Product
+
+Personal Loan
+
+Principal
+
+M 25,000.00
+
+Term
+
+12 months
+
+Total Repayable
+
+M 30,713.23
+
+Interest Rate
+
+2.3% p.m.
+
+Interest this term
+
+15.2% over 365d
+
+Annual rate (nominal)
+
+27.0% p.a.
+
+Total Interest
+
+M 3,805.23
+
+Initiation Fee
+
+M 1,080.00
+
+Service Fees
+
+M 828.00
+
+Purpose
+
+Home improvements
+
+Credit checks
+1 open
+
+Clearing a check needs a session signed in with two-factor authentication.
+
+MANUAL REVIEW
+Open
+NO_STATEMENT
+
+No recent bank statement is on file for this application.
+
+Decision engine
+Run decision engine
+
+The engine has not run on this application.
+
+Statement insights
+From statement — estimate
+Export to Excel
+
+No statement that reconciles has been read yet.
+
+Key facts statement and loan agreement
+
+This lender’s loans are governed by a key facts statement and a loan agreement rendered from its own approved templates, not by the PASQ.
+
+Documents are issued once the application is approved.
+
+Projected Repayment Schedule
+#	DUE DATE	PRINCIPAL	INTEREST	FEES	TOTAL	BALANCE
+1	01 Dec 2026	M 1,837.94	M 562.50	M 1,149.00	M 3,549.44	M 23,162.06
+2	01 Jan 2027	M 1,879.29	M 521.15	M 69.00	M 2,469.44	M 21,282.77
+3	01 Feb 2027	M 1,921.58	M 478.86	M 69.00	M 2,469.44	M 19,361.19
+4	01 Mar 2027	M 1,964.81	M 435.63	M 69.00	M 2,469.44	M 17,396.38
+5	01 Apr 2027	M 2,009.02	M 391.42	M 69.00	M 2,469.44	M 15,387.36
+6	01 May 2027	M 2,054.22	M 346.22	M 69.00	M 2,469.44	M 13,333.14
+7	01 Jun 2027	M 2,100.44	M 300.00	M 69.00	M 2,469.44	M 11,232.70
+8	01 Jul 2027	M 2,147.70	M 252.74	M 69.00	M 2,469.44	M 9,085.00
+9	01 Aug 2027	M 2,196.03	M 204.41	M 69.00	M 2,469.44	M 6,888.97
+10	01 Sept 2027	M 2,245.44	M 155.00	M 69.00	M 2,469.44	M 4,643.53
+11	01 Oct 2027	M 2,295.96	M 104.48	M 69.00	M 2,469.44	M 2,347.57
+12	01 Nov 2027	M 2,347.57	M 52.82	M 69.00	M 2,469.39	M 0.00
+Decision rail
+
+Primary controls, blockers, and audit history.
+
+1 open check — clear it in Credit checks before approving.
+
+REPAYMENT METHOD
+EFT payment
+Client pays by electronic transfer. No debit mandate is required.
+Debit order
+Client must sign the debit mandate before payout.
+Approve
+Decline
+Amend loan amount
+Cancel Application
+Message
+View Client Record
+Review Documents
+
+BLOCKERS
+
+4 KYC documents outstanding
+
+KYC must be completed and verified before approval can proceed. Not uploaded: ID Copy, Proof of Address, Payslip, Bank Statement.
+
+Affordability pending
+
+Capture NDI and repayment suitability evidence.
+
+Debt evidence invalid
+
+Re-enter every credit obligation before reassessment. Approval and payout remain blocked.
+
+1 open credit check
+
+Clear or resolve them under Credit checks before approval.
+
+AUDIT TRAIL
+
+Created 28 Oct 2026
+
+APP-SEED-0002
+
+Assigned advisor
+
+Demo Credit Officer
