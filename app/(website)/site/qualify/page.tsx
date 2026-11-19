@@ -96,13 +96,19 @@ export default function QualifyPage() {
 
   useEffect(() => {
     if (!hydrated) return
-    // An untouched visit saves nothing: the apply form treats any saved
-    // qualify draft as details the visitor entered.
-    if (
+    // Only values the visitor entered are saved: the apply form treats any
+    // saved qualify draft as details they entered. Back at the defaults (an
+    // untouched visit, or entries cleared again), no draft is kept.
+    const untouched =
       JSON.stringify(stepOne) === JSON.stringify(DEFAULT_STEP_ONE) &&
       JSON.stringify(stepTwo) === JSON.stringify(DEFAULT_STEP_TWO)
-    ) return
     try {
+      if (untouched) {
+        if (window.localStorage.getItem(QUALIFY_DRAFT_KEY) === null) return
+        window.localStorage.removeItem(QUALIFY_DRAFT_KEY)
+        window.dispatchEvent(new Event("lms:draft-updated"))
+        return
+      }
       window.localStorage.setItem(
         QUALIFY_DRAFT_KEY,
         JSON.stringify({

@@ -45,6 +45,16 @@ describe("qualify draft", () => {
     expect(storedDraft().stepOne.monthlyIncome).toBe("12000")
   })
 
+  it("drops a saved draft once its values are back at the defaults", async () => {
+    window.localStorage.setItem(QUALIFY_DRAFT_KEY, JSON.stringify({
+      stepOne: { employmentStatus: "", monthlyIncome: "", monthlyExpenses: "" },
+      stepTwo: { amount: 5000, purpose: "", term: 7 },
+      updatedAt: new Date().toISOString(),
+    }))
+    await act(async () => { create(wrap(<QualifyPage />)) })
+    expect(storedDraft()).toBeNull()
+  })
+
   it("an untouched visit does not make the apply form claim it restored details", async () => {
     await act(async () => { create(wrap(<QualifyPage />)) })
     window.history.replaceState(null, "", "/site/apply")

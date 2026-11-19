@@ -229,7 +229,7 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
                       max={product.maxTerm}
                       step={1}
                       value={quote.term}
-                      onCommit={setTerm}
+                      onCommit={(n) => setTerm(Math.round(n))}
                       onFocus={(event) => event.currentTarget.select()}
                       className="mt-1 w-32 border border-white/12 bg-black/20 px-3 py-2 text-xl font-semibold text-white focus:border-[#a5b4fc] focus:outline-none sm:text-2xl"
                       inputMode="numeric"
