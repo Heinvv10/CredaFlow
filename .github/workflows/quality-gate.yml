@@ -50,7 +50,7 @@ jobs:
     # emits ready_for_review and runs the complete gate. Scheduled runs need
     # only the real-DB integration job below.
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, velo, credaflow]
     # Unit + build took 29.5 min on 2026-10-21 (run 39611551763), and 30
     # cancelled the next run (39633530189) with no failure.
     timeout-minutes: 45
@@ -149,7 +149,7 @@ jobs:
   unit:
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 30
     strategy:
       # Report every shard's failures, as the single run did.
@@ -191,7 +191,7 @@ jobs:
   quality:
     needs: [checks, unit]
     if: always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 5
     steps:
       - name: Checks and every unit shard succeeded
@@ -206,7 +206,7 @@ jobs:
     # Main is tested as a candidate merge by the PR event and again nightly.
     # Avoid paying for the same integration suite immediately after each merge.
     if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, velo, credaflow]
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
     # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
     # (440 gated) it was still running, with no failure, when 45 cancelled it
@@ -322,7 +322,7 @@ jobs:
     # Seconds of work and no checkout; it is a required check.
     needs: integration-shard
     if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, velo, credaflow]
     timeout-minutes: 5
     steps:
       - name: Every shard passed
