@@ -1,0 +1,113 @@
+# Fair Score market audit 2026-10-16 (stack credaflow:fairscore-a0179c6f, via 127.0.0.1:3330/:3332)
+DB backup before testing: ~/credaflow-fairscore-data/backups/pre-market-audit-20261016T1650.dump
+## Findings
+- [brand] Banner + login say "Fairscore"; brand is "Fair Score". Login footer "© 2025 Fairscore".
+- [dashboard] PAR30+ 94.2%, PAR60 93.2%, PAR90 91.7% — demo book looks insolvent to a prospect. Arrears R328k vs book R2.62m (12.5%) contradicts PAR %.
+- [dashboard] Fair Score logo (dark blue) on near-black header: low contrast.
+- [env] Staff (:3330) and portal (:3332) on the same host share cookies: signing into one logs the other out. Also server redirects to NEXTAUTH public host. (local-test artefact, but same will hit any lender putting staff+portal on one hostname)
+- [portal/thembeka] Loan reference + payment reference is a raw DB id "LN-cmnsksz0z00jiuf4txvfht4ur" — borrower must quote that on EFT. App ref APP-MNSKSZ0Y-GCRU better.
+- [portal/thembeka] Documents page contradicts itself: "Your identity was confirmed in person … no selfie is needed" AND Selfie row "REQUIRED / Take selfie".
+- [portal/thembeka] System-generated docs (Debit Mandate, Credit Agreement, Signed Agreement, Form 20) show "We couldn't read this document automatically. Our team will review it manually."
+- [portal/thembeka] Notifications: all 8 messages shown to the BORROWER as "Failed" (WhatsApp) / "Review required — delivery unverified" (email). Internal delivery status leaking; looks broken.
+- [portal/thembeka] Payment page: "No active loans" fine, but contact = "+27 11 000 0000" / hello@fairscore.example placeholders; brand "Fairscore Client Portal".
+- [portal] Insurance page asserts "Fairscore is a FAIS-authorised intermediary" — legal claim; confirm Fair Score holds an FSP licence before market.
+- [portal] Statement method shown "Eft" (should be EFT); overview shows lowercase "eft".
+- [portal] Browser tab title "Client and staff workspace" on portal pages; no Fair Score logo in portal sidebar (text only).
+- [portal] Applications: Thembeka's settled loan app shows "Disbursed" (not "Settled/Closed").
+- [portal/apply] Footer shows "Registered credit provider (NCR Reg: NCRCP99999)" — placeholder NCR number visible to borrowers. Must be Fair Score's real NCRCP before market.
+- [portal/apply] Credit-life election box appears only after typing (layout jump moves checkboxes under the cursor); says "not available" yet shows a disabled "Add the offered credit-life cover" radio.
+- [portal/apply] Term asked in DAYS (90–1800) — consumers think in months. PO Funding (R164k) offered to a salaried nurse.
+- [portal/apply] Scenario panel rounding differs from top panel (NDI 11,762.00 vs 11,762.35; max instalment 8,233.40 vs 8,233.64).
+- [portal/elize] Arrears banner shows balance + "27 days overdue" but not the overdue AMOUNT to get current (R843.30). Due date 17 Sep → 29 days, not 27.
+- [portal/elize] Three different "balances": Overview outstanding R27,133.91; Payment page "Current settlement R33,877.51" (= total repayable − paid, incl. unearned future interest). A settlement figure above the outstanding balance — check NCA s125 settlement (future interest must not be charged).
+- [portal/elize] Repayment schedule marks every future instalment (#6–#18) as PARTIAL; should be Upcoming/Due.
+- [portal/elize] "Next installment" spelling (SA: instalment) on payment page.
+- [portal/payment] "Pay with Stitch" shown although Stitch is not configured → "Online payment is temporarily unavailable". Hide when not configured.
+- [portal/payment] Notify-payment with POP upload: works ("Payment notification submitted").
+- [demo data] Book: 14 active, 9 defaulted, 2 written off of 32 loans; dashboard PAR ~94%. Reads as a failing lender.
+- [product] "Plant & Vehicle Instalment Sale" LoanProduct has productType PERSONAL.
+- [staff sweep] All 38 staff nav pages render for ADMIN (no errors).
+- [staff/apps board] Demo ages: "Waiting 199 days", "Saved 212 days", "Waiting 202 days" — stale pipeline. Settled (COMPLETED) loan apps sit in DISBURSED column "Waiting 184 days".
+- [staff/app] PRICING: Personal Loan 3.0% p.m. = 36.0% p.a. nominal. NCA unsecured cap = repo×2.2+20% (≈35.4% at 7.0% repo). Verify cap vs current repo — may exceed the legal max.
+- [staff/app] Money formatting mixed on one page: "R 26 492,35" (affordability) vs "R 30,000.00" (loan details).
+- [staff/app] Returning client: staff gets an open NO_STATEMENT credit check (statement from April), but portal tells Thembeka "All required documents are complete" — borrower never asked for the statement that blocks approval.
+- [staff/app] "Selfie capture link — Send by WhatsApp/Email" panel shown for a client verified in person.
+- [staff/app] After a successful bureau check, primary rail button is "Retry Bureau Enquiry".
+- [staff/app] Update Affordability: no confirmation at all (silent).
+- [staff/app] NCA checks: ticking "Reckless lending" inserts a notes box and shifts the layout — next click hits (and unticks) the declaration box. Same pattern on portal apply (credit-life box).
+- [staff/app][role] CREDIT_OFFICER can tick NCA checks, then gets raw red "Forbidden". Either allow it (it's a credit officer's job) or hide/disable with an explanation.
+- **[BLOCKER][staff/countersign]** Borrower signs agreement → portal says "One step remains… Set up repayment" → borrower signs debit mandate → staff "Countersign Agreement" returns HTTP 500 (trigger: "Signed debit-mandate authority is immutable outside an explicit return to review"). UI shows NO error; button just does nothing. Present on origin/main (mandate page only requires agreementSignedAt; trigger freezes agreementCountersigned* once debitMandateSignedAt set). Demo sim/cheat sheet only works because they countersign first.
+- [PASQ/agreement PDF] "NCR Registration: NCRCP99999" placeholder; Credit Provider "Fairscore (Pty) Ltd"; Offered credit life "TEST Asset Credit Life" / insurer "TEST Credit Life Underwriter" / R135 pm printed in the legal document.
+- [PASQ vs portal] Portal told borrower credit-life "not available for this application"; PASQ records "Credit Life Election: DECLINED — the offered cover is not included" and lists an offered product. Contradiction in a regulated disclosure.
+- [PASQ] page 2 nearly blank (two short notices then whitespace).
+- [credit checks] Clear-reason box: placeholder says "min 15 characters", counter says "0 / 16 characters minimum".
+- [mandate] Bank not pre-selected though profile says NEDBANK; mandate "Loan Reference: LN-<application id>" (loan id differs later?); "Debit Day of Month: As per repayment schedule". No DebiCheck (authenticated collections) — plain signed PDF mandate.
+- [portal/sign] Signing + mandate each need an email OTP (demo shows the code on screen) — works. Not in the cheat sheet.
+- [recovery] Return to review (reason required) works: signatures archived, NCA checks must be re-confirmed ("Approval requires fresh compliance evidence"). But header still says "NO BLOCKERS" while approval is blocked. Borrower gets no explanation why they must sign the mandate again.
+- [roles/SoD] BRANCH_MANAGER (one person) approved, witnessed the consumer's in-branch signature, countersigned for the provider, and disbursed — no maker-checker anywhere in origination→payout.
+- [staff/app] At "Disbursement readiness" the Disburse button is not in the decision rail; it's buried mid-page.
+- [disburse] Payment reference placeholder "e.g. DISB-20260404-001" (April date).
+- [OK] Thembeka returning-client loan R30k/18m: portal apply → review → bureau (simulated) → NCA checks → approve (BM) → PASQ+agreement → branch signature → countersign → portal mandate (typed signature + OTP) → disburse → Loan ACTIVE, ref matches mandate.
+- **[security][portal]** Portal activation accepted the password "password" (8 chars, dictionary word) for an account holding ID/bank data. No strength policy.
+- [staff/new client] Wizard validation works (bad SA ID check digit rejected; POPIA consent required). Stale errors ("Not a valid ID", DOB "Required") stay on screen after correcting until Next.
+- [staff/new client] Bank name is free text in staff wizard (dropdown in portal) → "CAPITEC" vs "Capitec Bank" mismatch risk for mandates/bank recon.
+- [staff/new app] Review copy says PASQ "must be opened and acknowledged in the client portal before approval", but the flow generates the PASQ only AFTER approval.
+- [staff/apps board] DISBURSED column cards say "Waiting since today / Waiting N days".
+- [clients list] Every client "Client since Oct 2026" (bake date) even with loans from April.
+- [OK] Lerato new client: staff wizard → staff application (affordability PASS) → portal activation (demo OTP on screen) → 4 uploads, each "Document scanned" in ~10 s; staff KYC tab shows correct extracted ID/employer/gross/bank/address; Verify ×4 OK.
+- [portal/selfie] Desktop without camera: "Camera unavailable — No camera found" with an unlabeled (blank) button; no "continue on your phone"/QR/link fallback offered to the borrower.
+- [staff/KYC] Approve KYC without selfie correctly refused; message is a 3-line wall of jargon ("exact reasoned senior exception…"). CO sees no path forward (in-person verification is ADMIN-only and not hinted where).
+- [OK] ADMIN in-person verification (method + ≥20-char note) → KYC VERIFIED; "lapses automatically if ID changes". Start Review then gated correctly.
+- [OK] Statement insights on Lerato: 3 months salary detected, living spend by category vs declared (R9,963 vs R9,790). AUTHENTICITY_UNCHECKED check raised for specimen PDF.
+- [decline/portal] Staff's free-text "Decline reason (optional)" is shown verbatim to the borrower as "Reason for Decision" — field doesn't say it's client-facing (staff will type internal notes).
+- [decline/NCA s62] Bureau-score decline shows no credit bureau name/contact to the consumer; no next steps (dispute, free credit report, Fair Score's score-improvement offer).
+- [decline/portal] Timeline order wrong: "Application declined" listed before "Under review".
+- [decline] Categories lack Fraud/Policy/Other.
+- [OK] Affordability FAIL (Elize R100k/12m): wizard lets staff tick "proceeding would constitute reckless lending" and submit, but approval is hard-blocked (422 "Affordability gate"), message shown in rail.
+- **[affordability]** Elize's existing debt shows R870 only — her OWN active Fair Score loan (R2,541/m, 27 days in arrears) is not counted in existing obligations/NDI. No warning on new application that the client is in arrears with this lender.
+- [staff/app] Header "NO BLOCKERS" shown while affordability says NOT AFFORDABLE and approval is blocked.
+- [demo] Simulated bureau returns identical result for everyone (score 645, AVERAGE RISK, R0 obligations) — looks fake in a demo.
+- [payments] Borrower "Notify us of a payment" (+POP) lands only as a loan note + document. Not in Payments "Awaiting reconciliation" (R0.00, nothing held) or any queue/notification — staff must stumble on it.
+- **[settlement/COB]** Certificate of Balance certifies "outstanding balance R27,133.91" while staff loan page "Settlement Amount Today" and portal "Current settlement" say R33,877.51 (= total remaining instalments incl. future interest + service fees). For an intermediate agreement NCA s125 settlement excludes unearned interest. Needs legal check + fix. (Also COB cites "Section 112" — legal to confirm.)
+- [reminders] Simulated WhatsApp reminders say "your loan payment of R 0.00 is due…" (Jun/Jul instalments). Due-day copy threatens "avoid further default interest and charges".
+- [OK] Staff Record Payment (EFT R843.30) → allocated, schedule updated, toast, collections count 15→14. Form keeps the reference text after success (double-capture risk).
+- **[collections/S129]** Section 129 cannot be issued on the Fair Score demo: 422 "Email not configured for this tenant. Go to Settings → Email." Queue shows only a tiny "⚡ Failed" — reason not shown. Bulk S.129 (4) would fail the same way. A prospect demo of collections dead-ends here.
+- [collections] Counts disagree: sidebar "14 in arrears", page "Overdue Accounts 12", dashboard "Total arrears R328k / 15 accounts" vs collections "R149,597.66".
+- [collections] Three loan-reference formats in one list: "LN-SEED-0001", "LN-MNFLX8QS-I3LZ", "LN-cmp2aw8il02…". "T. Director One" (asset-finance test client) in queue as "Personal".
+- [collections] S.129 confirmation is a tiny inline "Send to Kabelo? Send/Cancel" next to the button.
+- [OK] Payment plan (3× R2,253.75 "payments of arrears only") created with toast; stage panel/history don't refresh.
+- [AF/demo] Every asset-finance record is named "TEST …" / "Synthetic" (TEST Earthmoving, 2025 TEST EX-300 Synthetic, TEST Plant Sales, TEST Bank, "Synthetic evidence checked (TEST)"). Unshowable to prospects as-is.
+- **[AF]** Deal AF-MNFLX7W7 (DB contractType FINANCE_LEASE) page shows Product "Plant & Vehicle Instalment Sale" — contract type not displayed anywhere; list subtitle "Instalment-sale deals for business entities".
+- **[AF/NCA]** Same deal: "NCA classification: REGULATED BY THE NCA (trust <3 trustees)" + "Only deals the NCA does not regulate can be financed for now" — yet it is APPROVED/BOOKED/RELEASED.
+- [AF] Trustee bureau checks "SKIPPED – CONSENT_MISSING", but credit decision reason says "Natural trustees' bureau records were checked".
+- [AF/SoD] Payout "Created by Demo Loan Admin One · approved by Demo Loan Admin One" — same person maker & checker.
+- [AF] All AF documents carry "DRAFT — NOT FOR EXECUTION" + placeholder clauses (expected until legal signs off — pre-market blocker).
+- [OK] Operating lease AF-MVB4XGGH-K0A2 (new LCV asset, TEST Earthmoving): asset register → deal (rentals in advance, residual, km allowance) → classified NON_NCA "lease not a credit agreement" → submit → credit memo (DSCR 4.49) → director bureau → approve → documents prepared. Operating Lease Agreement PDF correct (rentals R17,644.16 incl VAT, total R635,190.05, goods owned by lessor).
+- **[AF/op-lease view]** Saved operating-lease deal page renders a LOAN schedule: "Financed amount", "Total interest R152,339.25", "Total payable R752,339.25", principal/interest columns and the R200,000 residual as a BALLOON paid by the lessee in month 36 (R215,343). Contradicts the creation preview and the agreement PDF.
+- [AF] Lease pages still say "Borrower", "Deposit/trade-in", "balloon", product "Plant & Vehicle Instalment Sale". Usage unit defaults to Hours for a bakkie. Months field pre-filled 60 (typing appends → 6036).
+- [AF] Product dropdown on a deal lists 30-Day Micro Loan / Personal Loan although caption says it lists only non-NCA products.
+- [AF] New unfinanced asset shows "Book status: On book".
+- [AF/risk] Director "TEST Director One" is 166 DPD / R98k in default with this lender, yet his director bureau check shows no flags and nothing cross-references internal default when approving a new deal for his company.
+- [AF/PDF] Lessor block: "Registration No 2020/123456/07 · 1 Main Road, Sandton, 2196 · NCRCP99999" placeholders (Fair Score is in Ballito). "Prime of 10.75% effective 1 January 2025" stale.
+- [OK] Full-maintenance lease AF deal (forklift, 60m, maintenance R1,500 +6%/yr, 2,000 h/yr, R45/h excess): preview correct (rentals + escalating maintenance + VAT, residual not paid by lessee), month-end dates handled (28 Feb), classified NON_NCA, submitted.
+- **[AF/FML view]** Same defect as operating lease: saved deal page shows loan schedule ("Total interest R178,220.34", "Total payable R578,220.34", residual as balloon) and omits the R101,467.68 maintenance component entirely.
+- [AF] Not tested: sole-proprietor (NCA-regulated) deal refusal path; payout/booking of the new leases; lease rental billing/collections, termination quotes, end-of-term.
+- **[BLOCKER][insurance]** Issue Policy → "Next: Review FAIS Disclosure" shows "Failed to render disclosure" (server: "Error: Invalid storage path" in lib/storage). No policy can be issued on the demo.
+- **[insurance]** Policy form shows "Commission: R 4 000,00" = 20% of the R20,000 SUM ASSURED (premium is R118/mo).
+- **[insurance]** Claim approval accepted Approved Amount R1,000,010,000.00 on a R10,000 claim (field pre-filled with 10000; typed digits appended). No check approved ≤ claimed/sum assured. Demo claim CLM-MV0Y733I-ZWX3 now carries that figure.
+- [insurance] Catalogue includes "TEST Asset Credit Life — R1.00/mo, cover R1.00". Funeral product pre-fills insurer "Guardrisk Life" (real insurer — implies a partnership). "New Claim" button links back to /insurance. Claim client search fails on "Lerato Mah" (multi-word) — works on email.
+- [insurance/concept] Lender staff "Approve/Reject" insurer claims — for an intermediary that should be "record insurer decision".
+- [OK] Complaint status update (Open → Under Investigation + note) works; SLA ">24h unacknowledged" badge clears. No "Acknowledged"/"Resolved" option from Open; demo shows a complaint 7 days unacknowledged.
+- **[RBAC]** INSURANCE_OFFICER can record loan payments (POST /api/payments 200 — R1.00 "ROLE-TEST-INSURANCE-OFFICER" now on Elize's loan) and sees Amend loan amount / Cancel application / Update affordability, plus full nav incl. collections, asset finance, board pack. Linear role ladder ("COLLECTIONS_AGENT upward") gives specialist roles unrelated money powers; also a POPIA least-privilege issue.
+- [RBAC/UX] LOAN_ADMIN opening /settings/users is redirected to "/" which renders the PUBLIC marketing website inside the staff host — should be a "no access" page.
+- [public site] Top bar "NCR-registered credit provider · NCRCP99999" (placeholder) on the public website.
+- [portal/apply] Qualification card says 30-Day Micro Loan "up to R7,700" (Lerato) / R6,900 (Thembeka) — product max is R2,000; form then silently refuses >R2,000 (native validation, no message). Changing the amount resets both checkboxes and spawns the credit-life box.
+- [portal/apply] Lerato declined 1 hour earlier for "bureau score" but portal immediately shows "You qualify for up to R100,000" BEST MATCH.
+- [OK] Micro loan R2,000/30d submitted from portal (repeat application after decline allowed).
+- [portal/PO funding] PO Funding form asks no purchase-order data (buyer, PO number, PO document, business entity); consumer purposes (Medical, Funeral). Offered to salaried individuals.
+- [public site] No AI chat widget on the Fair Score site (no chat/LLM env on the app; featureMarketing=false). TenantConfig.ncrNumber literally "NCRCP99999"; site also claims "FAIS-authorised FSP 12345", "Co. Reg 2020/123456/07", +27 11 000 0000, hello@fairscore.example. Text logo "Fairscore", no brand colours.
+- [public site] Complaints copy refers consumers to the National Consumer Tribunal (NCR / Credit Ombud come first).
+- [NCR return] "Collectible book" R1,152,714.50 vs dashboard "Book value R2.62m". PAR30: 84.2% (NCR return) vs 93.1% (collections) vs 94.2% (dashboard). System keeps no arrears history — past-quarter returns are filed from today's book (warned on screen).
+- [bank recon] Statement import supports ABSA CSV only.
+- [demo data left by audit] Thembeka new ACTIVE loan R30k; Lerato client + declined app + submitted micro app; Elize R843.30 + R1.00 (role test) payments, declined-pending R100k app; Kabelo payment plan + failed S129 issuance; 2 new assets + op-lease (APPROVED, docs prepared) + FML (SUBMITTED); claim CLM-MV0Y733I approved at R1,000,010,000; complaint COMP-MV0RY1T8 under investigation. Pre-audit DB: ~/credaflow-fairscore-data/backups/pre-market-audit-20261016T1650.dump
+- NOT TESTED: selfie liveness (no camera), DSAR, CRM/leads/opportunities, write-off, early settlement payoff, bureau submissions, PO funding approval, booking/billing of new leases, sole-prop NCA refusal, READONLY/collections-agent roles (none seeded), mobile layout, WhatsApp/email delivery (not configured).
