@@ -7,7 +7,7 @@ useDefault = true
 # Synthetic test-fixture values that trip the generic-api-key rule in a working-tree
 # scan (`gitleaks dir .`). This file is loaded by the pre-commit hook AND by CI's
 # `gitleaks detect` (.github/workflows/security.yml), so this allowlist applies to
-# CI scans too. It is limited to generic-api-key in these 5 test files: any other
+# CI scans too. It is limited to generic-api-key in these 6 test files: any other
 # secret type in them, and anything anywhere else, is still reported. History
 # fingerprints stay in .gitleaksignore.
 # Do NOT add .claude/handoffs/ or any non-test path here.
@@ -20,4 +20,5 @@ paths = [
   '''^app/api/website/apply/route\.test\.ts$''',
   '''^lib/crm/lead-outreach\.test\.ts$''',
   '''^prisma/seed\.integration\.test\.ts$''',
+  '''^\.claude/handoffs/lpb-artifacts/brk280-round1\.integration\.test\.ts$''',
 ]
