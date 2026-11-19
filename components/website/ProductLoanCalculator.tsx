@@ -17,6 +17,7 @@ import { useLivePricing } from "@/lib/use-live-pricing"
 import { useT } from "@/lib/i18n/client"
 import { localizeProduct, termText, termUnitText } from "@/lib/i18n/products"
 import { richText } from "@/lib/i18n/rich"
+import { DraftNumberInput } from "./DraftNumberInput"
 
 type ProductLoanCalculatorProps = {
   variant?: "compact" | "full"
@@ -152,14 +153,13 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
                 </label>
                 <div className="mt-1 flex items-center border border-white/12 bg-black/20 focus-within:border-[#a5b4fc]">
                   <span className="pl-3 text-sm font-semibold text-white/42">{activeCurrencySymbol()}</span>
-                  <input
+                  <DraftNumberInput
                     id={`${variant}-product-amount`}
-                    type="number"
                     min={product.minAmount / 100}
                     max={product.maxAmount / 100}
                     step={product.amountStep / 100}
                     value={quote.amount / 100}
-                    onChange={(event) => setAmount(Math.round(Number(event.target.value) * 100))}
+                    onCommit={(rands) => setAmount(Math.round(rands * 100))}
                     onFocus={(event) => event.currentTarget.select()}
                     className="w-36 bg-transparent px-2 py-2 text-xl font-semibold text-white focus:outline-none sm:w-44 sm:text-2xl"
                     inputMode="numeric"
@@ -223,14 +223,13 @@ function LoanCalculator({ variant, defaultProduct, products }: Required<ProductL
                 <div className="mb-3 flex items-end justify-between gap-3">
                   <div>
                     <label htmlFor={`${variant}-product-term`} className="text-xs font-semibold uppercase tracking-[0.18em] text-white/46">{tp("term")}</label>
-                    <input
+                    <DraftNumberInput
                       id={`${variant}-product-term`}
-                      type="number"
                       min={product.minTerm}
                       max={product.maxTerm}
                       step={1}
                       value={quote.term}
-                      onChange={(event) => setTerm(Number(event.target.value))}
+                      onCommit={setTerm}
                       onFocus={(event) => event.currentTarget.select()}
                       className="mt-1 w-32 border border-white/12 bg-black/20 px-3 py-2 text-xl font-semibold text-white focus:border-[#a5b4fc] focus:outline-none sm:text-2xl"
                       inputMode="numeric"

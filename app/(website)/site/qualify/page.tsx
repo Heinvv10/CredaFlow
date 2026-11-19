@@ -96,6 +96,12 @@ export default function QualifyPage() {
 
   useEffect(() => {
     if (!hydrated) return
+    // An untouched visit saves nothing: the apply form treats any saved
+    // qualify draft as details the visitor entered.
+    if (
+      JSON.stringify(stepOne) === JSON.stringify(DEFAULT_STEP_ONE) &&
+      JSON.stringify(stepTwo) === JSON.stringify(DEFAULT_STEP_TWO)
+    ) return
     try {
       window.localStorage.setItem(
         QUALIFY_DRAFT_KEY,
