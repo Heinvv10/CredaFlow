@@ -12,6 +12,7 @@ import {
   type PublicLoanProduct,
 } from "@/lib/public-loan-products"
 import { useLivePricing } from "@/lib/use-live-pricing"
+import { DraftNumberInput } from "@/components/website/DraftNumberInput"
 import { useT } from "@/lib/i18n/client"
 import type { Translator } from "@/lib/i18n/translate"
 
@@ -127,13 +128,12 @@ export default function ComparisonTab() {
           </div>
           <div className="relative mb-3">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">{activeCurrencySymbol()}</span>
-            <input
-              type="number"
+            <DraftNumberInput
               min={Math.round(amtMin / 100)}
               max={Math.round(amtMax / 100)}
               step={100}
               value={safeAmount / 100}
-              onChange={(e) => handleAmountChange(Number(e.target.value))}
+              onCommit={handleAmountChange}
               onFocus={(e) => e.currentTarget.select()}
               className={`w-full border border-white/12 bg-black/20 py-2.5 ${activeCurrencySymbol().length > 1 ? "pl-12" : "pl-8"} pr-4 text-sm text-white placeholder:text-white/28 focus:border-[#a5b4fc] focus:outline-none focus:ring-2 focus:ring-[#a5b4fc]/15`}
               inputMode="numeric"
@@ -162,13 +162,12 @@ export default function ComparisonTab() {
             onChange={(e) => handleTermChange(Number(e.target.value))}
             className="w-full accent-amber-600"
           />
-          <input
-            type="number"
+          <DraftNumberInput
             min={7}
             max={365}
             step={1}
             value={safeTerm}
-            onChange={(e) => handleTermChange(Number(e.target.value))}
+            onCommit={handleTermChange}
             onFocus={(e) => e.currentTarget.select()}
             className="mt-3 w-32 border border-white/12 bg-black/20 px-4 py-2 text-sm text-white focus:border-[#a5b4fc] focus:outline-none"
             inputMode="numeric"
