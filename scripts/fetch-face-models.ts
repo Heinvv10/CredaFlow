@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto"
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import path from "node:path"
-import { FACE_MODELS, FACE_MODEL_LICENSES, faceModelUrl } from "../lib/kyc/face-model/models"
+import { FACE_MODELS, FACE_MODEL_LICENSES, FACE_MODEL_VENDORED_LICENSES, faceModelUrl } from "../lib/kyc/face-model/models"
 import { faceModelDir } from "../lib/kyc/face-model/runtime.server"
 import { downloadPinnedFile } from "./fetch-face-models-download"
 
@@ -48,7 +48,14 @@ async function main(): Promise<void> {
       throw error
     }
   }
-  copyFileSync(path.join(__dirname, "..", "lib", "kyc", "face-model", "NOTICE"), path.join(dir, "NOTICE"))
+  const source = path.join(__dirname, "..", "lib", "kyc", "face-model")
+  for (const licence of FACE_MODEL_VENDORED_LICENSES) {
+    const from = path.join(source, licence.file)
+    if (sha256(readFileSync(from)) !== licence.sha256) throw new Error(`${licence.file} checksum mismatch`)
+    copyFileSync(from, path.join(dir, licence.file))
+    console.log(`[face-models] ${licence.file} copied, checksum OK`)
+  }
+  copyFileSync(path.join(source, "NOTICE"), path.join(dir, "NOTICE"))
   console.log("[face-models] NOTICE copied")
 }
 

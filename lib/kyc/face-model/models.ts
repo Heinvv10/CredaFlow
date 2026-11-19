@@ -38,8 +38,6 @@ export const FACE_MODELS = {
 /**
  * Licence texts shipped beside the models, with the NOTICE in this directory.
  * Neither opencv_zoo model directory carries a NOTICE file of its own.
- * onnxruntime-node's package ships no LICENSE file, so its text comes from
- * the commit that onnxruntime's v1.30.0 tag points to (the installed version).
  */
 export const FACE_MODEL_LICENSES = [
   {
@@ -52,9 +50,19 @@ export const FACE_MODEL_LICENSES = [
     url: `https://raw.githubusercontent.com/opencv/opencv_zoo/${OPENCV_ZOO_COMMIT}/models/face_recognition_sface/LICENSE`,
     sha256: "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
   },
+] as const
+
+/**
+ * Licence texts kept in this directory and copied beside the models.
+ * onnxruntime-node's package ships no LICENSE file. Its text was fetched from
+ * microsoft/onnxruntime at f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7 (the
+ * commit onnxruntime's v1.30.0 tag points to, the installed version); that
+ * repository stopped resolving on GitHub (404, 18 Nov 2026), so the same bytes
+ * are kept here, pinned by the SHA-256 they had there.
+ */
+export const FACE_MODEL_VENDORED_LICENSES = [
   {
     file: "LICENSE-onnxruntime",
-    url: "https://raw.githubusercontent.com/microsoft/onnxruntime/f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7/LICENSE",
     sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
   },
 ] as const
